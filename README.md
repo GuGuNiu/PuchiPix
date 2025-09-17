@@ -5,8 +5,10 @@
 [![Tkinter](https://img.shields.io/badge/Tkinter-GUI-orange?style=for-the-badge&logo=tkinter&logoColor=white)](https://docs.python.org/3/library/tkinter.html)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Video-blueviolet?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 
-**PuchiPix** 是转为“爱妹子”写真站开发的自动图包下载器
+**PuchiPix** 是为“爱妹子”写真站开发的自动图包下载器
 ---
+
+![img](https://s2.loli.net/2025/09/17/RCNrzbMaKXWf5Qs.png)
 
 ## ✨ 核心功能
 
