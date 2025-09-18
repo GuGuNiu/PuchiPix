@@ -31,7 +31,7 @@ CONFIG_FILE = 'config.json'
 class ImageScraperApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PuchiPix-噗呲专用 v1.5.0")
+        self.root.title("PuchiPix-噗呲专用 v1.7.0")
         self.root.geometry("1300x800")
         
         self.setup_styles()
@@ -45,6 +45,7 @@ class ImageScraperApp:
         self.session = self.create_robust_session()
         self.is_batch_mode = False
         self.batch_start_time = None
+        self.task_id_counter = 0 
 
         main_paned_window = ttk.PanedWindow(root, orient=HORIZONTAL)
         main_paned_window.pack(fill=BOTH, expand=True, padx=10, pady=10)
@@ -88,36 +89,28 @@ class ImageScraperApp:
         ttk.Label(input_group, text="ID/网址:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
         self.url_entry = ttk.Entry(input_group); self.url_entry.pack(side=LEFT, expand=True, fill=X)
         self.add_task_button = ttk.Button(input_group, text="添加", command=self.add_task_from_entry); self.add_task_button.pack(side=LEFT, padx=(5,5))
-        self.batch_add_button = ttk.Button(input_group, text="批量导入", command=self.open_batch_import_window); self.batch_add_button.pack(side=LEFT)
+        self.batch_add_button = ttk.Button(input_group, text="批量导入", command=self.open_batch_import_window); self.batch_add_button.pack(side=LEFT, padx=(0,5))
         self.batch_add_button_ref = self.batch_add_button
+        self.settings_button = ttk.Button(input_group, text="高级设置", command=self.open_settings_window, bootstyle="outline-info"); self.settings_button.pack(side=LEFT)
         self.url_entry.bind("<Return>", self.add_task_from_entry)
         
         path_group = ttk.Frame(controls_frame); path_group.pack(fill=X, pady=(0,5))
         ttk.Label(path_group, text="保存位置:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
         self.save_path_var = tk.StringVar(); self.save_path_entry = ttk.Entry(path_group, textvariable=self.save_path_var); self.save_path_entry.pack(side=LEFT, expand=True, fill=X, padx=(0, 5)); ttk.Button(path_group, text="...", command=self.select_save_path, width=4).pack(side=LEFT)
 
-        dependency_paths_frame = ttk.Frame(controls_frame); dependency_paths_frame.pack(fill=X, pady=(0,5))
-        ffmpeg_frame = ttk.Frame(dependency_paths_frame); ffmpeg_frame.pack(fill=X)
-        ttk.Label(ffmpeg_frame, text="FFmpeg路径:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
-        self.ffmpeg_path_var = tk.StringVar(); self.ffmpeg_entry = ttk.Entry(ffmpeg_frame, textvariable=self.ffmpeg_path_var); self.ffmpeg_entry.pack(side=LEFT, expand=True, fill=X, padx=(0, 5)); ttk.Button(ffmpeg_frame, text="...", command=self.select_ffmpeg_path, width=4).pack(side=LEFT)
-        driver_frame = ttk.Frame(dependency_paths_frame); driver_frame.pack(fill=X, pady=(5,0))
-        ttk.Label(driver_frame, text="ChromeDriver:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
-        self.chromedriver_path_var = tk.StringVar(); self.driver_entry = ttk.Entry(driver_frame, textvariable=self.chromedriver_path_var); self.driver_entry.pack(side=LEFT, expand=True, fill=X, padx=(0, 5)); ttk.Button(driver_frame, text="...", command=self.select_driver_path, width=4).pack(side=LEFT)
-
-        rename_and_settings_frame = ttk.Frame(controls_frame); rename_and_settings_frame.pack(fill=X, pady=(5,5))
-        ttk.Label(rename_and_settings_frame, text="重命名格式:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
-        rename_presets = ["{id}_{num}", "{title}_{num}", "{num}"]; self.rename_format_var = tk.StringVar()
-        self.rename_combobox = ttk.Combobox(rename_and_settings_frame, textvariable=self.rename_format_var, values=rename_presets, state="readonly", width=12); self.rename_combobox.pack(side=LEFT, padx=(0,10))
+        main_options_frame = ttk.Frame(controls_frame); main_options_frame.pack(fill=X, pady=(5,10))
+        self.download_video_var = tk.BooleanVar(value=True)
+        self.debug_mode_var = tk.BooleanVar()
+        ttk.Checkbutton(main_options_frame, text="下载视频", variable=self.download_video_var, bootstyle="round-toggle").pack(side=LEFT, padx=(5,10))
+        ttk.Checkbutton(main_options_frame, text="调试模式(显示浏览器)", variable=self.debug_mode_var, bootstyle="round-toggle").pack(side=LEFT, padx=(0,10))
+        ttk.Label(main_options_frame, text="任务延时: 自动(3-30s)").pack(side=LEFT, padx=(10,0))
         
-        ttk.Label(rename_and_settings_frame, text="浏览器:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
-        self.browser_var = tk.StringVar(); self.browser_combobox = ttk.Combobox(rename_and_settings_frame, textvariable=self.browser_var, values=['Chrome'], state="readonly", width=8); self.browser_combobox.pack(side=LEFT, padx=(0,10))
-        self.debug_mode_var = tk.BooleanVar(); ttk.Checkbutton(rename_and_settings_frame, text="调试模式", variable=self.debug_mode_var, bootstyle="round-toggle").pack(side=LEFT, padx=(0,10))
-        self.download_video_var = tk.BooleanVar(value=True); ttk.Checkbutton(rename_and_settings_frame, text="下载视频", variable=self.download_video_var, bootstyle="round-toggle").pack(side=LEFT, padx=(0,10))
-
-        adv_settings_group = ttk.Frame(controls_frame); adv_settings_group.pack(fill=X, pady=(0,10))
-        ttk.Label(adv_settings_group, text="下载线程数:").pack(side=LEFT, padx=(5,2)); self.threads_var = tk.StringVar(value="16"); self.threads_spinbox = ttk.Spinbox(adv_settings_group, from_=1, to=64, textvariable=self.threads_var, width=5); self.threads_spinbox.pack(side=LEFT, padx=(0,15))
-        ttk.Label(adv_settings_group, text="任务延时: 自动(3-30s)").pack(side=LEFT)
-
+        self.ffmpeg_path_var = tk.StringVar()
+        self.chromedriver_path_var = tk.StringVar()
+        self.browser_var = tk.StringVar()
+        self.threads_var = tk.StringVar(value="16")
+        self.rename_format_var = tk.StringVar()
+        
         task_buttons_group = ttk.Frame(right_pane); task_buttons_group.pack(fill=X, padx=5, pady=5)
         self.start_tasks_button = ttk.Button(task_buttons_group, text="开始任务", command=self.start_task_processor, bootstyle=SUCCESS); self.start_tasks_button.pack(side=LEFT, expand=True, fill=X, padx=(0,5))
         self.stop_tasks_button = ttk.Button(task_buttons_group, text="停止任务", command=self.stop_task_processor, bootstyle=DANGER, state=tk.DISABLED); self.stop_tasks_button.pack(side=LEFT, expand=True, fill=X)
@@ -148,18 +141,55 @@ class ImageScraperApp:
     def on_closing(self): self.save_config(); self.root.destroy()
 
     def load_config(self):
-        defaults = {"save_path": os.path.join(os.path.expanduser("~"), "Desktop"), "ffmpeg_path": "", "chromedriver_path": "", "browser": "Chrome", "rename_format": "{id}_{num}", "custom_tags": [], "download_threads": "16"}
+        defaults = {"save_path": os.path.join(os.path.expanduser("~"), "Desktop"), "ffmpeg_path": "", "chromedriver_path": "", "browser": "Chrome", "rename_format": "{id}_{num}", "custom_tags": [], "download_threads": "16", "debug_mode": False, "download_video": True}
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f: defaults.update(json.load(f))
         except (json.JSONDecodeError, IOError): self.log("配置文件读取失败，使用默认设置。", is_detail=False)
-        self.save_path_var.set(defaults["save_path"]); self.ffmpeg_path_var.set(defaults["ffmpeg_path"]); self.chromedriver_path_var.set(defaults["chromedriver_path"]); self.browser_var.set(defaults["browser"]); self.rename_format_var.set(defaults["rename_format"]); self.custom_tags = defaults["custom_tags"]; self.threads_var.set(defaults["download_threads"])
+        self.save_path_var.set(defaults["save_path"]); self.ffmpeg_path_var.set(defaults["ffmpeg_path"]); self.chromedriver_path_var.set(defaults["chromedriver_path"]); self.browser_var.set(defaults["browser"]); self.rename_format_var.set(defaults["rename_format"]); self.custom_tags = defaults["custom_tags"]; self.threads_var.set(defaults["download_threads"]); self.debug_mode_var.set(defaults["debug_mode"]); self.download_video_var.set(defaults["download_video"])
 
     def save_config(self):
-        config = {"save_path": self.save_path_var.get(), "ffmpeg_path": self.ffmpeg_path_var.get(), "chromedriver_path": self.chromedriver_path_var.get(), "browser": self.browser_var.get(), "rename_format": self.rename_format_var.get(), "custom_tags": self.custom_tags, "download_threads": self.threads_var.get()}
+        config = {"save_path": self.save_path_var.get(), "ffmpeg_path": self.ffmpeg_path_var.get(), "chromedriver_path": self.chromedriver_path_var.get(), "browser": self.browser_var.get(), "rename_format": self.rename_format_var.get(), "custom_tags": self.custom_tags, "download_threads": self.threads_var.get(), "debug_mode": self.debug_mode_var.get(), "download_video": self.download_video_var.get()}
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(config, f, ensure_ascii=False, indent=4)
         except IOError: self.log("保存配置失败！", is_detail=False)
+    
+    def open_settings_window(self):
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("高级设置")
+        settings_window.transient(self.root)
+        settings_window.grab_set()
+        
+        btn_x, btn_y, btn_w, btn_h = self.settings_button.winfo_rootx(), self.settings_button.winfo_rooty(), self.settings_button.winfo_width(), self.settings_button.winfo_height()
+        settings_window.geometry(f"550x400+{btn_x - 550 + btn_w}+{btn_y + btn_h + 5}")
+
+        main_frame = ttk.Frame(settings_window, padding=15)
+        main_frame.pack(fill=BOTH, expand=True)
+        
+        dependency_paths_frame = ttk.Labelframe(main_frame, text="依赖路径设置", padding=10); dependency_paths_frame.pack(fill=X, pady=5)
+        ffmpeg_frame = ttk.Frame(dependency_paths_frame); ffmpeg_frame.pack(fill=X, pady=2)
+        ttk.Label(ffmpeg_frame, text="FFmpeg路径:", width=15, anchor="e").pack(side=LEFT, padx=(5,2))
+        self.ffmpeg_entry = ttk.Entry(ffmpeg_frame, textvariable=self.ffmpeg_path_var); self.ffmpeg_entry.pack(side=LEFT, expand=True, fill=X, padx=(0, 5)); ttk.Button(ffmpeg_frame, text="...", command=self.select_ffmpeg_path, width=4).pack(side=LEFT)
+        driver_frame = ttk.Frame(dependency_paths_frame); driver_frame.pack(fill=X, pady=2)
+        ttk.Label(driver_frame, text="ChromeDriver路径:", width=15, anchor="e").pack(side=LEFT, padx=(5,2))
+        self.driver_entry = ttk.Entry(driver_frame, textvariable=self.chromedriver_path_var); self.driver_entry.pack(side=LEFT, expand=True, fill=X, padx=(0, 5)); ttk.Button(driver_frame, text="...", command=self.select_driver_path, width=4).pack(side=LEFT)
+
+        download_settings_frame = ttk.Labelframe(main_frame, text="下载设置", padding=10); download_settings_frame.pack(fill=X, pady=5)
+        
+        rename_frame = ttk.Frame(download_settings_frame); rename_frame.pack(fill=X, pady=2)
+        ttk.Label(rename_frame, text="重命名格式:", width=15, anchor="e").pack(side=LEFT, padx=(5,2))
+        rename_presets = ["{id}_{num}", "{title}_{num}", "{num}"]
+        self.rename_combobox = ttk.Combobox(rename_frame, textvariable=self.rename_format_var, values=rename_presets, state="readonly", width=15); self.rename_combobox.pack(side=LEFT)
+
+        adv_settings_group = ttk.Frame(download_settings_frame); adv_settings_group.pack(fill=X, pady=2)
+        ttk.Label(adv_settings_group, text="下载线程数:", width=15, anchor="e").pack(side=LEFT, padx=(5,2)); self.threads_spinbox = ttk.Spinbox(adv_settings_group, from_=1, to=64, textvariable=self.threads_var, width=8); self.threads_spinbox.pack(side=LEFT)
+        
+        browser_frame = ttk.Frame(download_settings_frame); browser_frame.pack(fill=X, pady=2)
+        ttk.Label(browser_frame, text="浏览器:", width=15, anchor="e").pack(side=LEFT, padx=(5,2))
+        self.browser_combobox = ttk.Combobox(browser_frame, textvariable=self.browser_var, values=['Chrome'], state="readonly", width=10); self.browser_combobox.pack(side=LEFT)
+        
+        button_frame = ttk.Frame(main_frame); button_frame.pack(fill=X, side=BOTTOM, pady=(10,0))
+        ttk.Button(button_frame, text="关闭", command=settings_window.destroy, bootstyle=PRIMARY).pack(side=RIGHT)
 
     def create_tags_buttons(self):
         for widget in self.tags_buttons_frame.winfo_children(): widget.destroy()
@@ -238,10 +268,9 @@ class ImageScraperApp:
                 for link in pagination_container.select('a[data-page]'):
                     if (page_num_str := link.get('data-page')) and page_num_str.isdigit(): page_urls_tuples.append((int(page_num_str), f"{base_url}page/{page_num_str}/"))
             page_urls_tuples.sort(); sorted_urls = [base_url] + [url for _, url in page_urls_tuples]
-            self.log(f"发现 {len(sorted_urls)} 页，开始遍历...");
+            self.log(f"发现 {len(sorted_urls)} 页，开始遍历所有页面获取链接...");
             for i, url in enumerate(sorted_urls):
                 if self.stop_requested: self.log("任务已停止。", is_detail=False); return False
-                self.log(f"解析第 {i+1}/{len(sorted_urls)} 页..."); time.sleep(0.1)
                 if i != 0: driver.get(url); WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.article-content")))
                 page_soup = BeautifulSoup(driver.page_source, 'html.parser')
                 if video_source := page_soup.select_one('video > source[src*=".m3u8"]'): video_urls.add(urljoin(base_domain, video_source['src']))
@@ -289,11 +318,29 @@ class ImageScraperApp:
     def _execute_download_task(self, task):
         try:
             if self.stop_requested: return None
-            r = self.session.get(task['url'], headers=self.base_headers, timeout=20, stream=True); r.raise_for_status()
-            with open(task['path'], 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
-            self.log(f"下载成功: {os.path.basename(task['path'])}"); return task['path']
-        except requests.exceptions.RequestException as e: self.log(f"下载失败: {os.path.basename(task['path'])} - {e}"); return None
+            
+            with self.session.get(task['url'], headers=self.base_headers, timeout=20, stream=True) as r:
+                r.raise_for_status()
+                
+                expected_size = int(r.headers.get('content-length', 0))
+                
+                with open(task['path'], 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if self.stop_requested: return None
+                        f.write(chunk)
+                
+                downloaded_size = os.path.getsize(task['path'])
+                if expected_size != 0 and downloaded_size != expected_size:
+                    os.remove(task['path'])
+                    self.log(f"下载失败(文件不完整): {os.path.basename(task['path'])} 预期: {expected_size}, 实际: {downloaded_size}")
+                    return None
+            return task['path']
+        except requests.exceptions.RequestException as e:
+            self.log(f"下载失败: {os.path.basename(task['path'])} - {e}")
+            return None
+        except Exception as e:
+            self.log(f"下载时发生未知错误: {os.path.basename(task['path'])} - {e}")
+            return None
 
     def _merge_ts_files_with_ffmpeg(self, ts_files_list_path, output_path):
         self.log("所有分片下载完毕，开始使用FFmpeg进行本地合并..."); ffmpeg_path = self.ffmpeg_path_var.get()
@@ -329,7 +376,6 @@ class ImageScraperApp:
             if gallery_id: status = "✅ 完成" if self.scrape_images(gallery_id, task['path']) else "❌ 失败"
             else: self.log(f"任务 '{task['input']}' 的ID无效，已跳过。", is_detail=False); status = "❌ 失败"
             self.update_task_status(task['id'], status)
-            if self.is_batch_mode: self.log(f"任务 {current_task_num}/{total_tasks} 处理完成。", is_detail=False)
             if self.task_queue and not self.stop_requested:
                 delay = random.randint(3, 30)
                 self.log(f"任务完成，随机延时 {delay} 秒后开始下一个...", is_detail=False); time.sleep(delay)
@@ -347,7 +393,8 @@ class ImageScraperApp:
         self._add_task(user_input, self.save_path_var.get()); self.url_entry.delete(0, tk.END)
 
     def _add_task(self, user_input, save_path):
-        task_id = f"task_{int(time.time() * 1000)}_{random.randint(100,999)}"
+        self.task_id_counter += 1
+        task_id = f"task_{int(time.time() * 1000)}_{self.task_id_counter}"
         self.task_queue.append({'id': task_id, 'input': user_input, 'path': save_path, 'status': '⏳ 等待中'})
         self.queue_tree.insert("", "end", iid=task_id, values=(user_input, save_path, "⏳ 等待中"))
         self.log(f"任务 '{user_input}' 已添加到队列。", is_detail=False); self._update_task_count_label()
