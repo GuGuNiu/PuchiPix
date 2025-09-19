@@ -27,6 +27,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import WebDriverException, TimeoutException
+
+try:
+    from selenium_stealth import stealth
+    STEALTH_AVAILABLE = True
+except ImportError:
+    STEALTH_AVAILABLE = False
 
 try:
     from PIL import Image, UnidentifiedImageError
@@ -42,7 +49,7 @@ FAILED_TASKS_FILE = 'failed_tasks.txt'
 class ImageScraperApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PuchiPix-噗呲专用 v2.0.1")
+        self.root.title("PuchiPix-噗呲专用 v2.1.0")
         self.root.geometry("1500x800")
         
         self.setup_styles()
@@ -53,8 +60,6 @@ class ImageScraperApp:
         self.is_running = False
         self.stop_requested = False
         self.task_thread = None
-        self.driver_pool = None
-        self.driver_instances = []
         self.base_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'}
         self.custom_tags = []
         self.session = self.create_robust_session()
@@ -264,8 +269,16 @@ class ImageScraperApp:
         style.configure('.', font=(font_family, font_size)); style.configure('Treeview.Heading', font=(font_family, font_size, 'bold')); style.configure('TLabelframe.Label', font=(font_family, font_size, 'bold'))
 
     def create_robust_session(self):
-        session = requests.Session(); retry_strategy = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["HEAD", "GET", "OPTIONS"])
-        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=100, pool_maxsize=100); session.mount("https://", adapter); session.mount("http://", adapter)
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=100, pool_maxsize=100)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
         return session
 
     def on_closing(self):
@@ -420,30 +433,51 @@ class ImageScraperApp:
             if self.stop_requested: return False
             base_domain = "https://xx.knit.bid"; base_url = f"https://xx.knit.bid/article/{gallery_id}/"
             self.update_task_details(task_id, status="⚙️ 解析中", action="解析中...")
+            
             driver.get(base_url)
-            WebDriverWait(driver, 15).until(lambda d: d.execute_script('return document.readyState') == 'complete' and d.find_element(By.CSS_SELECTOR, "h1.focusbox-title"))
+            WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CSS_SELECTOR, "h1.focusbox-title")))
+            
             if self.stop_requested: return False
-            soup = BeautifulSoup(driver.page_source, 'html.parser'); title = soup.find('h1', class_='focusbox-title').get_text().strip()
-            valid_title = re.sub(r'[\\/*?:"<>|]', '', title); gallery_path = os.path.join(save_path, valid_title); os.makedirs(gallery_path, exist_ok=True)
-            tags_elements = soup.find('div', class_='article-tags'); tags = [a.get_text() for a in tags_elements.find_all('a')] if tags_elements else []
+            
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            title = soup.find('h1', class_='focusbox-title').get_text().strip()
+            valid_title = re.sub(r'[\\/*?:"<>|]', '', title)
+            gallery_path = os.path.join(save_path, valid_title)
+            os.makedirs(gallery_path, exist_ok=True)
+            
+            tags_elements = soup.find('div', class_='article-tags')
+            tags = [a.get_text() for a in tags_elements.find_all('a')] if tags_elements else []
+            
             image_urls, video_urls = set(), set()
             page_urls_tuples = []
             if pagination_container := soup.find('div', class_='pagination-container'):
                 for link in pagination_container.select('a[data-page]'):
-                    if (page_num_str := link.get('data-page')) and page_num_str.isdigit(): page_urls_tuples.append((int(page_num_str), f"{base_url}page/{page_num_str}/"))
-            page_urls_tuples.sort(); sorted_urls = [base_url] + [url for _, url in page_urls_tuples]
+                    if (page_num_str := link.get('data-page')) and page_num_str.isdigit():
+                        page_urls_tuples.append((int(page_num_str), f"{base_url}page/{page_num_str}/"))
+            
+            page_urls_tuples.sort()
+            sorted_urls = [base_url] + [url for _, url in page_urls_tuples]
+            
             for i, url in enumerate(sorted_urls):
                 if self.stop_requested: return False
-                if i != 0: 
+                if i != 0:
                     driver.get(url)
-                    WebDriverWait(driver, 10).until(lambda d: d.execute_script('return document.readyState') == 'complete' and d.find_element(By.CSS_SELECTOR, "article.article-content"))
+                    WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.article-content")))
+                
                 if self.stop_requested: return False
+                
                 page_soup = BeautifulSoup(driver.page_source, 'html.parser')
-                if video_source := page_soup.select_one('video > source[src*=".m3u8"]'): video_urls.add(urljoin(base_domain, video_source['src']))
+                if video_source := page_soup.select_one('video > source[src*=".m3u8"]'):
+                    video_urls.add(urljoin(base_domain, video_source['src']))
                 for img in page_soup.select('article.article-content img[data-src]'):
-                    if '/static/images/' in img['data-src']: image_urls.add(urljoin(base_domain, img['data-src']))
+                    if '/static/images/' in img['data-src']:
+                        image_urls.add(urljoin(base_domain, img['data-src']))
                 self.parse_progress['value'] = (i + 1) / len(sorted_urls) * 100
-            if not video_urls and not image_urls: return False
+            
+            if not video_urls and not image_urls:
+                self.log(f"警告: 在 {base_url} 未找到任何图片或视频。", is_detail=False)
+                return False
+
             all_downloads, video_segment_map, temp_dir = [], {}, None
             download_headers = self.base_headers.copy(); download_headers['Referer'] = base_url
             if video_urls and self.download_video_var.get():
@@ -453,30 +487,41 @@ class ImageScraperApp:
                 video_segment_map['output_path'] = os.path.join(gallery_path, f"{valid_title}.mp4"); video_segment_map['ts_paths'] = []
                 for i, ts_url in enumerate(ts_urls):
                     ts_path = os.path.join(temp_dir, f"{i:05d}.ts"); all_downloads.append({'url': ts_url, 'path': ts_path, 'is_video': True}); video_segment_map['ts_paths'].append(ts_path)
+            
             for i, img_url in enumerate(sorted(list(image_urls))):
                 filename_base = self.rename_format_var.get().format(id=gallery_id, num=f"{i+1:03d}", title=valid_title)
                 full_path_base = os.path.join(gallery_path, filename_base); all_downloads.append({'url': img_url, 'path': full_path_base, 'is_video': False})
+            
             completed_count, total_downloads = 0, len(all_downloads)
             self.update_task_details(task_id, status="⚙️ 下载中", action="下载中...", progress_text=f"0/{total_downloads}")
             threads = int(self.threads_var.get())
+            
             with ThreadPoolExecutor(max_workers=threads) as executor:
                 for result in executor.map(self._execute_download_task, all_downloads):
                     if self.stop_requested: break
                     if result: completed_count += 1
                     self.update_task_details(task_id, progress_text=f"{completed_count}/{total_downloads}")
                     self.download_progress['value'] = (completed_count / total_downloads) * 100 if total_downloads > 0 else 0
+            
             if video_segment_map and not self.stop_requested:
                 self.update_task_details(task_id, status="⚙️ 合并中", action="合并视频...")
                 ts_list_path = os.path.join(temp_dir, "filelist.txt")
                 with open(ts_list_path, 'w', encoding='utf-8') as f:
                     for ts_path in video_segment_map['ts_paths']: f.write(f"file '{os.path.abspath(ts_path)}'\n")
                 if not self._merge_ts_files_with_ffmpeg(ts_list_path, video_segment_map['output_path']): completed_count -= len(video_segment_map['ts_paths'])
+            
             if temp_dir and os.path.exists(temp_dir): shutil.rmtree(temp_dir)
             if self.stop_requested: return False
+            
             if completed_count > 0:
                 self.save_history({"id": gallery_id, "title": valid_title, "tags": ", ".join(tags), "path": gallery_path, "total_count": total_downloads, "completed_count": completed_count, "image_count": len(image_urls), "video_count": len(video_urls)})
+            
             return completed_count > 0
-        except Exception:
+        except (WebDriverException, TimeoutException):
+            self.log(f"解析 {gallery_id} 时发生WebDriver错误: 浏览器可能已崩溃或超时。", is_detail=False)
+            return False
+        except Exception as e:
+            self.log(f"解析 {gallery_id} 时发生未知错误: {e}", is_detail=False)
             return False
 
     def _transcode_image(self, source_path, target_format):
@@ -557,11 +602,9 @@ class ImageScraperApp:
         self.timer_running = False
         if not called_by_system: self.log(">>> 用户请求停止任务...", is_detail=False)
         self.stop_tasks_button.config(state=tk.DISABLED)
-        self._shutdown_driver_pool(force=True)
                 
     def process_queue(self, tasks_to_process):
         max_workers = int(self.concurrent_tasks_var.get())
-        self._initialize_driver_pool(max_workers)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(self._task_worker, task) for task in tasks_to_process}
             for future in as_completed(futures):
@@ -573,7 +616,6 @@ class ImageScraperApp:
     def on_queue_finished(self):
         self.is_running = False
         self.timer_running = False
-        self._shutdown_driver_pool()
         self.root.after(0, lambda: (self.start_tasks_button.config(state=tk.NORMAL), self.stop_tasks_button.config(state=tk.DISABLED)))
         self.save_failed_tasks_to_file()
         if self.unattended_mode_var.get() and self.failed_tasks_list and not self.stop_requested:
@@ -584,67 +626,105 @@ class ImageScraperApp:
         delay_seconds = random.randint(1800, 3600); minutes, seconds = divmod(delay_seconds, 60)
         self.log(f"无人值守：将在 {minutes}分{seconds}秒 后自动重试失败任务。", is_detail=False)
         self.unattended_timer = self.root.after(delay_seconds * 1000, self.retry_all_failed)
+
+    def _create_driver(self):
+        try:
+            chromedriver_path = self.chromedriver_path_var.get()
+            local_driver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chromedriver.exe')
+            
+            options = webdriver.ChromeOptions()
+            options.add_argument('--ignore-certificate-errors')
+            options.add_argument('--log-level=3')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-infobars")
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+            options.add_experimental_option('useAutomationExtension', False)
+
+            if not self.debug_mode_var.get():
+                options.add_argument('--headless')
+                options.add_argument('--disable-gpu')
+
+            service = None
+            if chromedriver_path and os.path.exists(chromedriver_path):
+                service = ChromeService(executable_path=chromedriver_path)
+            elif os.path.exists(local_driver_path):
+                service = ChromeService(executable_path=local_driver_path)
+            else:
+                service = ChromeService(ChromeDriverManager().install())
+            
+            if not service:
+                raise Exception("无法初始化ChromeDriver服务。")
+            
+            driver = webdriver.Chrome(service=service, options=options)
+
+            if STEALTH_AVAILABLE:
+                stealth(driver,
+                        languages=["en-US", "en"],
+                        vendor="Google Inc.",
+                        platform="Win32",
+                        webgl_vendor="Intel Inc.",
+                        renderer="Intel Iris OpenGL Engine",
+                        fix_hairline=True,
+                        )
+            else:
+                self.log("警告: selenium-stealth 未安装, 可能影响反爬虫效果。")
+
+            return driver
+        except Exception as e:
+            self.log(f"创建WebDriver失败: {e}", is_detail=False)
+            return None
         
     def _task_worker(self, task):
+        driver = None
         try:
             if self.stop_requested: return
+            
             self.update_task_details(task['id'], status="⚙️ 进行中")
             gallery_id = task.get('gallery_id')
-            if gallery_id:
-                driver = self.driver_pool.get()
-                try:
-                    if self.stop_requested: return
-                    success = self.scrape_images(driver, task['id'], gallery_id, task['path'])
-                finally:
-                    self.driver_pool.put(driver)
-                if self.stop_requested: return
-                if success:
-                    self.update_task_details(task['id'], status="✅ 完成", action="", operation="打开")
-                    with self.byte_counter_lock: self.success_count += 1
-                else:
-                    self.update_task_details(task['id'], status="❌", action="", operation="重试")
-                    with self.byte_counter_lock:
-                        if task not in self.failed_tasks_list: self.failed_tasks_list.append(task)
-                        self.failed_count += 1
-            else:
-                self.update_task_details(task['id'], status="❌", action="")
+            
+            if not gallery_id:
+                self.update_task_details(task['id'], status="❌", action="ID无效")
                 with self.byte_counter_lock: self.failed_count += 1
+                return
+
+            driver = self._create_driver()
+            if not driver:
+                self.update_task_details(task['id'], status="❌", action="浏览器启动失败")
+                with self.byte_counter_lock: self.failed_count += 1
+                return
+            
+            if self.stop_requested: return
+
+            success = self.scrape_images(driver, task['id'], gallery_id, task['path'])
+
+            if self.stop_requested: return
+            
+            if success:
+                self.update_task_details(task['id'], status="✅ 完成", action="", operation="打开")
+                with self.byte_counter_lock: self.success_count += 1
+            else:
+                self.update_task_details(task['id'], status="❌", action="", operation="重试")
+                with self.byte_counter_lock:
+                    if task not in self.failed_tasks_list: self.failed_tasks_list.append(task)
+                    self.failed_count += 1
+            
             self.root.after(0, self._update_stats_labels)
+
         finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+            
             if self.is_running and not self.stop_requested:
                 delay = random.randint(1, 30)
                 for _ in range(delay):
                     if self.stop_requested: break
                     time.sleep(1)
-
-    def _initialize_driver_pool(self, size):
-        self.driver_instances.clear()
-        self.driver_pool = queue.Queue(maxsize=size)
-        for _ in range(size):
-            if self.stop_requested: break
-            chromedriver_path, local_driver_path = self.chromedriver_path_var.get(), os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chromedriver.exe')
-            options = webdriver.ChromeOptions(); options.add_argument('--ignore-certificate-errors'); options.add_argument('--log-level=3')
-            if not self.debug_mode_var.get(): options.add_argument('--headless'); options.add_argument('--disable-gpu')
-            try:
-                service = None
-                if chromedriver_path and os.path.exists(chromedriver_path): service = ChromeService(executable_path=chromedriver_path)
-                elif os.path.exists(local_driver_path): service = ChromeService(executable_path=local_driver_path)
-                else: service = ChromeService(ChromeDriverManager().install())
-                if not service: raise Exception("无法初始化ChromeDriver服务。")
-                driver = webdriver.Chrome(service=service, options=options)
-                self.driver_pool.put(driver)
-                self.driver_instances.append(driver)
-            except Exception: pass
-
-    def _shutdown_driver_pool(self, force=False):
-        for driver in self.driver_instances:
-            try: driver.quit()
-            except Exception: pass
-        self.driver_instances.clear()
-        if self.driver_pool:
-            while not self.driver_pool.empty():
-                try: self.driver_pool.get_nowait()
-                except queue.Empty: break
 
     def add_task_from_entry(self, event=None):
         user_input = self.url_entry.get().strip()
