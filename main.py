@@ -42,7 +42,7 @@ FAILED_TASKS_FILE = 'failed_tasks.txt'
 class ImageScraperApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PuchiPix-噗呲专用 v1.9.2")
+        self.root.title("PuchiPix-噗呲专用 v2.0.1")
         self.root.geometry("1500x800")
         
         self.setup_styles()
@@ -66,6 +66,9 @@ class ImageScraperApp:
         self.current_queue_filter = "All"
         self.batch_window = None
         self.unattended_timer = None
+        self.active_tag_button = None
+        self.active_queue_filter_button = None
+        self.timer_running = False
 
         self.psutil_process = psutil.Process(os.getpid())
         self.total_bytes_downloaded = 0
@@ -146,7 +149,7 @@ class ImageScraperApp:
         ttk.Checkbutton(main_options_frame, text="下载视频", variable=self.download_video_var, bootstyle="round-toggle").pack(side=LEFT, padx=(5,10))
         ttk.Checkbutton(main_options_frame, text="调试模式(显示浏览器)", variable=self.debug_mode_var, bootstyle="round-toggle").pack(side=LEFT, padx=(0,10))
         ttk.Checkbutton(main_options_frame, text="无人值守", variable=self.unattended_mode_var, bootstyle="round-toggle").pack(side=LEFT, padx=(0,10))
-        self.delay_label = ttk.Label(main_options_frame, text="任务延时: N/A")
+        self.delay_label = ttk.Label(main_options_frame, text="任务延时: 1-30s (自动)")
         self.delay_label.pack(side=LEFT, padx=(10,0))
         
         self.ffmpeg_path_var = tk.StringVar()
@@ -176,32 +179,53 @@ class ImageScraperApp:
 
         perf_frame = ttk.Labelframe(middle_pane, text="性能监控", padding=10)
         perf_frame.pack(fill=X, padx=5, pady=5)
-        self.speed_label = ttk.Label(perf_frame, text="速度: 0 B/s")
-        self.speed_label.pack(side=LEFT, padx=5)
-        self.data_label = ttk.Label(perf_frame, text="已用流量: 0 B")
-        self.data_label.pack(side=LEFT, padx=5)
-        self.mem_label = ttk.Label(perf_frame, text="内存: 0 MB")
-        self.mem_label.pack(side=LEFT, padx=5)
-        self.cpu_label = ttk.Label(perf_frame, text="CPU: 0 %")
-        self.cpu_label.pack(side=LEFT, padx=5)
+        cpu_frame, self.cpu_canvas, self.cpu_percent_label, self.cpu_stats_label, self.cpu_arc_id = self._create_donut_chart(perf_frame, "CPU", "#229954")
+        mem_frame, self.mem_canvas, self.mem_percent_label, self.mem_stats_label, self.mem_arc_id = self._create_donut_chart(perf_frame, "内存", "#2980B9")
+        disk_frame, self.disk_canvas, self.disk_percent_label, self.disk_stats_label, self.disk_arc_id = self._create_donut_chart(perf_frame, "硬盘", "#F39C12")
+        perf_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        cpu_frame.grid(row=0, column=0, sticky="ew")
+        mem_frame.grid(row=0, column=1, sticky="ew")
+        disk_frame.grid(row=0, column=2, sticky="ew")
+        stats_frame = ttk.Frame(perf_frame)
+        stats_frame.grid(row=1, column=0, columnspan=3, pady=(10,0))
+        self.speed_label = ttk.Label(stats_frame, text="速度: 0 B/s")
+        self.speed_label.pack(side=LEFT, padx=5, expand=True)
+        self.data_label = ttk.Label(stats_frame, text="已用流量: 0 B")
+        self.data_label.pack(side=LEFT, padx=5, expand=True)
 
         queue_top_bar = ttk.Frame(right_pane)
         queue_top_bar.pack(fill=X, padx=5, pady=5)
-        self.queue_frame_label = ttk.Label(queue_top_bar, text="任务队列 (0)")
+        left_queue_bar = ttk.Frame(queue_top_bar)
+        left_queue_bar.pack(side=LEFT, fill=X, expand=True)
+        self.queue_frame_label = ttk.Label(left_queue_bar, text="任务队列 (0)")
         self.queue_frame_label.pack(side=LEFT)
-        self.stats_label_success = ttk.Label(queue_top_bar, text="成功: 0", foreground="green")
+        self.stats_label_success = ttk.Label(left_queue_bar, text="成功: 0", foreground="green")
         self.stats_label_success.pack(side=LEFT, padx=(10, 5))
-        self.stats_label_failed = ttk.Label(queue_top_bar, text="失败: 0", foreground="red", cursor="hand2")
+        self.stats_label_failed = ttk.Label(left_queue_bar, text="失败: 0", foreground="red", cursor="hand2")
         self.stats_label_failed.pack(side=LEFT, padx=5)
         self.stats_label_failed.bind("<Button-1>", self.open_failed_tasks_manager)
+        self.timer_label = ttk.Label(queue_top_bar, text="计时: 00:00:00")
+        self.timer_label.pack(side=RIGHT)
 
         filter_frame = ttk.Frame(right_pane)
         filter_frame.pack(fill=X, padx=5, pady=(0, 5))
-        ttk.Button(filter_frame, text="全部", command=lambda: self.filter_queue_view("All"), bootstyle="primary-outline").pack(side=LEFT)
-        ttk.Button(filter_frame, text="完成", command=lambda: self.filter_queue_view("✅ 完成"), bootstyle="success-outline").pack(side=LEFT, padx=5)
-        ttk.Button(filter_frame, text="失败", command=lambda: self.filter_queue_view("❌"), bootstyle="danger-outline").pack(side=LEFT)
-        ttk.Button(filter_frame, text="一键重试全部", command=self.retry_all_failed, bootstyle="danger").pack(side=LEFT, padx=(0,5))
-        ttk.Button(filter_frame, text="等待中", command=lambda: self.filter_queue_view("⏳ 等待中"), bootstyle="secondary-outline").pack(side=LEFT, padx=5)
+        left_button_frame = ttk.Frame(filter_frame)
+        left_button_frame.pack(side=LEFT)
+        self.filter_btn_all = ttk.Button(left_button_frame, text="全部", bootstyle="primary")
+        self.filter_btn_all.config(command=lambda: self.filter_queue_view("All", self.filter_btn_all))
+        self.filter_btn_all.pack(side=LEFT)
+        self.filter_btn_completed = ttk.Button(left_button_frame, text="完成", bootstyle="success-outline")
+        self.filter_btn_completed.config(command=lambda: self.filter_queue_view("✅ 完成", self.filter_btn_completed))
+        self.filter_btn_completed.pack(side=LEFT, padx=5)
+        self.filter_btn_failed = ttk.Button(left_button_frame, text="失败", bootstyle="danger-outline")
+        self.filter_btn_failed.config(command=lambda: self.filter_queue_view("❌", self.filter_btn_failed))
+        self.filter_btn_failed.pack(side=LEFT)
+        self.filter_btn_pending = ttk.Button(left_button_frame, text="等待中", bootstyle="secondary-outline")
+        self.filter_btn_pending.config(command=lambda: self.filter_queue_view("⏳ 等待中", self.filter_btn_pending))
+        self.filter_btn_pending.pack(side=LEFT, padx=5)
+        self.queue_filter_buttons = [self.filter_btn_all, self.filter_btn_completed, self.filter_btn_failed, self.filter_btn_pending]
+        self.active_queue_filter_button = self.filter_btn_all
+        ttk.Button(filter_frame, text="一键重试全部", command=self.retry_all_failed, bootstyle="danger").pack(side=RIGHT)
 
         self.queue_frame = ttk.Frame(right_pane); self.queue_frame.pack(fill=BOTH, expand=True, padx=5, pady=0)
         queue_cols = ("#", "ID", "当前操作", "进度", "状态", "可用操作")
@@ -215,6 +239,25 @@ class ImageScraperApp:
         self.history_data = []; self.load_config(); self.load_and_display_history(); self.create_tags_buttons()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.update_performance_stats()
+
+    def _create_donut_chart(self, parent, text, color):
+        frame = ttk.Frame(parent)
+        canvas = tk.Canvas(frame, width=80, height=80, bg=self.root.cget('bg'), highlightthickness=0)
+        label = ttk.Label(frame, text=text, font=("Microsoft YaHei UI", 9, "bold"))
+        stats_label = ttk.Label(frame, text="", font=("Microsoft YaHei UI", 8))
+        percent_label = ttk.Label(frame, text="0%", font=("Microsoft YaHei UI", 11, "bold"))
+        canvas.pack()
+        label.pack()
+        stats_label.pack()
+        percent_label.place(in_=canvas, anchor="c", relx=0.5, rely=0.5)
+        canvas.create_arc(5, 5, 75, 75, start=90, extent=360, style=tk.ARC, outline="#E0E0E0", width=8)
+        arc_id = canvas.create_arc(5, 5, 75, 75, start=90, extent=0, style=tk.ARC, outline=color, width=8)
+        return frame, canvas, percent_label, stats_label, arc_id
+
+    def _update_donut_chart(self, canvas, percent_label, arc_id, percentage):
+        angle = percentage * 3.6
+        canvas.itemconfig(arc_id, extent=angle)
+        percent_label.config(text=f"{int(percentage)}%")
     
     def setup_styles(self):
         style = ttk.Style.get_instance(); font_family = "Microsoft YaHei UI"; font_size = 10
@@ -301,7 +344,21 @@ class ImageScraperApp:
         preset_tags = ["黑丝", "白丝", "兔女郎", "Cos"]; all_tags = preset_tags + self.custom_tags
         row_frame = ttk.Frame(self.tags_buttons_frame); row_frame.pack(fill=X)
         for tag in all_tags:
-            btn = ttk.Button(row_frame, text=tag, bootstyle="outline-secondary", command=lambda t=tag: self.search_by_tag(t)); btn.pack(side=LEFT, padx=2, pady=2)
+            btn = ttk.Button(row_frame, text=tag, bootstyle="outline-secondary")
+            btn.config(command=lambda t=tag, b=btn: self.on_tag_button_click(t, b))
+            btn.pack(side=LEFT, padx=2, pady=2)
+
+    def on_tag_button_click(self, tag, clicked_button):
+        if self.active_tag_button and self.active_tag_button != clicked_button:
+            self.active_tag_button.config(bootstyle="outline-secondary")
+        if self.active_tag_button == clicked_button:
+            self.active_tag_button.config(bootstyle="outline-secondary")
+            self.active_tag_button = None
+            self.search_var.set("")
+        else:
+            clicked_button.config(bootstyle="secondary")
+            self.active_tag_button = clicked_button
+            self.search_by_tag(tag)
     
     def open_tag_manager(self):
         self.root.update_idletasks()
@@ -335,8 +392,11 @@ class ImageScraperApp:
         manager_window.protocol("WM_DELETE_WINDOW", on_manager_close); populate_listbox()
 
     def filter_history(self, *args):
-        for item in self.history_tree.get_children(): self.history_tree.delete(item)
         search_term = self.search_var.get().lower()
+        if self.active_tag_button and search_term != self.active_tag_button.cget('text').lower():
+            self.active_tag_button.config(bootstyle="outline-secondary")
+            self.active_tag_button = None
+        for item in self.history_tree.get_children(): self.history_tree.delete(item)
         if not self.history_data: return
         filtered_data = [item for item in self.history_data if search_term in item.get('title', '').lower() or search_term in item.get('tags', '').lower() or search_term in str(item.get('id', '')).lower()]
         for item in reversed(filtered_data):
@@ -485,12 +545,16 @@ class ImageScraperApp:
         if self.unattended_timer: self.root.after_cancel(self.unattended_timer); self.unattended_timer = None
         self.is_running, self.stop_requested = True, False
         self.start_tasks_button.config(state=tk.DISABLED); self.stop_tasks_button.config(state=tk.NORMAL)
-        self.is_batch_mode = len(self.all_tasks_map) > 1; self.batch_start_time = time.time()
+        self.is_batch_mode = len(self.all_tasks_map) > 1; 
+        self.batch_start_time = time.time()
+        self.timer_running = True
+        self._update_timer()
         self.task_thread = threading.Thread(target=self.process_queue, args=(tasks_to_run,), daemon=True); self.task_thread.start()
         
     def stop_task_processor(self, called_by_system=False):
         if not self.is_running and not called_by_system: return
         self.stop_requested = True
+        self.timer_running = False
         if not called_by_system: self.log(">>> 用户请求停止任务...", is_detail=False)
         self.stop_tasks_button.config(state=tk.DISABLED)
         self._shutdown_driver_pool(force=True)
@@ -508,8 +572,9 @@ class ImageScraperApp:
 
     def on_queue_finished(self):
         self.is_running = False
+        self.timer_running = False
         self._shutdown_driver_pool()
-        self.root.after(0, lambda: (self.start_tasks_button.config(state=tk.NORMAL), self.stop_tasks_button.config(state=tk.DISABLED), self.delay_label.config(text="任务延时: N/A")))
+        self.root.after(0, lambda: (self.start_tasks_button.config(state=tk.NORMAL), self.stop_tasks_button.config(state=tk.DISABLED)))
         self.save_failed_tasks_to_file()
         if self.unattended_mode_var.get() and self.failed_tasks_list and not self.stop_requested:
             self.schedule_unattended_retry()
@@ -547,8 +612,7 @@ class ImageScraperApp:
             self.root.after(0, self._update_stats_labels)
         finally:
             if self.is_running and not self.stop_requested:
-                delay = random.randint(3, 30)
-                self.root.after(0, lambda: self.delay_label.config(text=f"任务延时: {delay}s"))
+                delay = random.randint(1, 30)
                 for _ in range(delay):
                     if self.stop_requested: break
                     time.sleep(1)
@@ -730,7 +794,7 @@ class ImageScraperApp:
         self.failed_count = 0; self._update_stats_labels()
         for task in tasks_to_retry: self.update_task_details(task['id'], status="⏳ 等待中", action="", operation="")
         self.log(f"已将 {len(tasks_to_retry)} 个失败任务重新加入队列。", is_detail=False)
-        self.filter_queue_view(self.current_queue_filter); self.start_task_processor()
+        self.filter_queue_view(self.current_queue_filter, self.active_queue_filter_button); self.start_task_processor()
     
     def save_failed_tasks_to_file(self):
         failed_urls = [task['input'] for task in self.all_tasks_map.values() if task['status'] == '❌']
@@ -808,7 +872,17 @@ class ImageScraperApp:
     def renumber_queue_view(self):
         for i, item_id in enumerate(self.queue_tree.get_children()): self.queue_tree.set(item_id, column="#", value=i + 1)
 
-    def filter_queue_view(self, status_filter):
+    def filter_queue_view(self, status_filter, clicked_button):
+        if self.active_queue_filter_button:
+            style = self.active_queue_filter_button.cget('bootstyle')
+            if '-outline' not in style:
+                self.active_queue_filter_button.config(bootstyle=f"{style}-outline")
+        
+        style = clicked_button.cget('bootstyle')
+        if '-outline' in style:
+            clicked_button.config(bootstyle=style.replace('-outline', ''))
+        
+        self.active_queue_filter_button = clicked_button
         self.current_queue_filter = status_filter
         for item in self.queue_tree.get_children(): self.queue_tree.delete(item)
         task_num = 0
@@ -844,16 +918,42 @@ class ImageScraperApp:
         elif size < 1024**3: return f"{size/1024**2:.2f} MB"
         else: return f"{size/1024**3:.2f} GB"
 
+    def _update_timer(self):
+        if self.timer_running:
+            elapsed_seconds = time.time() - self.batch_start_time
+            formatted_time = time.strftime('%H:%M:%S', time.gmtime(elapsed_seconds))
+            self.timer_label.config(text=f"计时: {formatted_time}")
+            self.root.after(1000, self._update_timer)
+
     def update_performance_stats(self):
         current_time = time.time(); time_delta = current_time - self.last_check_time
         with self.byte_counter_lock: bytes_delta = self.total_bytes_downloaded - self.last_check_bytes; total_bytes = self.total_bytes_downloaded
         if time_delta > 0: speed = bytes_delta / time_delta; self.speed_label.config(text=f"速度: {self.format_bytes(speed)}/s")
         self.data_label.config(text=f"已用流量: {self.format_bytes(total_bytes)}")
         self.last_check_time = current_time; self.last_check_bytes = total_bytes
-        mem_usage = self.psutil_process.memory_info().rss / (1024 * 1024)
-        self.mem_label.config(text=f"内存: {mem_usage:.2f} MB")
-        cpu_usage = self.psutil_process.cpu_percent(interval=None)
-        self.cpu_label.config(text=f"CPU: {cpu_usage:.2f} %")
+
+        cpu_usage = psutil.cpu_percent(interval=None)
+        mem_info = psutil.virtual_memory()
+        try:
+            disk_path = os.path.splitdrive(self.save_path_var.get())[0] + os.path.sep if self.save_path_var.get() else '/'
+            disk_info = psutil.disk_usage(disk_path)
+            disk_usage = disk_info.percent
+            disk_stats_str = f"{disk_info.used / (1024**3):.1f}/{disk_info.total / (1024**3):.1f} GB"
+        except (FileNotFoundError, Exception):
+            disk_usage = 0
+            disk_stats_str = "N/A"
+
+        mem_stats_str = f"{mem_info.used / (1024**3):.1f}/{mem_info.total / (1024**3):.1f} GB"
+        
+        self._update_donut_chart(self.cpu_canvas, self.cpu_percent_label, self.cpu_arc_id, cpu_usage)
+        self.cpu_stats_label.config(text="")
+        
+        self._update_donut_chart(self.mem_canvas, self.mem_percent_label, self.mem_arc_id, mem_info.percent)
+        self.mem_stats_label.config(text=mem_stats_str)
+        
+        self._update_donut_chart(self.disk_canvas, self.disk_percent_label, self.disk_arc_id, disk_usage)
+        self.disk_stats_label.config(text=disk_stats_str)
+
         self.root.after(1000, self.update_performance_stats)
 
 if __name__ == "__main__":
