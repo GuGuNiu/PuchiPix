@@ -42,10 +42,15 @@ try:
 except ImportError:
     PILLOW_AVAILABLE = False
 
-HISTORY_FILE = 'history.json'
-CONFIG_FILE = 'config.json'
-FAILED_TASKS_FILE = 'failed_tasks.txt'
-TASK_STATE_FILE = 'task_state.json'
+try:
+    # 尝试从run.py导入路径（打包后）
+    from run import HISTORY_FILE, CONFIG_FILE, FAILED_TASKS_FILE, TASK_STATE_FILE
+except ImportError:
+    # 开发环境中使用相对路径
+    HISTORY_FILE = 'history.json'
+    CONFIG_FILE = 'config.json'
+    FAILED_TASKS_FILE = 'failed_tasks.txt'
+    TASK_STATE_FILE = 'task_state.json'
 
 class ImageScraperApp:
     def __init__(self, root):
@@ -140,8 +145,8 @@ class ImageScraperApp:
         ttk.Label(input_group, text="ID/网址:", font=("Microsoft YaHei UI", 11)).pack(side=LEFT, padx=(5,2))
         self.url_entry = ttk.Entry(input_group)
         self.url_entry.pack(side=LEFT, expand=True, fill=X)
-        self.add_task_button = ttk.Button(input_group, text="添加", command=self.add_task_from_entry); self.add_task_button.pack(side=LEFT, padx=(5,5))
-        self.batch_add_button = ttk.Button(input_group, text="批量导入", command=self.open_batch_import_window); self.batch_add_button.pack(side=LEFT, padx=(0,5))
+        self.add_task_button = ttk.Button(input_group, text="添加", command=self.add_task_from_entry, bootstyle="primary"); self.add_task_button.pack(side=LEFT, padx=(5,5))
+        self.batch_add_button = ttk.Button(input_group, text="批量导入", command=self.open_batch_import_window, bootstyle="secondary"); self.batch_add_button.pack(side=LEFT, padx=(0,5))
         self.batch_add_button_ref = self.batch_add_button
         self.settings_button = ttk.Button(input_group, text="高级设置", command=self.open_settings_window, bootstyle="outline-info"); self.settings_button.pack(side=LEFT)
         self.url_entry.bind("<Return>", self.add_task_from_entry)
@@ -456,10 +461,6 @@ class ImageScraperApp:
             self.search_by_tag(tag)
     
     def open_tag_manager(self):
-        # 暂时隐藏主窗口以减少界面抖动
-        self.root.withdraw()
-        self.root.update_idletasks()
-        
         manager_window = tk.Toplevel(self.root); manager_window.title("管理自定义标签"); manager_window.transient(self.root)
         x = self.tags_filter_frame.winfo_rootx(); y = self.tags_filter_frame.winfo_rooty()
         manager_window.geometry(f"400x350+{x}+{y - 350 - 5}")
@@ -470,8 +471,6 @@ class ImageScraperApp:
             self.create_tags_buttons()
             manager_window.grab_release()
             manager_window.destroy()
-            # 恢复主窗口显示
-            self.root.deiconify()
             
         manager_window.protocol("WM_DELETE_WINDOW", on_manager_close)
         main_frame = ttk.Frame(manager_window, padding=10); main_frame.pack(fill=tk.BOTH, expand=True); ttk.Label(main_frame, text="自定义标签列表:").pack(anchor='w')
@@ -508,10 +507,6 @@ class ImageScraperApp:
         delete_button = ttk.Button(button_frame, text="删除选中", command=delete_selected_tags, bootstyle=DANGER); delete_button.pack(side=LEFT)
         
         close_button = ttk.Button(button_frame, text="关闭", command=on_manager_close, bootstyle=PRIMARY); close_button.pack(side=RIGHT)
-        
-        # 显示标签管理窗口后再恢复主窗口
-        manager_window.update_idletasks()
-        self.root.deiconify()
         
         populate_listbox()
         self.root.wait_window(manager_window)
@@ -1597,7 +1592,8 @@ class ImageScraperApp:
         """获取任务状态信息"""
         return self.task_states.get(task_id, {})
 
-if __name__ == "__main__":
+def main():
+    """应用程序主入口函数"""
     if not STEALTH_AVAILABLE:
         root = tk.Tk()
         root.withdraw()
@@ -1606,3 +1602,6 @@ if __name__ == "__main__":
         root = ttk.Window(themename="litera")
         app = ImageScraperApp(root)
         root.mainloop()
+
+if __name__ == "__main__":
+    main()

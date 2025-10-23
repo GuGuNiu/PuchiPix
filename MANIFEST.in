@@ -1,0 +1,9 @@
+include *.json
+include *.txt
+include chromedriver.exe
+include README.md
+include requirements.txt
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *~
