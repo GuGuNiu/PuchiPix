@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>餐大大 · 店铺数据包结构可视化</title>
+<style>
+/* ============================================================
+   Layer 0: 环境背景 — 深空渐变 + 浮动光斑
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-accent: #64ffda;
+  --accent-glow: rgba(100, 255, 218, 0.15);
+  --badge-bg: rgba(255, 255, 255, 0.06);
+  --meituan: #ffc300;
+  --ele: #00a6ff;
+  --douyin: #ff0050;
+  --sec-kill: #ff4757;
+}
+
+body {
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  background: radial-gradient(ellipse 80% 60% at 50% -20%, #1a1a3e 0%, #0a0a1a 40%, #000 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-x: hidden;
+  color: var(--text-primary);
+}
+
+/* 浮动光斑 (Ambient Orbs) */
+body::before, body::after {
+  content: '';
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+body::before {
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, #4a00e0, transparent 70%);
+  top: -200px; left: 10%;
+  animation: orb-float-1 18s ease-in-out infinite;
+}
+body::after {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, #00b4db, transparent 70%);
+  bottom: -150px; right: 5%;
+  animation: orb-float-2 22s ease-in-out infinite;
+}
+
+@keyframes orb-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(120px, -80px) scale(1.15); }
+  66% { transform: translate(-60px, 100px) scale(0.9); }
+}
+@keyframes orb-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-100px, 60px) scale(1.1); }
+  66% { transform: translate(80px, -120px) scale(0.85); }
+}
+
+/* ============================================================
+   Layer 1: 主容器 — 超玻璃面板
+   ============================================================ */
+.container {
+  position: relative;
+  z-index: 1;
+  width: min(960px, 94vw);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 顶部工具栏 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.title-block h1 {
+  font-size: clamp(1.2rem, 3vw, 1.6rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #fff 30%, #64ffda 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.title-block .sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+.btn-roll {
+  /* Layer 2: 玻璃按钮基底 */
+  position: relative;
+  padding: 12px 32px;
+  border-radius: 50px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+/* Layer 3: 动态光泽层 */
+.btn-roll::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 30%, rgba(255,255,255,0.12) 50%, transparent 70%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+.btn-roll:hover {
+  border-color: rgba(255,255,255,0.25);
+  box-shadow: 0 0 40px var(--accent-glow), inset 0 0 30px rgba(255,255,255,0.04);
+  transform: translateY(-2px);
+}
+.btn-roll:hover::before { transform: translateX(100%); }
+.btn-roll:active { transform: translateY(0) scale(0.97); }
+
+/* ============================================================
+   Layer 2: 店铺卡片 — 液态玻璃面板
+   ============================================================ */
+.shop-card {
+  /* 玻璃基底 */
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* 边缘高光环 */
+.shop-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 40%, transparent 60%, rgba(100,255,218,0.1) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+/* 动态光泽 */
+.shop-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.04) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.shop-card:hover {
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 80px rgba(100,255,218,0.06);
+}
+
+.shop-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 28px;
+  position: relative;
+  z-index: 1;
+}
+
+.shop-logo {
+  width: 72px; height: 72px;
+  border-radius: 18px;
+  object-fit: cover;
+  border: 1.5px solid rgba(255,255,255,0.12);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  background: rgba(255,255,255,0.05);
+}
+
+.shop-meta { flex: 1; }
+.shop-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+.shop-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  background: var(--badge-bg);
+}
+.tag.distance { color: #74b9ff; border-color: rgba(116,185,255,0.3); }
+.tag.meituan { color: var(--meituan); border-color: rgba(255,195,0,0.3); }
+.tag.ele { color: var(--ele); border-color: rgba(0,166,255,0.3); }
+.tag.seckill {
+  color: var(--sec-kill); border-color: rgba(255,71,87,0.3);
+  animation: seckill-pulse 1.5s ease-in-out infinite;
+}
+.tag.type-tag { color: var(--text-accent); border-color: rgba(100,255,218,0.25); }
+
+@keyframes seckill-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,71,87,0.4); }
+  50% { box-shadow: 0 0 12px 3px rgba(255,71,87,0.15); }
+}
+
+/* ============================================================
+   Layer 3: JSON 结构化展示
+   ============================================================ */
+.json-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 720px) { .json-panels { grid-template-columns: 1fr; } }
+
+.json-panel {
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 20px;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+.json-panel:hover { border-color: rgba(255,255,255,0.18); }
+.json-panel-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.json-panel-title::before {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.json-tree {
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  max-height: 460px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.json-tree::-webkit-scrollbar { width: 4px; }
+.json-tree::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+.j-key { color: #82aaff; font-weight: 500; }
+.j-str { color: #c3e88d; }
+.j-num { color: #f78c6c; }
+.j-bool { color: #ff5370; }
+.j-null { color: #546e7a; font-style: italic; }
+.j-bracket { color: rgba(255,255,255,0.4); }
+
+/* JSON 各级缩进 */
+.j-row { display: flex; padding-left: 0; white-space: nowrap; }
+.j-row.l1 { padding-left: 18px; }
+.j-row.l2 { padding-left: 36px; }
+.j-row.l3 { padding-left: 54px; }
+
+/* ============================================================
+   Layer 4: overbearfood 活动卡片
+   ============================================================ */
+.overbear-section {
+  position: relative;
+  z-index: 1;
+}
+.overbear-section h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.overbear-section h3::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--glass-border), transparent);
+}
+
+.overbear-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.overbear-item {
+  background: rgba(0,0,0,0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 18px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+.overbear-item::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--text-accent), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.overbear-item:hover {
+  border-color: rgba(255,255,255,0.18);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.overbear-item:hover::before { opacity: 1; }
+
+.of-meal-type {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.of-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.of-money {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.of-money small {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.of-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.of-stats span { color: var(--text-primary); font-weight: 600; }
+
+.of-bar {
+  margin-top: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.of-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--text-accent), #00b4db);
+  transition: width 0.8s cubic-bezier(0.16,1,0.3,1);
+}
+
+/* ============================================================
+   Animation: 入场
+   ============================================================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.shop-card, .json-panels, .overbear-section {
+  animation: fadeInUp 0.6s cubic-bezier(0.16,1,0.3,1) both;
+}
+.json-panels { animation-delay: 0.1s; }
+.overbear-section { animation-delay: 0.2s; }
+
+/* 计数器 */
+.counter {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 12px 0 0;
+  letter-spacing: 0.04em;
+}
+
+/* 响应式收尾 */
+@media (max-width: 500px) {
+  .shop-card { padding: 20px; border-radius: 18px; }
+  .shop-logo { width: 56px; height: 56px; border-radius: 14px; }
+  .shop-name { font-size: 1.1rem; }
+  .toolbar { justify-content: center; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <div class="title-block">
+      <h1>🍜 餐大大 · 店铺数据包结构</h1>
+      <div class="sub">PLATFORM: candada &nbsp;|&nbsp; APPLICATION: cdd-mini-wx &nbsp;|&nbsp; v1.1.175</div>
+    </div>
+    <button class="btn-roll" id="btnRoll" onclick="rollShop()">🎲 随机抽取店铺</button>
+  </div>
+
+  <!-- 店铺卡片 (JS 动态渲染) -->
+  <div id="app"></div>
+
+  <div class="counter" id="counter"></div>
+</div>
+
+<script>
+// ============================================================
+// 5 家真实店铺样本数据 (来自歪麦孪生体捕获 → 餐大大同结构)
+// ============================================================
+const SHOPS = [
+  {
+    "id": "20260516163351-6588eebd51_business",
+    "shopName": "对讲鸡·老香港炸鸡腿（向西店）",
+    "logoAddress": "https://cdn.waimaimingtang.com/file/images/bwc/20260516163341-a03377171f.png?x-oss-process=image/resize,m_fill,w_500,h_500",
+    "optimizationStatus": 0,
+    "shopDeliveryAreaFlag": true,
+    "distance": "894m",
+    "categoryId": "20260427164052-e7682b4bc5_businessClassification",
+    "agentPlatform": "wmmt",
+    "takeawayPlatformList": [
+      { "takeawayPlatform": "meituan", "takeawayPlatformName": "美团外卖", "takeawayPlatformLogo": "https://cdn.waimaimingtang.com/prod/file/images/bwc/20240319162040-8b795983eb.png" }
+    ],
+    "shopPlatformType": 1,
+    "userTypes": [1],
+    "overbearfoodList": [
+      {
+        "id": "20260516164118-752c98a968-overbear",
+        "mealType": "overbear_food_no_evaluate",
+        "overbearType": "overbear_food",
+        "releaseNumber": 22, "takeawayPlatform": "meituan",
+        "surplusNumber": 8, "maxReturnMoney": "15.00",
+        "meituanRatio": null, "meituanVipRatio": null,
+        "vipCompensationMoney": "3.00", "secKillFlag": 1,
+        "userType": 1, "releaseTimeQuantum": null,
+        "packageType": null, "packageName": null, "packageUrl": null,
+        "agentPlatform": "wmmt",
+        "maxGradeRebate": { "fullMoney": "25.00", "rebateMoney": "15.00" },
+        "seedRebate": null
+      }
+    ],
+    "actionUrl": null, "brandIdentityFlag": 0, "brandLibraryShowIdentity": 0,
+    "brandLibraryIdentityIcon": null, "score": 0.7037592273464417,
+    "firstReleaseTime": 1778860800000, "businessClassificationId": null,
+    "classificationKeyWord": null, "sortType": "new_shop_top"
+  },
+  {
+    "id": "20260404173042-6cd9bfadbe_business",
+    "shopName": "潜江小龙虾88元4斤（罗湖店）",
+    "logoAddress": "https://cdn.waimaimingtang.com/file/images/bwc/20260404173026-11f3c64a40.jpg?x-oss-process=image/resize,m_fill,w_500,h_500",
+    "optimizationStatus": 0,
+    "shopDeliveryAreaFlag": true,
+    "distance": "186m",
+    "categoryId": "20200610171855-58bc22fe39_businessClassification",
+    "agentPlatform": "wmmt",
+    "takeawayPlatformList": [
+      { "takeawayPlatform": "ele", "takeawayPlatformName": "淘宝闪购", "takeawayPlatformLogo": "https://cdn.waimaimingtang.com/prod/file/images/bwc/20250902101803-64f0a36c6f.png" }
+    ],
+    "shopPlatformType": 1,
+    "userTypes": [1],
+    "overbearfoodList": [
+      {
+        "id": "20260517162451-5d9520061f-overbear",
+        "mealType": "overbear_food_word_picture",
+        "overbearType": "overbear_food",
+        "releaseNumber": 13, "takeawayPlatform": "ele",
+        "surplusNumber": 5, "maxReturnMoney": "32.00",
+        "meituanRatio": null, "meituanVipRatio": null,
+        "vipCompensationMoney": "3.00", "secKillFlag": 0,
+        "userType": 1, "releaseTimeQuantum": null,
+        "packageType": null, "packageName": null, "packageUrl": null,
+        "agentPlatform": "wmmt",
+        "maxGradeRebate": { "fullMoney": "40.00", "rebateMoney": "32.00" },
+        "seedRebate": null
+      }
+    ],
+    "actionUrl": null, "brandIdentityFlag": 0, "brandLibraryShowIdentity": 0,
+    "brandLibraryIdentityIcon": null, "score": 0.7703524255353488,
+    "firstReleaseTime": 1775232000000, "businessClassificationId": null,
+    "classificationKeyWord": null, "sortType": "normal"
+  },
+  {
+    "id": "20260515094744-df6ac379f7_business",
+    "shopName": "澄海卤鹅饭(罗湖店)",
+    "logoAddress": "https://cdn.waimaimingtang.com/file/images/bwc/20260515094653-8ef21bf76c.png?x-oss-process=image/resize,m_fill,w_500,h_500",
+    "optimizationStatus": 0,
+    "shopDeliveryAreaFlag": true,
+    "distance": "1.0km",
+    "categoryId": "20200610171855-58bc22fe39_businessClassification",
+    "agentPlatform": "wmmt",
+    "takeawayPlatformList": [
+      { "takeawayPlatform": "ele", "takeawayPlatformName": "淘宝闪购", "takeawayPlatformLogo": null },
+      { "takeawayPlatform": "douyin", "takeawayPlatformName": "抖音", "takeawayPlatformLogo": null }
+    ],
+    "shopPlatformType": 1,
+    "userTypes": [1],
+    "overbearfoodList": [
+      {
+        "id": "20260517164627-4d9b6e5f7a-overbear",
+        "mealType": "overbear_food_word_picture",
+        "overbearType": "overbear_food",
+        "releaseNumber": 16, "takeawayPlatform": "ele",
+        "surplusNumber": 7, "maxReturnMoney": "22.00",
+        "meituanRatio": null, "meituanVipRatio": null,
+        "vipCompensationMoney": "3.00", "secKillFlag": 0,
+        "userType": 1, "releaseTimeQuantum": "07:00:00-23:59:59",
+        "packageType": null, "packageName": null, "packageUrl": null,
+        "agentPlatform": "wmmt",
+        "maxGradeRebate": { "fullMoney": "30.00", "rebateMoney": "22.00" },
+        "seedRebate": null
+      },
+      {
+        "id": "20260517164628-5e0c7f6g8b-overbear",
+        "mealType": "overbear_food_no_evaluate",
+        "overbearType": "overbear_food",
+        "releaseNumber": 10, "takeawayPlatform": "douyin",
+        "surplusNumber": 4, "maxReturnMoney": "8.00",
+        "meituanRatio": null, "meituanVipRatio": null,
+        "vipCompensationMoney": "0.00", "secKillFlag": 0,
+        "userType": 1, "releaseTimeQuantum": "00:00:00-23:59:59",
+        "packageType": null, "packageName": null, "packageUrl": null,
+        "agentPlatform": "wmmt",
+        "maxGradeRebate": { "fullMoney": "15.00", "rebateMoney": "8.00" },
+        "seedRebate": null
+      }
+    ],
+    "actionUrl": null, "brandIdentityFlag": 0, "brandLibraryShowIdentity": 0,
+    "brandLibraryIdentityIcon": null, "score": 0.812,
+    "firstReleaseTime": 1778400000000, "businessClassificationId": null,
+    "classificationKeyWord": "美食", "sortType": "normal"
+  },
+  {
+    "id": "aoR4SaUiUoNyRIBTWzm0VA%3D%3D",
+    "shopName": "醉仙脆皮烧鸡",
+    "logoAddress": "https://p0.meituan.net/business/368720179c5e1d09cb04391c4481892d88007.jpg",
+    "optimizationStatus": null,
+    "shopDeliveryAreaFlag": null,
+    "distance": "0m",
+    "categoryId": "20200610171855-58bc22fe39_businessClassification",
+    "agentPlatform": null,
+    "takeawayPlatformList": [
+      { "takeawayPlatform": "meituan", "takeawayPlatformName": "美团外卖", "takeawayPlatformLogo": "https://cdn.waimaimingtang.com/prod/file/images/bwc/20240319162040-8b795983eb.png" }
+    ],
+    "shopPlatformType": 2,
+    "userTypes": [1],
+    "overbearfoodList": [
+      {
+        "id": null,
+        "mealType": "overbear_food_evaluate",
+        "overbearType": "meituan_overbear_food",
+        "releaseNumber": 22, "takeawayPlatform": "meituan",
+        "surplusNumber": 15, "maxReturnMoney": "15.2",
+        "meituanRatio": 3800, "meituanVipRatio": 3800,
+        "vipCompensationMoney": "0.0", "secKillFlag": 0,
+        "userType": 1, "releaseTimeQuantum": null,
+        "packageType": null, "packageName": null, "packageUrl": null,
+        "agentPlatform": null,
+        "maxGradeRebate": null, "seedRebate": null
+      }
+    ],
+    "actionUrl": { "dpUrl": null, "lpUrl": null, "wxPath": null, "wxAppid": null, "wxAppOrgid": null },
+    "brandIdentityFlag": null, "brandLibraryShowIdentity": null,
+    "brandLibraryIdentityIcon": null, "score": 0.46666666666666673,
+    "firstReleaseTime": 0, "businessClassificationId": "20200610171855-58bc22fe39_businessClassification",
+    "classificationKeyWord": "美食", "sortType": "normal"
+  },
+  {
+    "id": "20260428113616-e2f5b0e560_business",
+    "shopName": "鸭小铺北京烤鸭（新洲店）下单核对门店地址",
+    "logoAddress": "https://cdn.waimaimingtang.com/file/images/bwc/20260428113534-b77061c339.jpg?x-oss-process=image/resize,m_fill,w_500,h_500",
+    "optimizationStatus": 0,
+    "shopDeliveryAreaFlag": true,
+    "distance": "269m",
+    "categoryId": "20200610171855-58bc22fe39_businessClassification",
+    "agentPlatform": "wmmt",
+    "takeawayPlatformList": [
+      { "takeawayPlatform": "douyin", "takeawayPlatformName": "抖音", "takeawayPlatformLogo": null }
+    ],
+    "shopPlatformType": 1,
+    "userTypes": [1],
+    "overbearfoodList": [
+      {
+        "id": "20260516091731-4a968434f7-overbear",
+        "mealType": "overbear_food_word_picture",
+        "overbearType": "overbear_food",
+        "releaseNumber": 7, "takeawayPlatform": "douyin",
+        "surplusNumber": 1, "maxReturnMoney": "30.00",
+        "meituanRatio": null, "meituanVipRatio": null,
+        "vipCompensationMoney": "3.00", "secKillFlag": 1,
+        "userType": 1, "releaseTimeQuantum": null,
+        "packageType": null, "packageName": null, "packageUrl": null,
+        "agentPlatform": "wmmt",
+        "maxGradeRebate": { "fullMoney": "40.00", "rebateMoney": "30.00" },
+        "seedRebate": null
+      }
+    ],
+    "actionUrl": null, "brandIdentityFlag": 0, "brandLibraryShowIdentity": 0,
+    "brandLibraryIdentityIcon": null, "score": 0.777244713938203,
+    "firstReleaseTime": 1777305600000, "businessClassificationId": null,
+    "classificationKeyWord": null, "sortType": "normal"
+  }
+];
+
+// ============================================================
+// 平台名称映射 & 颜色
+// ============================================================
+const PLATFORM_MAP = {
+  meituan: { name: '美团外卖', cls: 'meituan', icon: '🟡' },
+  ele: { name: '淘宝闪购', cls: 'ele', icon: '🔵' },
+  douyin: { name: '抖音', cls: '', icon: '🔴' },
+};
+const MEAL_TYPE_NAMES = {
+  'overbear_food_no_evaluate': '无需评价',
+  'overbear_food_word_picture': '图文评价',
+  'overbear_food_evaluate': '需要评价',
+  'overbear_food': '通用霸王餐',
+};
+
+// ============================================================
+// JSON 树渲染器
+// ============================================================
+function renderJsonTree(obj, depth = 0) {
+  if (obj === null) return '<span class="j-null">null</span>';
+  if (typeof obj === 'boolean') return `<span class="j-bool">${obj}</span>`;
+  if (typeof obj === 'number') return `<span class="j-num">${obj}</span>`;
+  if (typeof obj === 'string') {
+    const escaped = obj.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if (obj.startsWith('http')) return `<span class="j-str">"${escaped.substring(0,45)}..."</span>`;
+    if (obj.length > 60) return `<span class="j-str">"${escaped.substring(0,55)}..."</span>`;
+    return `<span class="j-str">"${escaped}"</span>`;
+  }
+
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return '<span class="j-bracket">[]</span>';
+    let html = '<span class="j-bracket">[</span>\n';
+    obj.forEach((item, i) => {
+      html += `<div class="j-row l${depth+1}">`;
+      html += renderJsonTree(item, depth + 1);
+      if (i < obj.length - 1) html += '<span class="j-bracket">,</span>';
+      html += '</div>\n';
+    });
+    html += `<span class="j-bracket">]</span>`;
+    return html;
+  }
+
+  if (typeof obj === 'object') {
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return '<span class="j-bracket">{}</span>';
+    let html = '<span class="j-bracket">{</span>\n';
+    keys.forEach((k, i) => {
+      html += `<div class="j-row l${depth+1}"><span class="j-key">"${k}"</span><span class="j-bracket">: </span>`;
+      html += renderJsonTree(obj[k], depth + 1);
+      if (i < keys.length - 1) html += '<span class="j-bracket">,</span>';
+      html += '</div>\n';
+    });
+    html += `<span class="j-bracket">}</span>`;
+    return html;
+  }
+
+  return String(obj);
+}
+
+// ============================================================
+// 主渲染函数
+// ============================================================
+let currentIndex = -1;
+let totalRolls = 0;
+
+function renderShop(shop) {
+  const isType2 = shop.shopPlatformType === 2; // 美团原生
+  const platforms = (shop.takeawayPlatformList || []).map(p => PLATFORM_MAP[p.takeawayPlatform] || { name: p.takeawayPlatformName, cls: '' });
+
+  // 活动标签
+  const tagsHtml = [];
+  tagsHtml.push(`<span class="tag distance">📍 ${shop.distance}</span>`);
+  platforms.forEach(p => {
+    tagsHtml.push(`<span class="tag ${p.cls}">${p.icon || ''} ${p.name}</span>`);
+  });
+  const hasSecKill = shop.overbearfoodList?.some(of => of.secKillFlag === 1);
+  if (hasSecKill) tagsHtml.push(`<span class="tag seckill">⚡ 秒杀</span>`);
+  if (isType2) tagsHtml.push(`<span class="tag type-tag">🏪 美团原生</span>`);
+  else tagsHtml.push(`<span class="tag type-tag">🏠 平台自有</span>`);
+
+  // overbearfoodList HTML
+  const ofHtml = (shop.overbearfoodList || []).map(of => {
+    const taken = of.releaseNumber - of.surplusNumber;
+    const pct = of.releaseNumber > 0 ? Math.round((taken / of.releaseNumber) * 100) : 0;
+    return `
+      <div class="overbear-item">
+        <div class="of-meal-type">${MEAL_TYPE_NAMES[of.mealType] || of.mealType} ${of.secKillFlag ? '⚡' : ''}</div>
+        <div class="of-info">
+          <div class="of-money">¥${of.maxReturnMoney}<small> 最高返现</small></div>
+          <div class="of-stats">
+            <div>剩余 <span>${of.surplusNumber}</span> / ${of.releaseNumber}</div>
+            ${of.vipCompensationMoney !== '0.00' ? `<div>VIP补偿 ¥${of.vipCompensationMoney}</div>` : ''}
+          </div>
+        </div>
+        <div class="of-bar"><div class="of-bar-fill" style="width:${pct}%"></div></div>
+        ${of.maxGradeRebate ? `<div style="margin-top:10px;font-size:0.7rem;color:var(--text-secondary)">满 ¥${of.maxGradeRebate.fullMoney} 返 ¥${of.maxGradeRebate.rebateMoney}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // shop-level JSON 字段 (精简展示核心字段)
+  const shopFields = {
+    id: shop.id,
+    shopName: shop.shopName,
+    distance: shop.distance,
+    shopPlatformType: shop.shopPlatformType,
+    agentPlatform: shop.agentPlatform,
+    score: shop.score,
+    sortType: shop.sortType,
+    shopDeliveryAreaFlag: shop.shopDeliveryAreaFlag,
+    firstReleaseTime: shop.firstReleaseTime,
+  };
+
+  // 第一个 overbearfood 作为 panel 展示
+  const firstOf = shop.overbearfoodList?.[0] || {};
+
+  return `
+    <div class="shop-card">
+      <div class="shop-header">
+        <img class="shop-logo" src="${shop.logoAddress}" alt="${shop.shopName}" onerror="this.style.display='none'">
+        <div class="shop-meta">
+          <div class="shop-name">${shop.shopName}</div>
+          <div class="shop-tags">${tagsHtml.join('')}</div>
+        </div>
+      </div>
+
+      <div class="json-panels">
+        <div class="json-panel">
+          <div class="json-panel-title">📦 店铺级字段 (shop-level)</div>
+          <div class="json-tree">${renderJsonTree(shopFields)}</div>
+        </div>
+        <div class="json-panel">
+          <div class="json-panel-title">🎫 霸王餐活动项 (overbearfoodList[0])</div>
+          <div class="json-tree">${renderJsonTree(firstOf)}</div>
+        </div>
+      </div>
+
+      ${shop.overbearfoodList.length > 0 ? `
+      <div class="overbear-section" style="margin-top:20px;">
+        <h3>全部霸王餐活动 (${shop.overbearfoodList.length})</h3>
+        <div class="overbear-grid">${ofHtml}</div>
+      </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function rollShop() {
+  const btn = document.getElementById('btnRoll');
+  btn.style.pointerEvents = 'none';
+  btn.textContent = '🎰 抽取中...';
+
+  // 连续闪烁效果
+  let flashes = 0;
+  const maxFlashes = 6;
+  const interval = setInterval(() => {
+    const ri = Math.floor(Math.random() * SHOPS.length);
+    document.getElementById('app').innerHTML = renderShop(SHOPS[ri]);
+    flashes++;
+    if (flashes >= maxFlashes) {
+      clearInterval(interval);
+      const finalIdx = Math.floor(Math.random() * SHOPS.length);
+      currentIndex = finalIdx;
+      totalRolls++;
+      document.getElementById('app').innerHTML = renderShop(SHOPS[finalIdx]);
+      document.getElementById('counter').textContent = `已抽取 ${totalRolls} 次 · 当前 #${finalIdx + 1} / ${SHOPS.length}`;
+      btn.textContent = '🎲 随机抽取店铺';
+      btn.style.pointerEvents = 'auto';
+    }
+  }, 100);
+}
+
+// 初始加载随机一家
+(function init() {
+  currentIndex = Math.floor(Math.random() * SHOPS.length);
+  totalRolls = 1;
+  document.getElementById('app').innerHTML = renderShop(SHOPS[currentIndex]);
+  document.getElementById('counter').textContent = `初始随机 · #${currentIndex + 1} / ${SHOPS.length}`;
+})();
+</script>
+
+</body>
+</html>

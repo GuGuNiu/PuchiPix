@@ -1,0 +1,13 @@
+[build]
+target = "index.html"
+
+[serve]
+port = 10541
+
+[[proxy]]
+backend = "http://localhost:10540/api"
+route = "/api"
+
+[[proxy]]
+backend = "ws://localhost:10540/ws"
+route = "/ws"

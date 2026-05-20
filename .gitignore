@@ -1,4 +1,40 @@
-*.json
-*.json
-*.json
-*.json
+# Dependency directories
+node_modules/
+.pnpm-cache/
+
+# Rust build
+frontend/target/
+
+# Go build
+backend/bin/
+backend/tmp/
+
+# WASM build output
+backend/web/dist/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Build
+*.exe
+*.wasm

@@ -1,0 +1,17 @@
+{
+    "save_path": "D:/Download/爱妹子",
+    "ffmpeg_path": "E:/SF/ffmpeg/bin/ffmpeg.exe",
+    "chromedriver_path": "",
+    "browser": "Chrome",
+    "rename_format": "{id}_{num}",
+    "custom_tags": [
+        "原神"
+    ],
+    "download_threads": "10",
+    "debug_mode": false,
+    "download_video": true,
+    "concurrent_tasks": "3",
+    "save_format": "JPG",
+    "unattended_mode": true,
+    "clipboard_monitor": true
+}
