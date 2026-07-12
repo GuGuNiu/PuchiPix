@@ -1,0 +1,524 @@
+/**
+ * Ops 运维监控面板样式
+ *
+ * 专业运维监控面板的深色霓虹动画与实时数据流式风格。
+ *
+ * @author PuchiPix Team
+ * @date 2026-07-10
+ * @lastModified 2026-07-10
+ */
+
+/* ─── 仪表盘容器（全宽浅色主题） ─── */
+.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-10);
+  width: 100%;
+  animation: fade-in-up 0.5s ease;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+/* ─── 顶部实时数据条 ─── */
+.ops-ticker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  overflow: hidden;
+  position: relative;
+}
+
+.ops-ticker::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 50%, var(--accent-soft) 100%);
+  opacity: 0;
+  animation: gradient-shift 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.ticker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.ticker-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.ticker-value {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.ticker-value.live {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan-glow);
+}
+
+.ticker-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  box-shadow: 0 0 8px var(--neon-green-glow);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ─── KPI 统计面板 ─── */
+.ops-stats-panel {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  overflow: hidden;
+  animation: fade-in-up 0.5s ease;
+}
+
+.ops-stats-main {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.ops-kpi-col {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-6);
+  position: relative;
+  transition: background var(--transition-slow);
+}
+
+.ops-kpi-col:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--border), transparent);
+}
+
+.ops-kpi-col:hover {
+  background: var(--bg-hover);
+}
+
+.ops-kpi-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform var(--transition-bounce);
+}
+
+.ops-kpi-col:hover .ops-kpi-icon {
+  transform: scale(1.08);
+}
+
+.ops-kpi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ops-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -1px;
+  line-height: 1.2;
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+.ops-kpi-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.ops-kpi-unit {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.ops-kpi-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--border-light);
+}
+
+.ops-kpi-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.6s ease;
+}
+
+/* KPI 颜色修饰符 */
+.ops-kpi-col.blue .ops-kpi-icon { background: var(--info-soft); color: var(--info); }
+.ops-kpi-col.blue .ops-kpi-fill { background: var(--info); }
+.ops-kpi-col.amber .ops-kpi-icon { background: var(--warning-soft); color: var(--warning); }
+.ops-kpi-col.amber .ops-kpi-fill { background: var(--warning); }
+.ops-kpi-col.green .ops-kpi-icon { background: var(--success-soft); color: var(--success); }
+.ops-kpi-col.green .ops-kpi-fill { background: var(--success); }
+.ops-kpi-col.red .ops-kpi-icon { background: var(--danger-soft); color: var(--danger); }
+.ops-kpi-col.red .ops-kpi-fill { background: var(--danger); }
+
+.ops-stats-secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-inset);
+}
+
+.ops-secondary-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}
+
+.ops-secondary-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.ops-secondary-value {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+/* ─── 站点监控面板 ─── */
+.ops-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-5);
+}
+
+.ops-site-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  transition: var(--transition-slow);
+  animation: card-entrance 0.5s ease backwards;
+}
+
+.ops-site-card:nth-child(1) { animation-delay: 200ms; }
+.ops-site-card:nth-child(2) { animation-delay: 260ms; }
+.ops-site-card:nth-child(3) { animation-delay: 320ms; }
+
+.ops-site-card:hover {
+  border-color: var(--accent-light);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  transform: translateY(-3px);
+}
+
+.ops-site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ops-site-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.ops-site-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  position: relative;
+}
+
+.ops-site-indicator.online {
+  background: var(--success);
+  box-shadow: 0 0 10px var(--neon-green-glow);
+}
+
+.ops-site-indicator.online::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--success);
+  animation: status-ring 2.2s ease-out infinite;
+}
+
+.ops-site-indicator.offline {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--shadow-glow-danger);
+}
+
+.ops-site-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.ops-site-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ops-site-stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+}
+
+.ops-site-stat-value {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+/* ─── 数据流指示器 ─── */
+.ops-data-stream {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.ops-data-stream .stream-bar {
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: data-stream-bar 1.2s ease-in-out infinite;
+}
+
+.ops-data-stream .stream-bar:nth-child(1) { height: 8px; animation-delay: 0ms; }
+.ops-data-stream .stream-bar:nth-child(2) { height: 12px; animation-delay: 100ms; }
+.ops-data-stream .stream-bar:nth-child(3) { height: 16px; animation-delay: 200ms; }
+.ops-data-stream .stream-bar:nth-child(4) { height: 10px; animation-delay: 300ms; }
+.ops-data-stream .stream-bar:nth-child(5) { height: 14px; animation-delay: 400ms; }
+
+@keyframes data-stream-bar {
+  0%, 100% { transform: scaleY(1); opacity: 0.4; }
+  50% { transform: scaleY(1.6); opacity: 1; }
+}
+
+/* ─── 任务活动流 ─── */
+.ops-activity-feed {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  overflow: hidden;
+  animation: fade-in-up 0.5s ease;
+}
+
+.ops-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ops-activity-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  letter-spacing: 0.2px;
+}
+
+.ops-activity-body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.ops-activity-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: var(--transition-slow);
+  animation: fade-in-up 0.3s ease;
+  margin-bottom: 1px;
+}
+
+.ops-activity-item:hover {
+  background: var(--bg-hover);
+  transform: translateX(2px);
+}
+
+.ops-activity-time {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 60px;
+  font-weight: 600;
+}
+
+.ops-activity-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ─── 实时速度图表占位 ─── */
+.ops-speed-graph {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  position: relative;
+  overflow: hidden;
+  animation: fade-in-up 0.5s ease;
+}
+
+.ops-speed-graph::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 100%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.ops-graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+  position: relative;
+  z-index: 1;
+}
+
+.ops-graph-canvas {
+  position: relative;
+  height: 120px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  z-index: 1;
+}
+
+.ops-graph-bar {
+  flex: 1;
+  background: linear-gradient(to top, var(--accent), var(--neon-cyan));
+  border-radius: 3px 3px 0 0;
+  opacity: 0.7;
+  transition: height 0.3s ease, opacity 0.3s ease;
+  min-height: 4px;
+}
+
+.ops-graph-bar:hover {
+  opacity: 1;
+}
+
+/* ─── 两栏布局 ─── */
+.ops-two-col {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--space-6);
+}
+
+/* ─── 实时统计脉冲 ─── */
+.ops-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ops-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+/* ─── 扫描线效果 ─── */
+.ops-scan {
+  position: relative;
+  overflow: hidden;
+}
+
+.ops-scan::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan-glow), transparent);
+  animation: scan-line 4s linear infinite;
+  pointer-events: none;
+  opacity: 0.3;
+}

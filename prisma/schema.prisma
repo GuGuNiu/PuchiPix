@@ -1,0 +1,303 @@
+/**
+ * Prisma 数据库模型定义
+ *
+ * 数据模型设计：
+ * - DownloadTask: 下载任务主表，记录下载状态和进度
+ * - VideoInfo:    视频元信息表，与 DownloadTask 一对一关联
+ *   字段：源URL、视频标题、视频体积、视频时长(分钟)、视频标签、视频演员
+ * - Gallery:      图库主表，记录图库元信息和主角定位
+ * - GalleryImage: 图库图片表，与 Gallery 一对多关联
+ * - GalleryVideo: 图库视频表，与 Gallery 一对多关联
+ * - AppConfig:    应用配置表，键值对存储
+ */
+
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================
+// 下载任务模型
+// ============================================================
+model DownloadTask {
+  id        Int        @id @default(autoincrement())
+  url       String                        // 源页面 URL（视频播放页地址）
+  m3u8Url   String     @default("") @map("m3u8_url")  // M3U8 播放列表 URL
+  status    String     @default("pending")              // 任务状态
+  progress  Float      @default(0)                      // 下载进度 (0~100)
+  filePath  String     @default("") @map("file_path")   // 最终文件路径
+  format    String     @default("mp4")                  // 输出格式
+  priority  Int        @default(1)                      // 优先级
+  errorMsg  String     @default("") @map("error_msg")   // 错误信息
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  videoInfo VideoInfo?
+
+  @@map("download_tasks")
+}
+
+// ============================================================
+// 视频信息模型
+// ============================================================
+model VideoInfo {
+  id         Int          @id @default(autoincrement())
+  taskId     Int          @unique @map("task_id")        // 关联的任务 ID
+  title      String       @default("")                   // 视频标题（纯标题，无站点后缀）
+  sourceUrl  String       @default("") @map("source_url") // 源 URL（视频播放页地址）
+  fileSize   BigInt       @default(0) @map("file_size")   // 视频文件体积（字节）
+  duration   Float        @default(0)                     // 视频时长（分钟）
+  tags       String       @default("")                    // 视频标签（JSON 数组字符串）
+  actors     String       @default("")                    // 视频演员/作者（JSON 数组字符串）
+  categories String       @default("")                    // 视频分类（JSON 数组字符串）
+  director   String       @default("")                    // 导演/系列
+  resolution String       @default("")                    // 视频分辨率（如 1280x720）
+  createdAt  DateTime     @default(now()) @map("created_at")
+  task       DownloadTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("video_infos")
+}
+
+// ============================================================
+// 图库模型（爱妹子等图库站点）
+// ============================================================
+
+/** 图库主表，记录图库元信息、主角定位和下载状态
+ *
+ * 设计参考 VideoInfo 模型，以主角(protagonist)为主要查询维度
+ * @date 2026-07-11
+ * @lastModified 2026-07-12
+ */
+model Gallery {
+  id          Int            @id @default(autoincrement())
+  // 源页面 URL（如 https://www.lovecutes.com/article/27571/）
+  sourceUrl   String         @unique @map("source_url")
+  // 站点 ID（如 aimeizizi）
+  siteId      String         @default("aimeizizi") @map("site_id")
+  // 实际爬取时使用的域名（多域名自适应记录）
+  scrapedDomain String       @default("") @map("scraped_domain")
+  // 完整标题（H1 文本，如 "可可小白兔 - 電車上の女高中生"）
+  title       String         @default("")
+  // 主角名（从标题中提取，如 "可可小白兔"）
+  // 作为查询主键，建立索引
+  protagonist String         @default("")
+  // 描述（去掉主角名后的标题部分，如 "電車上の女高中生"）
+  description String         @default("")
+  // 分类（如 Cosplay、美胸美女）
+  category    String         @default("")
+  // 标签（JSON 数组字符串）
+  tags        String         @default("")
+  // 封面图 URL（第一张图片）
+  coverUrl    String         @default("") @map("cover_url")
+  // 图片数量
+  imageCount  Int            @default(0) @map("image_count")
+  // 视频数量
+  videoCount  Int            @default(0) @map("video_count")
+  // 总页数
+  pageCount   Int            @default(0) @map("page_count")
+  // 状态：pending | scraping | completed | failed | downloading | partial
+  status      String         @default("pending")
+  // 下载方式：pending | zip | scrape | both
+  // zip = 仅通过外置 ZIP 压缩包下载，scrape = 仅爬虫逐张下载，both = 两种方式都使用了
+  downloadMethod String      @default("pending") @map("download_method")
+  // 标题中声明的预期图片数量（从 "11P2V" 格式解析，0 表示未声明）
+  expectedImageCount Int     @default(0) @map("expected_image_count")
+  // 标题中声明的预期视频数量（从 "11P2V" 格式解析，0 表示未声明）
+  expectedVideoCount Int     @default(0) @map("expected_video_count")
+  // 内容数量是否已校验（ZIP 解压后对比实际文件数与标题声明数）
+  contentVerified Boolean    @default(false) @map("content_verified")
+  // 本地保存路径
+  savePath    String         @default("") @map("save_path")
+  // 图库总文件体积（字节），所有图片和视频的总和
+  totalSize   BigInt         @default(0) @map("total_size")
+  // 已下载文件体积（字节）
+  downloadedSize BigInt      @default(0) @map("downloaded_size")
+  // 从 TAG 中识别到的游戏角色（JSON 数组字符串）
+  gameCharacters String?    @map("game_characters")
+  // 资源发布时间（从页面提取，YYYY-MM-DD 格式）
+  publishTime String?        @map("publish_time")
+  // 爬取完成时间
+  scrapedAt   DateTime?      @map("scraped_at")
+  // 下载完成时间
+  completedAt DateTime?      @map("completed_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  images      GalleryImage[]
+  videos      GalleryVideo[]
+  // ZIP 压缩包下载信息（一对一，可能为空）
+  downloadInfo GalleryDownloadInfo?
+
+  // 索引：主角名（主要查询维度）
+  @@index([protagonist])
+  // 索引：站点+主角（联合查询）
+  @@index([siteId, protagonist])
+  // 索引：状态（用于筛选待下载/已完成）
+  @@index([status])
+  // 索引：分类（用于分类浏览）
+  @@index([category])
+  // 索引：创建时间（用于排序）
+  @@index([createdAt])
+
+  @@map("galleries")
+}
+
+/** 图库图片表，记录每张图片的 URL、元信息和下载状态
+ *
+ * @date 2026-07-11
+ */
+model GalleryImage {
+  id         Int      @id @default(autoincrement())
+  galleryId  Int      @map("gallery_id")
+  // 图片原始 URL
+  url        String
+  // 本地保存路径
+  localPath  String   @default("") @map("local_path")
+  // 文件名
+  fileName   String   @default("") @map("file_name")
+  // 文件体积（字节），下载完成后更新
+  fileSize   BigInt   @default(0) @map("file_size")
+  // 图片宽度（像素），爬取时尽可能获取
+  width      Int      @default(0)
+  // 图片高度（像素），爬取时尽可能获取
+  height     Int      @default(0)
+  // 图片格式（jpg/png/webp等），从URL或Content-Type推断
+  format     String   @default("")
+  // 所在页码（第几页）
+  pageIndex  Int      @default(0) @map("page_index")
+  // 排序序号（全局排序，从0开始）
+  orderIndex Int      @default(0) @map("order_index")
+  // 状态：pending | downloading | completed | failed | skipped
+  status     String   @default("pending")
+  // 错误信息（下载失败时记录）
+  errorMsg   String   @default("") @map("error_msg")
+  // 下载完成时间
+  completedAt DateTime? @map("completed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  gallery    Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+
+  // 索引：图库ID+排序序号（用于按顺序获取图片）
+  @@index([galleryId, orderIndex])
+  // 索引：状态（用于筛选待下载/已下载）
+  @@index([galleryId, status])
+
+  @@map("gallery_images")
+}
+
+/** 图库视频表，记录每个视频的 M3U8 URL、元信息和下载状态
+ *
+ * 设计参考 VideoInfo 模型
+ * @date 2026-07-11
+ */
+model GalleryVideo {
+  id         Int      @id @default(autoincrement())
+  galleryId  Int      @map("gallery_id")
+  // M3U8 或视频 URL
+  url        String
+  // 本地保存路径
+  localPath  String   @default("") @map("local_path")
+  // 文件名
+  fileName   String   @default("") @map("file_name")
+  // 文件体积（字节），下载完成后更新
+  fileSize   BigInt   @default(0) @map("file_size")
+  // 视频时长（分钟），爬取时尽可能获取
+  duration   Float    @default(0)
+  // 视频分辨率（如 1920x1080）
+  resolution String   @default("")
+  // 视频格式（mp4/mkv等）
+  format     String   @default("")
+  // 状态：pending | downloading | completed | failed | skipped
+  status     String   @default("pending")
+  // 错误信息（下载失败时记录）
+  errorMsg   String   @default("") @map("error_msg")
+  // 下载完成时间
+  completedAt DateTime? @map("completed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  gallery    Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+
+  // 索引：图库ID+状态（用于筛选待下载/已下载）
+  @@index([galleryId, status])
+
+  @@map("gallery_videos")
+}
+
+// ============================================================
+// 图库 ZIP 压缩包下载信息模型
+// ============================================================
+
+/** 图库 ZIP 压缩包下载信息
+ *
+ * 爱妹子等写真站点部分图包提供整包 ZIP 下载方式（跳转到外站），
+ * 此模型记录从页面提取的 ZIP 下载元信息，以及下载来源和中转站解析参数。
+ *
+ * @date 2026-07-11
+ * @lastModified 2026-07-12
+ */
+model GalleryDownloadInfo {
+  id          Int      @id @default(autoincrement())
+  galleryId   Int      @unique @map("gallery_id")
+  // 压缩包标题（如 "高清原图下载"）
+  title       String   @default("")
+  // 文件数量（如 51）
+  fileCount   Int      @default(0) @map("file_count")
+  // 文件大小文本（如 "263.8M"，原始显示值）
+  fileSizeText String  @default("") @map("file_size_text")
+  // 图片尺寸（如 "3404x5120"）
+  imageDimensions String @default("") @map("image_dimensions")
+  // 解压密码
+  password    String   @default("")
+  // 外站下载 URL（如 MediaFire 链接，可能经过 ouo.io 中转）
+  downloadUrl String   @default("") @map("download_url")
+  // 下载来源：ouo | direct | mediafire | unknown
+  // ouo = 通过 ouo.io 短链接中转，direct = 直链下载，mediafire = MediaFire 下载
+  downloadSource String @default("unknown") @map("download_source")
+  // 原始 ouo.io 短链接（如下载来源为 ouo 时记录）
+  ouoUrl      String   @default("") @map("ouo_url")
+  // 中转站解析后的最终直链 URL
+  resolvedDirectUrl String @default("") @map("resolved_direct_url")
+  // 下载提供商（如 "MediaFire VIP"）
+  provider    String   @default("")
+  // 是否需要登录
+  requiresLogin Boolean @default(false) @map("requires_login")
+  // 是否需要邮箱验证
+  requiresEmail Boolean @default(false) @map("requires_email")
+  // ZIP 下载状态：available | unavailable | downloading | completed | failed
+  status      String   @default("available")
+  // 本地 ZIP 文件路径（下载后填充）
+  localPath   String   @default("") @map("local_path")
+  // 本地解压路径（解压后填充）
+  extractedPath String @default("") @map("extracted_path")
+  // ZIP 文件实际体积（字节，下载后更新）
+  actualSize  BigInt   @default(0) @map("actual_size")
+  // ZIP 压缩包的英文名（重命名后的文件名，如 "koke_xiaobaitu_27571.zip"）
+  zipFileName String   @default("") @map("zip_file_name")
+  // 多线程下载使用的并行数
+  parallelism Int      @default(0)
+  // 平均下载速度（字节/秒）
+  avgSpeed    Int      @default(0) @map("avg_speed")
+  // 解压后实际文件数量（校验用）
+  verifiedCount Int    @default(0) @map("verified_count")
+  // 解压后文件数量是否与标题声明一致
+  countMatched Boolean @default(false) @map("count_matched")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  gallery     Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+
+  @@map("gallery_download_infos")
+}
+
+// ============================================================
+// 应用配置模型
+// ============================================================
+model AppConfig {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_configs")
+}
