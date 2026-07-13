@@ -32,7 +32,7 @@
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
     "uuid": "^14.0.0",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
