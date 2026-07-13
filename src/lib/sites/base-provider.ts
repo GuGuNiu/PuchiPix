@@ -580,11 +580,11 @@ export abstract class BaseSiteProvider implements SiteProvider {
    * @param page - Playwright Page 实例
    * @param captured - 用于存储捕获结果的数组
    */
-  async setupM3U8Interceptor(page: Page, captured: string[]): Promise<void> {
+  setupM3U8Interceptor(page: Page, captured: string[]): void {
     const excludePatterns = this.m3u8ExcludePatterns;
 
-    await page.route('**/*', (route) => {
-      const url = route.request().url();
+    page.on('request', (request) => {
+      const url = request.url();
       if (url.includes('.m3u8') || url.includes('.m3u')) {
         const pathLower = url.toLowerCase();
         const excluded = excludePatterns.some((p) => pathLower.includes(p));
@@ -592,7 +592,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
           captured.push(url);
         }
       }
-      route.continue();
     });
   }
 
@@ -614,10 +613,10 @@ export abstract class BaseSiteProvider implements SiteProvider {
   async scrapePage(page: Page, pageUrl: string): Promise<ScrapeResult> {
     const capturedM3U8: string[] = [];
 
-    // 1. 设置 M3U8 拦截器
-    await this.setupM3U8Interceptor(page, capturedM3U8);
+    // 1. 设置 M3U8 拦截器（passive listener，不阻塞请求）
+    this.setupM3U8Interceptor(page, capturedM3U8);
 
-    // 2. 等待页面加载稳定（缩短固定等待，优先用 waitForLoadState）
+    // 2. 等待页面加载稳定
     try {
       await page.waitForLoadState('domcontentloaded', { timeout: 5000 });
     } catch {
@@ -645,12 +644,8 @@ export abstract class BaseSiteProvider implements SiteProvider {
     // 4. 点击播放按钮
     await this.clickPlayButton(page);
 
-    // 等待 M3U8 请求触发（缩短等待时间，player_aaaa 通常已在上一步加载）
-    try {
-      await page.waitForTimeout(2000);
-    } catch {
-      // 忽略
-    }
+    // 等待 M3U8 请求触发
+    await page.waitForTimeout(1000);
 
     // 5. 扫描主页面 JS 中的 M3U8
     const jsM3u8 = await this.scanJsForM3U8(page);

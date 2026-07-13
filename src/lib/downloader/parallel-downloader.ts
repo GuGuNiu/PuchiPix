@@ -725,6 +725,9 @@ async function singleThreadDownload(
 
     req.on('timeout', () => {
       req.destroy();
+      if (writeStream) {
+        writeStream.destroy();
+      }
       console.error('[ParallelDL] 下载超时');
       finish({ success: false, fileSize: 0, savedPath: '' });
     });

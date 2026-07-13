@@ -35,6 +35,12 @@
 /data/galleries/
 !/data/galleries/.gitkeep
 
+# 图库 ZIP 下载缓存
+/data/gallery_zips/
+
+# 远程封面图缓存
+/data/cover_cache/
+
 # testing
 /coverage
 

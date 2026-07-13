@@ -3,7 +3,8 @@ import { Dancing_Script } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/layout/sidebar";
 import SocketProvider from "@/components/providers/socket-provider";
-import { Toaster } from "sonner";
+import ThemeProvider from "@/components/providers/theme-provider";
+import ThemedToaster from "@/components/providers/themed-toaster";
 
 const dancingScript = Dancing_Script({
   weight: "700",
@@ -19,6 +20,8 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
+const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -28,19 +31,22 @@ export default function RootLayout({
     <html lang="zh-CN" className={dancingScript.variable}>
       <head>
         <script src="/vendor/hls.min.js" async></script>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <SocketProvider>
-          <div className="app-layout">
-            <Sidebar />
-            <div className="main-area">
-              <main className="content-area">
-                {children}
-              </main>
+        <ThemeProvider>
+          <SocketProvider>
+            <div className="app-layout">
+              <Sidebar />
+              <div className="main-area">
+                <main className="content-area">
+                  {children}
+                </main>
+              </div>
             </div>
-          </div>
-        </SocketProvider>
-        <Toaster richColors position="top-right" />
+          </SocketProvider>
+          <ThemedToaster />
+        </ThemeProvider>
       </body>
     </html>
   );

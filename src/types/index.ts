@@ -10,9 +10,11 @@
 
 export type TaskStatus =
   | 'pending'
+  | 'scraping'
   | 'downloading'
   | 'paused'
   | 'completed'
+  | 'partial'
   | 'failed'
   | 'cancelled'
   | 'transcoding';
@@ -57,6 +59,8 @@ export type TaskType = 'video' | 'gallery';
 
 export interface DownloadTask {
   ID: number;
+  /** 统一展示编号（视频和图包共享同一序列） */
+  DisplayID?: number;
   URL: string;
   M3U8URL: string;
   Status: TaskStatus;
@@ -80,6 +84,8 @@ export interface DownloadTask {
   VideoCount?: number;
   /** 下载方式（TaskType=gallery 时使用）：pending | zip | scrape | both */
   DownloadMethod?: string;
+  /** 图库 ZIP 下载信息（TaskType=gallery 时使用） */
+  DownloadInfo?: GalleryDownloadInfoData;
 }
 
 // ============================================================
@@ -235,6 +241,8 @@ export interface GalleryDownloadInfoData {
 /** 图库数据（API 响应格式） */
 export interface GalleryData {
   ID: number;
+  /** 统一展示编号 */
+  Seq?: number;
   SourceURL: string;
   SiteID: string;
   ScrapedDomain: string;
@@ -244,6 +252,8 @@ export interface GalleryData {
   Category: string;
   Tags: string[];
   CoverURL: string;
+  /** 封面图本地路径（下载后存于 cover/ 子目录） */
+  CoverLocalPath: string;
   /** 资源发布时间（YYYY-MM-DD 格式） */
   PublishTime?: string;
   ImageCount: number;

@@ -1,19 +1,19 @@
 "use client";
 
 /**
- * 任务管理页面
+ * 任务管理页面（SSE 实时驱动）
  *
  * 作为顶层任务编排器，统一展示视频下载任务和图库任务：
  * - 添加新任务（单个/批量导入，自动识别视频/图库类型）
- * - 状态筛选（全部/等待中/下载中/已完成/失败）
+ * - 状态筛选（全部/识别中/等待中/下载中/已完成/失败）
  * - 关键词搜索（标题/URL）
  * - 排序（创建时间/进度/状态）
  * - 批量操作（批量开始/取消/删除）
  * - 任务详情展开（视频任务显示标签/演员/分类，图库任务显示图片/视频数量/下载方式）
- * - WebSocket 实时进度更新（同时监听视频和图库事件）
+ * - SSE 实时进度更新（替代 WebSocket，300ms 节流推送增量补丁）
  *
  * @date 2026-07-10
- * @lastModified 2026-07-12
+ * @lastModified 2026-07-13
  */
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
@@ -25,7 +25,6 @@ import {
   Square,
   Trash2,
   RotateCw,
-  RefreshCw,
   Inbox,
   Search as SearchIcon,
   CheckSquare,
@@ -45,29 +44,34 @@ import { useTaskStore } from "@/store/task-store";
 import GlassSelect from "@/components/ui/glass-select";
 import BatchSearchPanel from "@/components/tasks/batch-search-panel";
 import { useRouteState } from "@/lib/core/route-state";
-import { ENABLED_SITE_MODULES, getSiteModule } from "@/lib/sites/site-modules";
-
-const SITES = ENABLED_SITE_MODULES.map((m) => ({
-  ...m,
-  name: m.nameCn,
-  gallery: m.type === 'photo',
-}));
+import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
+import { getSiteModuleByUrl } from "@/lib/sites/site-modules";
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: "等待中",
+  scraping: "识别中",
   downloading: "下载中",
   paused: "已暂停",
   completed: "已完成",
+  partial: "部分完成",
   failed: "失败",
   cancelled: "已取消",
   transcoding: "转码中",
 };
 
 type StatusFilter = "all" | TaskStatus;
+type TypeFilter = "all" | "video" | "gallery";
 type SortBy = "date_desc" | "date_asc" | "progress_desc" | "progress_asc" | "status";
+
+const TYPE_PILLS: { value: TypeFilter; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "video", label: "视频" },
+  { value: "gallery", label: "图包" },
+];
 
 const FILTER_PILLS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "全部" },
+  { value: "scraping", label: "识别中" },
   { value: "pending", label: "等待中" },
   { value: "downloading", label: "下载中" },
   { value: "completed", label: "已完成" },
@@ -83,52 +87,97 @@ const SORT_OPTIONS = [
 ];
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
-  downloading: 0,
-  pending: 1,
-  paused: 2,
-  transcoding: 3,
-  failed: 4,
-  cancelled: 5,
-  completed: 6,
+  scraping: 0,
+  downloading: 1,
+  pending: 2,
+  paused: 3,
+  transcoding: 4,
+  failed: 5,
+  cancelled: 6,
+  partial: 7,
+  completed: 8,
 };
 
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/**
+ * 根据任务状态和进度推断当前处理阶段
+ *
+ * @date 2026-07-12
+ */
+function getProgressStage(task: DownloadTask): string {
+  if (task.Status === "scraping") return "识别中";
+  if (task.Status === "completed") return "已完成";
+  if (task.Status === "failed") return "失败";
+  if (task.Status === "cancelled") return "已取消";
+  if (task.Status === "paused") return "已暂停";
+  if (task.TaskType === "gallery") return "下载中";
+  if (task.Progress >= 99) return "探测中";
+  if (task.Progress >= 97) return "转码中";
+  if (task.Progress >= 95) return "合并中";
+  return "下载中";
+}
+
 export default function TasksPage() {
-  const { tasks, loading, fetchTasks, subscribeToSocket } = useTaskStore();
+  const { tasks, loading, fetchTasks, connectSSE } = useTaskStore();
   const pathname = usePathname();
   const { savedData, saveState } = useRouteState(pathname, {
     ttl: 5 * 60 * 1000,
     saveScroll: true,
   });
 
+  const { values: urlValues, update: updateUrl } = useUrlState({
+    status: "all",
+    type: "all",
+    sort: "date_desc",
+    task: "",
+  });
+  const [searchQuery, setSearchQuery] = useDebouncedUrlParam("q", "");
+
+  const statusFilter = urlValues.status as StatusFilter;
+  const typeFilter = (urlValues.type as TypeFilter) || "all";
+  const sortBy = urlValues.sort as SortBy;
+const expandedTask = (urlValues.task as string) || null;
+
+  const setStatusFilter = useCallback(
+    (v: StatusFilter) => updateUrl({ status: v === "all" ? null : v }),
+    [updateUrl]
+  );
+  const setTypeFilter = useCallback(
+    (v: TypeFilter) => updateUrl({ type: v === "all" ? null : v }),
+    [updateUrl]
+  );
+  const setSortBy = useCallback(
+    (v: SortBy) => updateUrl({ sort: v === "date_desc" ? null : v }),
+    [updateUrl]
+  );
+const setExpandedTask = useCallback(
+(key: string | null) => updateUrl({ task: key }),
+[updateUrl]
+);
+
   const [linkInput, setLinkInput] = useState("");
   const [addTab, setAddTab] = useState<"link" | "search">(
     () => (savedData?.addTab as "link" | "search") ?? "link"
   );
-  const [expandedTask, setExpandedTask] = useState<number | null>(
-    () => (savedData?.expandedTask as number) ?? null
-  );
-
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
-    () => (savedData?.statusFilter as StatusFilter) ?? "all"
-  );
-  const [searchQuery, setSearchQuery] = useState(
-    () => (savedData?.searchQuery as string) ?? ""
-  );
-  const [sortBy, setSortBy] = useState<SortBy>(
-    () => (savedData?.sortBy as SortBy) ?? "date_desc"
-  );
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
-    saveState({ expandedTask, statusFilter, searchQuery, sortBy, addTab });
-  }, [expandedTask, statusFilter, searchQuery, sortBy, addTab, saveState]);
+    saveState({ addTab });
+  }, [addTab, saveState]);
 
   useEffect(() => {
     fetchTasks();
-    const unsub = subscribeToSocket();
+    const unsub = connectSSE();
     return () => unsub();
-  }, [fetchTasks, subscribeToSocket]);
+  }, [fetchTasks, connectSSE]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: tasks.length };
@@ -143,6 +192,12 @@ export default function TasksPage() {
 
     if (statusFilter !== "all") {
       result = result.filter((t) => t.Status === statusFilter);
+    }
+
+    if (typeFilter === "video") {
+      result = result.filter((t) => t.TaskType !== "gallery");
+    } else if (typeFilter === "gallery") {
+      result = result.filter((t) => t.TaskType === "gallery");
     }
 
     if (searchQuery.trim()) {
@@ -176,7 +231,7 @@ export default function TasksPage() {
     }
 
     return sorted;
-  }, [tasks, statusFilter, searchQuery, sortBy]);
+  }, [tasks, statusFilter, typeFilter, searchQuery, sortBy]);
 
   const parsedUrls = useMemo(() => {
     return linkInput
@@ -209,23 +264,42 @@ export default function TasksPage() {
         })
         .then((data) => {
           if (data?.type === "gallery") {
-            toast.success(`图库 #${data.galleryId} 已创建，正在后台爬取...`);
-          } else {
-            toast.success(`任务 #${data?.ID ?? ""} 已创建，正在后台处理...`);
+            const placeholder: DownloadTask = {
+              ID: data.galleryId,
+              DisplayID: data.seq,
+              URL: u,
+              M3U8URL: "",
+              Status: "scraping",
+              Progress: 0,
+              FilePath: "",
+              Format: "",
+              Priority: 0,
+              ErrorMsg: "",
+              CreatedAt: new Date().toISOString(),
+              UpdatedAt: new Date().toISOString(),
+              TaskType: "gallery",
+              GalleryTitle: "",
+              ImageCount: 0,
+              VideoCount: 0,
+              DownloadMethod: "pending",
+            };
+            useTaskStore.getState().addTask(placeholder);
+            toast.success(`图包 #${data.seq ?? data.galleryId} 已创建，正在识别...`);
+          } else if (data?.ID) {
+            useTaskStore.getState().addTask(data as DownloadTask);
+            toast.success(`任务 #${data.DisplayID ?? data.ID} 已创建，正在识别...`);
           }
         })
         .catch((err) => {
           toast.error(`添加失败: ${err.message}`);
         });
     }
-
-    fetchTasks();
   };
 
   const handleAction = useCallback(
-    async (taskId: number, action: string) => {
-      const task = tasks.find((t) => t.ID === taskId);
-      const isGallery = task?.TaskType === 'gallery';
+    async (task: DownloadTask, action: string) => {
+      const isGallery = task.TaskType === 'gallery';
+      const taskId = task.ID;
       try {
         let endpoint: string;
         if (isGallery) {
@@ -243,33 +317,35 @@ export default function TasksPage() {
         const method = action === 'delete' ? 'DELETE' : 'POST';
         const res = await fetch(endpoint, { method });
         if (!res.ok) throw new Error(await res.text());
-        fetchTasks();
-        toast.success(`${isGallery ? '图库' : '任务'} #${taskId} 已${actionLabel(action)}`);
+        toast.success(`${isGallery ? '图包' : '任务'} #${task.DisplayID ?? taskId} 已${actionLabel(action)}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.error(msg);
       }
     },
-    [fetchTasks, tasks]
+    []
   );
 
   const handleDelete = useCallback(
-    async (taskId: number) => {
-      const task = tasks.find((t) => t.ID === taskId);
-      const isGallery = task?.TaskType === 'gallery';
-      if (!confirm(`确认删除${isGallery ? '图库' : '任务'} #${taskId}？`)) return;
+    async (task: DownloadTask) => {
+      const isGallery = task.TaskType === 'gallery';
+      const taskId = task.ID;
+      if (!confirm(`确认删除${isGallery ? '图包' : '任务'} #${task.DisplayID ?? taskId}？`)) return;
+
+      useTaskStore.getState().removeTask(taskId, isGallery ? 'gallery' : 'video');
+
       try {
         const endpoint = isGallery ? `/api/gallery/${taskId}` : `/api/tasks/${taskId}`;
         const res = await fetch(endpoint, { method: "DELETE" });
         if (!res.ok) throw new Error(await res.text());
-        fetchTasks();
-        toast.success(`已删除${isGallery ? '图库' : '任务'} #${taskId}`);
+        toast.success(`已删除${isGallery ? '图包' : '任务'} #${task.DisplayID ?? taskId}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.error(msg);
+        fetchTasks();
       }
     },
-    [fetchTasks, tasks]
+    [fetchTasks]
   );
 
   const handleBatchAction = useCallback(
@@ -278,17 +354,19 @@ export default function TasksPage() {
         toast.error("请先选择任务");
         return;
       }
-      const ids = Array.from(selectedIds);
+      const keys = Array.from(selectedIds);
       const isDelete = action === "delete";
 
-      if (isDelete && !confirm(`确认批量删除 ${ids.length} 个任务？`)) return;
+      if (isDelete && !confirm(`确认批量删除 ${keys.length} 个任务？`)) return;
 
       let ok = 0;
       let fail = 0;
-      for (const id of ids) {
+      for (const key of keys) {
         try {
-          const task = tasks.find((t) => t.ID === id);
-          const isGallery = task?.TaskType === 'gallery';
+          const task = tasks.find((t) => `${t.TaskType || 'video'}-${t.ID}` === key);
+          if (!task) { fail++; continue; }
+          const isGallery = task.TaskType === 'gallery';
+          const id = task.ID;
           if (isGallery) {
             if (action === 'start' || action === 'retry') {
               const res = await fetch(`/api/gallery/${id}/download`, { method: "POST" });
@@ -315,22 +393,22 @@ export default function TasksPage() {
         }
       }
       setSelectedIds(new Set());
-      fetchTasks();
       if (fail === 0) toast.success(`批量${actionLabel(action)}完成：${ok} 个`);
       else toast.warning(`完成：${ok} 成功，${fail} 失败`);
     },
-    [selectedIds, fetchTasks, tasks]
+    [selectedIds, tasks]
   );
 
-  const toggleExpand = (id: number) => {
-    setExpandedTask((prev) => (prev === id ? null : id));
-  };
+const toggleExpand = (task: DownloadTask) => {
+const key = `${task.TaskType || 'video'}-${task.ID}`;
+setExpandedTask(expandedTask === key ? null : key);
+};
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (key: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -339,7 +417,7 @@ export default function TasksPage() {
     if (selectedIds.size === filteredTasks.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredTasks.map((t) => t.ID)));
+      setSelectedIds(new Set(filteredTasks.map((t) => `${t.TaskType || 'video'}-${t.ID}`)));
     }
   };
 
@@ -351,13 +429,24 @@ export default function TasksPage() {
       {/* 下载列表 */}
       <div className="card tasks-list-card">
           <div className="tasks-toolbar">
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <div className="seg-capsule" style={{ flexShrink: 0 }}>
+              {TYPE_PILLS.map((pill) => (
+                <button
+                  key={pill.value}
+                  className={`seg-capsule-item ${typeFilter === pill.value ? "active" : ""}`}
+                  onClick={() => setTypeFilter(pill.value)}
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="seg-capsule" style={{ flexWrap: "wrap" }}>
               {FILTER_PILLS.map((pill) => (
                 <button
                   key={pill.value}
-                  className={`pill ${statusFilter === pill.value ? "active" : ""}`}
+                  className={`seg-capsule-item ${statusFilter === pill.value ? "active" : ""}`}
                   onClick={() => setStatusFilter(pill.value)}
-                  style={{ fontSize: 12 }}
                 >
                   {pill.label}
                   <span
@@ -419,14 +508,7 @@ export default function TasksPage() {
               />
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => fetchTasks()}
-              >
-                <RefreshCw size={14} />
-                刷新
-              </button>
+            <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center" }}>
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => setShowAddModal(true)}
@@ -544,20 +626,21 @@ export default function TasksPage() {
                       </button>
                     </th>
                     <th style={{ width: 56 }}>编号</th>
-                    <th style={{ width: 56, whiteSpace: "nowrap" }}>类型</th>
-                    <th style={{ width: 180 }}>标题</th>
-                    <th style={{ width: 80, whiteSpace: "nowrap" }}>来源</th>
-                    <th style={{ width: 90 }}>状态</th>
+                    <th style={{ width: 48, whiteSpace: "nowrap" }}>类型</th>
+                    <th style={{ width: 300 }}>标题</th>
+                    <th style={{ width: 64, whiteSpace: "nowrap" }}>来源</th>
+                    <th style={{ width: 68 }}>状态</th>
                     <th style={{ width: 140 }}>进度</th>
-                    <th style={{ width: 90, whiteSpace: "nowrap" }}>分片/数量</th>
-                    <th style={{ width: 90, whiteSpace: "nowrap" }}>文件大小</th>
-                    <th style={{ width: 180, whiteSpace: "nowrap" }}>操作</th>
+                    <th style={{ width: 80, whiteSpace: "nowrap" }}>分片/数量</th>
+                    <th style={{ width: 80, whiteSpace: "nowrap" }}>文件大小</th>
+                    <th style={{ width: 190, whiteSpace: "nowrap" }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTasks.map((task) => {
-                    const isSelected = selectedIds.has(task.ID);
+                    const isSelected = selectedIds.has(`${task.TaskType || 'video'}-${task.ID}`);
                     const isGallery = task.TaskType === 'gallery';
+                    const isIdentifying = task.Status === 'scraping';
                     const canStart = !isGallery
                       ? (task.Status === "pending" || task.Status === "paused")
                       : (task.Status === "failed" || task.Status === "pending");
@@ -565,34 +648,42 @@ export default function TasksPage() {
                     const canCancel = !isGallery &&
                       (task.Status === "downloading" ||
                       task.Status === "paused" ||
-                      task.Status === "pending");
+                      task.Status === "pending" ||
+                      task.Status === "scraping");
                     const canRetry = task.Status === "failed";
                     const canDelete = true;
-                    const idStr = String(task.ID);
+                    const idStr = String(task.DisplayID ?? task.ID);
                     const idDisplay =
                       idStr.length > 8
                         ? idStr.slice(0, 8) + "..."
                         : idStr;
-                    const titleDisplay = isGallery
-                      ? (task.GalleryTitle || task.URL)
-                      : (task.VideoInfo?.Title || task.URL);
-                    const urlDisplay =
-                      titleDisplay.length > 30
-                        ? titleDisplay.slice(0, 27) + "..."
-                        : titleDisplay;
+
+                    const rawTitle = isGallery
+                      ? (task.GalleryTitle || "")
+                      : (task.VideoInfo?.Title || "");
+                    const titleDisplay = isIdentifying && !rawTitle
+                      ? "识别中..."
+                      : (rawTitle || task.URL);
                     const progress = task.Progress;
                     const progressPct = progress.toFixed(1) + "%";
+                    const stage = getProgressStage(task);
                     const fillClass =
                       task.Status === "completed"
                         ? "completed"
                         : task.Status === "failed" || task.Status === "cancelled"
                         ? "failed"
+                        : isIdentifying
+                        ? ""
                         : "";
 
+                    const siteModule = getSiteModuleByUrl(
+                      task.VideoInfo?.SourceURL || task.URL || ""
+                    );
+
                     return (
-                      <Fragment key={task.ID}>
-                        <tr
-                          onClick={() => toggleExpand(task.ID)}
+                    <Fragment key={`${task.TaskType || 'video'}-${task.ID}`}>
+                      <tr
+onClick={() => toggleExpand(task)}
                           style={{
                             cursor: "pointer",
                             background: isSelected
@@ -602,7 +693,7 @@ export default function TasksPage() {
                         >
                           <td onClick={(e) => e.stopPropagation()}>
                             <button
-                              onClick={() => toggleSelect(task.ID)}
+                              onClick={() => toggleSelect(`${task.TaskType || 'video'}-${task.ID}`)}
                               style={{
                                 background: "none",
                                 border: "none",
@@ -632,32 +723,14 @@ export default function TasksPage() {
                             {isGallery ? (
                               <span
                                 title="图库任务"
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 6,
-                                  background: "var(--accent-soft)",
-                                  color: "var(--accent)",
-                                }}
+                                style={{ color: "var(--text-muted)" }}
                               >
                                 <ImageIcon size={15} />
                               </span>
                             ) : (
                               <span
                                 title="视频任务"
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 6,
-                                  background: "var(--bg-inset)",
-                                  color: "var(--text-secondary)",
-                                }}
+                                style={{ color: "var(--text-muted)" }}
                               >
                                 <Film size={15} />
                               </span>
@@ -665,44 +738,29 @@ export default function TasksPage() {
                           </td>
                           <td
                             style={{
-                              maxWidth: 180,
+                              maxWidth: 0,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                             }}
                             title={titleDisplay}
                           >
-                            {urlDisplay}
+                            {isIdentifying && !rawTitle ? (
+                              <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
+                                {titleDisplay}
+                              </span>
+                            ) : (
+                              titleDisplay
+                            )}
                           </td>
                           <td>
-                            {(() => {
-                              const srcUrl = task.VideoInfo?.SourceURL || task.URL || "";
-                              const site = SITES.find((s) => {
-                                try {
-                                  const host = new URL(s.baseUrl).hostname.toLowerCase();
-                                  return (
-                                    srcUrl.toLowerCase().includes(host) ||
-                                    srcUrl.toLowerCase().includes(s.id)
-                                  );
-                                } catch {
-                                  return srcUrl.toLowerCase().includes(s.id);
-                                }
-                              });
-                              return site ? (
-                                <span
-                                  className="badge"
-                                  style={{
-                                    fontSize: 11,
-                                    background: site.badge.gradient,
-                                    color: site.badge.textColor,
-                                  }}
-                                >
-                                  {site.nameCn}
-                                </span>
-                              ) : (
-                                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
-                              );
-                            })()}
+                            {siteModule ? (
+                            <span className="source-pill">
+                              {siteModule.nameCn}
+                            </span>
+                            ) : (
+                              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
+                            )}
                           </td>
                           <td>
                             <span className={`status-pill status-pill-${task.Status}`}>
@@ -713,35 +771,57 @@ export default function TasksPage() {
                             <div
                               style={{
                                 display: "flex",
-                                alignItems: "center",
-                                gap: 8,
+                                flexDirection: "column",
+                                gap: 3,
+                                minWidth: 70,
                               }}
                             >
-                              <div className="progress-bar" style={{ minWidth: 60 }}>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: "var(--text-secondary)",
+                                  whiteSpace: "nowrap",
+                                  lineHeight: "16px",
+                                  fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace",
+                                }}
+                              >
+                                {isIdentifying ? stage : progressPct}
+                              </span>
+                              <div className="progress-bar" style={{ width: "100%" }}>
                                 <div
-                                  className={`progress-bar-fill ${fillClass}`}
-                                  style={{ width: `${progress}%` }}
+                                  className={`progress-bar-fill ${fillClass} ${isIdentifying ? "progress-bar-indeterminate" : ""}`}
+                                  style={isIdentifying ? {} : { width: `${progress}%` }}
                                 />
                               </div>
-                              <span className="progress-text">
-                                {progressPct}
-                              </span>
                             </div>
                           </td>
-                          <td style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                            {isGallery ? (
-                              <span title={`图片 ${task.ImageCount ?? 0} / 视频 ${task.VideoCount ?? 0}`}>
-                                {task.ImageCount || 0}P{task.VideoCount || 0}V
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            {isIdentifying ? (
+                              <span style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: 12 }}>识别中...</span>
+                            ) : isGallery ? (
+                              <span className="dual-capsule" title={`图片 ${task.ImageCount ?? 0} / 视频 ${task.VideoCount ?? 0}`}>
+                                <span className="dual-capsule-left accent-green">{task.ImageCount || 0}P</span>
+                                <span className="dual-capsule-right accent-orange">{task.VideoCount || 0}V</span>
                               </span>
                             ) : task.TotalSegments ? (
-                              `${task.Segment ?? 0}/${task.TotalSegments}`
+                              <span className="dual-capsule" title={`分片 ${task.Segment ?? 0} / ${task.TotalSegments}`}>
+                                <span className="dual-capsule-left">{task.Segment ?? 0}</span>
+                                <span className="dual-capsule-right">{task.TotalSegments}</span>
+                              </span>
                             ) : (
-                              "—"
+                              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
                             )}
                           </td>
                           <td style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                             {isGallery ? (
-                              task.FilePath ? task.FilePath.split(/[/\\]/).pop() || "—" : "—"
+                              task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
+                                ? formatFileSize(task.DownloadInfo.ActualSize)
+                                : task.DownloadInfo?.FileSizeText
+                                  ? task.DownloadInfo.FileSizeText
+                                  : task.FilePath
+                                    ? task.FilePath.split(/[/\\]/).pop() || "—"
+                                    : "—"
                             ) : task.VideoInfo?.FileSize ? (
                               `${(task.VideoInfo.FileSize / 1024 / 1024).toFixed(1)} MB`
                             ) : (
@@ -755,7 +835,7 @@ export default function TasksPage() {
                                   className="btn btn-primary btn-sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleAction(task.ID, "start");
+                                    handleAction(task, "start");
                                   }}
                                   title="开始"
                                 >
@@ -767,7 +847,7 @@ export default function TasksPage() {
                                   className="btn btn-warning btn-sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleAction(task.ID, "pause");
+                                    handleAction(task, "pause");
                                   }}
                                   title="暂停"
                                 >
@@ -779,7 +859,7 @@ export default function TasksPage() {
                                   className="btn btn-danger btn-sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleAction(task.ID, "cancel");
+                                    handleAction(task, "cancel");
                                   }}
                                   title="取消"
                                 >
@@ -791,7 +871,7 @@ export default function TasksPage() {
                                   className="btn btn-outline btn-sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDelete(task.ID);
+                                    handleDelete(task);
                                   }}
                                   title="删除"
                                 >
@@ -803,13 +883,66 @@ export default function TasksPage() {
                                   className="btn btn-outline btn-sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleAction(task.ID, "retry");
+                                    handleAction(task, "retry");
                                   }}
                                   title="重试"
                                 >
                                   <RotateCw size={14} />
                                 </button>
                               )}
+                              <button
+                                className="btn btn-outline btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const isGallery = task.TaskType === 'gallery';
+                                  const summary = {
+                                    ID: task.ID,
+                                    DisplayID: task.DisplayID,
+                                    Type: isGallery ? '图包' : '视频',
+                                    Title: isGallery ? (task.GalleryTitle || '—') : (task.VideoInfo?.Title || '—'),
+                                    URL: task.URL,
+                                    M3U8URL: task.M3U8URL || undefined,
+                                    Status: STATUS_LABEL[task.Status] ?? task.Status,
+                                    Progress: `${task.Progress.toFixed(1)}%`,
+                                    FilePath: task.FilePath || undefined,
+                                    CreatedAt: task.CreatedAt ? new Date(task.CreatedAt).toLocaleString('zh-CN') : undefined,
+                                    UpdatedAt: task.UpdatedAt ? new Date(task.UpdatedAt).toLocaleString('zh-CN') : undefined,
+                                    ...(isGallery ? {
+                                      ImageCount: task.ImageCount ?? 0,
+                                      VideoCount: task.VideoCount ?? 0,
+                                      DownloadMethod: task.DownloadMethod,
+                                      DownloadInfo: task.DownloadInfo ? {
+                                        FileSizeText: task.DownloadInfo.FileSizeText,
+                                        ActualSize: task.DownloadInfo.ActualSize > 0 ? formatFileSize(task.DownloadInfo.ActualSize) : undefined,
+                                        Provider: task.DownloadInfo.Provider,
+                                        Status: task.DownloadInfo.Status,
+                                        DownloadURL: task.DownloadInfo.DownloadURL,
+                                        ZipFileName: task.DownloadInfo.ZipFileName || undefined,
+                                        Parallelism: task.DownloadInfo.Parallelism || undefined,
+                                        AvgSpeed: task.DownloadInfo.AvgSpeed || undefined,
+                                        VerifiedCount: task.DownloadInfo.VerifiedCount || undefined,
+                                        CountMatched: task.DownloadInfo.CountMatched,
+                                      } : undefined,
+                                    } : {
+                                      Segment: task.Segment ?? undefined,
+                                      TotalSegments: task.TotalSegments ?? undefined,
+                                      FileSize: task.VideoInfo?.FileSize ? formatFileSize(task.VideoInfo.FileSize) : undefined,
+                                      Duration: task.VideoInfo?.Duration ? `${task.VideoInfo.Duration} 分钟` : undefined,
+                                      Resolution: task.VideoInfo?.Resolution || undefined,
+                                      Tags: task.VideoInfo?.Tags?.length ? task.VideoInfo.Tags : undefined,
+                                      Actors: task.VideoInfo?.Actors?.length ? task.VideoInfo.Actors : undefined,
+                                    }),
+                                    ErrorMsg: task.ErrorMsg || undefined,
+                                  };
+                                  navigator.clipboard.writeText(JSON.stringify(summary, null, 2)).then(
+                                    () => toast.success(`已复制 #${task.DisplayID ?? task.ID} 数据`),
+                                    () => toast.error("复制失败"),
+                                  );
+                                }}
+                                title="复制任务数据"
+                              >
+                                <Copy size={14} />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -900,16 +1033,16 @@ export default function TasksPage() {
         )}
 
         {/* 任务详情悬浮窗 */}
-        {expandedTask !== null && (() => {
-          const task = tasks.find((t) => t.ID === expandedTask);
-          if (!task) return null;
+{expandedTask !== null && (() => {
+const task = tasks.find((t) => `${t.TaskType || 'video'}-${t.ID}` === expandedTask);
+if (!task) return null;
           const isGalleryTask = task.TaskType === 'gallery';
           return (
             <div className="task-detail-overlay" onClick={() => setExpandedTask(null)}>
               <div className="task-detail-popover" onClick={(e) => e.stopPropagation()}>
                 <div className="task-detail-popover-header">
                   <span className="task-detail-popover-title">
-                    {isGalleryTask ? '图库' : '任务'}详情 #{task.ID}
+                    {isGalleryTask ? '图包' : '任务'}详情 #{task.DisplayID ?? task.ID}
                   </span>
                   <button
                     className="btn-close"
@@ -990,7 +1123,7 @@ export default function TasksPage() {
                         </span>
                       </div>
                     )}
-                    {isGalleryTask && (task.ImageCount !== undefined || task.VideoCount !== undefined) && (
+                    {isGalleryTask && (task.ImageCount !== undefined || task.VideoCount !== undefined || (task.DownloadMethod && task.DownloadMethod !== 'pending')) && (
                       <div className="task-detail-row full-width">
                         <div className="task-detail-item task-detail-item-flex">
                           <span className="task-detail-label">图片数量</span>
@@ -1000,16 +1133,14 @@ export default function TasksPage() {
                           <span className="task-detail-label">视频数量</span>
                           <span className="task-detail-value">{task.VideoCount ?? 0} 个</span>
                         </div>
-                      </div>
-                    )}
-                    {isGalleryTask && task.DownloadMethod && task.DownloadMethod !== 'pending' && (
-                      <div className="task-detail-item">
-                        <span className="task-detail-label">下载方式</span>
-                        <span className="task-detail-value">
-                          {task.DownloadMethod === 'zip' ? 'ZIP 压缩包' :
-                           task.DownloadMethod === 'scrape' ? '逐张爬取' :
-                           task.DownloadMethod === 'both' ? 'ZIP + 爬取' : task.DownloadMethod}
-                        </span>
+                        <div className="task-detail-item task-detail-item-flex">
+                          <span className="task-detail-label">下载方式</span>
+                          <span className="task-detail-value">
+                            {task.DownloadMethod === 'zip' ? 'ZIP 压缩包' :
+                             task.DownloadMethod === 'scrape' ? '逐张爬取' :
+                             task.DownloadMethod === 'both' ? 'ZIP + 爬取' : (task.DownloadMethod ?? '—')}
+                          </span>
+                        </div>
                       </div>
                     )}
                     {task.ErrorMsg && (
@@ -1041,34 +1172,13 @@ export default function TasksPage() {
                         </span>
                       </div>
                     )}
-                    <div className="task-detail-row full-width">
-                      <div className="task-detail-item task-detail-item-flex">
-                        <span className="task-detail-label">分类</span>
-                        <span className="task-detail-value">
-                          {task.VideoInfo?.Categories && task.VideoInfo.Categories.length > 0 ? (
-                            <div className="task-detail-tags">
-                              {task.VideoInfo.Categories.map((cat) => (
-                                <span
-                                  key={cat}
-                                  className="pill pill-clickable"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(cat);
-                                    toast.success("已复制");
-                                  }}
-                                >
-                                  {cat}
-                                </span>
-                              ))}
-                            </div>
-                          ) : "—"}
-                        </span>
-                      </div>
-                      <div className="task-detail-item task-detail-item-flex">
+                    {isGalleryTask && task.GalleryTitle && (
+                      <div className="task-detail-item full-width">
                         <span className="task-detail-label">标签</span>
                         <span className="task-detail-value">
-                          {task.VideoInfo?.Tags && task.VideoInfo.Tags.length > 0 ? (
+                          {task.GalleryTitle ? (
                             <div className="task-detail-tags">
-                              {task.VideoInfo.Tags.map((tag) => (
+                              {task.GalleryTitle.split(/[\s\-_,]+/).filter((t: string) => t.length > 1 && !/\d+P/i.test(t)).slice(0, 8).map((tag: string) => (
                                 <span
                                   key={tag}
                                   className="pill pill-clickable"
@@ -1084,7 +1194,32 @@ export default function TasksPage() {
                           ) : "—"}
                         </span>
                       </div>
-                    </div>
+                    )}
+                    {!isGalleryTask && (
+                      <div className="task-detail-row full-width">
+                        <div className="task-detail-item task-detail-item-flex">
+                          <span className="task-detail-label">标签</span>
+                          <span className="task-detail-value">
+                            {task.VideoInfo?.Tags && task.VideoInfo.Tags.length > 0 ? (
+                              <div className="task-detail-tags">
+                                {task.VideoInfo.Tags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="pill pill-clickable"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(tag);
+                                      toast.success("已复制");
+                                    }}
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {task.VideoInfo?.Actors && task.VideoInfo.Actors.length > 0 && (
                       <div className="task-detail-item full-width">
                         <span className="task-detail-label">演员</span>
@@ -1097,7 +1232,7 @@ export default function TasksPage() {
                         <span className="task-detail-value">{task.VideoInfo.Director}</span>
                       </div>
                     )}
-                    {(task.VideoInfo?.Duration || task.VideoInfo?.Resolution || task.VideoInfo?.FileSize || task.CreatedAt) && (
+                    {(task.VideoInfo?.Duration || task.VideoInfo?.Resolution || task.VideoInfo?.FileSize || task.CreatedAt || isGalleryTask) && (
                       <>
                         <div className="task-detail-divider" />
                         <div className="task-detail-info-bar">
@@ -1119,6 +1254,18 @@ export default function TasksPage() {
                               <span className="info-bar-text">{(task.VideoInfo.FileSize / 1024 / 1024).toFixed(2)} MB</span>
                             </div>
                           ) : null}
+                          {isGalleryTask && (
+                            <div className="info-bar-item">
+                              <HardDrive size={14} className="info-bar-icon" />
+                              <span className="info-bar-text">
+                                {task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
+                                  ? formatFileSize(task.DownloadInfo.ActualSize)
+                                  : task.DownloadInfo?.FileSizeText
+                                    ? task.DownloadInfo.FileSizeText
+                                    : '—'}
+                              </span>
+                            </div>
+                          )}
                           {task.CreatedAt && (
                             <div className="info-bar-item">
                               <Calendar size={14} className="info-bar-icon" />

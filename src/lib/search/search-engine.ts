@@ -5,7 +5,7 @@
  * @lastModified 2026-07-09
  */
 
-import { chromium, Browser } from 'playwright';
+import { Browser } from 'playwright';
 import type { SearchJob, SearchLogEntry, SearchItem, BatchSearchJob, ScrapeResult } from '@/types';
 import prisma from '@/lib/db/prisma';
 import { getDownloadManager, mapTask } from '@/lib/api-helpers';
@@ -15,6 +15,7 @@ import { KanavProvider } from '@/lib/sites';
 import { AimeiziziProvider } from '@/lib/sites';
 import { ttlLock } from '@/lib/core/ttl-lock';
 import { eventBus } from '@/lib/core/event-bus';
+import { getSharedBrowser } from '@/lib/core/browser-pool';
 import {
   sleep,
   randomDelay,
@@ -28,6 +29,7 @@ import {
   MAX_RETRIES,
 } from '@/lib/core/anti-crawler';
 import { BatchScheduler } from '@/lib/core/batch-scheduler';
+import { allocateSeq } from '@/lib/core/seq-allocator';
 
 const MAX_RESULTS_PER_KEYWORD = 50;
 /** 每个关键词最大翻页数 */
@@ -81,7 +83,6 @@ function titleSimilarity(input: string, candidate: string): number {
 }
 
 export class SearchEngine {
-  private browser: Browser | null = null;
   private activeJobs: Map<string, SearchJob> = new Map();
   private cancelledJobs: Set<string> = new Set();
   private scrapingItems: Set<string> = new Set();
@@ -89,13 +90,7 @@ export class SearchEngine {
   private cancelledBatchJobs: Set<string> = new Set();
 
   private async getBrowser(): Promise<Browser> {
-    if (!this.browser || !this.browser.isConnected()) {
-      this.browser = await chromium.launch({
-        headless: true,
-        channel: 'chrome',
-      });
-    }
-    return this.browser;
+    return getSharedBrowser();
   }
 
   private log(job: SearchJob, message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
@@ -464,12 +459,14 @@ export class SearchEngine {
           }
         }
 
+        const searchSeq = await allocateSeq();
         const task = await prisma.downloadTask.create({
           data: {
             url: targetItem.pageUrl,
             m3u8Url: scrapeResult.m3u8_url,
             format: 'mp4',
             status: 'pending',
+            seq: searchSeq,
             videoInfo: {
               create: {
                 title: scrapeResult.title || targetItem.title || '',
@@ -591,12 +588,14 @@ export class SearchEngine {
               }
             }
 
+            const searchSeq2 = await allocateSeq();
             const task = await prisma.downloadTask.create({
               data: {
                 url: item.pageUrl,
                 m3u8Url: scrapeResult.m3u8_url,
                 format: 'mp4',
                 status: 'pending',
+                seq: searchSeq2,
                 videoInfo: {
                   create: {
                     title: scrapeResult.title || item.title || '',
@@ -960,12 +959,14 @@ export class SearchEngine {
           }
         }
 
+        const batchSeq = await allocateSeq();
         const task = await prisma.downloadTask.create({
           data: {
             url: best.item.url,
             m3u8Url: scrapeResult.m3u8_url,
             format: 'mp4',
             status: 'pending',
+            seq: batchSeq,
             videoInfo: {
               create: {
                 title: scrapeResult.title || title,
@@ -1033,10 +1034,7 @@ export class SearchEngine {
   }
 
   async close(): Promise<void> {
-    if (this.browser) {
-      await this.browser.close().catch(() => {});
-      this.browser = null;
-    }
+    // 共享浏览器由 browser-pool 统一管理，此处无需关闭
   }
 }
 

@@ -23,6 +23,7 @@ import { getSharedBrowser } from '@/lib/core/browser-pool';
 import { ttlLock } from '@/lib/core/ttl-lock';
 import { eventBus } from '@/lib/core/event-bus';
 import { createStealthPage, sleep, randomDelay } from '@/lib/core/anti-crawler';
+import { allocateSeq } from '@/lib/core/seq-allocator';
 import { parseTitleCount, detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
 import { getGalleryDownloader } from '@/lib/downloader/gallery-downloader';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
@@ -64,9 +65,10 @@ async function processSingleGallery(
     };
   }
 
+  const seq = await allocateSeq();
   const gallery = await prisma.gallery.upsert({
     where: { sourceUrl: url },
-    create: { sourceUrl: url, siteId: provider.id, status: 'scraping' },
+    create: { sourceUrl: url, siteId: provider.id, status: 'scraping', seq },
     update: { status: 'scraping' },
   });
 

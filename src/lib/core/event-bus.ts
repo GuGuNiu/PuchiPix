@@ -22,11 +22,13 @@
 export interface EventMap {
   // 下载任务事件
   'task:created': { taskId: number; title?: string; source?: string };
-  'task:progress': { taskId: number; progress: number; status: string; speed?: string };
+  'task:progress': { taskId: number; progress: number; status: string; speed?: string; segment?: number; total?: number };
   'task:completed': { taskId: number; title?: string };
   'task:failed': { taskId: number; error: string };
   'task:cancelled': { taskId: number };
+  'task:deleted': { taskId: number };
   'task:scraped': { taskId: number; m3u8URL: string; title: string };
+  'task:scraping': { taskId: number; url: string };
 
   // 搜索事件
   'search:started': { jobId: string; keywords: string[] };
@@ -49,8 +51,9 @@ export interface EventMap {
   'gallery:scrapeFailed': { galleryId: number; url: string; error: string };
   'gallery:downloadStarted': { galleryId: number; total: number };
   'gallery:downloadProgress': { galleryId: number; completed: number; total: number; failed: number };
-  'gallery:downloadCompleted': { galleryId: number; success: number; failed: number; skipped: number; savePath: string };
+  'gallery:downloadCompleted': { galleryId: number; success: number; failed: number; skipped: number; savePath: string; status: string; actualImages: number; actualVideos: number; expectedImages: number; expectedVideos: number };
   'gallery:downloadFailed': { galleryId: number; error: string };
+  'gallery:deleted': { galleryId: number };
 
   // 图库 ZIP 压缩包事件
   'gallery:zipDownloadStarted': { galleryId: number; url: string };

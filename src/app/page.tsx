@@ -1,6 +1,24 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+/**
+ * 仪表盘首页
+ *
+ * 浅色主题运维监控面板，全宽布局，包含：
+ * - 顶部实时数据条（总任务、进行中、已完成、失败）
+ * - KPI 统计卡片（带数字滚动动画，从 SSE 任务流实时派生）
+ * - 站点健康状态监控网格
+ * - 实时速度图表
+ * - 最近任务活动流
+ * - 快速任务输入
+ *
+ * 实时策略：
+ * - KPI 计数（总数/进行中/已完成/失败）从 SSE 任务列表 useMemo 派生，零延迟
+ * - 体积/速度等聚合数据通过 /api/stats 每 30 秒补充轮询
+ *
+ * @lastModified 2026-07-12
+ */
+
+import { useEffect, useState, useMemo, FormEvent } from "react";
 import { toast } from "sonner";
 import {
   Plus,
@@ -9,7 +27,6 @@ import {
   CheckCircle2,
   XCircle,
   Download,
-  History,
   Images,
   ArrowRight,
   Activity,
@@ -26,68 +43,93 @@ import { AnimatedNumber } from "@/components/ops/animated-number";
 import { DataStream, SpeedGraph, useSpeedHistory } from "@/components/ops/data-stream";
 import { SiteMonitorGrid } from "@/components/ops/site-monitor-grid";
 
-/**
- * 仪表盘首页
- *
- * 浅色主题运维监控面板，全宽布局，包含：
- * - 顶部实时数据条（总任务、进行中、已完成、失败）
- * - KPI 统计卡片（带数字滚动动画）
- * - 站点健康状态监控网格
- * - 实时速度图表
- * - 最近任务活动流
- * - 快速任务输入
- *
- * @lastModified 2026-07-09
- */
+const STATS_POLL_INTERVAL = 30000;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export default function Dashboard() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [recent, setRecent] = useState<DownloadTask[]>([]);
-  const { tasks, fetchTasks, subscribeToSocket } = useTaskStore();
-  const speedHistory = useSpeedHistory(stats?.current_speed ?? 0);
+  const { tasks, sseConnected, fetchTasks, connectSSE } = useTaskStore();
+  const [apiStats, setApiStats] = useState<Stats | null>(null);
+  const speedHistory = useSpeedHistory(apiStats?.current_speed ?? 0);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchStats = async () => {
       try {
-        const statsRes = await fetch("/api/stats")
-          .then((r) => r.json())
-          .catch(() => null);
-        if (statsRes) setStats(statsRes);
+        const res = await fetch("/api/stats");
+        if (res.ok) {
+          const data = await res.json();
+          setApiStats(data);
+        }
       } catch {
         /* ignore */
       }
     };
-    fetchData();
+    fetchStats();
     fetchTasks();
-    const interval = setInterval(fetchData, 5000);
-    const unsub = subscribeToSocket();
+    const interval = setInterval(fetchStats, STATS_POLL_INTERVAL);
+    const unsub = connectSSE();
     return () => {
       clearInterval(interval);
       unsub();
     };
-  }, [fetchTasks, subscribeToSocket]);
+  }, [fetchTasks, connectSSE]);
 
-  useEffect(() => {
-    setRecent(tasks.slice(0, 8));
+  // 从 SSE 任务列表实时派生 KPI 计数
+  const derivedStats = useMemo(() => {
+    let downloading = 0;
+    let completed = 0;
+    let failed = 0;
+    let totalSize = 0;
+
+    for (const t of tasks) {
+      if (t.Status === "downloading" || t.Status === "scraping" || t.Status === "transcoding") {
+        downloading++;
+      } else if (t.Status === "completed") {
+        completed++;
+      } else if (t.Status === "failed") {
+        failed++;
+      }
+      if (t.VideoInfo?.FileSize) {
+        totalSize += t.VideoInfo.FileSize;
+      }
+    }
+
+    return {
+      total_tasks: tasks.length,
+      downloading_tasks: downloading,
+      completed_tasks: completed,
+      failed_tasks: failed,
+      total_size: totalSize,
+      total_size_str: formatFileSize(totalSize),
+    };
   }, [tasks]);
 
-  const s = stats ?? {
-    total_tasks: 0,
-    downloading_tasks: 0,
-    completed_tasks: 0,
-    failed_tasks: 0,
-    total_size: 0,
-    total_size_str: "0 B",
-    avg_speed: 0,
-    avg_speed_str: "0 B/s",
-    current_speed: 0,
-    current_speed_str: "0 B/s",
-    speed_rating: 0,
+  const recent = useMemo(() => tasks.slice(0, 8), [tasks]);
+
+  // 合并：SSE 派生数据优先，apiStats 补充无法派生的字段
+  const s: Stats = {
+    total_tasks: derivedStats.total_tasks,
+    downloading_tasks: derivedStats.downloading_tasks,
+    completed_tasks: derivedStats.completed_tasks,
+    failed_tasks: derivedStats.failed_tasks,
+    total_size: derivedStats.total_size,
+    total_size_str: derivedStats.total_size_str,
+    avg_speed: apiStats?.avg_speed ?? 0,
+    avg_speed_str: apiStats?.avg_speed_str ?? "0 B/task",
+    current_speed: apiStats?.current_speed ?? 0,
+    current_speed_str: apiStats?.current_speed_str ?? "0 B/s",
+    speed_rating: apiStats?.speed_rating ?? 0,
   };
 
   return (
     <div className="dashboard-page">
       {/* ─── 顶部实时数据条 ─── */}
-      <RealtimeTicker stats={s} />
+      <RealtimeTicker stats={s} sseConnected={sseConnected} />
 
       {/* ─── KPI 统计卡片 ─── */}
       <OpsStatsGrid stats={s} />
@@ -114,12 +156,12 @@ export default function Dashboard() {
    实时数据条
    ================================================================ */
 
-function RealtimeTicker({ stats }: { stats: Stats }) {
+function RealtimeTicker({ stats, sseConnected }: { stats: Stats; sseConnected: boolean }) {
   return (
     <div className="ops-ticker">
       <div className="ticker-item">
-        <div className="ticker-dot" />
-        <span className="ticker-label">系统运行中</span>
+        <div className={`ticker-dot ${sseConnected ? "" : "ticker-dot-offline"}`} />
+        <span className="ticker-label">{sseConnected ? "实时连接" : "离线"}</span>
       </div>
       <div className="ticker-item">
         <span className="ticker-label">总任务</span>
@@ -141,7 +183,7 @@ function RealtimeTicker({ stats }: { stats: Stats }) {
       </div>
       <div className="ticker-item">
         <Wifi size={12} style={{ color: "var(--neon-cyan)" }} />
-        <span className="ticker-label">实时</span>
+        <span className="ticker-label">速度</span>
         <span className="ticker-value live">
           {stats.current_speed_str}
         </span>
@@ -246,7 +288,6 @@ function OpsStatsGrid({ stats }: { stats: Stats }) {
 const LINKS = [
     { href: "/tasks" as const, icon: Download, label: "任务管理", desc: "查看和管理下载任务" },
     { href: "/gallery" as const, icon: Images, label: "图包架", desc: "浏览已下载的图包" },
-    { href: "/history" as const, icon: History, label: "下载历史", desc: "浏览历史下载记录" },
 ];
 
 function QuickLinks() {
@@ -278,7 +319,6 @@ function QuickLinks() {
 
 function DashInputCard() {
   const [urls, setUrls] = useState("");
-  const [format, setFormat] = useState("mp4");
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -298,28 +338,32 @@ function DashInputCard() {
     }
 
     setSubmitting(true);
-    let ok = 0;
-    let fail = 0;
-    for (const u of list) {
-      try {
-        const res = await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: u, format }),
-        });
-        if (res.ok) ok++;
-        else fail++;
-      } catch {
-        fail++;
-      }
-    }
-    setSubmitting(false);
     setUrls("");
-    if (fail === 0) {
-      toast.success(`已添加 ${ok} 个任务`);
-    } else {
-      toast.warning(`完成：${ok} 成功，${fail} 失败`);
+
+    for (const u of list) {
+      fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          if (data?.type === "gallery") {
+            toast.success(`图库 #${data.galleryId} 已创建`);
+          } else if (data?.ID) {
+            toast.success(`任务 #${data.ID} 已创建`);
+          }
+        })
+        .catch((err) => {
+          toast.error(`添加失败: ${err.message}`);
+        });
     }
+
+    setSubmitting(false);
+    toast.success(`已提交 ${list.length} 个任务`);
   };
 
   return (
@@ -334,15 +378,6 @@ function DashInputCard() {
           onChange={(e) => setUrls(e.target.value)}
         />
         <div className="dash-input-actions">
-          <div className="format-pills">
-            <button
-              type="button"
-              className={`pill ${format === "mp4" ? "active" : ""}`}
-              onClick={() => setFormat("mp4")}
-            >
-              MP4
-            </button>
-          </div>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
             {submitting ? "添加中..." : <><Plus size={16} />添加任务</>}
           </button>
@@ -392,17 +427,20 @@ function RecentTasks({ tasks, loading }: { tasks: DownloadTask[]; loading: boole
           </div>
         ) : (
           tasks.map((t) => {
-            const titleDisplay = t.VideoInfo?.Title || t.URL;
+            const isGallery = t.TaskType === "gallery";
+            const titleDisplay = isGallery
+              ? (t.GalleryTitle || t.URL)
+              : (t.VideoInfo?.Title || t.URL);
             const urlDisplay =
               titleDisplay.length > 40 ? titleDisplay.slice(0, 37) + "..." : titleDisplay;
             return (
-              <div className="ops-activity-item" key={t.ID}>
+              <div className="ops-activity-item" key={`${t.TaskType || "video"}-${t.ID}`}>
                 <StatusDot status={t.Status} />
                 <span className="ops-activity-text" title={titleDisplay}>
                   {urlDisplay}
                 </span>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
-                  {t.Progress.toFixed(0)}%
+                  {t.Status === "scraping" ? "识别中" : `${t.Progress.toFixed(0)}%`}
                 </span>
               </div>
             );
@@ -416,10 +454,13 @@ function RecentTasks({ tasks, loading }: { tasks: DownloadTask[]; loading: boole
 function StatusDot({ status }: { status: TaskStatus }) {
   const colorMap: Record<string, string> = {
     completed: "var(--success)",
+    partial: "var(--warning)",
     downloading: "var(--info)",
+    scraping: "var(--neon-cyan)",
     failed: "var(--danger)",
   };
   const color = colorMap[status] ?? "var(--text-muted)";
+  const animate = status === "downloading" || status === "scraping";
 
   return (
     <div
@@ -430,28 +471,8 @@ function StatusDot({ status }: { status: TaskStatus }) {
         background: color,
         boxShadow: `0 0 6px ${color}`,
         flexShrink: 0,
-        animation: status === "downloading" ? "pulse-glow 1.5s ease-in-out infinite" : "none",
+        animation: animate ? "pulse-glow 1.5s ease-in-out infinite" : "none",
       }}
     />
   );
 }
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  pending: "等待中",
-  downloading: "下载中",
-  paused: "已暂停",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  transcoding: "转码中",
-};
-
-const STATUS_CLASS: Record<TaskStatus, string> = {
-  pending: "badge-default",
-  downloading: "badge-info",
-  paused: "badge-warning",
-  completed: "badge-success",
-  failed: "badge-danger",
-  cancelled: "badge-default",
-  transcoding: "badge-default",
-};

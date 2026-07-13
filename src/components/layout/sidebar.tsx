@@ -6,21 +6,22 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   LayoutDashboard,
   Download,
-  History,
   Settings,
   Radar,
   MoreHorizontal,
   ChevronLeft,
   Play,
   Images,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme } from "@/components/providers/theme-provider";
 
 const navItems = [
   { href: "/", label: "仪表盘", icon: LayoutDashboard },
   { href: "/tasks", label: "任务管理", icon: Download },
   { href: "/gallery", label: "图包架", icon: Images },
   { href: "/search", label: "搜索", icon: Radar },
-  { href: "/history", label: "历史", icon: History },
   { href: "/config", label: "配置", icon: Settings },
 ];
 
@@ -29,6 +30,7 @@ const mobileSecondary = navItems.slice(4);
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [hoverExpand, setHoverExpand] = useState(false);
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,6 +45,7 @@ export default function Sidebar() {
     setCollapsed((prev) => {
       const next = !prev;
       localStorage.setItem("sidebar-collapsed", String(next));
+      window.dispatchEvent(new CustomEvent("sidebar:collapsed", { detail: next }));
       return next;
     });
     setHoverExpand(false);
@@ -52,13 +55,19 @@ export default function Sidebar() {
     if (!collapsed) return;
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
     if (expandTimer.current) clearTimeout(expandTimer.current);
-    expandTimer.current = setTimeout(() => setHoverExpand(true), 100);
+    expandTimer.current = setTimeout(() => {
+      setHoverExpand(true);
+      window.dispatchEvent(new CustomEvent("sidebar:hover-expand", { detail: true }));
+    }, 100);
   }, [collapsed]);
 
   const handleMouseLeave = useCallback(() => {
     if (expandTimer.current) clearTimeout(expandTimer.current);
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
-    collapseTimer.current = setTimeout(() => setHoverExpand(false), 200);
+    collapseTimer.current = setTimeout(() => {
+      setHoverExpand(false);
+      window.dispatchEvent(new CustomEvent("sidebar:hover-expand", { detail: false }));
+    }, 200);
   }, []);
 
   useEffect(() => {
@@ -105,6 +114,24 @@ export default function Sidebar() {
             );
           })}
         </nav>
+        <div className="theme-toggle-section">
+          <div className="theme-toggle-divider" />
+          <button
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            title={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
+            aria-label={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
+          >
+            <span className="theme-toggle-icon-wrap">
+              <Sun size={18} strokeWidth={2} className="theme-toggle-icon-light" />
+              <Moon size={18} strokeWidth={2} className="theme-toggle-icon-dark" />
+            </span>
+            <span className="theme-toggle-label">
+              {theme === "light" ? "日间模式" : "夜间模式"}
+            </span>
+            <span className="theme-toggle-slider" />
+          </button>
+        </div>
         <div className="sidebar-footer">
           <span>v0.1.0</span>
         </div>
@@ -156,6 +183,13 @@ export default function Sidebar() {
                 </Link>
               );
             })}
+            <button
+              className="bottom-nav-more-item"
+              onClick={toggleTheme}
+            >
+              {theme === "light" ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
+              <span>{theme === "light" ? "夜间模式" : "日间模式"}</span>
+            </button>
           </div>
         </details>
       </nav>

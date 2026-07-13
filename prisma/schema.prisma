@@ -32,6 +32,8 @@ model DownloadTask {
   format    String     @default("mp4")                  // 输出格式
   priority  Int        @default(1)                      // 优先级
   errorMsg  String     @default("") @map("error_msg")   // 错误信息
+  // 统一编号（视频和图包共享同一序列，用于前端展示）
+  seq       Int?       @map("seq")
   createdAt DateTime   @default(now()) @map("created_at")
   updatedAt DateTime   @updatedAt @map("updated_at")
   videoInfo VideoInfo?
@@ -72,6 +74,8 @@ model VideoInfo {
  */
 model Gallery {
   id          Int            @id @default(autoincrement())
+  // 统一编号（视频和图包共享同一序列，用于前端展示）
+  seq         Int?           @map("seq")
   // 源页面 URL（如 https://www.lovecutes.com/article/27571/）
   sourceUrl   String         @unique @map("source_url")
   // 站点 ID（如 aimeizizi）
@@ -91,6 +95,8 @@ model Gallery {
   tags        String         @default("")
   // 封面图 URL（第一张图片）
   coverUrl    String         @default("") @map("cover_url")
+  // 封面图本地路径（下载后存于图包文件夹的 cover/ 子目录）
+  coverLocalPath String      @default("") @map("cover_local_path")
   // 图片数量
   imageCount  Int            @default(0) @map("image_count")
   // 视频数量

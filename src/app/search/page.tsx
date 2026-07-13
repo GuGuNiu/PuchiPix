@@ -14,6 +14,7 @@ import {
 import type { SearchJob, SearchItem } from "@/types";
 import VideoCard from "@/components/search/video-card";
 import { useRouteState } from "@/lib/core/route-state";
+import { useUrlState } from "@/hooks/use-url-state";
 import { ENABLED_SITE_MODULES, getSiteModule } from "@/lib/sites/site-modules";
 
 const SITES = ENABLED_SITE_MODULES.map((m) => ({
@@ -24,27 +25,34 @@ const SITES = ENABLED_SITE_MODULES.map((m) => ({
 
 export default function SearchPage() {
   const pathname = usePathname();
-  const { savedData, saveState } = useRouteState(pathname, {
+  useRouteState(pathname, {
     ttl: 10 * 60 * 1000,
     saveScroll: true,
   });
 
-  const [keywords, setKeywords] = useState(() => (savedData?.keywords as string) ?? "");
+  const { values: urlValues, update: updateUrl } = useUrlState({
+    q: "",
+    site: "kanav",
+    job: "",
+  });
+
+  const [keywords, setKeywords] = useState(urlValues.q);
   const [submitting, setSubmitting] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(
-    () => (savedData?.activeJobId as string | null) ?? null
-  );
+  const selectedSiteId = urlValues.site;
+  const activeJobId = urlValues.job || null;
   const [job, setJob] = useState<SearchJob | null>(null);
   const [recentJobs, setRecentJobs] = useState<SearchJob[]>([]);
-  const [selectedSiteId, setSelectedSiteId] = useState(
-    () => (savedData?.selectedSiteId as string) ?? "kanav"
-  );
   const [scrapingAll, setScrapingAll] = useState(false);
 
-  // 保存路由状态
+  // URL 变化时同步 keywords 到本地（处理浏览器前进/后退）
   useEffect(() => {
-    saveState({ keywords, selectedSiteId, activeJobId });
-  }, [keywords, selectedSiteId, activeJobId, saveState]);
+    setKeywords(urlValues.q);
+  }, [urlValues.q]);
+
+  const setSelectedSiteId = useCallback(
+    (v: string) => updateUrl({ site: v === "kanav" ? null : v }),
+    [updateUrl]
+  );
 
   const pollJob = useCallback(async (id: string) => {
     try {
@@ -107,7 +115,7 @@ export default function SearchPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       const data: SearchJob = await res.json();
-      setActiveJobId(data.id);
+      updateUrl({ q: keywords || null, job: data.id });
       setJob(data);
       toast.success(`搜索已启动，共 ${data.keywords.length} 个关键词`);
     } catch (err: unknown) {
@@ -389,7 +397,7 @@ export default function SearchPage() {
                       key={j.id}
                       style={{ cursor: "pointer" }}
                       onClick={() => {
-                        setActiveJobId(j.id);
+                        updateUrl({ job: j.id });
                         setJob(j);
                       }}
                     >

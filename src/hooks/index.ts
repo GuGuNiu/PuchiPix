@@ -7,3 +7,7 @@ export type { UseAutoRefreshOptions, UseAutoRefreshResult } from './use-auto-ref
 
 export { useEventBus } from './use-event-bus';
 export type { UseEventBusReturn } from './use-event-bus';
+
+export { useSidebarCollapsed } from './use-sidebar-collapsed';
+
+export { useUrlState, useDebouncedUrlParam } from './use-url-state';

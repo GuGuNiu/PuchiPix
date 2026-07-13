@@ -67,6 +67,7 @@ interface PrismaVideoInfo {
  */
 export function mapTask(task: {
   id: number;
+  seq?: number | null;
   url: string;
   m3u8Url: string;
   status: string;
@@ -81,6 +82,7 @@ export function mapTask(task: {
 }): DownloadTask {
   return {
     ID: task.id,
+    DisplayID: task.seq ?? undefined,
     URL: task.url,
     M3U8URL: task.m3u8Url,
     Status: task.status as TaskStatus,

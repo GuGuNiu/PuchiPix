@@ -25,6 +25,7 @@ import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
 import { getSharedBrowser } from '@/lib/core/browser-pool';
 import { getGalleryDownloader } from '@/lib/downloader/gallery-downloader';
 import { createStealthPage } from '@/lib/core/anti-crawler';
+import { allocateSeq } from '@/lib/core/seq-allocator';
 import type { DownloadTask, TaskStatus } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -44,12 +45,13 @@ export const runtime = 'nodejs';
 function mapGalleryStatus(status: string): TaskStatus {
   switch (status) {
     case 'completed':
-    case 'partial':
       return 'completed';
+    case 'partial':
+      return 'partial';
     case 'downloading':
       return 'downloading';
     case 'scraping':
-      return 'pending';
+      return 'scraping';
     case 'failed':
     case 'not_found':
       return 'failed';
@@ -65,6 +67,7 @@ function mapGalleryStatus(status: string): TaskStatus {
  */
 function mapGalleryToTask(g: {
   id: number;
+  seq?: number | null;
   sourceUrl: string;
   title: string;
   status: string;
@@ -76,13 +79,42 @@ function mapGalleryToTask(g: {
   savePath: string;
   createdAt: Date;
   updatedAt: Date;
+  _count?: { images: number; videos: number };
+  downloadInfo?: {
+    id: number;
+    galleryId: number;
+    title: string;
+    fileCount: number;
+    fileSizeText: string;
+    imageDimensions: string;
+    password: string;
+    downloadUrl: string;
+    downloadSource: string;
+    ouoUrl: string;
+    resolvedDirectUrl: string;
+    provider: string;
+    requiresLogin: boolean;
+    requiresEmail: boolean;
+    status: string;
+    localPath: string;
+    extractedPath: string;
+    actualSize: bigint;
+    zipFileName: string;
+    parallelism: number;
+    avgSpeed: number;
+    verifiedCount: number;
+    countMatched: boolean;
+  } | null;
 }): DownloadTask {
-  const totalSize = Number(g.totalSize || BigInt(0));
-  const downloadedSize = Number(g.downloadedSize || BigInt(0));
-  const progress = totalSize > 0 ? Math.min((downloadedSize / totalSize) * 100, 100) : 0;
+  const totalFiles = g.imageCount + g.videoCount;
+  const downloadedFiles = (g._count?.images ?? 0) + (g._count?.videos ?? 0);
+  const progress = totalFiles > 0
+    ? Math.min((downloadedFiles / totalFiles) * 100, 100)
+    : 0;
 
   return {
     ID: g.id,
+    DisplayID: g.seq ?? undefined,
     URL: g.sourceUrl,
     M3U8URL: '',
     Status: mapGalleryStatus(g.status),
@@ -98,6 +130,31 @@ function mapGalleryToTask(g: {
     ImageCount: g.imageCount,
     VideoCount: g.videoCount,
     DownloadMethod: g.downloadMethod,
+    DownloadInfo: g.downloadInfo ? {
+      ID: g.downloadInfo.id,
+      GalleryID: g.downloadInfo.galleryId,
+      Title: g.downloadInfo.title,
+      FileCount: g.downloadInfo.fileCount,
+      FileSizeText: g.downloadInfo.fileSizeText,
+      ImageDimensions: g.downloadInfo.imageDimensions,
+      Password: g.downloadInfo.password,
+      DownloadURL: g.downloadInfo.downloadUrl,
+      DownloadSource: g.downloadInfo.downloadSource,
+      OuoURL: g.downloadInfo.ouoUrl,
+      ResolvedDirectURL: g.downloadInfo.resolvedDirectUrl,
+      Provider: g.downloadInfo.provider,
+      RequiresLogin: g.downloadInfo.requiresLogin,
+      RequiresEmail: g.downloadInfo.requiresEmail,
+      Status: g.downloadInfo.status,
+      LocalPath: g.downloadInfo.localPath,
+      ExtractedPath: g.downloadInfo.extractedPath,
+      ActualSize: Number(g.downloadInfo.actualSize),
+      ZipFileName: g.downloadInfo.zipFileName,
+      Parallelism: g.downloadInfo.parallelism,
+      AvgSpeed: g.downloadInfo.avgSpeed,
+      VerifiedCount: g.downloadInfo.verifiedCount,
+      CountMatched: g.downloadInfo.countMatched,
+    } : undefined,
   };
 }
 
@@ -116,7 +173,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }),
       prisma.gallery.findMany({
         orderBy: { createdAt: 'desc' },
-        include: { downloadInfo: true },
+        include: {
+          downloadInfo: true,
+          _count: {
+            select: {
+              images: { where: { status: 'downloaded' } },
+              videos: { where: { status: 'completed' } },
+            },
+          },
+        },
       }),
     ]);
 
@@ -338,6 +403,14 @@ async function scrapeGalleryAsync(galleryId: number, url: string, provider: Site
  * @date 2026-07-12
  */
 async function scrapeVideoAsync(taskId: number, url: string): Promise<void> {
+  if (!url.endsWith('.m3u8')) {
+    await prisma.downloadTask.update({
+      where: { id: taskId },
+      data: { status: 'scraping' },
+    });
+    eventBus.emit('task:scraping', { taskId, url });
+  }
+
   let m3u8URL = '';
   let title = '';
   let tags: string[] = [];
@@ -432,12 +505,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         });
       }
 
+      const seq = await allocateSeq();
       const gallery = await prisma.gallery.upsert({
         where: { sourceUrl: url },
         create: {
           sourceUrl: url,
           siteId: galleryProvider.id,
           status: 'scraping',
+          seq,
         },
         update: {
           status: 'scraping',
@@ -453,16 +528,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({
         type: 'gallery',
         galleryId: gallery.id,
+        seq: gallery.seq,
       }, { status: 201 });
     }
 
     // 视频任务：先创建记录，爬取和下载异步执行
+    const isDirectM3u8 = url.endsWith('.m3u8');
+    const videoSeq = await allocateSeq();
     const task = await prisma.downloadTask.create({
       data: {
         url,
-        m3u8Url: '',
+        m3u8Url: isDirectM3u8 ? url : '',
         format: 'mp4',
-        status: 'pending',
+        status: isDirectM3u8 ? 'pending' : 'scraping',
+        seq: videoSeq,
         videoInfo: {
           create: {
             title: '',

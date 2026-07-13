@@ -5,7 +5,7 @@
  *
  * @author PuchiPix Team
  * @date 2026-07-10
- * @lastModified 2026-07-10
+ * @lastModified 2026-07-13
  */
 
 /* ─── 仪表盘容器（全宽浅色主题） ─── */
@@ -30,7 +30,7 @@
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight) inset;
   overflow: hidden;
   position: relative;
 }
@@ -76,12 +76,17 @@
 }
 
 .ticker-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--neon-green);
-  box-shadow: 0 0 8px var(--neon-green-glow);
-  animation: pulse-glow 2s ease-in-out infinite;
+width: 7px;
+height: 7px;
+border-radius: 50%;
+background: var(--neon-green);
+box-shadow: 0 0 8px var(--neon-green-glow);
+animation: pulse-glow 2s ease-in-out infinite;
+}
+.ticker-dot-offline {
+background: var(--text-muted);
+box-shadow: none;
+animation: none;
 }
 
 /* ─── KPI 统计面板 ─── */
@@ -91,7 +96,7 @@
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight) inset;
   overflow: hidden;
   animation: fade-in-up 0.5s ease;
 }
@@ -242,7 +247,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight) inset;
   transition: var(--transition-slow);
   animation: card-entrance 0.5s ease backwards;
 }
@@ -253,7 +258,7 @@
 
 .ops-site-card:hover {
   border-color: var(--accent-light);
-  box-shadow: var(--shadow-md), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--inset-highlight) inset;
   transform: translateY(-3px);
 }
 
@@ -360,7 +365,7 @@
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight) inset;
   overflow: hidden;
   animation: fade-in-up 0.5s ease;
 }
@@ -432,7 +437,7 @@
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
   padding: var(--space-6);
-  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight) inset;
   position: relative;
   overflow: hidden;
   animation: fade-in-up 0.5s ease;

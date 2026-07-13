@@ -1,21 +1,22 @@
 "use client";
 
 /**
- * 图库管理页面
+ * 图包管理页面
  *
  * 功能：
- * - 卡片式展示所有图库（封面、标题、主角、图片/视频数量）
+ * - 卡片式展示所有图包（封面、标题、模特、图片/视频数量）
  * - 状态筛选（全部/爬取中/下载中/已完成/失败）
- * - 关键词搜索（标题/主角）
+ * - 关键词搜索（标题/模特）
  * - 点击展开详情（图片缩略图网格、视频列表、保存路径）
  * - 重新下载、删除操作
- * - WebSocket 实时进度更新
+ * - SSE 实时进度更新
  *
  * @date 2026-07-11
- * @lastModified 2026-07-11
+ * @lastModified 2026-07-13
  */
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import {
   RefreshCw,
@@ -39,10 +40,13 @@ import {
   AlertCircle,
   Loader2,
   Link as LinkIcon,
+  ArrowLeft,
 } from "lucide-react";
 import type { GalleryData } from "@/types";
 import { useGalleryStore } from "@/store/gallery-store";
 import { useRouteState } from "@/lib/core/route-state";
+import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import GlassSelect from "@/components/ui/glass-select";
 
 const GALLERY_STATUS_LABEL: Record<string, string> = {
@@ -54,7 +58,6 @@ const GALLERY_STATUS_LABEL: Record<string, string> = {
   pending: "等待中",
 };
 
-/** 格式化文件大小（字节 → 人类可读） */
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes <= 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
@@ -92,24 +95,39 @@ const SORT_OPTIONS = [
 export default function GalleryPage() {
   const { galleries, loading, progressMap, zipProgressMap, zipStatusMap, fetchGalleries, deleteGallery, retryDownload, downloadZip, fetchGalleryDetail, subscribeToSocket } =
     useGalleryStore();
-  const pathname = typeof window !== "undefined" ? window.location.pathname : "/gallery";
-  const { savedData, saveState } = useRouteState(pathname, {
+  const pathname = usePathname();
+  useRouteState(pathname, {
     ttl: 5 * 60 * 1000,
     saveScroll: true,
   });
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
-    () => (savedData?.statusFilter as StatusFilter) ?? "all"
+  const { values: urlValues, update: updateUrl } = useUrlState({
+    status: "all",
+    sort: "date_desc",
+    id: "",
+  });
+  const [searchQuery, setSearchQuery] = useDebouncedUrlParam("q", "");
+
+  const statusFilter = urlValues.status as StatusFilter;
+  const sortBy = urlValues.sort as SortBy;
+  const expandedId = (() => {
+    const id = parseInt(urlValues.id, 10);
+    return isNaN(id) ? null : id;
+  })();
+
+  const setStatusFilter = useCallback(
+    (v: StatusFilter) => updateUrl({ status: v === "all" ? null : v }),
+    [updateUrl]
   );
-  const [searchQuery, setSearchQuery] = useState(
-    () => (savedData?.searchQuery as string) ?? ""
+  const setSortBy = useCallback(
+    (v: SortBy) => updateUrl({ sort: v === "date_desc" ? null : v }),
+    [updateUrl]
   );
-  const [sortBy, setSortBy] = useState<SortBy>(
-    () => (savedData?.sortBy as SortBy) ?? "date_desc"
+  const setExpandedId = useCallback(
+    (id: number | null) => updateUrl({ id: id != null ? String(id) : null }),
+    [updateUrl]
   );
-  const [expandedId, setExpandedId] = useState<number | null>(
-    () => (savedData?.expandedId as number) ?? null
-  );
+
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
@@ -117,10 +135,6 @@ export default function GalleryPage() {
     const unsub = subscribeToSocket();
     return () => unsub();
   }, [fetchGalleries, subscribeToSocket]);
-
-  useEffect(() => {
-    saveState({ expandedId, statusFilter, searchQuery, sortBy });
-  }, [expandedId, statusFilter, searchQuery, sortBy, saveState]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: galleries.length };
@@ -177,37 +191,41 @@ export default function GalleryPage() {
   }, [galleries, statusFilter, searchQuery, sortBy]);
 
   const handleExpand = useCallback(
-    async (id: number) => {
+    (id: number) => {
       if (expandedId === id) {
         setExpandedId(null);
         return;
       }
       setExpandedId(id);
-      setDetailLoading(true);
-      await fetchGalleryDetail(id);
-      setDetailLoading(false);
     },
-    [expandedId, fetchGalleryDetail]
+    [expandedId, setExpandedId]
   );
+
+  // expandedId 变化时自动加载详情（覆盖用户点击和 URL 直接加载两种场景）
+  useEffect(() => {
+    if (expandedId === null) return;
+    setDetailLoading(true);
+    fetchGalleryDetail(expandedId).finally(() => setDetailLoading(false));
+  }, [expandedId, fetchGalleryDetail]);
 
   const handleDelete = useCallback(
     async (id: number) => {
-      if (!confirm(`确认删除图库 #${id}？`)) return;
+      if (!confirm(`确认删除图包 #${id}？`)) return;
       const ok = await deleteGallery(id);
       if (ok) {
-        toast.success(`已删除图库 #${id}`);
+        toast.success(`已删除图包 #${id}`);
         if (expandedId === id) setExpandedId(null);
       } else {
         toast.error("删除失败");
       }
     },
-    [deleteGallery, expandedId]
+    [deleteGallery, expandedId, setExpandedId]
   );
 
   const handleRetry = useCallback(
     async (id: number) => {
       const ok = await retryDownload(id);
-      if (ok) toast.success(`图库 #${id} 下载已重新启动`);
+      if (ok) toast.success(`图包 #${id} 下载已重新启动`);
       else toast.error("启动下载失败");
     },
     [retryDownload]
@@ -247,7 +265,7 @@ export default function GalleryPage() {
             />
             <input
               type="text"
-              placeholder="搜索标题、主角或链接..."
+              placeholder="搜索标题、模特或链接..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
@@ -291,7 +309,7 @@ export default function GalleryPage() {
               <Inbox size={48} strokeWidth={1.5} />
             </div>
             <div className="empty-state-text">
-              {galleries.length === 0 ? "暂无图库" : "没有匹配的图库"}
+              {galleries.length === 0 ? "暂无图包" : "没有匹配的图包"}
             </div>
             <div className="empty-state-subtext">
               {galleries.length === 0
@@ -304,7 +322,7 @@ export default function GalleryPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
                 gap: 16,
                 padding: 20,
               }}
@@ -343,7 +361,7 @@ export default function GalleryPage() {
                         style={{
                           position: "relative",
                           width: "100%",
-                          height: 200,
+                          aspectRatio: "4 / 3",
                           background: "var(--bg-inset)",
                           overflow: "hidden",
                         }}
@@ -351,15 +369,23 @@ export default function GalleryPage() {
                         {gallery.CoverURL ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={gallery.CoverURL}
+                            src={`/api/gallery/${gallery.ID}/cover`}
                             alt={gallery.Title}
+                            loading="lazy"
+                            decoding="async"
                             style={{
                               width: "100%",
                               height: "100%",
                               objectFit: "cover",
                             }}
                             onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
+                              const img = e.target as HTMLImageElement;
+                              if (!img.dataset.fallback) {
+                                img.dataset.fallback = '1';
+                                img.src = gallery.CoverURL;
+                              } else {
+                                img.style.display = "none";
+                              }
                             }}
                           />
                         ) : (
@@ -398,7 +424,7 @@ export default function GalleryPage() {
                           }}
                           title={gallery.Title}
                         >
-                          {gallery.Title || `图库 #${gallery.ID}`}
+                          {gallery.Title || `图包 #${gallery.ID}`}
                         </div>
                         {gallery.Protagonist && (
                           <div
@@ -408,7 +434,7 @@ export default function GalleryPage() {
                               marginBottom: 8,
                             }}
                           >
-                            主角：{gallery.Protagonist}
+                            模特：{gallery.Protagonist}
                           </div>
                         )}
                         {/* 数量徽章 */}
@@ -499,7 +525,7 @@ export default function GalleryPage() {
 }
 
 // ============================================================
-// 图库详情面板
+// 图包详情面板
 // ============================================================
 
 interface GalleryDetailPanelProps {
@@ -525,6 +551,7 @@ function GalleryDetailPanel({
   onRetry,
   onDownloadZip,
 }: GalleryDetailPanelProps) {
+  const sidebarCollapsed = useSidebarCollapsed();
   const canRetry = gallery.Status === "failed" || gallery.Status === "partial";
   const images = gallery.Images ?? [];
   const videos = gallery.Videos ?? [];
@@ -557,15 +584,20 @@ function GalleryDetailPanel({
   return (
     <div
       style={{
-        gridColumn: "1 / -1",
-        background: "var(--bg-card)",
-        border: "1px solid var(--accent)",
-        borderRadius: "var(--radius-md)",
+        position: "fixed",
+        top: 0,
+        left: sidebarCollapsed ? "var(--sidebar-width-collapsed)" : "var(--sidebar-width)",
+        right: 0,
+        bottom: 0,
+        zIndex: 300,
+        background: "var(--bg-base)",
+        display: "flex",
+        flexDirection: "column",
         overflow: "hidden",
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* 头部 */}
+      {/* 顶部导航栏 */}
       <div
         style={{
           display: "flex",
@@ -573,11 +605,23 @@ function GalleryDetailPanel({
           justifyContent: "space-between",
           padding: "12px 20px",
           borderBottom: "1px solid var(--border)",
+          background: "var(--bg-card)",
+          flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>
-          图库详情 #{gallery.ID}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={onClose}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <ArrowLeft size={16} />
+            返回
+          </button>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>
+            图包详情 #{gallery.ID}
+          </span>
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
           {canRetry && (
             <button
@@ -599,14 +643,11 @@ function GalleryDetailPanel({
               删除
             </button>
           )}
-          <button className="btn-close" onClick={onClose}>
-            <X size={16} />
-          </button>
         </div>
       </div>
 
-      {/* 内容区 */}
-      <div style={{ padding: "16px 20px" }}>
+      {/* 可滚动内容区 */}
+      <div style={{ flex: 1, overflow: "auto", padding: "16px 20px" }}>
         {loading ? (
           <div className="loading-container" style={{ padding: 20 }}>
             <div className="spinner" />
@@ -710,7 +751,7 @@ function GalleryDetailPanel({
                   <div className="info-bar-item">
                     <HardDrive size={14} className="info-bar-icon" />
                     <span className="info-bar-text">
-                      {formatFileSize(gallery.DownloadedSize)} / {formatFileSize(gallery.TotalSize)}
+                      {formatFileSize(gallery.TotalSize)}
                     </span>
                   </div>
                 )}
@@ -1064,7 +1105,7 @@ function GalleryDetailPanel({
               )}
             </div>
 
-            {/* 图片缩略图网格 */}
+            {/* 图片缩略图网格 — 全部显示 */}
             {images.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <div
@@ -1080,14 +1121,12 @@ function GalleryDetailPanel({
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))",
-                    gap: 8,
-                    maxHeight: 300,
-                    overflow: "auto",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+                    gap: 10,
                     padding: 4,
                   }}
                 >
-                  {images.slice(0, 50).map((img) => (
+                  {images.map((img) => (
                     <div
                       key={img.ID}
                       style={{
@@ -1102,10 +1141,11 @@ function GalleryDetailPanel({
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={img.URL}
+                        src={img.LocalPath ? `/api/proxy?path=${encodeURIComponent(img.LocalPath)}` : img.URL}
                         alt={`img-${img.OrderIndex + 1}`}
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
                         loading="lazy"
+                        decoding="async"
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.opacity = "0.2";
                         }}
@@ -1129,20 +1169,6 @@ function GalleryDetailPanel({
                       />
                     </div>
                   ))}
-                  {images.length > 50 && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        aspectRatio: "3/4",
-                        color: "var(--text-muted)",
-                        fontSize: 13,
-                      }}
-                    >
-                      +{images.length - 50}
-                    </div>
-                  )}
                 </div>
               </div>
             )}

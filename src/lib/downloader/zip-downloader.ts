@@ -3,7 +3,8 @@
  *
  * 处理从中转站（ouo.io → MediaFire 等）下载 ZIP 压缩包并解压的完整流程。
  *
- * v2.0 改进：
+ * v2.1 改进：
+ * - 并行线程数从 4 提升到 8，下载速度进一步提升
  * - 人类行为模拟：鼠标轨迹、随机延迟、真实点击时序，降低 ouo.io/Cloudflare 检测概率
  * - ouo.io URL 缓存：解析成功后缓存直链，重试时不重复访问 ouo.io 避免触发 IP 限速
  * - 多线程分块下载：使用 HTTP Range 请求并行下载，速度提升 3-5 倍
@@ -63,11 +64,29 @@ const DEFAULT_ZIP_PATH = './data/gallery_zips';
 const MAX_RETRIES = 3;
 const DOWNLOAD_TIMEOUT = 300000;
 const MEDIAFIRE_COUNTDOWN_MAX = 30;
-const PARALLEL_CHUNK_COUNT = 4;
+const PARALLEL_CHUNK_COUNT = 8;
 
 /** ouo.io 解析结果缓存（ouoUrl → directUrl），避免重试时重复访问触发 IP 限速 */
 const ouoCache = new Map<string, { directUrl: string; filename: string; expires: number }>();
 const OUO_CACHE_TTL = 10 * 60 * 1000;
+const OUO_CACHE_MAX_SIZE = 50;
+
+/** 清理 ouoCache 中的过期条目，防止 Map 无限增长 */
+function cleanExpiredOuoCache(): void {
+  const now = Date.now();
+  for (const [key, val] of ouoCache) {
+    if (val.expires <= now) {
+      ouoCache.delete(key);
+    }
+  }
+  if (ouoCache.size > OUO_CACHE_MAX_SIZE) {
+    const entries = [...ouoCache.entries()].sort((a, b) => a[1].expires - b[1].expires);
+    const toRemove = entries.slice(0, ouoCache.size - OUO_CACHE_MAX_SIZE);
+    for (const [key] of toRemove) {
+      ouoCache.delete(key);
+    }
+  }
+}
 
 // ============================================================
 // 工具函数
@@ -81,6 +100,98 @@ function ensureDir(dirPath: string): void {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
+}
+
+/**
+ * 下载封面图片到指定路径
+ *
+ * 简化版图片下载器，携带 Referer 绕过防盗链
+ *
+ * @date 2026-07-12
+ */
+const MAX_REDIRECTS_COVER = 5;
+
+function downloadCoverImage(url: string, filePath: string, referer: string, redirects: number = 0): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (redirects > MAX_REDIRECTS_COVER) {
+      console.error(`[ZipDL] 封面下载重定向次数超限: ${url}`);
+      resolve(false);
+      return;
+    }
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
+      resolve(true);
+      return;
+    }
+
+    let imageReferer = referer;
+    try {
+      const parsed = new URL(url);
+      imageReferer = `${parsed.protocol}//${parsed.host}/`;
+    } catch {}
+
+    const protocol = url.startsWith('https://') ? https : http;
+    const request = protocol.get(
+      url,
+      {
+        headers: {
+          'User-Agent': randomUA(),
+          'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          'Referer': imageReferer,
+          'sec-fetch-dest': 'image',
+          'sec-fetch-mode': 'no-cors',
+          'sec-fetch-site': 'same-origin',
+        },
+        timeout: 30000,
+      },
+      (response) => {
+        if (
+          response.statusCode &&
+          response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          response.headers.location
+        ) {
+          const redirectUrl = response.headers.location;
+          const absoluteRedirect = redirectUrl.startsWith('http')
+            ? redirectUrl
+            : new URL(redirectUrl, url).href;
+          downloadCoverImage(absoluteRedirect, filePath, referer, redirects + 1).then(resolve);
+          return;
+        }
+
+        if (response.statusCode !== 200) {
+          console.error(`[ZipDL] 封面下载 HTTP ${response.statusCode}: ${url}`);
+          resolve(false);
+          return;
+        }
+
+        const fileStream = fs.createWriteStream(filePath);
+        response.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve(true);
+        });
+
+        fileStream.on('error', (err) => {
+          console.error(`[ZipDL] 封面文件写入失败 ${filePath}:`, err.message);
+          fs.unlink(filePath, () => {});
+          resolve(false);
+        });
+      },
+    );
+
+    request.on('error', (err) => {
+      console.error(`[ZipDL] 封面下载失败 ${url}:`, err.message);
+      resolve(false);
+    });
+
+    request.on('timeout', () => {
+      request.destroy();
+      console.error(`[ZipDL] 封面下载超时: ${url}`);
+      resolve(false);
+    });
+  });
 }
 
 function sanitizeFilename(name: string): string {
@@ -221,6 +332,8 @@ async function resolveOuoIo(
   ouoUrl: string,
 ): Promise<{ directUrl: string; filename: string }> {
   // 检查缓存：如果 10 分钟内已解析过同一 ouo.io 链接，直接返回缓存结果
+  cleanExpiredOuoCache();
+
   const cached = ouoCache.get(ouoUrl);
   if (cached && cached.expires > Date.now()) {
     console.log(`[ZipDL] ouo.io: 使用缓存结果 → ${cached.directUrl.substring(0, 60)}`);
@@ -303,7 +416,17 @@ async function resolveOuoIo(
     let capturedTargetUrl: string | null = null;
     const responseHandler = (response: import('playwright').Response) => {
       const url = response.url();
+      // 捕获 302 重定向的目标 URL（从响应头中）
+      const headers = response.headers();
+      const location = headers['location'];
+      if (location && !location.includes('ouo.io') && !location.includes('ouo.press')) {
+        console.log(`[ZipDL] ouo.io: 从响应头捕获重定向目标: ${location}`);
+        capturedTargetUrl = location;
+        return;
+      }
+      // 捕获非 ouo 域名的响应 URL
       if (!url.includes('ouo.io') && !url.includes('ouo.press') && !url.includes('chrome-error')) {
+        console.log(`[ZipDL] ouo.io: 从响应捕获目标 URL: ${url}`);
         capturedTargetUrl = url;
       }
     };
@@ -584,13 +707,22 @@ async function resolveGeneric(
  *
  * @date 2026-07-11
  */
+const MAX_REDIRECTS_DOWNLOAD = 5;
+
 function downloadFile(
   url: string,
   filePath: string,
   headers: Record<string, string> = {},
   onProgress?: (downloaded: number, total: number) => void,
+  redirects: number = 0,
 ): Promise<{ success: boolean; fileSize: number; savedPath: string }> {
   return new Promise((resolve) => {
+    if (redirects > MAX_REDIRECTS_DOWNLOAD) {
+      console.error(`[ZipDL] 下载重定向次数超限: ${url}`);
+      resolve({ success: false, fileSize: 0, savedPath: '' });
+      return;
+    }
+
     if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
       resolve({ success: true, fileSize: fs.statSync(filePath).size, savedPath: filePath });
       return;
@@ -633,7 +765,7 @@ function downloadFile(
           const absoluteRedirect = redirectUrl.startsWith('http')
             ? redirectUrl
             : new URL(redirectUrl, url).href;
-          downloadFile(absoluteRedirect, filePath, headers, onProgress).then(resolve);
+          downloadFile(absoluteRedirect, filePath, headers, onProgress, redirects + 1).then(resolve);
           return;
         }
 
@@ -747,6 +879,45 @@ async function extractArchive(
  * @date 2026-07-12
  * @lastModified 2026-07-12
  */
+/**
+ * 检查解压路径是否安全（防止路径遍历攻击）
+ *
+ * 恶意压缩包可能包含 ../../ 等路径，解压时写到预期目录之外。
+ *
+ * @date 2026-07-12
+ */
+function isSafeExtractPath(destPath: string, extractBase: string): boolean {
+  const resolvedDest = path.resolve(destPath);
+  const resolvedBase = path.resolve(extractBase);
+  return resolvedDest === resolvedBase || resolvedDest.startsWith(resolvedBase + path.sep);
+}
+
+/**
+ * 解压 RAR 内的单个文件到目标路径，带路径遍历防护
+ *
+ * @returns true 如果文件被成功写出
+ * @date 2026-07-12
+ */
+function writeRarFile(file: { fileHeader: { name: string; flags: { directory: boolean } }; extraction?: Uint8Array }, extractPath: string, files: string[]): boolean {
+  if (file.fileHeader.flags.directory) return false;
+
+  const fileName = file.fileHeader.name;
+  const destPath = path.join(extractPath, fileName);
+
+  if (!isSafeExtractPath(destPath, extractPath)) {
+    console.warn(`[ZipDL] 跳过可疑路径: ${fileName}`);
+    return false;
+  }
+
+  ensureDir(path.dirname(destPath));
+
+  if (file.extraction) {
+    fs.writeFileSync(destPath, Buffer.from(file.extraction));
+  }
+  files.push(fileName);
+  return true;
+}
+
 async function extractRar(
   rarPath: string,
   extractPath: string,
@@ -763,17 +934,7 @@ async function extractRar(
     const files: string[] = [];
 
     for (const file of extracted.files) {
-      if (!file.fileHeader.flags.directory) {
-        const fileName = file.fileHeader.name;
-        const destPath = path.join(extractPath, fileName);
-
-        ensureDir(path.dirname(destPath));
-
-        if (file.extraction) {
-          fs.writeFileSync(destPath, Buffer.from(file.extraction));
-        }
-        files.push(fileName);
-      }
+      writeRarFile(file, extractPath, files);
     }
 
     console.log(`[ZipDL] RAR 解压成功: ${files.length} 个文件`);
@@ -789,17 +950,7 @@ async function extractRar(
         const files: string[] = [];
 
         for (const file of extracted.files) {
-          if (!file.fileHeader.flags.directory) {
-            const fileName = file.fileHeader.name;
-            const destPath = path.join(extractPath, fileName);
-
-            ensureDir(path.dirname(destPath));
-
-            if (file.extraction) {
-              fs.writeFileSync(destPath, Buffer.from(file.extraction));
-            }
-            files.push(fileName);
-          }
+          writeRarFile(file, extractPath, files);
         }
         console.log(`[ZipDL] RAR 无密码解压成功: ${files.length} 个文件`);
         return { success: true, fileCount: files.length, files };
@@ -1293,6 +1444,51 @@ export async function downloadAndExtractZip(
     console.log(
       `[ZipDL] 解压完成: ${extractDir}（${extractResult.fileCount} 个文件）`,
     );
+
+    // ----------------------------------------------------------
+    // 阶段 5：下载封面图到 cover/ 子目录（用于图包架展示）
+    // ----------------------------------------------------------
+    if (gallery.coverUrl && !gallery.coverLocalPath) {
+      const galleryBasePath = gallery.savePath || path.join(getZipRoot(), `gallery_${galleryId}`);
+      const coverDir = path.join(galleryBasePath, 'cover');
+      if (!fs.existsSync(coverDir)) {
+        fs.mkdirSync(coverDir, { recursive: true });
+      }
+      const coverExt = (() => {
+        try {
+          const cleanUrl = gallery.coverUrl.split('?')[0].split('#')[0];
+          const ext = path.extname(cleanUrl).toLowerCase();
+          if (ext && ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) return ext;
+        } catch {}
+        return '.jpg';
+      })();
+      const coverFilePath = path.join(coverDir, `cover${coverExt}`);
+
+      if (!fs.existsSync(coverFilePath) || fs.statSync(coverFilePath).size === 0) {
+        let coverDownloaded = false;
+        for (let retry = 0; retry < MAX_RETRIES; retry++) {
+          coverDownloaded = await downloadCoverImage(gallery.coverUrl, coverFilePath, gallery.sourceUrl);
+          if (coverDownloaded) break;
+          if (retry < MAX_RETRIES - 1) {
+            await sleep(backoffDelay(retry, 1000, 8000));
+          }
+        }
+        if (coverDownloaded) {
+          await prisma.gallery.update({
+            where: { id: galleryId },
+            data: { coverLocalPath: coverFilePath, savePath: galleryBasePath },
+          });
+          console.log(`[ZipDL] 图库 #${galleryId} 封面下载成功: ${coverFilePath}`);
+        } else {
+          console.error(`[ZipDL] 图库 #${galleryId} 封面下载失败: ${gallery.coverUrl}`);
+        }
+      } else {
+        await prisma.gallery.update({
+          where: { id: galleryId },
+          data: { coverLocalPath: coverFilePath },
+        });
+      }
+    }
 
     return {
       success: true,

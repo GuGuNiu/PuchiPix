@@ -289,13 +289,13 @@ class OuoTaskOrchestrator {
     this.abortController?.abort();
     console.log('[OuoOrchestrator] 编排器停止中...');
 
-    // 等待当前任务完成（最多 5 秒）
+    // 等待当前任务完成（最多 15 秒，与 server.ts shutdown timeout 一致）
     if (this.currentTask) {
       console.log(
         `[OuoOrchestrator] 等待当前任务 #${this.currentTask.galleryId} 完成...`,
       );
       const waitStart = Date.now();
-      while (this.currentTask && Date.now() - waitStart < 5000) {
+      while (this.currentTask && Date.now() - waitStart < 15000) {
         await sleep(500);
       }
     }
@@ -609,7 +609,9 @@ class OuoTaskOrchestrator {
         willRetry: false,
       });
     } finally {
-      this.processedCount++;
+      if (task.status !== 'rate_limited') {
+        this.processedCount++;
+      }
       this.currentTask = null;
 
       // 从队列中移除已完成/已失败的任务
@@ -661,8 +663,8 @@ class OuoTaskOrchestrator {
       nextTaskAt: this.rateLimitedUntil,
     });
 
-    // 冷却结束后，将任务重新标记为 pending
-    await sleep(cooldownMs);
+    // 冷却结束后，将任务重新标记为 pending（使用可中断 sleep 以响应暂停/停止）
+    await this.interruptibleSleep(cooldownMs);
     this.rateLimitedUntil = 0;
 
     if (task.retryCount < task.maxRetries) {

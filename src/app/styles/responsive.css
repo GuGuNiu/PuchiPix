@@ -4,7 +4,7 @@
  * 所有媒体查询集中管理，确保移动端适配一致。
  *
  * @date 2026-07-10
- * @lastModified 2026-07-10
+ * @lastModified 2026-07-13
  */
 
 /* ===== 1100px 以下 — Ops 面板 ===== */
@@ -115,6 +115,13 @@
   .bottom-nav-more-item.active {
     background: var(--accent-soft);
     color: var(--accent);
+  }
+  .bottom-nav-more-menu button.bottom-nav-more-item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
   }
 
   /* 主区域不额外留左 margin */

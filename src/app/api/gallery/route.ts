@@ -31,6 +31,7 @@ import { getSharedBrowser } from '@/lib/core/browser-pool';
 import { ttlLock } from '@/lib/core/ttl-lock';
 import { eventBus } from '@/lib/core/event-bus';
 import { createStealthPage } from '@/lib/core/anti-crawler';
+import { allocateSeq } from '@/lib/core/seq-allocator';
 import { parseTitleCount, detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
 import type { GallerySiteProvider, SiteProvider } from '@/lib/sites';
 import type { GalleryData } from '@/types';
@@ -44,6 +45,7 @@ export const runtime = 'nodejs';
 
 type GalleryWithRelations = {
 id: number;
+seq?: number | null;
 sourceUrl: string;
 siteId: string;
 scrapedDomain: string;
@@ -52,8 +54,9 @@ protagonist: string;
 description: string;
 category: string;
 tags: string;
-coverUrl: string;
-gameCharacters: string | null;
+  coverUrl: string;
+  coverLocalPath: string;
+  gameCharacters: string | null;
   publishTime: string | null;
   imageCount: number;
   videoCount: number;
@@ -130,15 +133,17 @@ function mapGallery(g: GalleryWithRelations): GalleryData {
 
   return {
     ID: g.id,
+    Seq: g.seq ?? undefined,
     SourceURL: g.sourceUrl,
     SiteID: g.siteId,
     ScrapedDomain: g.scrapedDomain || '',
-    Title: g.title,
+    Title: g.description || g.title,
     Protagonist: g.protagonist,
     Description: g.description,
     Category: g.category,
     Tags: tags,
     CoverURL: g.coverUrl,
+    CoverLocalPath: g.coverLocalPath || '',
     PublishTime: g.publishTime || undefined,
     ImageCount: g.imageCount,
     VideoCount: g.videoCount,
@@ -256,12 +261,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    const seq = await allocateSeq();
     const gallery = await prisma.gallery.upsert({
       where: { sourceUrl: url },
       create: {
         sourceUrl: url,
         siteId: provider.id,
         status: 'scraping',
+        seq,
       },
       update: {
         status: 'scraping',

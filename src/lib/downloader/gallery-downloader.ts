@@ -6,6 +6,8 @@
  * 目录结构：
  *   data/galleries/
  *   ├── {主角名} - {描述} (galleryId)/
+ *   │   ├── cover/
+ *   │   │   └── cover.jpg
  *   │   ├── 1.jpg
  *   │   ├── 2.jpg
  *   │   ├── ...
@@ -31,7 +33,7 @@ import http from 'http';
 import prisma from '@/lib/db/prisma';
 import { eventBus } from '@/lib/core/event-bus';
 import { ttlLock } from '@/lib/core/ttl-lock';
-import { backoffDelay, randomProfile, buildStealthHeaders, sleep } from '@/lib/core/anti-crawler';
+import { backoffDelay, randomProfile, buildStealthHeaders, sleep, DEFAULT_ACCEPT_LANGUAGE } from '@/lib/core/anti-crawler';
 import { fetchM3U8Content, parseM3U8 } from './m3u8-parser';
 import type { M3U8Segment } from './m3u8-parser';
 import { downloadSegment, generateTSID } from './segment-downloader';
@@ -115,6 +117,61 @@ function ensureDir(dirPath: string): void {
 }
 
 /**
+ * 根据文件 URL 判断下载类型，生成匹配的请求头
+ *
+ * Cloudflare 等防护会校验 sec-fetch-dest 和 Referer 的一致性：
+ * - 图片请求须用 sec-fetch-dest: image，且 Referer 与图片同域
+ * - 文档请求头（sec-fetch-dest: document）会导致图片 403
+ *
+ * @param url - 文件 URL
+ * @param referer - 调用方传入的 Referer（可能跨域）
+ * @returns 适配的请求头集合
+ *
+ * @date 2026-07-12
+ */
+function buildDownloadHeaders(
+  url: string,
+  referer?: string,
+): Record<string, string> {
+  const profile = randomProfile();
+  const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|tiff?)(\?|#|$)/i.test(url);
+
+  if (isImage) {
+    // 图片下载：使用图片专用头，Referer 设为图片同域以通过 Cloudflare 校验
+    let imageReferer = '';
+    try {
+      const parsed = new URL(url);
+      imageReferer = `${parsed.protocol}//${parsed.host}/`;
+    } catch {
+      imageReferer = referer || '';
+    }
+
+    const headers: Record<string, string> = {
+      'User-Agent': profile.ua,
+      'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      'Accept-Encoding': profile.acceptEncoding,
+      'Accept-Language': DEFAULT_ACCEPT_LANGUAGE,
+      'Connection': 'keep-alive',
+      'sec-fetch-dest': 'image',
+      'sec-fetch-mode': 'no-cors',
+      'sec-fetch-site': 'same-origin',
+      'Referer': imageReferer,
+    };
+
+    if (profile.secChUa) {
+      headers['sec-ch-ua'] = profile.secChUa;
+      headers['sec-ch-ua-mobile'] = profile.secChUaMobile;
+      headers['sec-ch-ua-platform'] = profile.secChUaPlatform;
+    }
+
+    return headers;
+  }
+
+  // 非图片：使用通用 stealth 头
+  return buildStealthHeaders(profile, referer);
+}
+
+/**
  * 下载单个文件到指定路径
  *
  * 每次重试使用不同的 UA，增加反爬虫兼容性
@@ -136,8 +193,8 @@ function downloadFile(
       url,
       {
         headers: {
-          ...buildStealthHeaders(randomProfile()),
           ...headers,
+          ...buildDownloadHeaders(url, headers.Referer),
         },
         timeout: 30000,
       },
@@ -362,6 +419,41 @@ export class GalleryDownloader {
       Referer: gallery.sourceUrl,
     };
 
+    // ----------------------------------------------------------
+    // 0. 下载封面图到 cover/ 子目录
+    // ----------------------------------------------------------
+    if (gallery.coverUrl) {
+      const coverDir = path.join(galleryPath, 'cover');
+      ensureDir(coverDir);
+      const coverExt = extractExtension(gallery.coverUrl);
+      const coverFilePath = path.join(coverDir, `cover${coverExt}`);
+
+      if (!fs.existsSync(coverFilePath) || fs.statSync(coverFilePath).size === 0) {
+        let coverDownloaded = false;
+        for (let retry = 0; retry < MAX_RETRIES; retry++) {
+          coverDownloaded = await downloadFile(gallery.coverUrl, coverFilePath, downloadHeaders);
+          if (coverDownloaded) break;
+          if (retry < MAX_RETRIES - 1) {
+            await sleep(backoffDelay(retry, 1000, 8000));
+          }
+        }
+        if (coverDownloaded) {
+          await prisma.gallery.update({
+            where: { id: galleryId },
+            data: { coverLocalPath: coverFilePath },
+          });
+          console.log(`[GalleryDL] 图库 #${galleryId} 封面下载成功: ${coverFilePath}`);
+        } else {
+          console.error(`[GalleryDL] 图库 #${galleryId} 封面下载失败: ${gallery.coverUrl}`);
+        }
+      } else {
+        await prisma.gallery.update({
+          where: { id: galleryId },
+          data: { coverLocalPath: coverFilePath },
+        });
+      }
+    }
+
     let success = 0;
     let failed = 0;
     let skipped = 0;
@@ -421,11 +513,12 @@ export class GalleryDownloader {
           data: { status: 'failed' },
         });
       }
-      // 更新图库下载体积统计
-      await prisma.gallery.update({
-        where: { id: galleryId },
-        data: { downloadedSize: totalDownloadedSize },
-      });
+      if (completedFiles % 5 === 0 || completedFiles === totalFiles) {
+        await prisma.gallery.update({
+          where: { id: galleryId },
+          data: { downloadedSize: totalDownloadedSize },
+        });
+      }
       emitProgress();
     });
 
@@ -512,11 +605,12 @@ export class GalleryDownloader {
           });
         }
       }
-      // 更新图库下载体积统计
-      await prisma.gallery.update({
-        where: { id: galleryId },
-        data: { downloadedSize: totalDownloadedSize },
-      });
+      if (completedFiles % 5 === 0 || completedFiles === totalFiles) {
+        await prisma.gallery.update({
+          where: { id: galleryId },
+          data: { downloadedSize: totalDownloadedSize },
+        });
+      }
       emitProgress();
     }
 
@@ -531,7 +625,62 @@ export class GalleryDownloader {
     });
     const finalTotalSize = (totalSizeResult._sum.fileSize || BigInt(0)) + (videoSizeResult._sum.fileSize || BigInt(0));
 
-    const finalStatus = failed === 0 ? 'completed' : (success > 0 ? 'partial' : 'failed');
+    // ----------------------------------------------------------
+    // 3. 内容校验：对比磁盘实际文件数与数据库记录
+    // ----------------------------------------------------------
+
+    const expectedImages = gallery.images.length;
+    const expectedVideos = gallery.videos.length;
+
+    let actualImages = 0;
+    let actualVideos = 0;
+    if (fs.existsSync(galleryPath)) {
+      const files = fs.readdirSync(galleryPath);
+      for (const f of files) {
+        const ext = path.extname(f).toLowerCase();
+        if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) {
+          actualImages++;
+        } else if (['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.m4v'].includes(ext)) {
+          actualVideos++;
+        }
+      }
+    }
+
+    console.log(
+      `[GalleryDL] 图库 #${galleryId} 下载统计: ` +
+      `成功=${success} 失败=${failed} 跳过=${skipped} | ` +
+      `磁盘文件: 图片=${actualImages}/${expectedImages} 视频=${actualVideos}/${expectedVideos}`,
+    );
+
+    let finalStatus: string;
+    if (totalFiles === 0) {
+      finalStatus = 'failed';
+      console.error(`[GalleryDL] 图库 #${galleryId} 无可下载文件（爬取结果为空）`);
+    } else if (failed === 0 && actualImages >= expectedImages && actualVideos >= expectedVideos) {
+      finalStatus = 'completed';
+    } else if (success > 0) {
+      finalStatus = 'partial';
+      console.error(
+        `[GalleryDL] 图库 #${galleryId} 部分下载失败: ` +
+        `失败=${failed}, 磁盘图片=${actualImages}/${expectedImages}, 磁盘视频=${actualVideos}/${expectedVideos}`,
+      );
+    } else {
+      finalStatus = 'failed';
+      console.error(
+        `[GalleryDL] 图库 #${galleryId} 全部下载失败: ` +
+        `磁盘图片=${actualImages}/${expectedImages}, 磁盘视频=${actualVideos}/${expectedVideos}`,
+      );
+    }
+
+    // 更新数据库中的期望数量字段
+    await prisma.gallery.update({
+      where: { id: galleryId },
+      data: {
+        expectedImageCount: expectedImages,
+        expectedVideoCount: expectedVideos,
+        contentVerified: finalStatus === 'completed',
+      },
+    });
 
     // 根据已有下载方式更新 downloadMethod
     const existingGallery = await prisma.gallery.findUnique({
@@ -559,6 +708,11 @@ export class GalleryDownloader {
       failed,
       skipped,
       savePath: galleryPath,
+      status: finalStatus,
+      actualImages,
+      actualVideos,
+      expectedImages,
+      expectedVideos,
     });
 
     return result;

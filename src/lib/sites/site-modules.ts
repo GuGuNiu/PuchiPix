@@ -112,3 +112,36 @@ export const ENABLED_SITE_MODULES: readonly SiteModuleConfig[] = ALL_SITE_MODULE
 export function getSiteModule(id: string): SiteModuleConfig | undefined {
   return SITE_MODULES[id as keyof typeof SITE_MODULES];
 }
+
+/**
+ * 根据 URL 匹配站点模块，支持多域名自适应。
+ *
+ * 检查顺序：baseUrl hostname → domains 列表中所有 hostname → 站点 ID 子串匹配
+ *
+ * @param url - 任意 URL（任务 URL、源页面 URL 等）
+ * @returns 匹配到的站点模块配置，未匹配则返回 undefined
+ *
+ * @date 2026-07-12
+ */
+export function getSiteModuleByUrl(url: string): SiteModuleConfig | undefined {
+  const urlLower = url.toLowerCase();
+  return ALL_SITE_MODULES.find((m) => {
+    try {
+      const host = new URL(m.baseUrl).hostname.toLowerCase();
+      if (urlLower.includes(host)) return true;
+    } catch {
+      // ignore
+    }
+    if (m.domains) {
+      for (const domain of m.domains) {
+        try {
+          const host = new URL(domain).hostname.toLowerCase();
+          if (urlLower.includes(host)) return true;
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return urlLower.includes(m.id.toLowerCase());
+  });
+}

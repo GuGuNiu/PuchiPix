@@ -1,41 +1,47 @@
+/**
+ * 任务状态管理 Store（HTTP 初始加载 + SSE 实时增量更新）
+ *
+ * 数据流：
+ * 1. fetchTasks() — HTTP GET /api/tasks 获取全量列表（快速初始加载）
+ * 2. connectSSE() — EventSource 订阅实时增量：
+ *    - upsert：完整任务对象（创建、爬取完成等）
+ *    - patch：部分字段更新（进度等高频事件，300ms 节流）
+ *    - delete：任务删除通知
+ *
+ * @date 2026-07-12
+ * @lastModified 2026-07-13
+ */
+
 import { create } from 'zustand';
-import type { DownloadTask, ProgressMessage } from '@/types';
-import { useSocketStore } from './socket-store';
-
-interface TaskCreatedMessage {
-  taskId: number;
-  title?: string;
-  source?: string;
-}
-
-interface TaskCompletedMessage {
-  taskId: number;
-  title?: string;
-}
-
-interface TaskFailedMessage {
-  taskId: number;
-  error: string;
-}
-
-interface TaskCancelledMessage {
-  taskId: number;
-}
+import type { DownloadTask } from '@/types';
 
 interface TaskStore {
   tasks: DownloadTask[];
   loading: boolean;
+  sseConnected: boolean;
   fetchTasks: (status?: string) => Promise<void>;
   addTask: (task: DownloadTask) => void;
-  updateTask: (id: number, updates: Partial<DownloadTask>) => void;
-  removeTask: (id: number) => void;
-  /** 订阅 WebSocket 事件以实时更新任务状态 */
+  removeTask: (id: number, taskType?: string) => void;
+  connectSSE: () => () => void;
   subscribeToSocket: () => () => void;
+}
+
+function taskKey(t: DownloadTask): string {
+  return `${t.TaskType || 'video'}-${t.ID}`;
+}
+
+const deletedKeys = new Set<string>();
+
+function markDeleted(key: string) {
+  deletedKeys.add(key);
+  setTimeout(() => deletedKeys.delete(key), 5000);
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
-  loading: false,
+  loading: true,
+  sseConnected: false,
+
   fetchTasks: async (status?: string) => {
     set({ loading: true });
     try {
@@ -47,148 +53,122 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({ loading: false });
     }
   },
-  addTask: (task) => set((s) => ({ tasks: [task, ...s.tasks] })),
-  updateTask: (id, updates) =>
-    set((s) => ({
-      tasks: s.tasks.map((t) => (t.ID === id ? { ...t, ...updates } : t)),
-    })),
-  removeTask: (id) =>
-    set((s) => ({ tasks: s.tasks.filter((t) => t.ID !== id) })),
-  subscribeToSocket: () => {
-    let refetchTimer: ReturnType<typeof setTimeout> | null = null;
-    let currentSocket: ReturnType<typeof useSocketStore.getState>['socket'] = null;
 
-    const scheduleRefetch = () => {
-      if (refetchTimer) return;
-      refetchTimer = setTimeout(() => {
-        refetchTimer = null;
-        get().fetchTasks();
-      }, 500);
-    };
+  addTask: (task) => set((s) => {
+    const key = taskKey(task);
+    const exists = s.tasks.some((t) => taskKey(t) === key);
+    if (exists) return s;
+    return { tasks: [task, ...s.tasks] };
+  }),
 
-    const handleProgress = (msg: ProgressMessage) => {
-      const { tasks, updateTask } = get();
-      const task = tasks.find((t) => t.ID === msg.task_id);
-
-      // 收到未知任务的进度，说明有新任务被创建，触发刷新
-      if (!task) {
-        scheduleRefetch();
-        return;
+  removeTask: (id, taskType?: string) =>
+    set((s) => {
+      if (taskType) {
+        const key = `${taskType}-${id}`;
+        markDeleted(key);
+        return { tasks: s.tasks.filter((t) => taskKey(t) !== key) };
       }
+      markDeleted(`video-${id}`);
+      markDeleted(`gallery-${id}`);
+      return { tasks: s.tasks.filter((t) => t.ID !== id) };
+    }),
 
-      const updates: Partial<DownloadTask> = {
-        Progress: msg.progress,
+  connectSSE: () => {
+    let eventSource: EventSource | null = null;
+
+    const connect = () => {
+      eventSource = new EventSource('/api/tasks/stream');
+
+      eventSource.onopen = () => {
+        set({ sseConnected: true });
       };
 
-      if (msg.segment !== undefined) {
-        updates.Segment = msg.segment;
-      }
-      if (msg.total !== undefined) {
-        updates.TotalSegments = msg.total;
-      }
+      eventSource.onerror = () => {
+        set({ sseConnected: false });
+      };
 
-      if (msg.status) {
-        updates.Status = msg.status as DownloadTask['Status'];
-      }
+      eventSource.addEventListener('initial', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as DownloadTask[];
+          const filtered = data.filter((t) => !deletedKeys.has(taskKey(t)));
+          // 空数组不覆盖已有 HTTP 数据，避免 SSE 先发送空 initial 时清空列表
+          // 有数据时总是更新，并结束 loading
+          set((s) => {
+            if (filtered.length === 0 && s.tasks.length > 0) {
+              return { loading: false };
+            }
+            return { tasks: filtered, loading: false };
+          });
+        } catch {
+          // ignore parse error
+        }
+      });
 
-      if (msg.progress >= 100 && msg.status === 'completed') {
-        updates.Status = 'completed';
-      }
+      eventSource.addEventListener('upsert', (e: MessageEvent) => {
+        try {
+          const task = JSON.parse(e.data) as DownloadTask;
+          const key = taskKey(task);
+          if (deletedKeys.has(key)) return;
+          set((s) => {
+            const idx = s.tasks.findIndex((t) => taskKey(t) === key);
+            if (idx >= 0) {
+              const newTasks = [...s.tasks];
+              newTasks[idx] = task;
+              return { tasks: newTasks };
+            }
+            return { tasks: [task, ...s.tasks] };
+          });
+        } catch {
+          // ignore
+        }
+      });
 
-      updateTask(msg.task_id, updates);
+      eventSource.addEventListener('patch', (e: MessageEvent) => {
+        try {
+          const { id, taskType, changes } = JSON.parse(e.data) as {
+            id: number;
+            taskType: string;
+            changes: Partial<DownloadTask>;
+          };
+          const key = `${taskType}-${id}`;
+          set((s) => ({
+            tasks: s.tasks.map((t) =>
+              taskKey(t) === key ? { ...t, ...changes } : t,
+            ),
+          }));
+        } catch {
+          // ignore
+        }
+      });
+
+      eventSource.addEventListener('delete', (e: MessageEvent) => {
+        try {
+          const { id, taskType } = JSON.parse(e.data) as {
+            id: number;
+            taskType: string;
+          };
+          const key = `${taskType}-${id}`;
+          set((s) => ({
+            tasks: s.tasks.filter((t) => taskKey(t) !== key),
+          }));
+        } catch {
+          // ignore
+        }
+      });
     };
 
-    const handleTaskCreated = (_msg: TaskCreatedMessage) => {
-      scheduleRefetch();
-    };
-
-    const handleTaskCompleted = (msg: TaskCompletedMessage) => {
-      get().updateTask(msg.taskId, { Status: 'completed', Progress: 100 });
-    };
-
-    const handleTaskFailed = (msg: TaskFailedMessage) => {
-      get().updateTask(msg.taskId, { Status: 'failed', ErrorMsg: msg.error });
-    };
-
-    const handleTaskCancelled = (msg: TaskCancelledMessage) => {
-      get().updateTask(msg.taskId, { Status: 'cancelled' });
-    };
-
-    const handleTaskScraped = () => {
-      scheduleRefetch();
-    };
-
-    // Gallery 事件：收到后触发刷新以同步图库任务状态
-    const handleGalleryEvent = () => {
-      scheduleRefetch();
-    };
-
-    const galleryEvents = [
-      'gallery:scrapeStarted',
-      'gallery:scrapeCompleted',
-      'gallery:scrapeFailed',
-      'gallery:downloadStarted',
-      'gallery:downloadProgress',
-      'gallery:downloadCompleted',
-      'gallery:downloadFailed',
-      'gallery:zipDownloadCompleted',
-      'gallery:zipExtractCompleted',
-      'gallery:zipExtractFailed',
-    ];
-
-    const attach = (socket: NonNullable<typeof currentSocket>) => {
-      socket.on('progress', handleProgress);
-      socket.on('task:created', handleTaskCreated);
-      socket.on('task:completed', handleTaskCompleted);
-      socket.on('task:failed', handleTaskFailed);
-      socket.on('task:cancelled', handleTaskCancelled);
-      socket.on('task:scraped', handleTaskScraped);
-      for (const evt of galleryEvents) {
-        socket.on(evt, handleGalleryEvent);
-      }
-    };
-
-    const detach = (socket: NonNullable<typeof currentSocket>) => {
-      socket.off('progress', handleProgress);
-      socket.off('task:created', handleTaskCreated);
-      socket.off('task:completed', handleTaskCompleted);
-      socket.off('task:failed', handleTaskFailed);
-      socket.off('task:cancelled', handleTaskCancelled);
-      socket.off('task:scraped', handleTaskScraped);
-      for (const evt of galleryEvents) {
-        socket.off(evt, handleGalleryEvent);
-      }
-    };
-
-    // 如果 socket 已存在，直接绑定
-    const initial = useSocketStore.getState().socket;
-    if (initial) {
-      currentSocket = initial;
-      attach(initial);
-    }
-
-    // 监听 socket 变化，当 socket 被创建/替换时自动重新绑定
-    const unsubSocketStore = useSocketStore.subscribe((state, prevState) => {
-      if (state.socket === prevState.socket) return;
-
-      if (currentSocket) {
-        detach(currentSocket);
-      }
-      currentSocket = state.socket;
-      if (currentSocket) {
-        attach(currentSocket);
-      }
-    });
+    connect();
 
     return () => {
-      if (refetchTimer) {
-        clearTimeout(refetchTimer);
-        refetchTimer = null;
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
       }
-      if (currentSocket) {
-        detach(currentSocket);
-      }
-      unsubSocketStore();
+      set({ sseConnected: false });
     };
+  },
+
+  subscribeToSocket: () => {
+    return get().connectSSE();
   },
 }));

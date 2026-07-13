@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
+import { eventBus } from '@/lib/core/event-bus';
 import type { GalleryData } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,7 @@ export const runtime = 'nodejs';
 /** 将 Prisma Gallery 对象映射为 API 响应格式（含关联数据） */
 function mapGalleryWithRelations(g: {
   id: number;
+  seq?: number | null;
   sourceUrl: string;
   siteId: string;
   scrapedDomain: string;
@@ -30,12 +32,17 @@ function mapGalleryWithRelations(g: {
   category: string;
   tags: string;
   coverUrl: string;
+  coverLocalPath: string;
   gameCharacters: string | null;
   publishTime: string | null;
   imageCount: number;
   videoCount: number;
   pageCount: number;
   status: string;
+  downloadMethod: string;
+  expectedImageCount: number;
+  expectedVideoCount: number;
+  contentVerified: boolean;
   savePath: string;
   totalSize: bigint;
   downloadedSize: bigint;
@@ -68,6 +75,9 @@ function mapGalleryWithRelations(g: {
     imageDimensions: string;
     password: string;
     downloadUrl: string;
+    downloadSource: string;
+    ouoUrl: string;
+    resolvedDirectUrl: string;
     provider: string;
     requiresLogin: boolean;
     requiresEmail: boolean;
@@ -75,6 +85,11 @@ function mapGalleryWithRelations(g: {
     localPath: string;
     extractedPath: string;
     actualSize: bigint;
+    zipFileName: string;
+    parallelism: number;
+    avgSpeed: number;
+    verifiedCount: number;
+    countMatched: boolean;
   } | null;
 }): GalleryData {
   let tags: string[] = [];
@@ -93,20 +108,26 @@ function mapGalleryWithRelations(g: {
 
   return {
     ID: g.id,
+    Seq: g.seq ?? undefined,
     SourceURL: g.sourceUrl,
     SiteID: g.siteId,
     ScrapedDomain: g.scrapedDomain || '',
-    Title: g.title,
+    Title: g.description || g.title,
     Protagonist: g.protagonist,
     Description: g.description,
     Category: g.category,
     Tags: tags,
     CoverURL: g.coverUrl,
+    CoverLocalPath: g.coverLocalPath || '',
     PublishTime: g.publishTime || undefined,
     ImageCount: g.imageCount,
     VideoCount: g.videoCount,
     PageCount: g.pageCount,
     Status: g.status,
+    DownloadMethod: g.downloadMethod || 'pending',
+    ExpectedImageCount: g.expectedImageCount || 0,
+    ExpectedVideoCount: g.expectedVideoCount || 0,
+    ContentVerified: g.contentVerified || false,
     SavePath: g.savePath,
     TotalSize: Number(g.totalSize || BigInt(0)),
     DownloadedSize: Number(g.downloadedSize || BigInt(0)),
@@ -139,6 +160,9 @@ function mapGalleryWithRelations(g: {
       ImageDimensions: g.downloadInfo.imageDimensions,
       Password: g.downloadInfo.password,
       DownloadURL: g.downloadInfo.downloadUrl,
+      DownloadSource: g.downloadInfo.downloadSource || 'unknown',
+      OuoURL: g.downloadInfo.ouoUrl || '',
+      ResolvedDirectURL: g.downloadInfo.resolvedDirectUrl || '',
       Provider: g.downloadInfo.provider,
       RequiresLogin: g.downloadInfo.requiresLogin,
       RequiresEmail: g.downloadInfo.requiresEmail,
@@ -146,6 +170,11 @@ function mapGalleryWithRelations(g: {
       LocalPath: g.downloadInfo.localPath,
       ExtractedPath: g.downloadInfo.extractedPath,
       ActualSize: Number(g.downloadInfo.actualSize || BigInt(0)),
+      ZipFileName: g.downloadInfo.zipFileName || '',
+      Parallelism: g.downloadInfo.parallelism || 0,
+      AvgSpeed: g.downloadInfo.avgSpeed || 0,
+      VerifiedCount: g.downloadInfo.verifiedCount || 0,
+      CountMatched: g.downloadInfo.countMatched || false,
     } : undefined,
     GameCharacters: gameCharacters,
   };
@@ -200,6 +229,8 @@ export async function DELETE(
     await prisma.gallery.delete({
       where: { id: galleryId },
     });
+
+    eventBus.emit('gallery:deleted', { galleryId });
 
     return NextResponse.json({ message: 'Gallery deleted' });
   } catch (error) {

@@ -66,6 +66,8 @@ app.prepare().then(async () => {
           progress: msg.progress,
           status: msg.status,
           speed: msg.speed,
+          segment: msg.segment,
+          total: msg.total,
         });
 
         if (msg.status === 'completed') {
@@ -193,8 +195,8 @@ app.prepare().then(async () => {
       if (dev) {
         const warmupRoutes = [
           '/api/health', '/api/stats', '/api/sites',
-          '/api/tasks', '/api/history',
-          '/', '/tasks', '/search', '/history',
+          '/api/tasks',
+          '/', '/tasks', '/search',
         ];
         Promise.all(
           warmupRoutes.map((route) =>

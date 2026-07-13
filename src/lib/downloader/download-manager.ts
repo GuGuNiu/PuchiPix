@@ -199,6 +199,9 @@ export class DownloadManager {
   /**
    * 推送进度消息。
    *
+   * 同时通过 progressCallback（遗留接口）和 EventBus 推送，
+   * 确保 SSE 流能实时转发到前端。
+   *
    * @param taskId   - 任务 ID
    * @param progress - 进度百分比（0~100）
    * @param segment  - 已完成的分片数
@@ -214,17 +217,28 @@ export class DownloadManager {
     status: string,
     speed?: string
   ): void {
+    const rounded = Math.round(progress * 100) / 100;
+
     if (this.progressCallback) {
       this.progressCallback({
         type: 'progress',
         task_id: taskId,
-        progress: Math.round(progress * 100) / 100,
+        progress: rounded,
         speed,
         segment,
         total,
         status,
       });
     }
+
+    eventBus.emit('task:progress', {
+      taskId,
+      progress: rounded,
+      status,
+      speed,
+      segment,
+      total,
+    });
   }
 
   // ============================================================
@@ -457,7 +471,7 @@ export class DownloadManager {
       // 步骤 10：合并 TS 分片
       // ============================================================
       console.log(`[Download] Task ${task.ID}: 正在合并 TS 分片...`);
-      this.emitProgress(task.ID, 95, completedCount, download.totalSegments, 'merging');
+      this.emitProgress(task.ID, 95, completedCount, download.totalSegments, 'downloading');
       const mergeResult: MergeResult = await mergeSegments(segDir, tsOutputPath);
       console.log(
         `[Download] Task ${task.ID}: 合并完成 — ${mergeResult.totalFiles} 个文件，` +
@@ -485,7 +499,7 @@ export class DownloadManager {
       // 步骤 12：探测视频信息
       // ============================================================
       console.log(`[Download] Task ${task.ID}: 正在探测视频信息...`);
-      this.emitProgress(task.ID, 99, completedCount, download.totalSegments, 'probing');
+      this.emitProgress(task.ID, 99, completedCount, download.totalSegments, 'transcoding');
       const durationSeconds = await probeDuration(mp4OutputPath).catch(() => 0);
       const resolution = await probeResolution(mp4OutputPath).catch(() => '');
       const fileSize = fs.statSync(mp4OutputPath).size;

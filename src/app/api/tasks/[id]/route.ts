@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getDownloadManager, mapTask } from '@/lib/api-helpers';
+import { eventBus } from '@/lib/core/event-bus';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -101,6 +102,8 @@ export async function DELETE(
     await prisma.downloadTask.delete({
       where: { id: taskId },
     });
+
+    eventBus.emit('task:deleted', { taskId });
 
     return NextResponse.json({ success: true });
   } catch {
