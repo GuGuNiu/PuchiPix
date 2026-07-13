@@ -174,6 +174,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     };
 
     const handleScrapeCompleted = (msg: { galleryId: number }) => {
+      // 爬取完成后立即刷新详情，让用户马上看到图片列表
+      get().fetchGalleryDetail(msg.galleryId);
       scheduleRefetch();
     };
 
@@ -196,6 +198,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     };
 
     const handleDownloadCompleted = (msg: { galleryId: number }) => {
+      // 下载完成后立即刷新该图包详情，让用户马上看到图片
+      get().fetchGalleryDetail(msg.galleryId);
       scheduleRefetch();
     };
 
@@ -231,6 +235,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
 
     const handleZipExtractCompleted = (msg: { galleryId: number; extractedPath: string; fileCount: number }) => {
       get().setZipStatus(msg.galleryId, 'completed');
+      // 解压完成后立即刷新详情，让用户马上看到图片
+      get().fetchGalleryDetail(msg.galleryId);
       scheduleRefetch();
     };
 

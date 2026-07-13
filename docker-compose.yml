@@ -1,0 +1,27 @@
+# PuchiPix Docker Compose 配置
+# 本地开发/测试用，生产环境请使用 CI/CD 构建的镜像
+
+services:
+  puchipix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: puchipix
+    ports:
+      - '10540:10540'
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:./data/puchipix.db
+    volumes:
+      - puchipix-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:10540/api/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  puchipix-data:
+    driver: local

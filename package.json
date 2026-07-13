@@ -7,8 +7,12 @@
     "build": "next build",
     "start": "tsx server.ts",
     "lint": "eslint",
+    "test": "echo \"No tests configured\" && exit 0",
+    "test:typecheck": "tsc --noEmit",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "docker:build": "docker build -t puchipix .",
+    "docker:run": "docker run -p 10540:10540 --env-file .env -v puchipix-data:/app/data puchipix"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
