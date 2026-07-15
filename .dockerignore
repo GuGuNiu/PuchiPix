@@ -1,0 +1,51 @@
+# 版本控制
+.git
+.gitignore
+.github
+
+# 依赖
+node_modules
+.pnpm-store
+
+# 构建输出
+.next
+out
+dist
+build
+
+# 开发文件
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 测试
+test
+coverage
+__tests__
+*.test.*
+*.spec.*
+
+# 文档
+docs
+*.md
+LICENSE
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# 其他
+.DS_Store
+Thumbs.db
+tsconfig.tsbuildinfo
+next-env.d.ts

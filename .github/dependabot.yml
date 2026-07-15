@@ -1,0 +1,66 @@
+# Dependabot 自动依赖更新配置
+# 文档: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # npm/pnpm 依赖
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 10
+    reviewers:
+      - PuchiPix Team
+    labels:
+      - dependencies
+      - automerge
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    groups:
+      # Next.js 生态
+      next-js:
+        patterns:
+          - next
+          - react
+          - react-dom
+          - eslint-config-next
+      # Prisma ORM
+      prisma:
+        patterns:
+          - prisma
+          - '@prisma/*'
+      # TypeScript 生态
+      typescript:
+        patterns:
+          - typescript
+          - '@types/*'
+      # Tailwind CSS
+      tailwind:
+        patterns:
+          - tailwindcss
+          - '@tailwindcss/*'
+    ignore:
+      # 主版本更新需要手动确认
+      - dependency-name: next
+        update-types: ['version-update:semver-major']
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    labels:
+      - ci
+      - automerge
+    commit-message:
+      prefix: 'chore(ci)'
+      include: scope

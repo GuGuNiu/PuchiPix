@@ -1,0 +1,110 @@
+/**
+ * 基础布局样式
+ *
+ * 包含 HTML/Body 基础样式、滚动条、整体布局骨架。
+ *
+ */
+
+/* ===== Base ===== */
+html { font-size: 14px; }
+
+body {
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection { background: var(--accent-soft); color: var(--accent); }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ===== Layout ===== */
+.app-layout { display: flex; height: 100vh; width: 100vw; }
+
+/* ===== Status Bar ===== */
+.status-bar {
+  height: var(--header-height);
+  min-height: var(--header-height);
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  font-size: 13px;
+  z-index: 50;
+}
+
+.status-bar-left, .status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.status-indicator { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-secondary); }
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.status-dot.connected { background: var(--success); }
+.status-dot.disconnected { background: var(--danger); }
+.status-dot.active { background: var(--warning); }
+
+/* ===== Content Area ===== */
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8);
+}
+
+/* 全宽页面：移除 content-area padding 让页面四角贴边 */
+.content-area:has(.search-page),
+.content-area:has(.dashboard-page),
+.content-area:has(.tasks-layout) {
+  padding: 0;
+}
+
+.page-container { max-width: 1200px; margin: 0 auto; }
+.section-divider { border: none; border-top: 1px solid var(--border); margin: var(--space-6) 0; }
+
+/* ===== Main Area ===== */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* ===== Utility ===== */
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.flex-1 { flex: 1; }
+.min-w-0 { min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+.text-primary { color: var(--text-primary); }
+.font-mono { font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace; }
