@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Dancing_Script } from "next/font/google";
 import "./globals.css";
 import "./styles/tokens.css";
@@ -12,9 +13,8 @@ import Sidebar from "@/components/layout/sidebar";
 import SocketProvider from "@/components/providers/socket-provider";
 import ThemeProvider from "@/components/providers/theme-provider";
 import ThemedToaster from "@/components/providers/themed-toaster";
+import HlsScriptLoader from "@/components/providers/hls-script-loader";
 import { I18nProvider } from "@/lib/i18n";
-
-import Script from "next/script";
 
 const dancingScript = Dancing_Script({
   weight: "700",
@@ -30,25 +30,28 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`;
-
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
-}>): React.JSX.Element {
+}>): Promise<React.JSX.Element> {
+  const cookieStore = await cookies();
+  const themeCookie = cookieStore.get("theme")?.value;
+  const themeAttr =
+    themeCookie === "dark" || themeCookie === "light" ? themeCookie : undefined;
+
   return (
-    <html lang="zh-CN" className={dancingScript.variable} suppressHydrationWarning>
+    <html
+      lang="zh-CN"
+      className={dancingScript.variable}
+      data-theme={themeAttr}
+      suppressHydrationWarning
+    >
       <head>
         <link rel="preload" href="/vendor/hls.min.js" as="script" />
       </head>
       <body>
-        <Script
-          id="theme-init"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: themeScript }}
-        />
-        <Script src="/vendor/hls.min.js" strategy="beforeInteractive" />
+        <HlsScriptLoader />
         <ThemeProvider>
           <I18nProvider>
             <SocketProvider>

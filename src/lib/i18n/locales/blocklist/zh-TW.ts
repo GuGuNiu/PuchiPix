@@ -1,0 +1,43 @@
+import type { TranslationDict } from "../../types";
+
+// 屏蔽詞庫頁面文本 — 繁體中文
+const zhTW: TranslationDict = {
+  "blocklist.title": "屏蔽詞庫",
+  "blocklist.subtitle": "管理站點內容的屏蔽規則，支援按標題/分類/主角/導演過濾",
+  "blocklist.scopeAll": "全域",
+  "blocklist.scopeAimeizizi": "愛妹子",
+  "blocklist.scopeKanav": "KanAV",
+  "blocklist.scopeExhentai": "E-Hentai",
+  "blocklist.scopeSjs": "司機社",
+  "blocklist.addRule": "新增規則",
+  "blocklist.deleteSelected": "刪除選中 ({count})",
+  "blocklist.totalCount": "共 {count} 條規則",
+  "blocklist.colSite": "站點",
+  "blocklist.colField": "欄位",
+  "blocklist.colMatchMode": "匹配模式",
+  "blocklist.colKeyword": "關鍵字",
+  "blocklist.colStatus": "狀態",
+  "blocklist.colActions": "操作",
+  "blocklist.fieldTitle": "標題",
+  "blocklist.fieldCategory": "分類",
+  "blocklist.fieldPerson": "主角",
+  "blocklist.fieldDirector": "導演",
+  "blocklist.modeIncludes": "包含",
+  "blocklist.modeExact": "精確",
+  "blocklist.modeRegex": "正則",
+  "blocklist.enabled": "已啟用",
+  "blocklist.disabled": "已停用",
+  "blocklist.clickToDisable": "點擊停用",
+  "blocklist.clickToEnable": "點擊啟用",
+  "blocklist.addFailed": "新增失敗",
+  "blocklist.deleted": "已刪除 {count} 條規則",
+  "blocklist.deleteFailed": "刪除失敗",
+  "blocklist.invalidRegex": "正規表示式無效",
+  "blocklist.placeholderKeyword": "輸入屏蔽關鍵字...",
+  "blocklist.placeholderRegex": "輸入正規表示式...",
+  "blocklist.confirmDelete": "確認刪除選中的規則？",
+  "blocklist.noRules": "暫無規則",
+  "blocklist.noMatchingRules": "沒有匹配的規則",
+};
+
+export default zhTW;

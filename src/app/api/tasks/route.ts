@@ -8,6 +8,7 @@ import { allocateSeq } from '@/lib/core/seq-allocator';
 import { setM3U8Candidates } from '@/lib/core/m3u8-candidate-store';
 import { cleanUrl, normalizeUrl } from '@/lib/utils/url-normalizer';
 import { checkVideoTaskDuplicate } from '@/lib/utils/task-dedup';
+import { t } from '@/lib/i18n/server';
 import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import { getGalleryProvider, scrapeGalleryAsync } from '@/lib/tasks/gallery-handler';
 import { getSharedBrowser } from '@/lib/core/browser-pool';
@@ -303,6 +304,10 @@ async function scrapeVideoAsync(taskId: number, url: string): Promise<void> {
     });
 
     eventBus.emit('task:m3u8Select', { taskId, candidates: m3u8Candidates });
+
+    // 任务进入 pending 等待用户选择 M3U8，释放普通槽位
+    // 用户选择后 select-m3u8 路由会重新获取槽位
+    taskQueueManager.releaseSlot('video', taskId);
     return;
   }
 
@@ -337,12 +342,12 @@ async function scrapeVideoAsync(taskId: number, url: string): Promise<void> {
       });
     }
   } else {
-    taskQueueManager.releaseScrapingSlot('video', taskId);
+    // 识别槽位已在上方释放（line 280），此处无需重复释放
     await prisma.downloadTask.update({
       where: { id: taskId },
-      data: { status: 'failed', errorMsg: '无法从页面提取 M3U8 链接' },
+      data: { status: 'failed', errorMsg: t('api.tasks.noM3u8Extracted') },
     });
-    eventBus.emit('task:failed', { taskId, error: '无法从页面提取 M3U8 链接' });
+    eventBus.emit('task:failed', { taskId, error: t('api.tasks.noM3u8Extracted') });
   }
 }
 

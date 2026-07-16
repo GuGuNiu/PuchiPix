@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getSiteAccountManager, type AccountStatus } from '@/lib/sites/site-account-manager';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET — 查询账户列表 */
 export async function GET(request: Request): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const siteId = searchParams.get('siteId');
@@ -30,8 +31,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 }
 
-/** POST — 创建新账户 */
 export async function POST(request: Request): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
 
@@ -39,7 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     if (!siteId || !username || !password) {
       return NextResponse.json(
-        { error: '缺少必填字段: siteId, username, password' },
+        { error: t('api.common.missingParams', { params: 'siteId, username, password' }) },
         { status: 400 },
       );
     }
@@ -65,15 +66,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-/** PATCH — 更新账户状态 */
 export async function PATCH(request: Request): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
 
     if (!id) {
       return NextResponse.json(
-        { error: '缺少 id 参数' },
+        { error: t('api.common.missingParams', { params: 'id' }) },
         { status: 400 },
       );
     }
@@ -98,15 +99,15 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   }
 }
 
-/** DELETE — 删除账户 */
 export async function DELETE(request: Request): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
 
     if (!id) {
       return NextResponse.json(
-        { error: '缺少 id 参数' },
+        { error: t('api.common.missingParams', { params: 'id' }) },
         { status: 400 },
       );
     }

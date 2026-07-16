@@ -298,6 +298,8 @@ export async function DELETE(
 
 try {
 taskQueueManager.cancelAcquire('gallery', galleryId);
+// 取消排队中的识别槽位请求
+taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
 
 // 取消正在进行的下载
     try {
@@ -305,6 +307,10 @@ taskQueueManager.cancelAcquire('gallery', galleryId);
       getGalleryDownloader().cancelDownload(galleryId);
     } catch {
     }
+
+    // 释放已持有的识别槽位和普通槽位（如果任务处于 scraping/downloading 阶段）
+    taskQueueManager.releaseScrapingSlot('gallery', galleryId);
+    taskQueueManager.releaseSlot('gallery', galleryId);
 
     // 读取图库信息，用于后续本地文件清理
     const gallery = await prisma.gallery.findUnique({

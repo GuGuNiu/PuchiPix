@@ -6,12 +6,10 @@ interface TaskStore {
   loading: boolean;
   sseConnected: boolean;
   sniffTaskEventId: number;
-  /** 最新的嗅探任务事件数据 */
   lastSniffTaskEvent: SniffTaskEventData | null;
   fetchTasks: (status?: string) => Promise<void>;
   addTask: (task: DownloadTask) => void;
   removeTask: (id: number, taskType?: string) => void;
-  /** 清除指定任务的删除标记（DELETE 请求失败时恢复任务） */
   clearDeletedKey: (id: number, taskType: string) => void;
   connectSSE: () => () => void;
   subscribeToSocket: () => () => void;
@@ -21,7 +19,7 @@ export interface SniffTaskEventData {
   action: 'galleryCreated';
   sniffId: number;
   galleryId?: number;
-  seq?: number;
+  seq?: string | null;
   title?: string;
   totalCreated?: number;
   totalSkipped?: number;
@@ -31,15 +29,6 @@ function taskKey(t: DownloadTask): string {
   return `${t.TaskType || 'video'}-${t.ID}`;
 }
 
-/**
- * 已删除任务的 key 集合
- *
- * 用于防止 SSE 事件将已删除的任务重新加入列表。
- * 不再使用定时器自动过期 —— 改为事件驱动清理：
- * - 服务端确认删除（SSE delete 事件）时清除对应 key
- * - DELETE 请求失败时通过 clearDeletedKey 清除
- * - fetchTasks 重新拉取数据时全部清除
- */
 const deletedKeys = new Set<string>();
 
 function markDeleted(key: string): void {
@@ -55,16 +44,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   fetchTasks: async (status?: string) => {
     set({ loading: true });
-    // 在 fetch 前清除删除标记，使 SSE 事件在 fetch 期间不被阻塞。
-    // fetch 期间如果有新的删除操作，markDeleted 会重新添加标记，
-    // 最终在下面通过 filter 过滤掉。
-    deletedKeys.clear();
     try {
       const url = status ? `/api/tasks?status=${status}` : '/api/tasks';
       const res = await fetch(url);
       const data = await res.json();
       const tasks = Array.isArray(data) ? data : [];
-      // fetch 期间可能有新的删除操作，过滤掉已标记删除的任务
+      const serverTaskKeys = new Set(tasks.map(taskKey));
+      for (const key of deletedKeys) {
+        if (serverTaskKeys.has(key)) {
+          deletedKeys.delete(key);
+        }
+      }
       const filtered = tasks.filter((t) => !deletedKeys.has(taskKey(t)));
       set({ tasks: filtered, loading: false });
     } catch {
@@ -114,8 +104,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         try {
           const data = JSON.parse(e.data) as DownloadTask[];
           const filtered = data.filter((t) => !deletedKeys.has(taskKey(t)));
-          // 空数组不覆盖已有 HTTP 数据，避免 SSE 先发送空 initial 时清空列表
-          // 有数据时总是更新，并结束 loading
           set((s) => {
             if (filtered.length === 0 && s.tasks.length > 0) {
               return { loading: false };
@@ -168,7 +156,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             taskType: string;
           };
           const key = `${taskType}-${id}`;
-          // 服务端确认删除，清除删除标记（不再需要防止 SSE 重新加入）
           deletedKeys.delete(key);
           set((s) => ({
             tasks: s.tasks.filter((t) => taskKey(t) !== key),
@@ -184,6 +171,33 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             sniffTaskEventId: s.sniffTaskEventId + 1,
             lastSniffTaskEvent: data,
           }));
+        } catch {
+        }
+      });
+
+      eventSource.addEventListener('notification', (e: MessageEvent) => {
+        try {
+          const { type, message, id } = JSON.parse(e.data) as {
+            type: 'info' | 'success' | 'warning' | 'error';
+            message: string;
+            id?: string;
+          };
+          import('@/lib/i18n/toast').then(({ toast }) => {
+            switch (type) {
+              case 'info':
+                toast.info(message, { id });
+                break;
+              case 'success':
+                toast.success(message, { id });
+                break;
+              case 'warning':
+                toast.warning(message, { id });
+                break;
+              case 'error':
+                toast.error(message, { id });
+                break;
+            }
+          });
         } catch {
         }
       });

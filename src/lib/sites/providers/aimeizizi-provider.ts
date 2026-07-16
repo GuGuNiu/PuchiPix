@@ -10,6 +10,7 @@ import type {
 } from '@/types';
 import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep, buildAntiCrawlerHeaders } from '@/lib/core/anti-crawler';
 import { DomainHealthTracker, shuffleDomainList } from '@/lib/core/domain-health-tracker';
+import { logT } from '@/lib/i18n/server';
 import { detectWaf } from '@/lib/core/waf-detector';
 import { getGameCharacterService } from '@/lib/game-characters/game-character-service';
 import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
@@ -200,7 +201,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     // 自动学习
     if (name) {
       service.learnPerson(name).catch((err) => {
-        console.warn('[Aimeizizi] learnPerson 失败:', err);
+        console.warn(logT('log.aimeizizi.learnPersonFailed'), err);
       });
     }
 
@@ -348,7 +349,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     for (const item of rawResults) {
       const check = await this.checkContentBlockedAsync(item.title, '');
       if (check.blocked) {
-        console.log(`[Aimeizizi] 屏蔽搜索结果: "${item.title.substring(0, 50)}..."，原因: ${check.reason}`);
+        console.log(logT('log.aimeizizi.blockedSearchResult', { title: item.title.substring(0, 50), reason: check.reason ?? '' }));
         continue;
       }
       filteredResults.push(item);
@@ -801,7 +802,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
         const httpStatus = response?.status();
         if (httpStatus === 403 || httpStatus === 429) {
           domainHealthTracker.markRateLimited(currentDomain);
-          console.warn(`[Aimeizizi] 第 ${pageNum} 页遭遇 ${httpStatus}，标记域名 ${currentDomain} 为限流`);
+          console.warn(logT('log.aimeizizi.domainRateLimited', { page: pageNum, status: httpStatus, domain: currentDomain }));
 
           if (articleId) {
             const fallbackDomains = domainHealthTracker.getAllDomainsOrdered(SITE_DOMAINS);
@@ -822,10 +823,10 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
                 pageData = await this.extractGalleryPageData(page, pageNum - 1);
                 currentDomain = fbDomain;
                 domainHealthTracker.markHealthy(fbDomain);
-                console.log(`[Aimeizizi] 第 ${pageNum} 页切换到域名 ${fbDomain} 成功`);
+                console.log(logT('log.aimeizizi.domainSwitchSuccess', { page: pageNum, domain: fbDomain }));
                 break;
               } catch (fbErr) {
-                console.warn(`[Aimeizizi] 第 ${pageNum} 页域名 ${fbDomain} 失败:`, fbErr instanceof Error ? fbErr.message : fbErr);
+                console.warn(logT('log.aimeizizi.domainSwitchFailed', { page: pageNum, domain: fbDomain, msg: fbErr instanceof Error ? fbErr.message : String(fbErr) }));
                 continue;
               }
             }
@@ -835,7 +836,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
           pageData = await this.extractGalleryPageData(page, pageNum - 1);
         }
       } catch (err) {
-        console.error(`[Aimeizizi] 爬取第 ${pageNum} 页失败 (域名 ${currentDomain}):`, err);
+        console.error(logT('log.aimeizizi.scrapePageFailed', { page: pageNum, domain: currentDomain }), err);
 
         if (articleId) {
           const fallbackDomains = domainHealthTracker.getAllDomainsOrdered(SITE_DOMAINS);
@@ -847,7 +848,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
               await page.waitForSelector('article', { timeout: 3000 }).catch(() => {});
               pageData = await this.extractGalleryPageData(page, pageNum - 1);
               currentDomain = fbDomain;
-              console.log(`[Aimeizizi] 第 ${pageNum} 页切换到域名 ${fbDomain} 成功`);
+              console.log(logT('log.aimeizizi.domainSwitchSuccess', { page: pageNum, domain: fbDomain }));
               break;
             } catch {
               continue;
@@ -883,7 +884,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
 
 const blockCheck = await this.checkContentBlockedAsync(title, firstPageData.category, protagonist);
 if (blockCheck.blocked) {
-console.log(`[Aimeizizi] 屏蔽图库爬取: "${title.substring(0, 50)}..."，原因: ${blockCheck.reason}`);
+console.log(logT('log.aimeizizi.blockedGalleryScrape', { title: title.substring(0, 50), reason: blockCheck.reason ?? '' }));
 throw new Error(`内容被屏蔽: ${blockCheck.reason}`);
     }
 
@@ -899,10 +900,10 @@ throw new Error(`内容被屏蔽: ${blockCheck.reason}`);
     const allTags = [...new Set([...firstPageData.tags, ...metaKeywords])];
 
     // 识别 TAG 中的游戏角色名（原神/星穹铁道/鸣潮/碧蓝航线/碧蓝档案）
-    const gameCharMatches = getGameCharacterService().identifyInTags(allTags);
+    const gameCharMatches = await getGameCharacterService().identifyInTags(allTags);
     const gameCharacters = gameCharMatches.map((m) => m.character.name);
     if (gameCharacters.length > 0) {
-      console.log(`[Aimeizizi] 识别到游戏角色: ${gameCharacters.join(', ')}`);
+      console.log(logT('log.aimeizizi.gameCharDetected', { chars: gameCharacters.join(', ') }));
     }
     sLog(`后处理完成: tags=${allTags.length}, 游戏角色=${gameCharacters.length}`);
 
@@ -1048,7 +1049,7 @@ throw new Error(`内容被屏蔽: ${blockCheck.reason}`);
 
         await sleep(randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX));
       } catch (err) {
-        console.error(`[Aimeizizi] 爬取列表页第 ${pageNum} 页失败:`, err);
+        console.error(logT('log.aimeizizi.listPageFailed', { page: pageNum }), err);
         break;
       }
     }
@@ -1387,7 +1388,7 @@ throw new Error(`内容被屏蔽: ${blockCheck.reason}`);
     const allTags = [...new Set([...firstPageData.tags, ...metaKeywords])];
 
     // 识别游戏角色
-    const gameCharMatches = getGameCharacterService().identifyInTags(allTags);
+    const gameCharMatches = await getGameCharacterService().identifyInTags(allTags);
     const gameCharacters = gameCharMatches.map((m) => m.character.name);
 
     // 如果有 ZIP 下载信息且需要调用 eligibility API

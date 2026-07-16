@@ -9,7 +9,9 @@ import { createStealthPage, sleep, randomDelay } from '@/lib/core/anti-crawler';
 import { allocateSeq } from '@/lib/core/seq-allocator';
 import { parseTitleCount, detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
 import { getGalleryDownloader } from '@/lib/downloader/gallery-downloader';
+import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -60,7 +62,7 @@ async function processSingleGallery(
   const lockHandle = await ttlLock.acquire(lockKey, { ttl: 120000, waitTimeout: 5000 });
 
   if (!lockHandle) {
-    return { url, status: 'failed', galleryId: gallery.id, error: '正在被其他任务爬取' };
+    return { url, status: 'failed', galleryId: gallery.id, error: t('api.gallery.alreadyScraping') };
   }
 
   const browser = await getSharedBrowser();
@@ -235,17 +237,31 @@ async function processSingleGallery(
       videoCount: result.videoCount,
     });
 
-    getGalleryDownloader()
-      .downloadGallery(gallery.id)
-      .then((dlResult) => {
-        console.log(
-          `[BatchGallery] 图库 #${gallery.id} 下载完成: ` +
-          `成功 ${dlResult.success}, 失败 ${dlResult.failed}, 跳过 ${dlResult.skipped}`,
-        );
-      })
-      .catch((err) => {
-        console.error(`[BatchGallery] 图库 #${gallery.id} 下载失败:`, err);
-      });
+    // 通过队列管理器获取槽位，遵守并发上限设置
+    taskQueueManager.acquireSlot('gallery', gallery.id).then(async (acquired) => {
+      if (!acquired) {
+        console.log(`[BatchGallery] 图库 #${gallery.id} 在排队等待中被取消`);
+        return;
+      }
+      const currentGallery = await prisma.gallery.findUnique({ where: { id: gallery.id } });
+      if (!currentGallery || currentGallery.status === 'completed' || currentGallery.status === 'not_found') {
+        taskQueueManager.releaseSlot('gallery', gallery.id);
+        return;
+      }
+      getGalleryDownloader()
+        .downloadGallery(gallery.id)
+        .then((dlResult) => {
+          console.log(
+            `[BatchGallery] 图库 #${gallery.id} 下载完成: ` +
+            `成功 ${dlResult.success}, 失败 ${dlResult.failed}, 跳过 ${dlResult.skipped}`,
+          );
+        })
+        .catch((err) => {
+          console.error(`[BatchGallery] 图库 #${gallery.id} 下载失败:`, err);
+          // 发射失败事件，触发 TaskQueueManager.releaseSlot 释放普通槽位
+          eventBus.emit('gallery:downloadFailed', { galleryId: gallery.id, error: err.message });
+        });
+    });
 
     return { url, status: 'completed', galleryId: gallery.id, title: result.title };
   } catch (err) {
@@ -299,7 +315,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       const provider = registry.getProviderByUrl(url);
       if (!provider) {
-        results.push({ url, status: 'failed', error: '未找到匹配的站点提供者' });
+        results.push({ url, status: 'failed', error: t('api.gallery.noProvider') });
         continue;
       }
 

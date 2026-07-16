@@ -718,6 +718,9 @@ export class DownloadManager {
       })
       .catch(() => {});
 
+    // 释放普通槽位，允许排队中的任务启动
+    taskQueueManager.releaseSlot('video', taskId);
+
     const progress = download.completedSegments.size / download.totalSegments * 100;
     this.emitProgress(
       taskId,
@@ -838,19 +841,38 @@ export class DownloadManager {
 
   /**
    * 停止所有下载任务。
-   * 用于服务关闭时的优雅退出。
+   *
+   * 用于服务关闭时的优雅退出。将所有活跃任务在内存中标记为 cancelled，
+   * 清理临时分片文件，并将数据库中的状态持久化为 cancelled，
+   * 防止重启后出现假运行状态。
+   * （额外的 DB 重置由 instrumentation.ts 的 resetRunningTasksOnStartup 兜底）
    */
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true;
     this.queue = [];
     this.taskRetries.clear();
+
+    const updates: Promise<unknown>[] = [];
 
     // 将所有活跃任务标记为取消，并清理文件
     for (const [, download] of this.activeDownloads) {
       download.status = 'cancelled';
       cleanupSegments(download.segDir).catch(() => {});
+
+      // 将数据库中的状态持久化为 cancelled
+      updates.push(
+        prisma.downloadTask
+          .update({
+            where: { id: download.taskId },
+            data: { status: 'cancelled', errorMsg: '服务关闭，任务已取消' },
+          })
+          .catch(() => {}),
+      );
     }
 
     this.activeDownloads.clear();
+
+    // 等待所有 DB 更新完成，确保优雅关闭时状态已持久化
+    await Promise.all(updates);
   }
 }

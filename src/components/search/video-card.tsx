@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useState, useEffect, memo } from "react";
 import { Loader2, CheckCircle2, XCircle, Download, Zap, Film, Tag } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import type { SearchItem, VideoInfo } from "@/types";
 
 declare global {
@@ -29,11 +30,11 @@ interface VideoCardProps {
   gallery?: boolean;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: "等待爬取",
-  scraping: "爬取中",
-  downloaded: "已下载",
-  failed: "失败",
+const STATUS_KEYS: Record<string, string> = {
+pending: "batchSearch.statusPending",
+scraping: "batchSearch.statusScraping",
+downloaded: "search.statusDownloaded",
+failed: "common.failed",
 };
 
 const previewUrlCache = new Map<string, string>();
@@ -153,7 +154,8 @@ function formatDuration(seconds: number): string {
 }
 
 function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProps): React.JSX.Element {
-  const videoRef = useRef<HTMLVideoElement>(null);
+const { t } = useI18n();
+const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<HlsInstance | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -597,10 +599,10 @@ function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProp
           <button
             className="video-card-scrape-btn"
             onClick={handleScrapeClick}
-            title="爬取此视频"
+            title={t("search.scrapeThisVideo")}
           >
             <Zap size={14} />
-            爬取
+            {t("search.scrape")}
           </button>
         )}
       </div>
@@ -646,7 +648,7 @@ function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProp
             {popupLoading ? (
               <div className="video-info-popup-loading">
                 <Loader2 size={16} className="spinner" />
-                <span>加载中...</span>
+                <span>{t("search.loadingData")}</span>
               </div>
             ) : (
               <VideoInfoPopupContent item={item} data={popupData} />
@@ -669,6 +671,7 @@ function VideoInfoPopupContent({
   item: SearchItem;
   data: PopupData | null;
 }): React.JSX.Element {
+  const { t } = useI18n();
   const vi = data?.videoInfo;
   const segments = data?.segments;
 
@@ -676,54 +679,54 @@ function VideoInfoPopupContent({
 
   if (!hasAnyData) {
     return (
-      <div className="video-info-popup-empty">暂无详细数据，请先爬取或下载</div>
+      <div className="video-info-popup-empty">暂无详细数据，请先{t("search.scrape")}或下载</div>
     );
   }
 
   return (
     <>
       <div className="video-info-popup-section">
-        <div className="video-info-popup-label">视频数据</div>
+        <div className="video-info-popup-label">{t("search.videoData")}</div>
         <div className="video-info-popup-grid">
           {vi?.Title && (
             <div className="video-info-popup-field">
-              <span className="field-key">标题</span>
+              <span className="field-key">{t("search.fieldTitle")}</span>
               <span className="field-val" title={vi.Title}>{vi.Title}</span>
             </div>
           )}
           {item.date && (
             <div className="video-info-popup-field">
-              <span className="field-key">日期</span>
+              <span className="field-key">{t("search.fieldDate")}</span>
               <span className="field-val">{item.date}</span>
             </div>
           )}
           {vi?.Resolution && (
             <div className="video-info-popup-field">
-              <span className="field-key">分辨率</span>
+              <span className="field-key">{t("search.fieldResolution")}</span>
               <span className="field-val">{vi.Resolution}</span>
             </div>
           )}
           {vi?.Duration && vi.Duration > 0 ? (
             <div className="video-info-popup-field">
-              <span className="field-key">时长</span>
+              <span className="field-key">{t("search.fieldDuration")}</span>
               <span className="field-val">{formatDuration(vi.Duration * 60)}</span>
             </div>
           ) : segments && (
             <div className="video-info-popup-field">
-              <span className="field-key">时长</span>
+              <span className="field-key">{t("search.fieldDuration")}</span>
               <span className="field-val">{formatDuration(segments.totalDuration)}</span>
             </div>
           )}
           <div className="video-info-popup-field">
-            <span className="field-key">状态</span>
-            <span className="field-val">{STATUS_LABELS[item.status] || item.status}</span>
+            <span className="field-key">{t("search.fieldStatus")}</span>
+            <span className="field-val">{t(STATUS_KEYS[item.status]) || item.status}</span>
           </div>
         </div>
       </div>
 
       {vi?.Categories && vi.Categories.length > 0 && (
         <div className="video-info-popup-section">
-          <div className="video-info-popup-label">分类</div>
+          <div className="video-info-popup-label">{t("search.categories")}</div>
           <div className="video-info-popup-chips">
             {vi.Categories.map((c, i) => (
               <span key={i} className="chip chip-category">{c}</span>
@@ -734,7 +737,7 @@ function VideoInfoPopupContent({
 
       {vi?.Tags && vi.Tags.length > 0 && (
         <div className="video-info-popup-section">
-          <div className="video-info-popup-label">标签</div>
+          <div className="video-info-popup-label">{t("search.tags")}</div>
           <div className="video-info-popup-chips">
             {vi.Tags.map((t, i) => (
               <span key={i} className="chip chip-tag">{t}</span>
@@ -745,7 +748,7 @@ function VideoInfoPopupContent({
 
       {vi?.Actors && vi.Actors.length > 0 && (
         <div className="video-info-popup-section">
-          <div className="video-info-popup-label">演员</div>
+          <div className="video-info-popup-label">{t("search.actors")}</div>
           <div className="video-info-popup-chips">
             {vi.Actors.map((a, i) => (
               <span key={i} className="chip chip-actor">{a}</span>
@@ -756,7 +759,7 @@ function VideoInfoPopupContent({
 
       {vi?.Director && (
         <div className="video-info-popup-section">
-          <div className="video-info-popup-label">导演/系列</div>
+          <div className="video-info-popup-label">{t("search.director")}</div>
           <div className="video-info-popup-field">
             <span className="field-val">{vi.Director}</span>
           </div>
@@ -765,19 +768,19 @@ function VideoInfoPopupContent({
 
       {segments && (
         <div className="video-info-popup-section">
-          <div className="video-info-popup-label">分片数据</div>
+          <div className="video-info-popup-label">{t("search.segmentData")}</div>
           <div className="video-info-popup-grid">
             <div className="video-info-popup-field">
-              <span className="field-key">分片数</span>
+              <span className="field-key">{t("search.segmentCount")}</span>
               <span className="field-val">{segments.count}</span>
             </div>
             <div className="video-info-popup-field">
-              <span className="field-key">总时长</span>
+              <span className="field-key">{t("search.totalDuration")}</span>
               <span className="field-val">{formatDuration(segments.totalDuration)}</span>
             </div>
             {segments.count > 0 && (
               <div className="video-info-popup-field">
-                <span className="field-key">均片长</span>
+                <span className="field-key">{t("search.avgSegmentDuration")}</span>
                 <span className="field-val">{(segments.totalDuration / segments.count).toFixed(1)}s</span>
               </div>
             )}
@@ -787,22 +790,22 @@ function VideoInfoPopupContent({
 
       {(vi?.FileSize || (segments && vi?.Duration)) && (
         <div className="video-info-popup-section">
-          <div className="video-info-popup-label">体积数据</div>
+          <div className="video-info-popup-label">{t("search.sizeData")}</div>
           <div className="video-info-popup-grid">
             {vi?.FileSize && vi.FileSize > 0 ? (
               <div className="video-info-popup-field">
-                <span className="field-key">文件大小</span>
+                <span className="field-key">{t("search.fieldFileSize")}</span>
                 <span className="field-val">{formatSize(vi.FileSize)}</span>
               </div>
             ) : segments && segments.count > 0 ? (
               <div className="video-info-popup-field">
-                <span className="field-key">预估大小</span>
-                <span className="field-val">需下载后计算</span>
+                <span className="field-key">{t("search.estimatedSize")}</span>
+                <span className="field-val">{t("search.estimatedSizeValue")}</span>
               </div>
             ) : null}
             {segments && segments.totalDuration > 0 && vi?.FileSize && vi.FileSize > 0 && (
               <div className="video-info-popup-field">
-                <span className="field-key">码率</span>
+                <span className="field-key">{t("search.bitrate")}</span>
                 <span className="field-val">
                   {((vi.FileSize * 8) / segments.totalDuration / 1000).toFixed(0)} kbps
                 </span>
@@ -833,16 +836,17 @@ export default VideoCard;
 
 function StatusBadge({
   status,
-  taskId,
+  taskId: _taskId,
 }: {
   status: string;
   taskId?: number;
 }): React.JSX.Element {
+  const { t } = useI18n();
   if (status === "downloaded") {
     return (
       <span className="badge badge-success" style={{ fontSize: 11 }}>
         <CheckCircle2 size={11} style={{ display: "inline", marginRight: 3 }} />
-        已下载
+        {t("search.statusDownloaded")}
       </span>
     );
   }
@@ -862,13 +866,13 @@ function StatusBadge({
           className="spinner spinner-sm"
           style={{ display: "inline", marginRight: 3 }}
         />
-        爬取中
+        {t("search.scrape")}中
       </span>
     );
   }
   return (
     <span className="badge badge-default" style={{ fontSize: 11 }}>
-      {STATUS_LABELS[status] || status}
+      {t(STATUS_KEYS[status]) || status}
     </span>
   );
 }

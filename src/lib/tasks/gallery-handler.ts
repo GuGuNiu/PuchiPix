@@ -5,9 +5,10 @@ import { getSiteModuleByUrl } from '@/lib/sites/site-modules';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
 import { getSharedBrowser } from '@/lib/core/browser-pool';
 import { getGalleryDownloader } from '@/lib/downloader/gallery-downloader';
-import { createStealthPage, sleep, randomDelay } from '@/lib/core/anti-crawler';
+import { createStealthPage } from '@/lib/core/anti-crawler';
 import { shouldFallbackToPlaywright } from '@/lib/core/waf-detector';
 import { allocateSeq } from '@/lib/core/seq-allocator';
+import { logT } from '@/lib/i18n/server';
 import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import { checkGalleryDuplicate } from '@/lib/utils/task-dedup';
 import { normalizeUrl, cleanUrl } from '@/lib/utils/url-normalizer';
@@ -65,7 +66,7 @@ export async function scrapeGalleryAsync(
 ): Promise<void> {
   const acquired = await taskQueueManager.acquireSlot('gallery', galleryId);
   if (!acquired) {
-    console.log(`[GalleryHandler] 图库 #${galleryId} 在排队等待中被取消`);
+    console.log(logT('log.galleryHandler.cancelledInQueue', { id: galleryId }));
     return;
   }
 
@@ -77,7 +78,7 @@ export async function scrapeGalleryAsync(
 
   const scrapingAcquired = await taskQueueManager.acquireScrapingSlot('gallery', galleryId);
   if (!scrapingAcquired) {
-    console.log(`[GalleryHandler] 图库 #${galleryId} 在识别排队等待中被取消`);
+    console.log(logT('log.galleryHandler.cancelledInScrapeQueue', { id: galleryId }));
     taskQueueManager.releaseSlot('gallery', galleryId);
     return;
   }
@@ -242,7 +243,7 @@ export async function scrapeGalleryAsync(
 
         if (httpStatus === 403 || httpStatus === 429) {
           const domain = extractDomainFromUrl(tryUrl);
-          console.warn(`[GalleryHandler] 域名 ${tryUrl} 返回 ${httpStatus}（限流），快速切换`);
+          console.warn(logT('log.galleryHandler.domainRateLimited', { url: tryUrl, status: httpStatus }));
           if (domain && adaptiveProvider.markDomainRateLimited) {
             adaptiveProvider.markDomainRateLimited(domain);
           }
@@ -397,10 +398,27 @@ export async function scrapeGalleryAsync(
 
     taskQueueManager.releaseScrapingSlot('gallery', galleryId);
 
-    await prisma.gallery.update({
-      where: { id: galleryId },
-      data: { status: notFound ? 'not_found' : 'failed', errorMsg: errMsg },
-    });
+    // 检测浏览器/页面关闭错误（通常在服务优雅关闭时发生）
+    // 此时不应标记为 failed，而应保持 pending，让下次启动时由 resetRunningTasksOnStartup 处理
+    const isBrowserClosed =
+      errMsg.includes('Target closed') ||
+      errMsg.includes('Target page') ||
+      errMsg.includes('Browser') && errMsg.includes('closed') ||
+      errMsg.includes('Page closed') ||
+      errMsg.includes('context') && errMsg.includes('destroyed');
+
+    if (isBrowserClosed) {
+      log('检测到浏览器关闭错误，保持 pending 状态等待重启后重试');
+      await prisma.gallery.update({
+        where: { id: galleryId },
+        data: { status: 'pending', errorMsg: '服务关闭中断，等待重新启动' },
+      });
+    } else {
+      await prisma.gallery.update({
+        where: { id: galleryId },
+        data: { status: notFound ? 'not_found' : 'failed', errorMsg: errMsg },
+      });
+    }
 
     eventBus.emit('gallery:scrapeFailed', { galleryId, url, error: errMsg });
   } finally {
@@ -459,7 +477,7 @@ export async function createGalleryTask(
   eventBus.emit('gallery:scrapeStarted', { galleryId: gallery.id, url });
 
   scrapeGalleryAsync(gallery.id, url, provider).catch((err) => {
-    console.error(`[GalleryHandler] 图库 #${gallery.id} 异步爬取异常:`, err);
+    console.error(logT('log.galleryHandler.asyncScrapeError', { id: gallery.id }), err);
   });
 
   return {

@@ -1,6 +1,7 @@
 import { eventBus } from './event-bus';
 import { getOrCreateGlobal } from './global-singleton';
 import prisma from '@/lib/db/prisma';
+import { logT } from '@/lib/i18n/server';
 
 export type QueueTaskType = 'video' | 'gallery' | 'sniff';
 
@@ -83,11 +84,19 @@ class TaskQueueManager {
           if (!isNaN(v) && v >= 1) this.maxScrapingTasks = v;
         }
       }
-      console.log(
-        `[TaskQueue] 配置已加载: 普通任务上限=${this.maxConcurrentTasks}, 识别中上限=${this.maxScrapingTasks}, 嗅探任务上限=${this.maxConcurrentSniffTasks}, TS分片并发=${this.tsSegmentConcurrent}, 图库图片并发=${this.galleryImageConcurrent}`,
-      );
+    console.log(
+      logT('log.taskQueue.configLoaded', {
+        maxConcurrent: this.maxConcurrentTasks,
+        maxScraping: this.maxScrapingTasks,
+        maxSniff: this.maxConcurrentSniffTasks,
+        tsSegment: this.tsSegmentConcurrent,
+        galleryImage: this.galleryImageConcurrent,
+      }),
+    );
     } catch (err) {
-      console.error('[TaskQueue] 加载配置失败，使用默认值:', err);
+      console.error(
+        logT('log.taskQueue.configLoadFailed', { error: err instanceof Error ? err.message : String(err) }),
+      );
     }
   }
 
@@ -112,7 +121,7 @@ class TaskQueueManager {
     eventBus.on('sniffTask:completed', ({ sniffId }) => this.releaseSlot('sniff', sniffId));
     eventBus.on('sniffTask:failed', ({ sniffId }) => this.releaseSlot('sniff', sniffId));
 
-    console.log('[TaskQueue] EventBus 终态监听器已注册');
+    console.log(logT('log.taskQueue.listenersRegistered'));
   }
 
   /**
@@ -140,13 +149,19 @@ class TaskQueueManager {
       if (isSniff) this.runningSniff++;
       else this.runningNormal++;
       console.log(
-        `[TaskQueue] 槽位已分配: ${key} (运行中: 普通=${this.runningNormal}/${this.maxConcurrentTasks}, 嗅探=${this.runningSniff}/${this.maxConcurrentSniffTasks})`,
+        logT('log.taskQueue.slotAllocated', {
+          key,
+          normal: this.runningNormal,
+          maxNormal: this.maxConcurrentTasks,
+          sniff: this.runningSniff,
+          maxSniff: this.maxConcurrentSniffTasks,
+        }),
       );
       return true;
     }
 
     console.log(
-      `[TaskQueue] 槽位已满，任务排队等待: ${key} (队列位置 ${this.pendingAcquires.length + 1})`,
+      logT('log.taskQueue.slotFull', { key, position: this.pendingAcquires.length + 1 }),
     );
     return new Promise<boolean>((resolve) => {
       this.pendingAcquires.push({ taskType, taskId, resolve });
@@ -178,7 +193,13 @@ class TaskQueueManager {
     }
 
     console.log(
-      `[TaskQueue] 槽位已释放: ${key} (运行中: 普通=${this.runningNormal}/${this.maxConcurrentTasks}, 嗅探=${this.runningSniff}/${this.maxConcurrentSniffTasks})`,
+      logT('log.taskQueue.slotReleased', {
+        key,
+        normal: this.runningNormal,
+        maxNormal: this.maxConcurrentTasks,
+        sniff: this.runningSniff,
+        maxSniff: this.maxConcurrentSniffTasks,
+      }),
     );
 
     this.tryStartNext();
@@ -198,7 +219,7 @@ class TaskQueueManager {
     if (idx >= 0) {
       const [acquire] = this.pendingAcquires.splice(idx, 1);
       acquire.resolve(false);
-      console.log(`[TaskQueue] 排队任务已取消: ${taskType}-${taskId}`);
+      console.log(logT('log.taskQueue.pendingCancel', { type: taskType, id: taskId }));
       return true;
     }
     return false;
@@ -226,7 +247,13 @@ class TaskQueueManager {
       else this.runningNormal++;
 
       console.log(
-        `[TaskQueue] 排队任务获得槽位: ${key} (运行中: 普通=${this.runningNormal}/${this.maxConcurrentTasks}, 嗅探=${this.runningSniff}/${this.maxConcurrentSniffTasks})`,
+        logT('log.taskQueue.pendingGranted', {
+          key,
+          normal: this.runningNormal,
+          maxNormal: this.maxConcurrentTasks,
+          sniff: this.runningSniff,
+          maxSniff: this.maxConcurrentSniffTasks,
+        }),
       );
       acquire.resolve(true);
     }
@@ -254,13 +281,13 @@ class TaskQueueManager {
       this.activeScrapingSlots.add(key);
       this.runningScraping++;
       console.log(
-        `[TaskQueue] 识别槽位已分配: ${key} (识别中: ${this.runningScraping}/${this.maxScrapingTasks})`,
+        logT('log.taskQueue.scrapingAllocated', { key, scraping: this.runningScraping, maxScraping: this.maxScrapingTasks }),
       );
       return true;
     }
 
     console.log(
-      `[TaskQueue] 识别槽位已满，任务排队等待: ${key} (队列位置 ${this.pendingScrapingAcquires.length + 1})`,
+      logT('log.taskQueue.scrapingFull', { key, position: this.pendingScrapingAcquires.length + 1 }),
     );
     return new Promise<boolean>((resolve) => {
       this.pendingScrapingAcquires.push({ taskType, taskId, resolve });
@@ -285,7 +312,7 @@ class TaskQueueManager {
     this.runningScraping = Math.max(0, this.runningScraping - 1);
 
     console.log(
-      `[TaskQueue] 识别槽位已释放: ${key} (识别中: ${this.runningScraping}/${this.maxScrapingTasks})`,
+      logT('log.taskQueue.scrapingReleased', { key, scraping: this.runningScraping, maxScraping: this.maxScrapingTasks }),
     );
 
     this.tryStartNextScraping();
@@ -301,7 +328,7 @@ class TaskQueueManager {
     if (idx >= 0) {
       const [acquire] = this.pendingScrapingAcquires.splice(idx, 1);
       acquire.resolve(false);
-      console.log(`[TaskQueue] 排队识别任务已取消: ${taskType}-${taskId}`);
+      console.log(logT('log.taskQueue.scrapingCancel', { type: taskType, id: taskId }));
       return true;
     }
     return false;
@@ -317,7 +344,7 @@ class TaskQueueManager {
       this.runningScraping++;
 
       console.log(
-        `[TaskQueue] 排队识别任务获得槽位: ${key} (识别中: ${this.runningScraping}/${this.maxScrapingTasks})`,
+        logT('log.taskQueue.scrapingGranted', { key, scraping: this.runningScraping, maxScraping: this.maxScrapingTasks }),
       );
       acquire.resolve(true);
     }
@@ -391,7 +418,13 @@ class TaskQueueManager {
     ]);
 
     console.log(
-      `[TaskQueue] 配置已更新: 普通任务上限=${this.maxConcurrentTasks}, 识别中上限=${this.maxScrapingTasks}, 嗅探任务上限=${this.maxConcurrentSniffTasks}, TS分片并发=${this.tsSegmentConcurrent}, 图库图片并发=${this.galleryImageConcurrent}`,
+      logT('log.taskQueue.configUpdated', {
+        maxConcurrent: this.maxConcurrentTasks,
+        maxScraping: this.maxScrapingTasks,
+        maxSniff: this.maxConcurrentSniffTasks,
+        tsSegment: this.tsSegmentConcurrent,
+        galleryImage: this.galleryImageConcurrent,
+      }),
     );
 
     this.tryStartNext();
@@ -431,7 +464,7 @@ class TaskQueueManager {
     }
     this.pendingAcquires = [];
     this.pendingScrapingAcquires = [];
-    console.warn('[TaskQueue] 计数器已强制重置');
+    console.warn(logT('log.taskQueue.resetWarn'));
   }
 }
 

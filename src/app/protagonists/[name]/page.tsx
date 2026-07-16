@@ -115,7 +115,7 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
 
             {stats.aliases.length > 0 && (
               <div className="mt-4">
-                <p className="text-sm text-muted-foreground mb-2">识别到的别名（已归并）：</p>
+                <p className="text-sm text-muted-foreground mb-2">{t('protagonists.detectedAliases')}</p>
                 <div className="flex flex-wrap gap-2">
                   {stats.aliases.map((alias) => (
                     <Badge key={alias.name} variant="secondary">
@@ -129,7 +129,7 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
             <div className="mt-6 flex gap-3">
               <Button>
                 <Download className="w-4 h-4 mr-2" />
-                一键下载全部
+                {t('protagonists.downloadAll')}
               </Button>
             </div>
           </div>

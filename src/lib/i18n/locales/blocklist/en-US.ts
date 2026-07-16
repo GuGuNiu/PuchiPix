@@ -1,0 +1,43 @@
+import type { TranslationDict } from "../../types";
+
+// Blocklist page text — American English
+const enUS: TranslationDict = {
+  "blocklist.title": "Blocklist",
+  "blocklist.subtitle": "Manage content block rules — filter by title/category/character/director",
+  "blocklist.scopeAll": "Global",
+  "blocklist.scopeAimeizizi": "LoveCutes",
+  "blocklist.scopeKanav": "KanAV",
+  "blocklist.scopeExhentai": "E-Hentai",
+  "blocklist.scopeSjs": "SJS",
+  "blocklist.addRule": "Add Rule",
+  "blocklist.deleteSelected": "Delete Selected ({count})",
+  "blocklist.totalCount": "{count} rules total",
+  "blocklist.colSite": "Site",
+  "blocklist.colField": "Field",
+  "blocklist.colMatchMode": "Match Mode",
+  "blocklist.colKeyword": "Keyword",
+  "blocklist.colStatus": "Status",
+  "blocklist.colActions": "Actions",
+  "blocklist.fieldTitle": "Title",
+  "blocklist.fieldCategory": "Category",
+  "blocklist.fieldPerson": "Character",
+  "blocklist.fieldDirector": "Director",
+  "blocklist.modeIncludes": "Includes",
+  "blocklist.modeExact": "Exact",
+  "blocklist.modeRegex": "Regex",
+  "blocklist.enabled": "Enabled",
+  "blocklist.disabled": "Disabled",
+  "blocklist.clickToDisable": "Click to disable",
+  "blocklist.clickToEnable": "Click to enable",
+  "blocklist.addFailed": "Add failed",
+  "blocklist.deleted": "Deleted {count} rules",
+  "blocklist.deleteFailed": "Delete failed",
+  "blocklist.invalidRegex": "Invalid regex pattern",
+  "blocklist.placeholderKeyword": "Enter block keyword...",
+  "blocklist.placeholderRegex": "Enter regex pattern...",
+  "blocklist.confirmDelete": "Confirm delete selected rules?",
+  "blocklist.noRules": "No rules yet",
+  "blocklist.noMatchingRules": "No matching rules",
+};
+
+export default enUS;

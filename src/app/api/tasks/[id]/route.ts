@@ -1,13 +1,3 @@
-/**
- * 单个任务的 CRUD API
- *
- * GET    /api/tasks/:id  — 获取单个任务详情
- * PUT    /api/tasks/:id  — 更新任务（URL、格式等）
- * DELETE /api/tasks/:id  — 删除任务（取消下载 + 清理本地文件 + 删除数据库记录 + 通知前端）
- *
- * 删除流程：取消下载后读取任务信息，删除本地文件和数据库记录，最后通知前端。
- */
-
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import path from 'path';
@@ -15,7 +5,7 @@ import prisma from '@/lib/db/prisma';
 import { getDownloadManager, mapTask } from '@/lib/api-helpers';
 import { eventBus } from '@/lib/core/event-bus';
 import { taskQueueManager } from '@/lib/core/task-queue-manager';
-import { safeDeleteFile, safeDeleteDir, hasDeleteFailures, summarizeDeleteResults } from '@/lib/utils/safe-delete';
+import { safeDeleteFile, safeDeleteDir, summarizeDeleteResults } from '@/lib/utils/safe-delete';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -110,10 +100,7 @@ export async function DELETE(
       return NextResponse.json({ success: true });
     }
 
-    // 删除本地文件（视频文件 + 分片目录），带重试
-    const downloadPath = process.env.DOWNLOAD_PATH || './data/videos';
     const segmentsPath = process.env.SEGMENTS_PATH || './data/segments';
-    const resolvedDownloadPath = path.resolve(downloadPath);
     const resolvedSegmentsPath = path.resolve(segmentsPath);
 
     const pathsToDelete: string[] = [];
@@ -144,7 +131,6 @@ export async function DELETE(
       console.warn(`[TaskDelete] 任务 #${taskId}: 部分文件删除失败 — ${deleteFailures.join(', ')}`);
     }
 
-    // 删除数据库记录（Prisma 事务，级联删除 VideoInfo）
     await prisma.$transaction(async (tx) => {
       await tx.downloadTask.delete({
         where: { id: taskId },

@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import * as crypto from 'crypto';
 import type { M3U8Segment } from './m3u8-parser';
 
 /**

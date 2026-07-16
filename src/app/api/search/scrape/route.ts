@@ -1,17 +1,19 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import { getSearchEngine } from '@/lib/search/search-engine';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { jobId, pageUrl, all } = body;
 
     if (!jobId || typeof jobId !== 'string') {
-      return NextResponse.json({ error: '请提供 jobId' }, { status: 400 });
+      return NextResponse.json({ error: t('api.search.missingJobId') }, { status: 400 });
     }
 
     const engine = getSearchEngine();
@@ -22,18 +24,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       engine.scrapeAll(jobId).catch((err) => {
         console.error(`[ScrapeAll] 批量爬取失败: ${err.message}`);
       });
-      return NextResponse.json({ message: '批量爬取已启动', jobId });
+      return NextResponse.json({ message: t('api.search.batchScrapeStarted'), jobId });
     }
 
     // 单个爬取
     if (!pageUrl || typeof pageUrl !== 'string') {
-      return NextResponse.json({ error: '请提供 pageUrl' }, { status: 400 });
+      return NextResponse.json({ error: t('api.search.missingPageUrl') }, { status: 400 });
     }
 
     const updatedItem = await engine.scrapeVideo(jobId, pageUrl);
 
     if (!updatedItem) {
-      return NextResponse.json({ error: '未找到对应的视频项' }, { status: 404 });
+      return NextResponse.json({ error: t('api.search.videoNotFound') }, { status: 404 });
     }
 
     return NextResponse.json(updatedItem);

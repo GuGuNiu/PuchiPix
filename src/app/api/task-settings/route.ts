@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,11 +24,12 @@ export async function GET(): Promise<NextResponse> {
       },
     });
   } catch {
-    return NextResponse.json({ error: 'Failed to read task settings' }, { status: 500 });
+    return NextResponse.json({ error: t('api.common.internalError') }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { maxConcurrentTasks, maxConcurrentSniffTasks, maxScrapingTasks, tsSegmentConcurrent, galleryImageConcurrent } = body;
@@ -36,7 +38,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const v = Number(maxConcurrentTasks);
       if (isNaN(v) || v < 1 || v > 50) {
         return NextResponse.json(
-          { error: '同时运行任务数必须在 1~50 之间' },
+          { error: t('api.validation.maxConcurrentTasks') },
           { status: 400 },
         );
       }
@@ -46,7 +48,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const v = Number(maxConcurrentSniffTasks);
       if (isNaN(v) || v < 1 || v > 10) {
         return NextResponse.json(
-          { error: '嗅探最大并发数必须在 1~10 之间' },
+          { error: t('api.validation.maxSniffConcurrent') },
           { status: 400 },
         );
       }
@@ -56,7 +58,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const v = Number(maxScrapingTasks);
       if (isNaN(v) || v < 1 || v > 50) {
         return NextResponse.json(
-          { error: '识别中最大数量必须在 1~50 之间' },
+          { error: t('api.validation.maxScrapingSlots') },
           { status: 400 },
         );
       }
@@ -66,7 +68,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const v = Number(tsSegmentConcurrent);
       if (isNaN(v) || v < 1 || v > 200) {
         return NextResponse.json(
-          { error: 'TS 分片并发数必须在 1~200 之间' },
+          { error: t('api.validation.tsSegmentConcurrent') },
           { status: 400 },
         );
       }
@@ -76,7 +78,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const v = Number(galleryImageConcurrent);
       if (isNaN(v) || v < 1 || v > 50) {
         return NextResponse.json(
-          { error: '图库图片并发数必须在 1~50 之间' },
+          { error: t('api.validation.galleryImageConcurrent') },
           { status: 400 },
         );
       }

@@ -11,6 +11,7 @@ import prisma from '@/lib/db/prisma';
 import { downloadAndExtractZip } from '@/lib/downloader/zip-downloader';
 import { getOuoOrchestrator } from '@/lib/core/ouo-orchestrator';
 import { detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,6 +24,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const { id } = await params;
     const galleryId = parseInt(id);
@@ -43,17 +45,17 @@ export async function POST(
     });
 
     if (!gallery) {
-      return NextResponse.json({ error: '图库不存在' }, { status: 404 });
+      return NextResponse.json({ error: t('api.gallery.notFound') }, { status: 404 });
     }
 
     if (!gallery.downloadInfo) {
-      return NextResponse.json({ error: '该图库无 ZIP 下载信息' }, { status: 400 });
+      return NextResponse.json({ error: t('api.gallery.noZipInfo') }, { status: 400 });
     }
 
     const effectiveUrl = manualUrl || gallery.downloadInfo.downloadUrl;
     if (!effectiveUrl) {
       return NextResponse.json(
-        { error: '无可用下载 URL，请手动提供中转站链接' },
+        { error: t('api.gallery.noDownloadUrl') },
         { status: 400 },
       );
     }
@@ -71,7 +73,7 @@ export async function POST(
       const source = detectDownloadSource(effectiveUrl);
       if (source !== 'ouo') {
         return NextResponse.json(
-          { error: '仅 ouo.io 来源支持编排器入队，当前来源为 ' + source },
+          { error: t('api.gallery.invalidSource', { source }) },
           { status: 400 },
         );
       }
@@ -114,7 +116,7 @@ export async function GET(
     });
 
     if (!downloadInfo) {
-      return NextResponse.json({ error: '无 ZIP 下载信息' }, { status: 404 });
+      return NextResponse.json({ error: t('api.gallery.noZipData') }, { status: 404 });
     }
 
     return NextResponse.json({

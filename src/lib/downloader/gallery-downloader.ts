@@ -13,7 +13,6 @@ import type { M3U8Segment } from './m3u8-parser';
 import { downloadSegment, generateTSID } from './segment-downloader';
 import { mergeSegments, verifySegments, cleanupSegments } from './merger';
 import { transcodeTS } from '@/lib/transcoder/ffmpeg';
-import type { GalleryZipInfo } from '@/types';
 
 const DEFAULT_GALLERY_PATH = './data/galleries';
 const DEFAULT_ZIP_PATH = './data/gallery_zips';
@@ -25,10 +24,6 @@ function getGalleryConcurrency(): number {
 
 function getGalleryRoot(): string {
   return process.env.GALLERY_PATH || DEFAULT_GALLERY_PATH;
-}
-
-function getZipRoot(): string {
-  return process.env.GALLERY_ZIP_PATH || DEFAULT_ZIP_PATH;
 }
 
 function sanitizeFilename(name: string): string {
@@ -261,7 +256,7 @@ async function downloadM3U8Video(
       return false;
     }
 
-    const concurrency = 5;
+    const concurrency = taskQueueManager.getDownloadConcurrency().tsSegmentConcurrent;
     let segIndex = 0;
     const segResults: { success: boolean; error?: Error }[] = [];
 
@@ -336,10 +331,19 @@ export class GalleryDownloader {
    *
    * 用于应用优雅关闭时，取消所有正在进行的下载任务。
    * 将所有正在下载的图库标记为已取消，下载循环会在下一个检查点终止。
+   * 同时将数据库中的图库状态持久化为 cancelled，防止重启后出现假运行状态。
+   * （额外的 DB 重置由 instrumentation.ts 的 resetRunningTasksOnStartup 兜底）
    */
   stopAll(): void {
     for (const galleryId of this.downloading) {
       this.cancelled.add(galleryId);
+
+      prisma.gallery
+        .update({
+          where: { id: galleryId },
+          data: { status: 'cancelled', errorMsg: '服务关闭，任务已取消' },
+        })
+        .catch(() => {});
     }
     this.galleryRetries.clear();
     console.log(`[GalleryDownloader] 已取消 ${this.downloading.size} 个活跃下载`);
@@ -422,7 +426,7 @@ export class GalleryDownloader {
         }
 
         console.log(`[GalleryDL] 图库 #${galleryId}: 开始自动重试...`);
-        result = await this._doDownload(galleryId, concurrency);
+        result = await this._doDownload(galleryId, getGalleryConcurrency());
       }
 
       this.galleryRetries.delete(galleryId);
@@ -694,19 +698,23 @@ export class GalleryDownloader {
     );
 
     let finalStatus: string;
+    let finalErrorMsg = '';
     if (totalFiles === 0) {
       finalStatus = 'failed';
+      finalErrorMsg = '爬取结果为空，未找到任何图片或视频';
       console.error(`[GalleryDL] 图库 #${galleryId} 无可下载文件（爬取结果为空）`);
     } else if (failed === 0 && actualImages >= expectedImages && actualVideos >= expectedVideos) {
       finalStatus = 'completed';
     } else if (success > 0) {
       finalStatus = 'partial';
+      finalErrorMsg = `部分下载失败：失败 ${failed} 个，磁盘图片 ${actualImages}/${expectedImages}，磁盘视频 ${actualVideos}/${expectedVideos}`;
       console.error(
         `[GalleryDL] 图库 #${galleryId} 部分下载失败: ` +
         `失败=${failed}, 磁盘图片=${actualImages}/${expectedImages}, 磁盘视频=${actualVideos}/${expectedVideos}`,
       );
     } else {
       finalStatus = 'failed';
+      finalErrorMsg = `全部下载失败：磁盘图片 ${actualImages}/${expectedImages}，磁盘视频 ${actualVideos}/${expectedVideos}`;
       console.error(
         `[GalleryDL] 图库 #${galleryId} 全部下载失败: ` +
         `磁盘图片=${actualImages}/${expectedImages}, 磁盘视频=${actualVideos}/${expectedVideos}`,
@@ -733,6 +741,7 @@ export class GalleryDownloader {
       where: { id: galleryId },
       data: {
         status: finalStatus,
+        errorMsg: finalErrorMsg,
         totalSize: finalTotalSize,
         downloadedSize: finalTotalSize,
         downloadMethod: newMethod,

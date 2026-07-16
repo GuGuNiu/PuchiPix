@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, CheckCircle2, XCircle, Clock, HardDrive, Wifi } from "lucide-react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { SiteIndicator } from "./data-stream";
 
 interface SiteMonitorInfo {
@@ -103,11 +103,14 @@ function SiteCard({ site }: { site: SiteMonitorInfo }): React.JSX.Element {
           <SiteIndicator online={site.online} />
           <span>{site.name}</span>
         </div>
-        {site.online ? (
-          <CheckCircle2 size={14} style={{ color: "var(--success)" }} />
-        ) : (
-          <XCircle size={14} style={{ color: "var(--danger)" }} />
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: site.online ? "var(--success)" : "var(--danger)" }}>
+          {site.online ? (
+            <CheckCircle2 size={14} style={{ color: "var(--success)" }} />
+          ) : (
+            <XCircle size={14} style={{ color: "var(--danger)" }} />
+          )}
+          <span>{site.online ? "在线" : "离线"}</span>
+        </div>
       </div>
       <div className="ops-site-stats">
         <div className="ops-site-stat">

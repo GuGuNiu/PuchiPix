@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChevronDown, Check } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export interface GlassSelectOption {
   value: string;
@@ -22,11 +23,13 @@ export default function GlassSelect({
   options,
   value,
   onChange,
-  placeholder = "请选择",
+  placeholder,
   disabled = false,
   style,
   className = "",
 }: GlassSelectProps): React.JSX.Element {
+  const { t } = useI18n();
+  const resolvedPlaceholder = placeholder ?? t("common.selectPlaceholder");
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -93,7 +96,7 @@ export default function GlassSelect({
         disabled={disabled}
       >
         <span className="glass-select-trigger-label">
-          {selectedOption ? selectedOption.label : placeholder}
+          {selectedOption ? selectedOption.label : resolvedPlaceholder}
         </span>
         <ChevronDown
           size={16}

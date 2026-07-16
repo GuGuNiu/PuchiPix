@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-export interface UseAutoRefreshOptions<T> {
+export interface UseAutoRefreshOptions {
   /** 轮询间隔（毫秒），默认 5000 */
   interval?: number;
   /** 立即执行一次，默认 true */
@@ -28,16 +28,9 @@ export interface UseAutoRefreshResult<T> {
   lastUpdated: Date | null;
 }
 
-/**
- * 自动刷新 Hook
- *
- * @param fetchFn - 异步数据获取函数
- * @param options - 配置选项
- * @returns 数据和控制函数
- */
 export function useAutoRefresh<T>(
   fetchFn: () => Promise<T>,
-  options: UseAutoRefreshOptions<T> = {}
+  options: UseAutoRefreshOptions = {}
 ): UseAutoRefreshResult<T> {
   const {
     interval = 5000,
@@ -60,7 +53,6 @@ export function useAutoRefresh<T>(
   const retryDelayRef = useRef(retryDelay);
   const executeFetchRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
-  // 同步 ref，避免在 render 中直接赋值
   useEffect(() => {
     fetchFnRef.current = fetchFn;
     maxRetriesRef.current = maxRetries;

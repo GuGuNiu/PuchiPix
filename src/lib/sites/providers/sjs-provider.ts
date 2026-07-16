@@ -8,8 +8,9 @@ import type {
   ScrapeResult,
 } from '@/types';
 import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from '@/lib/core/anti-crawler';
-import { DomainHealthTracker, shuffleDomainList } from '@/lib/core/domain-health-tracker';
+import { DomainHealthTracker } from '@/lib/core/domain-health-tracker';
 import { getSiteAccountManager, type CookieData } from '../site-account-manager';
+import { logT } from '@/lib/i18n/server';
 import {
   extractDownloadLinksFromPage,
   isThreadPurchasable,
@@ -100,7 +101,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
     const account = await accountManager.getAvailableAccount(this.id);
 
     if (!account) {
-      console.warn('[SJS] 无可用账户，将以游客模式访问（可能无法看到完整内容）');
+      console.warn(logT('log.sjs.noAccount'));
       return;
     }
 
@@ -124,13 +125,13 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
 
       try {
         await context.addCookies(allCookies);
-        console.log(`[SJS] 账户 #${account.id} Cookie 已注入（${cookies.length} 个）`);
+        console.log(logT('log.sjs.cookieInjected', { id: account.id, count: cookies.length }));
       } catch (err) {
-        console.warn('[SJS] Cookie 注入失败，将尝试重新登录:', err);
+        console.warn(logT('log.sjs.cookieInjectionFailed'), err);
       }
     } else {
       // 没有有效 Cookie，执行登录
-      console.log('[SJS] 无有效 Cookie，开始登录流程...');
+      console.log(logT('log.sjs.noCookieStartLogin'));
       await this.performLogin(context, account.id, account.username, account.password);
     }
   }
@@ -169,7 +170,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
         throw new Error('未找到登录表单');
       }
 
-      const formhash = await page.locator('form[id^="loginform_"] input[name="formhash"]').inputValue();
+      const _formhash = await page.locator('form[id^="loginform_"] input[name="formhash"]').inputValue();
 
       const formId = await loginForm.getAttribute('id');
       const suffix = formId?.replace('loginform_', '') || '';
@@ -213,13 +214,13 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
       }
 
       await accountManager.saveAuthCookies(accountId, sjsCookies, DISCUZ_COOKIE_PREFIX);
-      console.log(`[SJS] 账户 #${accountId} 登录成功，Cookie 已保存（${sjsCookies.length} 个）`);
+      console.log(logT('log.sjs.loginSuccess', { id: accountId, count: sjsCookies.length }));
 
       // 标记域名健康
       domainHealthTracker.markHealthy(domain);
 
     } catch (err) {
-      console.error(`[SJS] 登录失败:`, err);
+      console.error(logT('log.sjs.loginFailed'), err);
       await accountManager.markLoginFailed(accountId, err instanceof Error ? err.message : String(err));
 
       // 尝试切换域名重试
@@ -501,9 +502,9 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
     const downloadLinks = extractDownloadLinksFromPage(pageHtml);
 
     if (needsPurchase) {
-      console.log('[SJS] 帖子为付费内容，需购买后才能查看下载链接');
+      console.log(logT('log.sjs.paidContent'));
     } else if (downloadLinks.length > 0) {
-      console.log(`[SJS] 检测到 ${downloadLinks.length} 个下载链接（帖子已购买）`);
+      console.log(logT('log.sjs.detectedDownloadLinks', { count: downloadLinks.length }));
     }
 
     const metadata = await this.extractExtendedMetadata(page);
@@ -563,9 +564,9 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
           }
         }
 
-        console.log(`[SJS] 帖子第 ${pageNum} 页: 新增图片（累计 ${allImages.length}）`);
+        console.log(logT('log.sjs.pageNewImages', { page: pageNum, total: allImages.length }));
       } catch (err) {
-        console.error(`[SJS] 爬取帖子第 ${pageNum} 页失败:`, err);
+        console.error(logT('log.sjs.scrapePageFailed', { page: pageNum }), err);
         break;
       }
     }
@@ -591,7 +592,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
     try {
       const { getGameCharacterService } = await import('@/lib/game-characters/game-character-service');
       const charService = getGameCharacterService();
-      const charMatches = charService.identifyInTags(metadata.tags);
+      const charMatches = await charService.identifyInTags(metadata.tags);
       gameCharacters = charMatches.length > 0 ? charMatches.map((m) => m.character.name) : undefined;
     } catch {
     }
@@ -784,7 +785,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
     // 自动学习
     if (name) {
       service.learnPerson(name).catch((err) => {
-        console.warn('[SJS] learnPerson 失败:', err);
+        console.warn(logT('log.sjs.learnPersonFailed'), err);
       });
     }
 
@@ -882,7 +883,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
         : await this.extractForumListResults(page);
 
       if (results.length === 0) {
-        console.log(`[SJS] 列表页第 ${pageNum} 页无结果，结束`);
+        console.log(logT('log.sjs.listPageNoResults', { page: pageNum }));
         break;
       }
 
@@ -897,7 +898,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
         }
       }
 
-      console.log(`[SJS] 列表页第 ${pageNum} 页: 新增 ${newCount} 个结果（累计 ${allResults.length}）`);
+      console.log(logT('log.sjs.listPageNewResults', { page: pageNum, count: newCount, total: allResults.length }));
 
       if (newCount === 0) break;
 
@@ -905,7 +906,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
       const nextUrl = await this.getNextPageUrl(page, pageUrl, pageNum);
 
       if (!nextUrl) {
-        console.log(`[SJS] 列表页无下一页链接，结束`);
+        console.log(logT('log.sjs.listPageNoNext'));
         break;
       }
 
@@ -915,7 +916,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
           timeout: 30000,
         });
       } catch (err) {
-        console.error(`[SJS] 导航到下一页失败:`, err);
+        console.error(logT('log.sjs.navNextFailed'), err);
         break;
       }
     }

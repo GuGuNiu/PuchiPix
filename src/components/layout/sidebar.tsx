@@ -1,5 +1,9 @@
 "use client";
 
+import packageInfo from "../../../package.json";
+
+const APP_VERSION = packageInfo.version;
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -99,7 +103,7 @@ export default function Sidebar(): React.JSX.Element {
           <div className="sidebar-logo-row">
             <div className="sidebar-logo-sub">{t("nav.logoSub")}</div>
             <div className="sidebar-version-divider" />
-            <div className="sidebar-version">v0.2.1</div>
+            <div className="sidebar-version">v{APP_VERSION}</div>
           </div>
           <div className="sidebar-logo-collapsed">
             <Play size={22} fill="currentColor" strokeWidth={0} />
@@ -125,6 +129,7 @@ export default function Sidebar(): React.JSX.Element {
             );
           })}
         </nav>
+        <LanguageSwitcher />
         <div className="theme-toggle-section">
           <div className="theme-toggle-divider" />
           <button
@@ -143,7 +148,6 @@ export default function Sidebar(): React.JSX.Element {
             <span className="theme-toggle-slider" />
           </button>
         </div>
-        <LanguageSwitcher />
         <button
           className={`sidebar-toggle ${collapsed ? "collapsed" : ""}`}
           onClick={toggleCollapsed}

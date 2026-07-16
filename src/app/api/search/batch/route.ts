@@ -1,17 +1,19 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import { getSearchEngine } from '@/lib/search/search-engine';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { titles, siteId } = body;
 
     if (!titles || typeof titles !== 'string' || titles.trim().length === 0) {
-      return NextResponse.json({ error: '请提供视频标题' }, { status: 400 });
+      return NextResponse.json({ error: t('api.search.missingVideoTitle') }, { status: 400 });
     }
 
     const engine = getSearchEngine();

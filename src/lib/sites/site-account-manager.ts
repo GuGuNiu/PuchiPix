@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
 import type { SiteAccount } from '@prisma/client';
+import { logT } from '@/lib/i18n/server';
 
 /** 账户状态 */
 export type AccountStatus = 'active' | 'disabled' | 'cooldown' | 'expired' | 'banned';
@@ -164,7 +165,7 @@ class SiteAccountManager {
       },
     });
 
-    console.log(`[SiteAccountManager] 账户 #${accountId} Cookie 已保存（${cookies.length} 个）`);
+    console.log(logT('log.siteAccountManager.cookieSaved', { id: accountId, count: cookies.length }));
   }
 
   /**

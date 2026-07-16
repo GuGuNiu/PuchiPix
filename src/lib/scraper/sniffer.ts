@@ -26,7 +26,6 @@ export class Sniffer {
     await this.page.route('**/*', (route: Route) => {
       const reqUrl = route.request().url();
 
-      // 检查 URL 是否包含 .m3u8
       if (reqUrl.includes('.m3u8') || reqUrl.includes('.m3u')) {
         const fileName = reqUrl.split('/').pop()?.split('?')[0] || 'unknown.m3u8';
         this.capturedURLs.push({

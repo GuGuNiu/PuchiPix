@@ -1,5 +1,4 @@
 import { chromium, type Browser } from 'playwright';
-import { getOrCreateGlobal } from './global-singleton';
 
 const BROWSER_KEY = '__sharedBrowserInstance__';
 

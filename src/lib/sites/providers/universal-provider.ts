@@ -63,7 +63,7 @@ export class UniversalProvider extends BaseSiteProvider {
    * 通用下载器不绑定特定域名，不参与 SiteRegistry 的 URL 路由。
    * 此方法始终返回 false，确保不影响其他 Provider 的匹配。
    */
-  matchesUrl(url: string): boolean {
+  matchesUrl(_url: string): boolean {
     // 不参与 URL 路由匹配
     return false;
   }

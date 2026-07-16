@@ -11,8 +11,10 @@ import { allocateSeq } from '@/lib/core/seq-allocator';
 import { parseTitleCount, detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
 import { cleanUrl, normalizeUrl } from '@/lib/utils/url-normalizer';
 import { checkGalleryDuplicate } from '@/lib/utils/task-dedup';
+import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import type { GallerySiteProvider, SiteProvider } from '@/lib/sites';
 import type { GalleryData } from '@/types';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -184,6 +186,7 @@ function mapGallery(g: GalleryWithRelations): GalleryData {
  *
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { url: rawUrl } = body;
@@ -200,7 +203,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const provider = registry.getProviderByUrl(url);
 
     if (!provider) {
-      return NextResponse.json({ error: '未找到匹配的站点提供者' }, { status: 400 });
+      return NextResponse.json({ error: t('api.gallery.noProvider') }, { status: 400 });
     }
 
     const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
@@ -250,7 +253,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (!lockHandle) {
       return NextResponse.json(
-        { error: '该图库正在被其他任务爬取，请稍后重试' },
+        { error: t('api.gallery.alreadyScraping') },
         { status: 409 }
       );
     }
@@ -346,11 +349,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           eventBus.emit('gallery:scrapeFailed', {
             galleryId: gallery.id,
             url,
-            error: '页面不存在 (404)',
+            error: t('api.gallery.pageNotFound'),
           });
 
           return NextResponse.json({
-            message: '页面不存在 (404)，已跳过',
+            message: t('api.gallery.pageNotFoundSkipped'),
             data: { ID: gallery.id, SourceURL: url, Status: 'not_found' },
           });
         }
@@ -458,19 +461,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
 
       // 异步触发图包下载（不阻塞 API 响应）
-      getGalleryDownloader()
-        .downloadGallery(gallery.id)
-        .then((dlResult) => {
-          console.log(
-            `[Gallery] 图库 #${gallery.id} 下载完成: ` +
-            `成功 ${dlResult.success}, 失败 ${dlResult.failed}, 跳过 ${dlResult.skipped}, ` +
-            `保存路径 ${dlResult.savePath}`,
-          );
-        })
-        .catch((err) => {
-          console.error(`[Gallery] 图库 #${gallery.id} 下载失败:`, err);
-          eventBus.emit('gallery:downloadFailed', { galleryId: gallery.id, error: err.message });
-        });
+      // 通过队列管理器获取槽位，遵守并发上限设置
+      taskQueueManager.acquireSlot('gallery', gallery.id).then(async (acquired) => {
+        if (!acquired) {
+          console.log(`[Gallery] 图库 #${gallery.id} 在排队等待中被取消`);
+          return;
+        }
+        const currentGallery = await prisma.gallery.findUnique({ where: { id: gallery.id } });
+        if (!currentGallery || currentGallery.status === 'completed' || currentGallery.status === 'not_found') {
+          taskQueueManager.releaseSlot('gallery', gallery.id);
+          return;
+        }
+        getGalleryDownloader()
+          .downloadGallery(gallery.id)
+          .then((dlResult) => {
+            console.log(
+              `[Gallery] 图库 #${gallery.id} 下载完成: ` +
+              `成功 ${dlResult.success}, 失败 ${dlResult.failed}, 跳过 ${dlResult.skipped}, ` +
+              `保存路径 ${dlResult.savePath}`,
+            );
+          })
+          .catch((err) => {
+            console.error(`[Gallery] 图库 #${gallery.id} 下载失败:`, err);
+            eventBus.emit('gallery:downloadFailed', { galleryId: gallery.id, error: err.message });
+          });
+      });
 
       return NextResponse.json({
         message: '图库爬取完成，下载已异步启动',

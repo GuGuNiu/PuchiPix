@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from "react";
 import { Film, Clock, HardDrive, Play, Monitor } from "lucide-react";
 import type { DownloadTask } from "@/types";
+import { useI18n } from "@/lib/i18n";
 
 interface VideoCardProps {
   task: DownloadTask;
@@ -19,6 +20,7 @@ function formatFileSize(bytes: number): string {
 const PREVIEW_SPEED = 8;
 
 export default function VideoCard({ task, onClick }: VideoCardProps): React.JSX.Element {
+  const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hovered, setHovered] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -72,15 +74,15 @@ export default function VideoCard({ task, onClick }: VideoCardProps): React.JSX.
   }, []);
 
   const statusLabel: Record<string, string> = {
-    completed: "已完成",
-    downloading: "下载中",
-    failed: "失败",
-    pending: "等待中",
-    paused: "已暂停",
-    scraping: "识别中",
-    cancelled: "已取消",
-    transcoding: "转码中",
-    partial: "部分完成",
+    completed: t("common.completed"),
+    downloading: t("common.downloading"),
+    failed: t("common.failed"),
+    pending: t("common.pending"),
+    paused: t("common.paused"),
+    scraping: t("common.scraping"),
+    cancelled: t("common.cancelled"),
+    transcoding: t("common.transcoding"),
+    partial: t("common.partial"),
   };
 
   const statusClass: Record<string, string> = {
@@ -173,7 +175,7 @@ export default function VideoCard({ task, onClick }: VideoCardProps): React.JSX.
             }}
           >
             <Play size={10} fill="currentColor" strokeWidth={0} />
-            {PREVIEW_SPEED}X 预览
+            {PREVIEW_SPEED}X {t("common.preview")}
           </div>
         )}
 
@@ -201,7 +203,7 @@ export default function VideoCard({ task, onClick }: VideoCardProps): React.JSX.
             }}
           >
             <Clock size={10} />
-            {task.VideoInfo.Duration}分钟
+            {task.VideoInfo.Duration}{t("common.minutes")}
           </span>
         )}
       </div>
@@ -225,7 +227,7 @@ export default function VideoCard({ task, onClick }: VideoCardProps): React.JSX.
         <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
           <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>
             <Film size={11} style={{ marginRight: 3 }} />
-            视频
+            {t("common.video")}
           </span>
           {task.VideoInfo?.Resolution && (
             <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>

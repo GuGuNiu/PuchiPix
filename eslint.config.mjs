@@ -20,6 +20,14 @@ const eslintConfig = defineConfig([
       "react-hooks/immutability": "warn",
       "react-hooks/refs": "warn",
       "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          "argsIgnorePattern": "^_",
+          "varsIgnorePattern": "^_",
+          "caughtErrorsIgnorePattern": "^_",
+        },
+      ],
       "@typescript-eslint/consistent-type-imports": [
         "error",
         {
@@ -47,5 +55,15 @@ const eslintConfig = defineConfig([
     },
   },
 ]);
+
+// Plain JavaScript files — TypeScript-specific rules don't apply
+eslintConfig.push({
+  files: ["*.mjs", "*.js", "*.cjs"],
+  rules: {
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "@typescript-eslint/consistent-type-imports": "off",
+  },
+});
 
 export default eslintConfig;

@@ -5,6 +5,7 @@ import { AimeiziziProvider } from './providers/aimeizizi-provider';
 import { UniversalProvider } from './providers/universal-provider';
 import { ExhentaiProvider } from './providers/exhentai-provider';
 import { SjsProvider } from './providers/sjs-provider';
+import { logT } from '@/lib/i18n/server';
 
 class SiteRegistry {
   /** 已注册的提供者 Map（id → provider） */
@@ -151,7 +152,7 @@ function registerDefaultProviders(registry: SiteRegistry): void {
         registry.register(new SjsProvider());
         break;
       default:
-        console.warn(`[SiteRegistry] 未找到站点 "${mod.id}" 的 Provider 实现`);
+        console.warn(logT('log.siteRegistry.providerNotFound', { id: mod.id }));
     }
   }
 }

@@ -1,11 +1,13 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const name = searchParams.get('name');
@@ -18,7 +20,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       if (!stats) {
         return NextResponse.json(
-          { error: '未找到该主角的图库' },
+          { error: t('api.protagonist.galleryNotFound') },
           { status: 404 }
         );
       }
@@ -40,7 +42,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : '获取主角信息失败';
+    const message = error instanceof Error ? error.message : t('api.protagonist.fetchFailed');
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

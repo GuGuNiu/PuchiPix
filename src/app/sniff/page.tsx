@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/i18n/toast";
 import {
   Search,
   Square,
@@ -18,7 +18,7 @@ export default function SniffPage(): React.JSX.Element {
     useSniffStore();
   const { t } = useI18n();
   const [inputUrl, setInputUrl] = useState("");
-  const [debugMode, setDebugMode] = useState(false);
+  const [debugMode] = useState(false);
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
@@ -38,13 +38,13 @@ export default function SniffPage(): React.JSX.Element {
 
   const handleStart = async (): Promise<void> => {
     if (!inputUrl.trim()) {
-      toast.error(t("sniff.pleaseInputLink"));
+      toast.error("sniff.pleaseInputLink");
       return;
     }
     setStarting(true);
     try {
       await startSniff(inputUrl.trim());
-      toast.success(t("sniff.sniffStarted"));
+      toast.success("sniff.sniffStarted");
       fetchStatus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -57,7 +57,7 @@ export default function SniffPage(): React.JSX.Element {
   const handleStop = async (): Promise<void> => {
     try {
       await stopSniff();
-      toast.success(t("sniff.sniffStopped"));
+      toast.success("sniff.sniffStopped");
       fetchStatus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -76,7 +76,7 @@ export default function SniffPage(): React.JSX.Element {
         const text = await res.text();
         throw new Error(text || t("sniff.createTaskFailed"));
       }
-      toast.success(t("sniff.addedToDownload"));
+      toast.success("sniff.addedToDownload");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg);

@@ -1,6 +1,7 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import { getOuoOrchestrator } from '@/lib/core/ouo-orchestrator';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -8,6 +9,7 @@ export const runtime = 'nodejs';
 export async function POST(
   request: NextRequest,
 ): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const orchestrator = getOuoOrchestrator();
@@ -23,7 +25,7 @@ export async function POST(
 
     if (!galleryId || !ouoUrl) {
       return NextResponse.json(
-        { error: '缺少必需参数: galleryId, ouoUrl' },
+        { error: t('api.ouo.missingParams') },
         { status: 400 },
       );
     }

@@ -2,24 +2,19 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getGalleryDownloader } from '@/lib/downloader/gallery-downloader';
+import { getGalleryProvider, scrapeGalleryAsync } from '@/lib/tasks/gallery-handler';
 import { eventBus } from '@/lib/core/event-bus';
 import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { t, logT, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/**
- * 仅重试失败的图片和视频（断点续传）
- *
- * POST /api/gallery/[id]/retry-failed
- *
- * 已下载完成的文件自动跳过，仅重新下载状态为 failed 或 pending 的文件。
- * 支持网络中断后按需重试，无需重新下载整个图库。
- */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const { id } = await params;
     const galleryId = parseInt(id);
@@ -28,14 +23,57 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid gallery ID' }, { status: 400 });
     }
 
-    const gallery = await prisma.gallery.findUnique({ where: { id: galleryId } });
+    const gallery = await prisma.gallery.findUnique({
+      where: { id: galleryId },
+      include: { images: true, videos: true },
+    });
+
     if (!gallery) {
-      return NextResponse.json({ error: '图库不存在' }, { status: 404 });
+      return NextResponse.json({ error: t('api.gallery.notFound') }, { status: 404 });
     }
 
+    const hasNoImagesOrVideos = gallery.images.length === 0 && gallery.videos.length === 0;
+
+    if (hasNoImagesOrVideos) {
+      // 爬取阶段失败：重新触发爬取流程
+      const provider = getGalleryProvider(gallery.sourceUrl);
+      if (!provider) {
+        return NextResponse.json(
+          { error: t('api.gallery.noProviderMatch') },
+          { status: 400 }
+        );
+      }
+
+      // 重置Gallery状态为pending，准备重新爬取
+      await prisma.gallery.update({
+        where: { id: galleryId },
+        data: { status: 'pending', errorMsg: '', imageCount: 0, videoCount: 0 },
+      });
+
+      // 立即通知前端状态已变更（scraping），避免用户感觉点击无反应
+      eventBus.emit('gallery:scrapeStarted', { galleryId, url: gallery.sourceUrl });
+
+      // 异步触发重新爬取
+      scrapeGalleryAsync(galleryId, gallery.sourceUrl, provider).catch((err) => {
+        console.error(logT('log.galleryHandler.asyncScrapeError', { id: galleryId }), err);
+        eventBus.emit('gallery:scrapeFailed', {
+          galleryId,
+          url: gallery.sourceUrl,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
+      return NextResponse.json({
+        message: t('api.gallery.rescrapeStarted'),
+        galleryId,
+        reason: t('api.gallery.rescrapeReason'),
+      });
+    }
+
+    // 有图片/视频记录：使用断点续传重试下载失败的文件
     taskQueueManager.acquireSlot('gallery', galleryId).then(async (acquired) => {
       if (!acquired) {
-        console.log(`[Gallery] 图库 #${galleryId} 在排队等待中被取消`);
+        console.log(logT('log.galleryHandler.cancelledInQueue', { id: galleryId }));
         return;
       }
 
@@ -50,10 +88,10 @@ export async function POST(
         });
     });
 
-    return NextResponse.json({
-      message: '失败文件重试已启动',
-      galleryId,
-    });
+      return NextResponse.json({
+        message: t('api.gallery.retryFailedStarted'),
+        galleryId,
+      });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Retry failed';
     const status =

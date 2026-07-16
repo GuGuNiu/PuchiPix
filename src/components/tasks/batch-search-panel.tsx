@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { toast } from "sonner";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { toast } from "@/lib/i18n/toast";
 import {
   Search,
   Loader2,
@@ -16,32 +16,36 @@ import {
   Globe,
 } from "lucide-react";
 import type { BatchSearchJob, BatchTitleResult } from "@/types";
-import { ENABLED_SITE_MODULES } from "@/lib/sites/site-modules";
+import { ENABLED_SITE_MODULES, getSiteModuleName } from "@/lib/sites/site-modules";
+import type { SiteModuleConfig } from "@/lib/sites/site-modules";
 import GlassSelect from "@/components/ui/glass-select";
+import { useI18n } from "@/lib/i18n";
 
-const SITES = ENABLED_SITE_MODULES.map((m) => ({
+type SiteOption = SiteModuleConfig & { name: string; gallery: boolean };
+
+const getSites = (locale: string): SiteOption[] => ENABLED_SITE_MODULES.map((m) => ({
   ...m,
-  name: m.nameCn,
+  name: getSiteModuleName(m, locale),
   gallery: m.type === 'photo',
 }));
 
-const SITE_OPTIONS = SITES
+const getSiteOptions = (locale: string): { value: string; label: string }[] => getSites(locale)
   .filter((s) => s.enabled && s.id !== 'universal')
-  .map((site) => ({ value: site.id, label: site.nameCn }));
+  .map((site) => ({ value: site.id, label: site.name }));
 
 interface Props {
   onJobCompleted: () => void;
   embedded?: boolean;
 }
 
-const RESULT_STATUS_LABEL: Record<BatchTitleResult["status"], string> = {
-  pending: "等待中",
-  searching: "搜索中",
-  found: "已匹配",
-  scraping: "爬取中",
-  completed: "已完成",
-  not_found: "未找到",
-  failed: "失败",
+const RESULT_STATUS_KEYS = {
+  pending: "batchSearch.statusPending",
+  searching: "batchSearch.statusSearching",
+  found: "batchSearch.statusFound",
+  scraping: "batchSearch.statusScraping",
+  completed: "batchSearch.statusCompleted",
+  not_found: "batchSearch.statusNotFound",
+  failed: "batchSearch.statusFailed",
 };
 
 const RESULT_STATUS_CLASS: Record<BatchTitleResult["status"], string> = {
@@ -55,6 +59,9 @@ const RESULT_STATUS_CLASS: Record<BatchTitleResult["status"], string> = {
 };
 
 export default function BatchSearchPanel({ onJobCompleted, embedded = false }: Props): React.JSX.Element {
+  const { t, locale } = useI18n();
+  const SITES = useMemo(() => getSites(locale), [locale]);
+  const SITE_OPTIONS = useMemo(() => getSiteOptions(locale), [locale]);
   const [showPanel, setShowPanel] = useState(true);
   const [titleInput, setTitleInput] = useState("");
   const [selectedSiteId, setSelectedSiteId] = useState("kanav");
@@ -83,7 +90,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
           onJobCompleted();
           if (data.status === "completed") {
             toast.success(
-              `批量搜索完成：下载 ${data.totalDownloaded}，未找到 ${data.totalNotFound}，失败 ${data.totalFailed}`
+              `批量搜索完成：下载 ${data.totalDownloaded}，未找到 ${data.totalNotFound}，{t("batchSearch.failed")} ${data.totalFailed}`
             );
           }
         }
@@ -116,7 +123,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
   const handleSubmit = async (): Promise<void> => {
     const raw = titleInput.trim();
     if (!raw) {
-      toast.error("请输入视频标题");
+      toast.error("batchSearch.pleaseInputTitle");
       return;
     }
     const titles = raw
@@ -124,7 +131,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (titles.length === 0) {
-      toast.error("未检测到有效标题");
+      toast.error("batchSearch.noValidTitle");
       return;
     }
 
@@ -150,9 +157,9 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
     if (!activeJobId) return;
     try {
       await fetch(`/api/search/batch/${activeJobId}`, { method: "DELETE" });
-      toast.success("批量搜索已取消");
+      toast.success("batchSearch.cancelled");
     } catch {
-      toast.error("取消失败");
+      toast.error("batchSearch.cancelFailed");
     }
   };
 
@@ -162,7 +169,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
       .filter((r) => r.status === "not_found" || r.status === "failed")
       .map((r) => r.title);
     if (notFoundTitles.length === 0) {
-      toast.info("没有未找到或失败的标题");
+      toast.info("batchSearch.noNotFound");
       return;
     }
     navigator.clipboard.writeText(notFoundTitles.join("\n")).then(() => {
@@ -179,14 +186,14 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
       .map((r) => r.title)
       .join("\n");
     if (!failedTitles) {
-      toast.info("没有需要重试的标题");
+      toast.info("batchSearch.noRetry");
       return;
     }
     setTitleInput(failedTitles);
     setJob(null);
     setActiveJobId(null);
     setSubmitting(false);
-    toast.info("已将失败标题填入输入框，可重新搜索");
+    toast.info("batchSearch.refilled");
   };
 
   const isRunning = job && (job.status === "running" || job.status === "pending");
@@ -208,7 +215,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
         {showPanel && (
           <div>
           <div className="form-group" style={{ marginBottom: 12 }}>
-            <label>视频标题列表（每行一个）</label>
+            <label>{t("batchSearch.titleLabel")}</label>
             <textarea
               className="form-control"
               placeholder={
@@ -257,7 +264,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                 }}
               >
                 <Globe size={14} />
-                站点
+                {t("batchSearch.siteLabel")}
               </span>
               <GlassSelect
                 options={SITE_OPTIONS}
@@ -277,12 +284,12 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                 {submitting ? (
                   <>
                     <Loader2 size={16} className="spinner spinner-sm" />
-                    搜索中...
+                    {t("batchSearch.searching")}
                   </>
                 ) : (
                   <>
                     <Search size={16} />
-                    开始搜索下载
+                    {t("batchSearch.startSearch")}
                   </>
                 )}
               </button>
@@ -293,7 +300,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                   style={{ height: 40, fontSize: 14, padding: "0 20px" }}
                 >
                   <X size={16} />
-                  取消
+                  {t("common.cancel")}
                 </button>
               )}
             </div>
@@ -355,25 +362,25 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
               >
                 <StatCard
                   icon={<CheckCircle2 size={16} />}
-                  label="已下载"
+                  label={t("batchSearch.downloaded")}
                   value={job.totalDownloaded}
                   color="var(--success)"
                 />
                 <StatCard
                   icon={<AlertTriangle size={16} />}
-                  label="未找到"
+                  label={t("batchSearch.notFound")}
                   value={job.totalNotFound}
                   color="var(--warning)"
                 />
                 <StatCard
                   icon={<XCircle size={16} />}
-                  label="失败"
+                  label={t("batchSearch.failed")}
                   value={job.totalFailed}
                   color="var(--danger)"
                 />
                 <StatCard
                   icon={<Search size={16} />}
-                  label="总计"
+                  label={t("batchSearch.total")}
                   value={job.titles.length}
                   color="var(--text-secondary)"
                 />
@@ -386,14 +393,14 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                     onClick={handleCopyNotFound}
                   >
                     {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-                    {copied ? "已复制" : "复制失败/未找到标题"}
+                    {copied ? t("common.copied") : t("batchSearch.copyNotFound")}
                   </button>
                   <button
                     className="btn btn-outline btn-sm"
                     onClick={handleRetry}
                   >
                     <RefreshCw size={14} />
-                    重试失败标题
+                    {t("batchSearch.retryFailed")}
                   </button>
                 </div>
               )}
@@ -419,14 +426,14 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                 <FilterPill
                   active={filter === "failed"}
                   onClick={() => setFilter("failed")}
-                  label={`失败 (${job.totalFailed})`}
+                  label={`{t("batchSearch.failed")} (${job.totalFailed})`}
                 />
                 <button
                   className="btn btn-outline btn-sm"
                   onClick={() => setShowLogs((v) => !v)}
                   style={{ marginLeft: "auto" }}
                 >
-                  {showLogs ? "隐藏日志" : "显示日志"}
+                  {showLogs ? t("batchSearch.hideLogs") : t("batchSearch.showLogs")}
                 </button>
               </div>
 
@@ -473,11 +480,11 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                     <thead>
                       <tr>
                         <th style={{ width: 40 }}>#</th>
-                        <th>输入标题</th>
-                        <th>匹配结果</th>
-                        <th style={{ width: 80 }}>分数</th>
-                        <th style={{ width: 90 }}>状态</th>
-                        <th style={{ width: 60 }}>任务</th>
+                        <th>{t("batchSearch.colInputTitle")}</th>
+                        <th>{t("batchSearch.colMatchResult")}</th>
+                        <th style={{ width: 80 }}>{t("batchSearch.colScore")}</th>
+                        <th style={{ width: 90 }}>{t("batchSearch.colStatus")}</th>
+                        <th style={{ width: 60 }}>{t("batchSearch.colTask")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -540,7 +547,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                               className={`badge ${RESULT_STATUS_CLASS[r.status]}`}
                               style={{ fontSize: 11 }}
                             >
-                              {RESULT_STATUS_LABEL[r.status]}
+                              {t(RESULT_STATUS_KEYS[r.status])}
                             </span>
                           </td>
                           <td
@@ -569,13 +576,13 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
   return (
     <div className="card" style={{ marginBottom: 20 }}>
       <div className="card-header">
-        <div className="card-title">批量搜索任务</div>
+        <div className="card-title">{t("batchSearch.title")}</div>
         <button
           className="btn btn-outline btn-sm"
           onClick={() => setShowPanel((v) => !v)}
         >
           {showPanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          {showPanel ? "收起" : "搜索任务"}
+          {showPanel ? t("batchSearch.collapse") : t("batchSearch.expand")}
         </button>
       </div>
 
@@ -591,7 +598,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
             }}
           >
             <div className="form-group" style={{ flex: 1, minWidth: 300 }}>
-              <label>视频标题列表（每行一个）</label>
+              <label>{t("batchSearch.titleLabel")}</label>
               <textarea
                 className="form-control"
                 placeholder={
@@ -612,7 +619,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
               <div className="form-group" style={{ minWidth: 160, margin: 0 }}>
                 <label>
                   <Globe size={12} style={{ display: "inline", marginRight: 4 }} />
-                  站点
+                  {t("batchSearch.siteLabel")}
                 </label>
                 <select
                   className="form-control"
@@ -640,12 +647,12 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                   {submitting ? (
                     <>
                       <Loader2 size={14} className="spinner spinner-sm" />
-                      搜索中...
+                      {t("batchSearch.searching")}
                     </>
                   ) : (
                     <>
                       <Search size={14} />
-                      开始搜索下载
+                      {t("batchSearch.startSearch")}
                     </>
                   )}
                 </button>
@@ -656,7 +663,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                     style={{ height: 38, fontSize: 13 }}
                   >
                     <X size={14} />
-                    取消
+                    {t("common.cancel")}
                   </button>
                 )}
               </div>
@@ -719,25 +726,25 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
               >
                 <StatCard
                   icon={<CheckCircle2 size={16} />}
-                  label="已下载"
+                  label={t("batchSearch.downloaded")}
                   value={job.totalDownloaded}
                   color="var(--success)"
                 />
                 <StatCard
                   icon={<AlertTriangle size={16} />}
-                  label="未找到"
+                  label={t("batchSearch.notFound")}
                   value={job.totalNotFound}
                   color="var(--warning)"
                 />
                 <StatCard
                   icon={<XCircle size={16} />}
-                  label="失败"
+                  label={t("batchSearch.failed")}
                   value={job.totalFailed}
                   color="var(--danger)"
                 />
                 <StatCard
                   icon={<Search size={16} />}
-                  label="总计"
+                  label={t("batchSearch.total")}
                   value={job.titles.length}
                   color="var(--text-secondary)"
                 />
@@ -750,14 +757,14 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                     onClick={handleCopyNotFound}
                   >
                     {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-                    {copied ? "已复制" : "复制失败/未找到标题"}
+                    {copied ? t("common.copied") : t("batchSearch.copyNotFound")}
                   </button>
                   <button
                     className="btn btn-outline btn-sm"
                     onClick={handleRetry}
                   >
                     <RefreshCw size={14} />
-                    重试失败标题
+                    {t("batchSearch.retryFailed")}
                   </button>
                 </div>
               )}
@@ -783,14 +790,14 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                 <FilterPill
                   active={filter === "failed"}
                   onClick={() => setFilter("failed")}
-                  label={`失败 (${job.totalFailed})`}
+                  label={`{t("batchSearch.failed")} (${job.totalFailed})`}
                 />
                 <button
                   className="btn btn-outline btn-sm"
                   onClick={() => setShowLogs((v) => !v)}
                   style={{ marginLeft: "auto" }}
                 >
-                  {showLogs ? "隐藏日志" : "显示日志"}
+                  {showLogs ? t("batchSearch.hideLogs") : t("batchSearch.showLogs")}
                 </button>
               </div>
 
@@ -837,11 +844,11 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                     <thead>
                       <tr>
                         <th style={{ width: 40 }}>#</th>
-                        <th>输入标题</th>
-                        <th>匹配结果</th>
-                        <th style={{ width: 80 }}>分数</th>
-                        <th style={{ width: 90 }}>状态</th>
-                        <th style={{ width: 60 }}>任务</th>
+                        <th>{t("batchSearch.colInputTitle")}</th>
+                        <th>{t("batchSearch.colMatchResult")}</th>
+                        <th style={{ width: 80 }}>{t("batchSearch.colScore")}</th>
+                        <th style={{ width: 90 }}>{t("batchSearch.colStatus")}</th>
+                        <th style={{ width: 60 }}>{t("batchSearch.colTask")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -904,7 +911,7 @@ export default function BatchSearchPanel({ onJobCompleted, embedded = false }: P
                               className={`badge ${RESULT_STATUS_CLASS[r.status]}`}
                               style={{ fontSize: 11 }}
                             >
-                              {RESULT_STATUS_LABEL[r.status]}
+                              {t(RESULT_STATUS_KEYS[r.status])}
                             </span>
                           </td>
                           <td

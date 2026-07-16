@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/i18n/toast";
+import { useI18n } from "@/lib/i18n";
 import { Plus, Trash2, Ban, Check, Filter } from "lucide-react";
 
 interface BlocklistRule {
@@ -15,28 +16,8 @@ interface BlocklistRule {
   createdAt: string;
 }
 
-const FIELD_TYPES = [
-  { value: "title", label: "标题" },
-  { value: "category", label: "分类" },
-  { value: "protagonist", label: "主角" },
-  { value: "director", label: "导演" },
-] as const;
-
-const MATCH_MODES = [
-  { value: "includes", label: "包含" },
-  { value: "exact", label: "精确" },
-  { value: "regex", label: "正则" },
-] as const;
-
-const SITE_OPTIONS = [
-  { value: "all", label: "全局" },
-  { value: "aimeizizi", label: "爱妹子" },
-  { value: "kanav", label: "KanAV" },
-  { value: "exhentai", label: "E-Hentai" },
-  { value: "sjs", label: "司机社" },
-] as const;
-
 export default function BlocklistPage(): React.JSX.Element {
+  const { t } = useI18n();
   const [rules, setRules] = useState<BlocklistRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterSite, setFilterSite] = useState("all");
@@ -49,6 +30,27 @@ export default function BlocklistPage(): React.JSX.Element {
     remark: "",
   });
 
+  const fieldTypes = [
+    { value: "title", label: t("blocklist.fieldTitle") },
+    { value: "category", label: t("blocklist.fieldCategory") },
+    { value: "protagonist", label: t("blocklist.fieldPerson") },
+    { value: "director", label: t("blocklist.fieldDirector") },
+  ];
+
+  const matchModes = [
+    { value: "includes", label: t("blocklist.modeIncludes") },
+    { value: "exact", label: t("blocklist.modeExact") },
+    { value: "regex", label: t("blocklist.modeRegex") },
+  ];
+
+  const siteOptions = [
+    { value: "all", label: t("blocklist.scopeAll") },
+    { value: "aimeizizi", label: t("blocklist.scopeAimeizizi") },
+    { value: "kanav", label: t("blocklist.scopeKanav") },
+    { value: "exhentai", label: t("blocklist.scopeExhentai") },
+    { value: "sjs", label: t("blocklist.scopeSjs") },
+  ];
+
   const fetchRules = useCallback(async () => {
     setLoading(true);
     try {
@@ -56,7 +58,7 @@ export default function BlocklistPage(): React.JSX.Element {
       const data = await res.json();
       setRules(data.data || []);
     } catch {
-      toast.error("加载屏蔽规则失败");
+      toast.error("blocklist.loadFailed");
     } finally {
       setLoading(false);
     }
@@ -68,7 +70,7 @@ export default function BlocklistPage(): React.JSX.Element {
 
   const handleAdd = async (): Promise<void> => {
     if (!newRule.keyword.trim()) {
-      toast.error("请输入屏蔽关键词");
+      toast.error("blocklist.placeholderKeyword");
       return;
     }
 
@@ -80,9 +82,9 @@ export default function BlocklistPage(): React.JSX.Element {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "添加失败");
+        throw new Error(data.error || t("blocklist.addFailed"));
       }
-      toast.success("规则已添加");
+      toast.success("blocklist.addSuccess");
       setNewRule({
         siteId: "all",
         fieldType: "title",
@@ -105,7 +107,7 @@ export default function BlocklistPage(): React.JSX.Element {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: rule.id, enabled: !rule.enabled }),
       });
-      if (!res.ok) throw new Error("更新失败");
+      if (!res.ok) throw new Error(t("blocklist.toggleFailed"));
       setRules((prev) =>
         prev.map((r) => (r.id === rule.id ? { ...r, enabled: !r.enabled } : r)),
       );
@@ -118,8 +120,8 @@ export default function BlocklistPage(): React.JSX.Element {
   const handleDelete = async (id: number): Promise<void> => {
     try {
       const res = await fetch(`/api/blocklist?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("删除失败");
-      toast.success("已删除");
+      if (!res.ok) throw new Error(t("blocklist.deleteFailed"));
+      toast.success("common.deleted");
       setRules((prev) => prev.filter((r) => r.id !== id));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -130,14 +132,14 @@ export default function BlocklistPage(): React.JSX.Element {
   const handleBatchDelete = async (): Promise<void> => {
     const selectedIds = selectedIdsSet;
     if (selectedIds.size === 0) {
-      toast.error("请先选择要删除的规则");
+      toast.error("blocklist.pleaseSelectRules");
       return;
     }
     const ids = Array.from(selectedIds).join(",");
     try {
       const res = await fetch(`/api/blocklist?ids=${ids}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("批量删除失败");
-      toast.success(`已删除 ${selectedIds.size} 条规则`);
+      if (!res.ok) throw new Error(t("blocklist.deleteFailed"));
+      toast.success("blocklist.deleted", { count: selectedIds.size });
       setSelectedIdsSet(new Set());
       fetchRules();
     } catch (err: unknown) {
@@ -166,18 +168,18 @@ export default function BlocklistPage(): React.JSX.Element {
   });
 
   const fieldTypeLabel = (ft: string): string =>
-    FIELD_TYPES.find((f) => f.value === ft)?.label ?? ft;
+    fieldTypes.find((f) => f.value === ft)?.label ?? ft;
 
   const matchModeLabel = (mm: string): string =>
-    MATCH_MODES.find((m) => m.value === mm)?.label ?? mm;
+    matchModes.find((m) => m.value === mm)?.label ?? mm;
 
   const siteLabel = (sid: string): string =>
-    SITE_OPTIONS.find((s) => s.value === sid)?.label ?? sid;
+    siteOptions.find((s) => s.value === sid)?.label ?? sid;
 
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1>屏蔽词库</h1>
+        <h1>{t("blocklist.title")}</h1>
       </div>
 
       <div className="card">
@@ -190,24 +192,24 @@ export default function BlocklistPage(): React.JSX.Element {
               onChange={(e) => setFilterSite(e.target.value)}
               style={{ minWidth: 120 }}
             >
-              {SITE_OPTIONS.map((s) => (
+              {siteOptions.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
             <span style={{ color: "var(--text-secondary)", fontSize: 14 }}>
-              共 {filteredRules.length} 条规则
+              {t("blocklist.totalCount", { count: filteredRules.length })}
             </span>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {selectedIdsSet.size > 0 && (
               <button className="btn btn-danger" onClick={handleBatchDelete}>
                 <Trash2 size={16} />
-                删除选中 ({selectedIdsSet.size})
+                {t("blocklist.deleteSelected", { count: selectedIdsSet.size })}
               </button>
             )}
             <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
               <Plus size={16} />
-              添加规则
+              {t("blocklist.addRule")}
             </button>
           </div>
         </div>
@@ -222,62 +224,62 @@ export default function BlocklistPage(): React.JSX.Element {
           }}>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
               <div className="form-group" style={{ flex: "0 0 auto" }}>
-                <label>站点</label>
+                <label>{t("blocklist.colSite")}</label>
                 <select
                   className="form-select"
                   value={newRule.siteId}
                   onChange={(e) => setNewRule({ ...newRule, siteId: e.target.value })}
                 >
-                  {SITE_OPTIONS.map((s) => (
+                  {siteOptions.map((s) => (
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
               </div>
               <div className="form-group" style={{ flex: "0 0 auto" }}>
-                <label>字段</label>
+                <label>{t("blocklist.colField")}</label>
                 <select
                   className="form-select"
                   value={newRule.fieldType}
                   onChange={(e) => setNewRule({ ...newRule, fieldType: e.target.value })}
                 >
-                  {FIELD_TYPES.map((f) => (
+                  {fieldTypes.map((f) => (
                     <option key={f.value} value={f.value}>{f.label}</option>
                   ))}
                 </select>
               </div>
               <div className="form-group" style={{ flex: "0 0 auto" }}>
-                <label>匹配模式</label>
+                <label>{t("blocklist.colMatchMode")}</label>
                 <select
                   className="form-select"
                   value={newRule.matchMode}
                   onChange={(e) => setNewRule({ ...newRule, matchMode: e.target.value })}
                 >
-                  {MATCH_MODES.map((m) => (
+                  {matchModes.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
               </div>
               <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
-                <label>关键词</label>
+                <label>{t("blocklist.colKeyword")}</label>
                 <input
                   type="text"
-                  placeholder="输入屏蔽关键词"
+                  placeholder={t("blocklist.placeholderKeyword")}
                   value={newRule.keyword}
                   onChange={(e) => setNewRule({ ...newRule, keyword: e.target.value })}
                   onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
                 />
               </div>
               <div className="form-group" style={{ flex: 1, minWidth: 150 }}>
-                <label>备注</label>
+                <label>{t("common.remark")}</label>
                 <input
                   type="text"
-                  placeholder="可选备注"
+                  placeholder={t("common.remarkOptional")}
                   value={newRule.remark}
                   onChange={(e) => setNewRule({ ...newRule, remark: e.target.value })}
                 />
               </div>
               <button className="btn btn-primary" onClick={handleAdd}>
-                确认添加
+                {t("blocklist.confirmAdd")}
               </button>
             </div>
           </div>
@@ -289,7 +291,7 @@ export default function BlocklistPage(): React.JSX.Element {
           </div>
         ) : filteredRules.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-secondary)" }}>
-            暂无屏蔽规则，点击"添加规则"创建
+            {t("blocklist.noRules")}
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -309,13 +311,13 @@ export default function BlocklistPage(): React.JSX.Element {
                       }}
                     />
                   </th>
-                  <th style={{ padding: "8px 12px", textAlign: "left" }}>站点</th>
-                  <th style={{ padding: "8px 12px", textAlign: "left" }}>字段</th>
-                  <th style={{ padding: "8px 12px", textAlign: "left" }}>关键词</th>
-                  <th style={{ padding: "8px 12px", textAlign: "left" }}>匹配模式</th>
-                  <th style={{ padding: "8px 12px", textAlign: "left" }}>备注</th>
-                  <th style={{ padding: "8px 12px", textAlign: "center" }}>状态</th>
-                  <th style={{ padding: "8px 12px", textAlign: "center" }}>操作</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left" }}>{t("blocklist.colSite")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left" }}>{t("blocklist.colField")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left" }}>{t("blocklist.colKeyword")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left" }}>{t("blocklist.colMatchMode")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left" }}>{t("common.remark")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "center" }}>{t("blocklist.colStatus")}</th>
+                  <th style={{ padding: "8px 12px", textAlign: "center" }}>{t("blocklist.colActions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -360,7 +362,7 @@ export default function BlocklistPage(): React.JSX.Element {
                           cursor: "pointer",
                           color: rule.enabled ? "var(--success-color, #10b981)" : "var(--text-secondary)",
                         }}
-                        title={rule.enabled ? "点击禁用" : "点击启用"}
+                        title={rule.enabled ? t("blocklist.clickToDisable") : t("blocklist.clickToEnable")}
                       >
                         {rule.enabled ? <Check size={18} /> : <Ban size={18} />}
                       </button>
@@ -374,7 +376,7 @@ export default function BlocklistPage(): React.JSX.Element {
                           cursor: "pointer",
                           color: "var(--danger-color, #ef4444)",
                         }}
-                        title="删除"
+                        title={t("common.delete")}
                       >
                         <Trash2 size={16} />
                       </button>

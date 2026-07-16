@@ -26,6 +26,8 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
     if (saved === "dark" || saved === "light") {
       setTheme(saved);
       document.documentElement.setAttribute("data-theme", saved);
+      // 同步到 cookie，供服务端 SSR 读取（替代内联 script 防闪烁方案）
+      document.cookie = `theme=${saved}; path=/; max-age=31536000; samesite=lax`;
     }
   }, []);
 
@@ -34,6 +36,8 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       const next: Theme = prev === "light" ? "dark" : "light";
       localStorage.setItem("theme", next);
       document.documentElement.setAttribute("data-theme", next);
+      // 同步到 cookie，供服务端 SSR 读取
+      document.cookie = `theme=${next}; path=/; max-age=31536000; samesite=lax`;
       return next;
     });
   }, []);

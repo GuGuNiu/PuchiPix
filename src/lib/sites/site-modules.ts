@@ -40,7 +40,7 @@ export const SITE_MODULES = {
   aimeizizi: {
     id: 'aimeizizi',
     nameCn: '爱妹子',
-    nameEn: 'Aimeizizi',
+    nameEn: 'LoveCutes',
     baseUrl: 'https://www.lovecutes.com',
     type: 'photo' as const,
     badge: {
@@ -125,6 +125,22 @@ export const ENABLED_SITE_MODULES: readonly SiteModuleConfig[] = ALL_SITE_MODULE
  */
 export function getSiteModule(id: string): SiteModuleConfig | undefined {
   return SITE_MODULES[id as keyof typeof SITE_MODULES];
+}
+
+/**
+ * 获取站点本地化名称
+ * @param module - 站点模块配置
+ * @param locale - 语言代码 ('zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP')
+ * @returns 本地化的站点名称
+ */
+export function getSiteModuleName(
+  module: SiteModuleConfig,
+  locale: string = 'zh-CN'
+): string {
+  if (locale === 'en-US') {
+    return module.nameEn;
+  }
+  return module.nameCn;
 }
 
 /**

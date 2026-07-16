@@ -4,10 +4,10 @@ import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockChec
 import type {
   GalleryScrapeResult,
   GalleryImageItem,
-  GalleryVideoItem,
   ScrapeResult,
 } from '@/types';
 import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from '@/lib/core/anti-crawler';
+import { logT } from '@/lib/i18n/server';
 
 /**
  * E-Hentai 分类标签位掩码映射。
@@ -574,7 +574,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
     try {
       const { getGameCharacterService } = await import('@/lib/game-characters/game-character-service');
       const charService = getGameCharacterService();
-      const charMatches = charService.identifyInTags(metadata.tags);
+      const charMatches = await charService.identifyInTags(metadata.tags);
       gameCharacters = charMatches.length > 0 ? charMatches.map((m) => m.character.name) : undefined;
     } catch {
     }
@@ -644,7 +644,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
             timeout: 20000,
           });
         } catch (err) {
-          console.error(`[ExHentai] 爬取图库第 ${pageNum} 页失败:`, err);
+          console.error(logT('log.exhentai.scrapePageFailed', { page: pageNum }), err);
           break;
         }
       }
@@ -663,7 +663,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
         }
       }
 
-      console.log(`[ExHentai] 图库第 ${pageNum + 1} 页: 收集 ${newCount} 个图片页链接（累计 ${allLinks.length}）`);
+      console.log(logT('log.exhentai.pageNewLinks', { page: pageNum + 1, count: newCount, total: allLinks.length }));
 
       if (newCount === 0) break;
     }
@@ -733,7 +733,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
           results[batchIndices[j]] = url;
         });
       } catch (err) {
-        console.error(`[ExHentai] 批量获取图片 URL 失败 (batch ${i}):`, err);
+        console.error(logT('log.exhentai.batchFailed', { batch: i }), err);
       }
 
       // 批间延迟
@@ -822,7 +822,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       const results = await this.extractSearchResults(page);
 
       if (results.length === 0) {
-        console.log(`[ExHentai] 列表页第 ${pageNum} 页无结果，结束`);
+        console.log(logT('log.exhentai.listPageNoResults', { page: pageNum }));
         break;
       }
 
@@ -836,7 +836,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
         }
       }
 
-      console.log(`[ExHentai] 列表页第 ${pageNum} 页: 新增 ${newCount} 个结果（累计 ${allResults.length}）`);
+      console.log(logT('log.exhentai.listPageNewResults', { page: pageNum, count: newCount, total: allResults.length }));
 
       if (newCount === 0) break;
 
@@ -846,7 +846,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       });
 
       if (!nextUrl) {
-        console.log(`[ExHentai] 列表页无下一页链接，结束`);
+        console.log(logT('log.exhentai.listPageNoNext'));
         break;
       }
 
@@ -856,7 +856,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
           timeout: 30000,
         });
       } catch (err) {
-        console.error(`[ExHentai] 导航到下一页失败:`, err);
+        console.error(logT('log.exhentai.navNextFailed'), err);
         break;
       }
     }

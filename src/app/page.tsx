@@ -6,10 +6,8 @@
  * 浅色主题运维监控面板，全宽布局，包含：
  * - 顶部实时数据条（总任务、进行中、已完成、失败）
  * - KPI 统计卡片（带数字滚动动画，从 SSE 任务流实时派生）
- * - 站点健康状态监控网格
- * - 实时速度图表
  * - 最近任务活动流
- * - 快速任务输入
+ * - 实时速度图表
  *
  * 实时策略：
  * - KPI 计数（总数/进行中/已完成/失败）从 SSE 任务列表 useMemo 派生，零延迟
@@ -17,32 +15,19 @@
  *
  */
 
-import type { FormEvent } from "react";
-import { useEffect, useState, useMemo } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Plus,
-  ListChecks,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Download,
-  Images,
   ArrowRight,
   Activity,
+  CheckCircle2,
   Wifi,
-  HardDrive,
-  Gauge,
-  TrendingUp,
-  Zap,
 } from "lucide-react";
 import type { DownloadTask, Stats, TaskStatus } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import { useI18n } from "@/lib/i18n";
 import Link from "next/link";
-import { AnimatedNumber } from "@/components/ops/animated-number";
-import { DataStream, SpeedGraph, useSpeedHistory } from "@/components/ops/data-stream";
-import { SiteMonitorGrid } from "@/components/ops/site-monitor-grid";
+import { DataStream } from "@/components/ops/data-stream";
+import { LogConsole } from "@/components/ops/log-console";
 
 const STATS_POLL_INTERVAL = 30000;
 
@@ -55,9 +40,7 @@ function formatFileSize(bytes: number): string {
 
 export default function Dashboard(): React.JSX.Element {
   const { tasks, sseConnected, fetchTasks, connectSSE } = useTaskStore();
-  const { t } = useI18n();
   const [apiStats, setApiStats] = useState<Stats | null>(null);
-  const speedHistory = useSpeedHistory(apiStats?.current_speed ?? 0);
 
   useEffect(() => {
     const fetchStats = async (): Promise<void> => {
@@ -111,7 +94,7 @@ export default function Dashboard(): React.JSX.Element {
     };
   }, [tasks]);
 
-  const recent = useMemo(() => tasks.slice(0, 8), [tasks]);
+  const recent = useMemo(() => tasks.slice(0, 16), [tasks]);
 
   // 合并：SSE 派生数据优先，apiStats 补充无法派生的字段
   const s: Stats = {
@@ -132,19 +115,9 @@ export default function Dashboard(): React.JSX.Element {
     <div className="dashboard-page">
       <RealtimeTicker stats={s} sseConnected={sseConnected} />
 
-      <OpsStatsGrid stats={s} />
-
       <div className="ops-two-col">
-        <SiteMonitorGrid />
-        <SpeedGraph values={speedHistory} />
-      </div>
-
-      <div className="ops-two-col">
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
-          <DashInputCard />
-          <QuickLinks />
-        </div>
         <RecentTasks tasks={recent} loading={false} />
+        <LogConsole />
       </div>
     </div>
   );
@@ -193,203 +166,6 @@ function RealtimeTicker({ stats, sseConnected }: { stats: Stats; sseConnected: b
 }
 
 /* ================================================================
-   KPI 统计面板
-   ================================================================ */
-
-function OpsStatsGrid({ stats }: { stats: Stats }): React.JSX.Element {
-  const { t } = useI18n();
-  const total = stats.total_tasks || 1;
-  const completionRate = ((stats.completed_tasks / total) * 100).toFixed(1);
-
-  const kpis = [
-    {
-      icon: ListChecks,
-      value: stats.total_tasks,
-      label: t("dashboard.totalTasks"),
-      color: "blue" as const,
-      pct: 100,
-    },
-    {
-      icon: Loader2,
-      value: stats.downloading_tasks,
-      label: t("dashboard.inProgress"),
-      color: "amber" as const,
-      pct: (stats.downloading_tasks / total) * 100,
-    },
-    {
-      icon: CheckCircle2,
-      value: stats.completed_tasks,
-      label: t("dashboard.completed"),
-      color: "green" as const,
-      pct: (stats.completed_tasks / total) * 100,
-    },
-    {
-      icon: XCircle,
-      value: stats.failed_tasks,
-      label: t("dashboard.failed"),
-      color: "red" as const,
-      pct: (stats.failed_tasks / total) * 100,
-    },
-  ];
-
-  const secondary = [
-    { icon: HardDrive, label: t("dashboard.totalDownload"), value: stats.total_size_str },
-    { icon: Gauge, label: t("dashboard.avgSpeed"), value: stats.avg_speed_str },
-    { icon: TrendingUp, label: t("dashboard.completionRate"), value: `${completionRate}%` },
-    { icon: Zap, label: t("dashboard.speedRating"), value: stats.speed_rating > 0 ? `${stats.speed_rating}/5` : "—" },
-  ];
-
-  return (
-    <div className="ops-stats-panel">
-      <div className="ops-stats-main">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <div className={`ops-kpi-col ${kpi.color}`} key={kpi.label}>
-              <div className="ops-kpi-icon">
-                <Icon size={18} strokeWidth={2} />
-              </div>
-              <div className="ops-kpi-body">
-                <div className="ops-kpi-value">
-                  <AnimatedNumber value={kpi.value} />
-                </div>
-                <div className="ops-kpi-label">{kpi.label}</div>
-              </div>
-              <div className="ops-kpi-track">
-                <div
-                  className="ops-kpi-fill"
-                  style={{ width: `${Math.min(kpi.pct, 100)}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="ops-stats-secondary">
-        {secondary.map((item) => {
-          const Icon = item.icon;
-          return (
-            <div className="ops-secondary-item" key={item.label}>
-              <Icon size={14} strokeWidth={2} />
-              <span className="ops-secondary-label">{item.label}</span>
-              <span className="ops-secondary-value">{item.value}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   快速链接
-   ================================================================ */
-
-const LINKS = [
-    { href: "/tasks" as const, icon: Download, labelKey: "dashboard.taskManagement", descKey: "dashboard.taskManagementDesc" },
-    { href: "/gallery" as const, icon: Images, labelKey: "dashboard.galleryShelf", descKey: "dashboard.galleryShelfDesc" },
-];
-
-function QuickLinks(): React.JSX.Element {
-  const { t } = useI18n();
-
-  return (
-    <div className="quick-links">
-      {LINKS.map((link) => {
-        const Icon = link.icon;
-        return (
-          <Link href={link.href} className="quick-link-card" key={link.href}>
-            <div className="quick-link-icon">
-              <Icon size={16} strokeWidth={2} />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div className="quick-link-text">{t(link.labelKey)}</div>
-              <div className="quick-link-desc">{t(link.descKey)}</div>
-            </div>
-            <ArrowRight size={14} style={{ color: "var(--text-muted)", marginLeft: "auto", flexShrink: 0 }} />
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ================================================================
-   任务输入卡片
-   ================================================================ */
-
-function DashInputCard(): React.JSX.Element {
-  const { t } = useI18n();
-  const [urls, setUrls] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async (e: FormEvent): Promise<void> => {
-    e.preventDefault();
-    const raw = urls.trim();
-    if (!raw) {
-      toast.error(t("dashboard.pleaseInputLink"));
-      return;
-    }
-    const list = raw
-      .split(/[\n\s,]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.startsWith("http://") || s.startsWith("https://"));
-    if (list.length === 0) {
-      toast.error(t("dashboard.pleaseInputValidLink"));
-      return;
-    }
-
-    setSubmitting(true);
-    setUrls("");
-
-    for (const u of list) {
-      fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: u }),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
-        .then((data) => {
-          if (data?.type === "gallery") {
-            toast.success(t("dashboard.galleryCreated", { id: data.galleryId }));
-          } else if (data?.ID) {
-            toast.success(t("dashboard.taskCreated", { id: data.ID }));
-          }
-        })
-        .catch((err) => {
-          toast.error(t("dashboard.addFailed", { error: err.message }));
-        });
-    }
-
-    setSubmitting(false);
-    toast.success(t("dashboard.tasksSubmitted", { count: list.length }));
-  };
-
-  return (
-    <div className="dash-input-card">
-      <form className="dash-input-form" onSubmit={handleSubmit}>
-        <textarea
-          className="dash-input-area"
-          placeholder={t("dashboard.inputPlaceholder")}
-          rows={3}
-          required
-          value={urls}
-          onChange={(e) => setUrls(e.target.value)}
-        />
-        <div className="dash-input-actions">
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? t("common.adding") : <><Plus size={16} />{t("common.addTask")}</>}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-/* ================================================================
    最近任务活动流
    ================================================================ */
 
@@ -414,7 +190,7 @@ function RecentTasks({ tasks, loading }: { tasks: DownloadTask[]; loading: boole
             gap: 4,
           }}
         >
-          查看全部
+          {t('dashboard.viewAll')}
           <ArrowRight size={12} />
         </Link>
       </div>

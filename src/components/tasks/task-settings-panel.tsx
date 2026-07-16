@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/i18n/toast";
+import { useI18n } from "@/lib/i18n";
 import {
   X,
   Settings,
   Save,
-  Activity,
   Layers,
   Radar,
   RefreshCw,
@@ -32,6 +32,7 @@ export default function TaskSettingsPanel({
   open,
   onClose,
 }: TaskSettingsPanelProps): React.JSX.Element {
+  const { t } = useI18n();
   const [settings, setSettings] = useState<TaskSettings>({
     maxConcurrentTasks: 5,
     maxConcurrentSniffTasks: 1,
@@ -46,7 +47,7 @@ export default function TaskSettingsPanel({
   const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch("/api/task-settings");
-      if (!res.ok) throw new Error("加载失败");
+      if (!res.ok) throw new Error(t("taskSettings.loadFailed"));
       const data = await res.json();
       setSettings({
         maxConcurrentTasks: data.maxConcurrentTasks ?? 5,
@@ -57,11 +58,11 @@ export default function TaskSettingsPanel({
       });
       setDirty(false);
     } catch {
-      toast.error("加载任务设置失败");
+      toast.error("taskSettings.loadFailed");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (open) {
@@ -80,7 +81,7 @@ export default function TaskSettingsPanel({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "保存失败");
+        throw new Error(data?.error || t("taskSettings.saveFailed"));
       }
       const data = await res.json();
       setSettings({
@@ -91,7 +92,7 @@ export default function TaskSettingsPanel({
         galleryImageConcurrent: data.galleryImageConcurrent,
       });
       setDirty(false);
-      toast.success("任务设置已保存并即时生效");
+      toast.success("taskSettings.saved");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg);
@@ -241,21 +242,6 @@ export default function TaskSettingsPanel({
               <div>
                 <div
                   style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    marginBottom: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <Activity size={14} style={{ color: "var(--accent)" }} />
-                  并发控制
-                </div>
-
-                <div
-                  style={{
                     marginBottom: 20,
                     padding: "16px",
                     background: "var(--bg-inset)",
@@ -271,7 +257,7 @@ export default function TaskSettingsPanel({
                       marginBottom: 8,
                     }}
                   >
-                    <Layers size={15} style={{ color: "var(--accent)" }} />
+                    <Layers size={15} style={{ color: "var(--accent)"}} />
                     <label
                       style={{
                         fontSize: 13,
@@ -279,7 +265,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-primary)",
                       }}
                     >
-                      同时运行任务数量
+                      {t("taskSettings.maxConcurrentTasks")}
                     </label>
                   </div>
                   <p
@@ -290,7 +276,7 @@ export default function TaskSettingsPanel({
                       lineHeight: 1.5,
                     }}
                   >
-                    控制视频和图库任务的并行执行上限。超出部分自动排队，空闲后按顺序启动。
+                    {t("taskSettings.maxConcurrentTasksDesc")}
                   </p>
                   <div
                     style={{
@@ -355,7 +341,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-muted)",
                       }}
                     >
-                      个任务
+                      {t("taskSettings.unitTasks")}
                     </span>
                   </div>
                 </div>
@@ -385,7 +371,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-primary)",
                       }}
                     >
-                      识别中最大数量
+                      {t("taskSettings.maxScrapingTasks")}
                     </label>
                   </div>
                   <p
@@ -396,7 +382,7 @@ export default function TaskSettingsPanel({
                       lineHeight: 1.5,
                     }}
                   >
-                    控制同时处于识别（爬取页面信息）阶段的任务上限。达到上限后新任务排队等待，空出槽位后自动启动。
+                    {t("taskSettings.maxScrapingTasksDesc")}
                   </p>
                   <div
                     style={{
@@ -461,7 +447,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-muted)",
                       }}
                     >
-                      个任务
+                      {t("taskSettings.unitTasks")}
                     </span>
                   </div>
                 </div>
@@ -490,7 +476,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-primary)",
                       }}
                     >
-                      嗅探最大同时运行任务数量
+                      嗅探最大{t("taskSettings.maxConcurrentTasks")}
                     </label>
                   </div>
                   <p
@@ -501,7 +487,7 @@ export default function TaskSettingsPanel({
                       lineHeight: 1.5,
                     }}
                   >
-                    限制嗅探类任务的并发数，避免浏览器资源过度占用。
+                    {t("taskSettings.maxSniffTasksDesc")}
                   </p>
                   <div
                     style={{
@@ -570,7 +556,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-muted)",
                       }}
                     >
-                      个任务
+                      {t("taskSettings.unitTasks")}
                     </span>
                   </div>
                 </div>
@@ -600,7 +586,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-primary)",
                       }}
                     >
-                      TS 分片下载并发数
+                      {t("taskSettings.tsSegmentConcurrent")}
                     </label>
                   </div>
                   <p
@@ -611,7 +597,7 @@ export default function TaskSettingsPanel({
                       lineHeight: 1.5,
                     }}
                   >
-                    控制单个视频任务内部 M3U8 TS 分片的并行下载数量。数值越高下载越快，但占用带宽越多。
+                    {t("taskSettings.tsSegmentConcurrentDesc")}
                   </p>
                   <div
                     style={{
@@ -676,7 +662,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-muted)",
                       }}
                     >
-                      个分片
+                      {t("taskSettings.unitSegments")}
                     </span>
                   </div>
                 </div>
@@ -705,7 +691,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-primary)",
                       }}
                     >
-                      图库图片下载并发数
+                      {t("taskSettings.galleryImageConcurrent")}
                     </label>
                   </div>
                   <p
@@ -716,7 +702,7 @@ export default function TaskSettingsPanel({
                       lineHeight: 1.5,
                     }}
                   >
-                    控制单个图库任务内部图片文件的并行下载数量。
+                    {t("taskSettings.galleryImageConcurrentDesc")}
                   </p>
                   <div
                     style={{
@@ -781,7 +767,7 @@ export default function TaskSettingsPanel({
                         color: "var(--text-muted)",
                       }}
                     >
-                      个文件
+                      {t("taskSettings.unitFiles")}
                     </span>
                   </div>
                 </div>
@@ -803,7 +789,7 @@ export default function TaskSettingsPanel({
                     lineHeight: 1.6,
                   }}
                 >
-                  设置变更后即时生效并持久化保存。当运行中的任务数量达到上限时，后续任务自动进入等待队列，待空闲资源释放后按顺序自动启动。
+                  {t("taskSettings.note")}
                 </p>
               </div>
             </>
@@ -823,7 +809,7 @@ export default function TaskSettingsPanel({
             className="btn btn-ghost btn-sm"
             onClick={fetchSettings}
             disabled={loading}
-            title="刷新"
+            title={t("taskSettings.refresh")}
             style={{ flexShrink: 0 }}
           >
             <RefreshCw size={14} />
@@ -839,7 +825,7 @@ export default function TaskSettingsPanel({
             ) : (
               <>
                 <Save size={16} />
-                保存设置
+                {t("taskSettings.save")}
               </>
             )}
           </button>

@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/i18n/toast";
 import {
   Play,
   Pause,
@@ -35,46 +35,56 @@ import BatchSearchPanel from "@/components/tasks/batch-search-panel";
 import TaskSettingsPanel from "@/components/tasks/task-settings-panel";
 import { useRouteState } from "@/lib/core/route-state";
 import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
-import { getSiteModuleByUrl } from "@/lib/sites/site-modules";
+import { getSiteModuleByUrl, getSiteModuleName } from "@/lib/sites/site-modules";
+import { useI18n } from "@/lib/i18n";
+import {
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipPortal,
+} from "@/components/ui/tooltip";
 
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  pending: "等待中",
-  scraping: "识别中",
-  downloading: "下载中",
-  paused: "已暂停",
-  completed: "已完成",
-  partial: "部分完成",
-  failed: "失败",
-  cancelled: "已取消",
-  transcoding: "转码中",
-};
+function useStatusLabel(t: (key: string, params?: Record<string, string | number>) => string): Record<TaskStatus, string> {
+  return {
+    pending: t("common.pending"),
+    scraping: t("common.scraping"),
+    downloading: t("common.downloading"),
+    paused: t("common.paused"),
+    completed: t("common.completed"),
+    partial: t("common.partial"),
+    failed: t("common.failed"),
+    cancelled: t("common.cancelled"),
+    transcoding: t("common.transcoding"),
+  };
+}
 
 type StatusFilter = "all" | TaskStatus;
 type TypeFilter = "all" | "video" | "gallery" | "sniff";
 type SortBy = "date_desc" | "date_asc" | "progress_desc" | "progress_asc" | "status";
 
-const TYPE_PILLS: { value: TypeFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "video", label: "视频" },
-  { value: "gallery", label: "图包" },
-  { value: "sniff", label: "嗅探" },
+const TYPE_PILL_KEYS = [
+  { value: "all", labelKey: "tasks.typeAll" },
+  { value: "video", labelKey: "tasks.typeVideo" },
+  { value: "gallery", labelKey: "tasks.typeGallery" },
+  { value: "sniff", labelKey: "tasks.typeSniff" },
 ];
 
-const FILTER_PILLS: { value: StatusFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "scraping", label: "识别中" },
-  { value: "pending", label: "等待中" },
-  { value: "downloading", label: "下载中" },
-  { value: "completed", label: "已完成" },
-  { value: "failed", label: "失败" },
+const FILTER_PILL_KEYS = [
+  { value: "all", labelKey: "tasks.typeAll" },
+  { value: "scraping", labelKey: "common.scraping" },
+  { value: "pending", labelKey: "common.pending" },
+  { value: "downloading", labelKey: "common.downloading" },
+  { value: "completed", labelKey: "common.completed" },
+  { value: "failed", labelKey: "common.failed" },
 ];
 
-const SORT_OPTIONS = [
-  { value: "date_desc", label: "最新优先" },
-  { value: "date_asc", label: "最早优先" },
-  { value: "progress_desc", label: "进度降序" },
-  { value: "progress_asc", label: "进度升序" },
-  { value: "status", label: "按状态" },
+const SORT_OPTION_KEYS = [
+  { value: "date_desc", labelKey: "tasks.sortDateDesc" },
+  { value: "date_asc", labelKey: "tasks.sortDateAsc" },
+  { value: "progress_desc", labelKey: "tasks.sortProgressDesc" },
+  { value: "progress_asc", labelKey: "tasks.sortProgressAsc" },
+  { value: "status", labelKey: "tasks.sortStatus" },
 ];
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
@@ -114,26 +124,28 @@ function stripPersonFromTitle(title: string, person?: string): string {
  * 根据任务状态和进度推断当前处理阶段
  *
  */
-function getProgressStage(task: DownloadTask): string {
+function getProgressStage(task: DownloadTask, t: (key: string, params?: Record<string, string | number>) => string): string {
   if (task.TaskType === "sniff") {
-    if (task.Status === "scraping") return "分析中";
-    if (task.Status === "completed") return "已完成";
-    if (task.Status === "failed") return "失败";
-    return "等待中";
+    if (task.Status === "scraping") return t("tasks.progressStageAnalyzing");
+    if (task.Status === "completed") return t("tasks.progressStageCompleted");
+    if (task.Status === "failed") return t("tasks.progressStageFailed");
+    return t("tasks.progressStagePending");
   }
-  if (task.Status === "scraping") return "识别中";
-  if (task.Status === "completed") return "已完成";
-  if (task.Status === "failed") return "失败";
-  if (task.Status === "cancelled") return "已取消";
-  if (task.Status === "paused") return "已暂停";
-  if (task.TaskType === "gallery") return "下载中";
-  if (task.Progress >= 99) return "探测中";
-  if (task.Progress >= 97) return "转码中";
-  if (task.Progress >= 95) return "合并中";
-  return "下载中";
+  if (task.Status === "scraping") return t("tasks.progressStageScraping");
+  if (task.Status === "completed") return t("tasks.progressStageCompleted");
+  if (task.Status === "failed") return t("tasks.progressStageFailed");
+  if (task.Status === "cancelled") return t("tasks.progressStageCancelled");
+  if (task.Status === "paused") return t("tasks.progressStagePaused");
+  if (task.TaskType === "gallery") return t("tasks.progressStageDownloading");
+  if (task.Progress >= 99) return t("tasks.progressStageProbing");
+  if (task.Progress >= 97) return t("tasks.progressStageTranscoding");
+  if (task.Progress >= 95) return t("tasks.progressStageMerging");
+  return t("tasks.progressStageDownloading");
 }
 
 export default function TasksPage(): React.JSX.Element {
+  const { t, locale } = useI18n();
+  const STATUS_LABEL = useStatusLabel(t);
   const { tasks, loading, fetchTasks, connectSSE } = useTaskStore();
   const pathname = usePathname();
   const { savedData, saveState } = useRouteState(pathname, {
@@ -195,7 +207,7 @@ export default function TasksPage(): React.JSX.Element {
     if (sniffTaskEventId === 0 || !lastSniffTaskEvent) return;
     const evt = lastSniffTaskEvent;
     if (evt.action === 'galleryCreated') {
-      toast.info(`嗅探任务：已发现 ${evt.totalCreated ?? 0} 个图包，跳过 ${evt.totalSkipped ?? 0} 个已完成`);
+      toast.info("tasks.sniffResults", { found: evt.totalCreated ?? 0, skipped: evt.totalSkipped ?? 0 });
     }
   }, [sniffTaskEventId, lastSniffTaskEvent]);
 
@@ -273,7 +285,7 @@ export default function TasksPage(): React.JSX.Element {
 
   const handleSubmit = (): void => {
     if (parsedUrls.length === 0) {
-      toast.error("请输入有效的 HTTP(S) 链接");
+      toast.error("tasks.pleaseInputValidLink");
       return;
     }
 
@@ -281,7 +293,11 @@ export default function TasksPage(): React.JSX.Element {
     setShowAddModal(false);
 
     const urls = [...parsedUrls];
-    toast.success(urls.length > 1 ? `正在后台添加 ${urls.length} 个任务...` : "任务创建中...");
+    if (urls.length > 1) {
+      toast.success("tasks.addingTasksInBackground", { count: urls.length });
+    } else {
+      toast.success("tasks.taskCreating");
+    }
 
     for (const u of urls) {
       fetch("/api/tasks", {
@@ -315,7 +331,7 @@ export default function TasksPage(): React.JSX.Element {
             };
             useTaskStore.getState().addTask(placeholder);
             const sId = data.seq ?? `#${data.sniffId}`;
-            toast.success(`嗅探任务 ${sId} 已创建，正在分析列表页...`);
+            toast.success("tasks.sniffTaskCreated", { id: sId });
           } else if (data?.type === "gallery") {
             const placeholder: DownloadTask = {
               ID: data.galleryId,
@@ -337,14 +353,14 @@ export default function TasksPage(): React.JSX.Element {
               DownloadMethod: "pending",
             };
             useTaskStore.getState().addTask(placeholder);
-            toast.success(`图包 #${data.seq ?? data.galleryId} 已创建，正在识别...`);
+            toast.success("tasks.galleryTaskCreated", { id: data.seq ?? data.galleryId });
           } else if (data?.ID) {
             useTaskStore.getState().addTask(data as DownloadTask);
-            toast.success(`任务 #${data.DisplayID ?? data.ID} 已创建，正在识别...`);
+            toast.success("tasks.videoTaskCreated", { id: data.DisplayID ?? data.ID });
           }
         })
         .catch((err) => {
-          toast.error(`添加失败: ${err.message}`);
+          toast.error("tasks.addFailedShort", { error: err.message });
         });
     }
   };
@@ -354,13 +370,15 @@ export default function TasksPage(): React.JSX.Element {
       const isGallery = task.TaskType === 'gallery';
       const isSniff = task.TaskType === 'sniff';
       const taskId = task.ID;
+      const taskKey = `${task.TaskType || 'video'}-${taskId}`;
+      
       try {
         let endpoint: string;
         if (isSniff) {
           if (action === 'delete') {
             endpoint = `/api/tasks/sniff/${taskId}`;
           } else {
-            toast.warning(`嗅探任务不支持${actionLabel(action)}操作`);
+            toast.warning("tasks.sniffTaskNotSupported", { action: actionLabel(action, t) });
             return;
           }
         } else if (isGallery) {
@@ -371,23 +389,27 @@ export default function TasksPage(): React.JSX.Element {
           } else if (action === 'delete') {
             endpoint = `/api/gallery/${taskId}`;
           } else {
-            toast.warning(`图库任务不支持${actionLabel(action)}操作`);
+            toast.warning("tasks.galleryTaskNotSupported", { action: actionLabel(action, t) });
             return;
           }
         } else {
           endpoint = `/api/tasks/${taskId}/${action}`;
         }
+        
         const method = action === 'delete' ? 'DELETE' : 'POST';
+        
+        const label = isSniff ? t("tasks.taskTypeSniff") : isGallery ? t("tasks.taskTypeGallery") : t("tasks.taskTypeTask");
+        toast.info("tasks.taskActionSubmitting", { type: label, id: task.DisplayID ?? taskId, action: actionLabel(action, t) });
+        
         const res = await fetch(endpoint, { method });
         if (!res.ok) throw new Error(await res.text());
-        const label = isSniff ? '嗅探任务' : isGallery ? '图包' : '任务';
-        toast.success(`${label} #${task.DisplayID ?? taskId} 已${actionLabel(action)}`);
+        
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.error(msg);
       }
     },
-    []
+    [t]
   );
 
   const handleDelete = useCallback(
@@ -396,8 +418,8 @@ export default function TasksPage(): React.JSX.Element {
       const isSniff = task.TaskType === 'sniff';
       const taskId = task.ID;
       const taskType = isSniff ? 'sniff' : isGallery ? 'gallery' : 'video';
-      const label = isSniff ? '嗅探任务' : isGallery ? '图包' : '任务';
-      if (!confirm(`确认删除${label} #${task.DisplayID ?? taskId}？`)) return;
+      const label = isSniff ? t("tasks.taskTypeSniff") : isGallery ? t("tasks.taskTypeGallery") : t("tasks.taskTypeTask");
+      if (!confirm(t("tasks.confirmDelete", { type: label, id: task.DisplayID ?? taskId }))) return;
 
       useTaskStore.getState().removeTask(taskId, taskType);
 
@@ -405,28 +427,27 @@ export default function TasksPage(): React.JSX.Element {
         const endpoint = isSniff ? `/api/tasks/sniff/${taskId}` : isGallery ? `/api/gallery/${taskId}` : `/api/tasks/${taskId}`;
         const res = await fetch(endpoint, { method: "DELETE" });
         if (!res.ok) throw new Error(await res.text());
-        toast.success(`已删除${label} #${task.DisplayID ?? taskId}`);
+        toast.success("tasks.deleted", { type: label, id: task.DisplayID ?? taskId });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.error(msg);
-        // 删除失败：清除删除标记并重新拉取，让任务回到列表中
         useTaskStore.getState().clearDeletedKey(taskId, taskType);
         fetchTasks();
       }
     },
-    [fetchTasks]
+    [fetchTasks, t]
   );
 
   const handleBatchAction = useCallback(
     async (action: string) => {
       if (selectedIds.size === 0) {
-        toast.error("请先选择任务");
+        toast.error("tasks.pleaseSelectTasks");
         return;
       }
       const keys = Array.from(selectedIds);
       const isDelete = action === "delete";
 
-      if (isDelete && !confirm(`确认批量删除 ${keys.length} 个任务？`)) return;
+      if (isDelete && !confirm(t("tasks.confirmBatchDelete", { count: keys.length }))) return;
 
       if (isDelete) {
         const selectedTasks = keys
@@ -455,9 +476,9 @@ export default function TasksPage(): React.JSX.Element {
         const fail = results.length - ok;
         setSelectedIds(new Set());
         if (fail === 0) {
-          toast.success(`批量删除完成：${ok} 个`);
+          toast.success("tasks.batchDeleteComplete", { count: ok });
         } else {
-          toast.warning(`完成：${ok} 成功，${fail} 失败`);
+          toast.warning("tasks.batchResult", { ok, fail });
           results.forEach((r, i) => {
             if (r.status !== 'fulfilled' || !r.value.ok) {
               const task = selectedTasks[i];
@@ -514,7 +535,7 @@ export default function TasksPage(): React.JSX.Element {
       }
 
       if (applicable.length === 0) {
-        toast.info(`没有可${actionLabel(action)}的任务（${skipped} 个已跳过）`);
+        toast.info(t("tasks.noApplicableTasks", { action: actionLabel(action, t), skipped }));
         return;
       }
 
@@ -530,7 +551,7 @@ export default function TasksPage(): React.JSX.Element {
               return fetch(`/api/gallery/${id}/retry-failed`, { method: "POST" });
             }
           }
-          // 批量开始对 failed/cancelled 任务使用 retry 端点（重置进度和错误信息）
+          // {t("tasks.batchStart")}对 failed/cancelled 任务使用 retry 端点（重置进度和错误信息）
           if (action === 'start' && ['failed', 'cancelled'].includes(task.Status || '')) {
             return fetch(`/api/tasks/${id}/retry`, { method: "POST" });
           }
@@ -542,14 +563,14 @@ export default function TasksPage(): React.JSX.Element {
       const fail = results.length - ok;
 
       if (fail === 0 && skipped === 0) {
-        toast.success(`批量${actionLabel(action)}完成：${ok} 个`);
+        toast.success(t("tasks.batchActionComplete", { action: actionLabel(action, t), count: ok }));
       } else if (fail === 0) {
-        toast.success(`批量${actionLabel(action)}完成：${ok} 个${skipped > 0 ? `，${skipped} 个跳过` : ''}`);
+        toast.success(t("tasks.batchActionCompleteWithSkipped", { action: actionLabel(action, t), count: ok, skipped }));
       } else {
-        toast.warning(`完成：${ok} 成功，${fail} 失败${skipped > 0 ? `，${skipped} 个跳过` : ''}`);
+        toast.warning(t("tasks.batchResultWithSkipped", { ok, fail, skipped }));
       }
     },
-    [selectedIds, tasks]
+    [selectedIds, tasks, t]
   );
 
   const toggleExpand = (task: DownloadTask): void => {
@@ -581,16 +602,16 @@ export default function TasksPage(): React.JSX.Element {
     <div className="tasks-layout">
       <div className="card tasks-list-card">
         <ResourceToolbar
-          primaryFilters={TYPE_PILLS}
+          primaryFilters={TYPE_PILL_KEYS.map(p => ({ value: p.value, label: t(p.labelKey) }))}
           primaryFilterValue={typeFilter}
           onPrimaryFilterChange={(v) => setTypeFilter(v as TypeFilter)}
-          secondaryFilters={FILTER_PILLS.map((p) => ({ ...p, count: statusCounts[p.value] || 0 }))}
+          secondaryFilters={FILTER_PILL_KEYS.map((p) => ({ value: p.value, label: t(p.labelKey), count: statusCounts[p.value] || 0 }))}
           secondaryFilterValue={statusFilter}
           onSecondaryFilterChange={(v) => setStatusFilter(v as StatusFilter)}
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
-          searchPlaceholder="搜索标题或链接..."
-          sortOptions={SORT_OPTIONS}
+          searchPlaceholder={t("tasks.searchPlaceholder")}
+          sortOptions={SORT_OPTION_KEYS.map(o => ({ value: o.value, label: t(o.labelKey) }))}
           sortValue={sortBy}
           onSortChange={(v) => setSortBy(v as SortBy)}
         >
@@ -599,15 +620,15 @@ export default function TasksPage(): React.JSX.Element {
             onClick={() => setShowAddModal(true)}
           >
             <Plus size={14} />
-            添加任务
+            {t("tasks.addTask")}
           </button>
           <button
             className="btn btn-outline btn-sm"
             onClick={() => setShowSettingsPanel(true)}
-            title="任务设置"
+            title={t("tasks.settings")}
           >
             <Settings size={14} />
-            任务设置
+            {t("tasks.settings")}
           </button>
         </ResourceToolbar>
 
@@ -624,7 +645,7 @@ export default function TasksPage(): React.JSX.Element {
             }}
           >
             <span style={{ fontWeight: 600, color: "var(--accent)" }}>
-              已选 {selectedIds.size} 个
+              {t("tasks.selected", { count: selectedIds.size })}
             </span>
             <div style={{ flex: 1 }} />
             <button
@@ -632,36 +653,36 @@ export default function TasksPage(): React.JSX.Element {
               onClick={() => handleBatchAction("start")}
             >
               <Play size={12} />
-              批量开始
+              {t("tasks.batchStart")}
             </button>
             <button
               className="btn btn-outline btn-sm"
               onClick={() => handleBatchAction("retry")}
-              title="重试失败/已取消的任务"
+              title={t("tasks.batchRetryTitle")}
             >
               <RotateCw size={12} />
-              批量重试
+              {t("tasks.batchRetry")}
             </button>
             <button
               className="btn btn-warning btn-sm"
               onClick={() => handleBatchAction("pause")}
             >
               <Pause size={12} />
-              批量暂停
+              {t("tasks.batchPause")}
             </button>
             <button
               className="btn btn-danger btn-sm"
               onClick={() => handleBatchAction("cancel")}
             >
               <Square size={12} />
-              批量取消
+              {t("tasks.batchCancel")}
             </button>
             <button
               className="btn btn-outline btn-sm"
               onClick={() => handleBatchAction("delete")}
             >
               <Trash2 size={12} />
-              批量删除
+              {t("tasks.batchDelete")}
             </button>
           </div>
         )}
@@ -686,12 +707,12 @@ export default function TasksPage(): React.JSX.Element {
               <Inbox size={48} strokeWidth={1.5} />
             </div>
             <div className="empty-state-text">
-              {tasks.length === 0 ? "暂无下载任务" : "没有匹配的任务"}
+              {tasks.length === 0 ? t("tasks.noTasksTitle") : t("tasks.noMatchingTasks")}
             </div>
             <div className="empty-state-subtext">
               {tasks.length === 0
-                ? "输入 M3U8 链接、网站地址或图库链接即可开始下载"
-                : "尝试调整筛选条件或搜索关键词"}
+                ? t("tasks.noTasksInputHint")
+                : t("tasks.tryAdjustFilter")}
             </div>
           </div>
         ) : (
@@ -713,7 +734,7 @@ export default function TasksPage(): React.JSX.Element {
                             ? "var(--accent)"
                             : "var(--text-muted)",
                       }}
-                      title={allSelected ? "取消全选" : "全选"}
+                      title={allSelected ? t("tasks.deselectAll") : t("tasks.selectAll")}
                     >
                       {allSelected ? (
                         <CheckSquare size={16} />
@@ -724,16 +745,16 @@ export default function TasksPage(): React.JSX.Element {
                       )}
                     </button>
                   </th>
-                  <th style={{ width: 56 }}>编号</th>
-                  <th style={{ width: 48, whiteSpace: "nowrap" }}>类型</th>
-                  <th style={{ width: 100 }}>人物</th>
-                  <th style={{ width: 300 }}>标题</th>
-                  <th style={{ width: 64, whiteSpace: "nowrap" }}>来源</th>
-                  <th style={{ width: 68 }}>状态</th>
-                  <th style={{ width: 140 }}>进度</th>
-                  <th style={{ width: 80, whiteSpace: "nowrap" }}>分片/数量</th>
-                  <th style={{ width: 80, whiteSpace: "nowrap" }}>文件大小</th>
-                  <th style={{ width: 190, whiteSpace: "nowrap" }}>操作</th>
+                  <th style={{ width: 56 }}>{t("tasks.colId")}</th>
+                  <th style={{ width: 48, whiteSpace: "nowrap" }}>{t("tasks.colType")}</th>
+                  <th style={{ width: 100 }}>{t("tasks.colPerson")}</th>
+                  <th style={{ width: 300 }}>{t("tasks.colTitle")}</th>
+                  <th style={{ width: 64, whiteSpace: "nowrap" }}>{t("tasks.colSource")}</th>
+                  <th style={{ width: 68 }}>{t("tasks.colStatus")}</th>
+                  <th style={{ width: 140 }}>{t("tasks.colProgress")}</th>
+                  <th style={{ width: 80, whiteSpace: "nowrap" }}>{t("tasks.colSegments")}</th>
+                  <th style={{ width: 80, whiteSpace: "nowrap" }}>{t("tasks.colFileSize")}</th>
+                  <th style={{ width: 190, whiteSpace: "nowrap" }}>{t("tasks.colActions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -742,9 +763,9 @@ export default function TasksPage(): React.JSX.Element {
                   const isGallery = task.TaskType === 'gallery';
                   const isSniff = task.TaskType === 'sniff';
                   const isIdentifying = task.Status === 'scraping';
-                  const canStart = !isGallery && !isSniff
-                    ? (task.Status === "pending" || task.Status === "paused")
-                    : (task.Status === "failed" || task.Status === "pending");
+                      const canStart = !isGallery && !isSniff
+                        ? (task.Status === "pending" || task.Status === "paused")
+                        : (task.Status === "pending");
                   const canPause = !isGallery && !isSniff && task.Status === "downloading";
                   const canCancel = !isGallery && !isSniff &&
                     (task.Status === "downloading" ||
@@ -766,11 +787,11 @@ export default function TasksPage(): React.JSX.Element {
                       ? stripPersonFromTitle(task.GalleryTitle || "", task.Person)
                       : (task.VideoInfo?.Title || "");
                   const titleDisplay = isIdentifying && !rawTitle
-                    ? "识别中..."
+                    ? t("tasks.identifying")
                     : (rawTitle || task.URL);
                   const progress = task.Progress;
                   const progressPct = progress.toFixed(1) + "%";
-                  const stage = getProgressStage(task);
+                  const stage = getProgressStage(task, t);
                   const fillClass =
                     task.Status === "completed"
                       ? "completed"
@@ -829,21 +850,21 @@ export default function TasksPage(): React.JSX.Element {
                         <td>
                           {isSniff ? (
                             <span
-                              title="嗅探任务"
+                              title={t("tasks.sniffTaskLabel")}
                               style={{ color: "#6366f1" }}
                             >
                               <Radar size={15} />
                             </span>
                           ) : isGallery ? (
                             <span
-                              title="图库任务"
+                              title={t("tasks.galleryTaskLabel")}
                               style={{ color: "var(--text-muted)" }}
                             >
                               <ImageIcon size={15} />
                             </span>
                           ) : (
                             <span
-                              title="视频任务"
+                              title={t("tasks.videoTaskLabel")}
                               style={{ color: "var(--text-muted)" }}
                             >
                               <Film size={15} />
@@ -883,16 +904,37 @@ export default function TasksPage(): React.JSX.Element {
                         <td>
                           {siteModule ? (
                             <span className="source-pill">
-                              {siteModule.nameCn}
+                              {getSiteModuleName(siteModule, locale)}
                             </span>
                           ) : (
                             <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
                           )}
                         </td>
                         <td>
-                          <span className={`status-pill status-pill-${task.Status}`}>
-                            {STATUS_LABEL[task.Status] ?? task.Status}
-                          </span>
+                          {task.Status === 'failed' && task.ErrorMsg ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span className={`status-pill status-pill-${task.Status}`}>
+                                {STATUS_LABEL[task.Status] ?? task.Status}
+                              </span>
+                              <span 
+                                style={{ 
+                                  fontSize: 11, 
+                                  color: 'var(--danger)', 
+                                  maxWidth: 120,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }} 
+                                title={task.ErrorMsg}
+                              >
+                                {task.ErrorMsg}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className={`status-pill status-pill-${task.Status}`}>
+                              {STATUS_LABEL[task.Status] ?? task.Status}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <div
@@ -926,17 +968,17 @@ export default function TasksPage(): React.JSX.Element {
                         <td style={{ whiteSpace: "nowrap" }}>
                           {isSniff ? (
                             <span style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: 12 }}>
-                              {task.Status === 'completed' ? `发现 ${task.SniffTotalFound ?? 0}` : task.Status === 'scraping' ? `已发现 ${task.SniffTotalFound ?? 0}` : "—"}
+                              {task.Status === 'completed' ? t("tasks.sniffFound", { count: task.SniffTotalFound ?? 0 }) : task.Status === 'scraping' ? t("tasks.sniffDiscovered", { count: task.SniffTotalFound ?? 0 }) : "—"}
                             </span>
                           ) : isIdentifying ? (
-                            <span style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: 12 }}>识别中...</span>
+                            <span style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: 12 }}>{t("tasks.identifying")}</span>
                           ) : isGallery ? (
-                            <span className="dual-capsule" title={`图片 ${task.ImageCount ?? 0} / 视频 ${task.VideoCount ?? 0}`}>
+                            <span className="dual-capsule" title={t("tasks.gallerySegmentTitle", { images: task.ImageCount ?? 0, videos: task.VideoCount ?? 0 })}>
                               <span className="dual-capsule-left accent-green">{task.ImageCount || 0}P</span>
                               <span className="dual-capsule-right accent-orange">{task.VideoCount || 0}V</span>
                             </span>
                           ) : task.TotalSegments ? (
-                            <span className="dual-capsule" title={`分片 ${task.Segment ?? 0} / ${task.TotalSegments}`}>
+                            <span className="dual-capsule" title={t("tasks.segmentTitle", { current: task.Segment ?? 0, total: task.TotalSegments })}>
                               <span className="dual-capsule-left">{task.Segment ?? 0}</span>
                               <span className="dual-capsule-right">{task.TotalSegments}</span>
                             </span>
@@ -948,11 +990,13 @@ export default function TasksPage(): React.JSX.Element {
                           {isSniff ? (
                             <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
                           ) : isGallery ? (
-                            task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
-                              ? formatFileSize(task.DownloadInfo.ActualSize)
-                              : task.DownloadInfo?.FileSizeText
-                                ? task.DownloadInfo.FileSizeText
-                                : "—"
+                            task.GalleryTotalSize && task.GalleryTotalSize > 0
+                              ? formatFileSize(task.GalleryTotalSize)
+                              : task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
+                                ? formatFileSize(task.DownloadInfo.ActualSize)
+                                : task.DownloadInfo?.FileSizeText
+                                  ? task.DownloadInfo.FileSizeText
+                                  : "—"
                           ) : task.VideoInfo?.FileSize ? (
                             `${(task.VideoInfo.FileSize / 1024 / 1024).toFixed(1)} MB`
                           ) : (
@@ -968,7 +1012,7 @@ export default function TasksPage(): React.JSX.Element {
                                   e.stopPropagation();
                                   handleAction(task, "start");
                                 }}
-                                title="开始"
+                                title={t("tasks.actionStart")}
                               >
                                 <Play size={14} />
                               </button>
@@ -980,7 +1024,7 @@ export default function TasksPage(): React.JSX.Element {
                                   e.stopPropagation();
                                   handleAction(task, "pause");
                                 }}
-                                title="暂停"
+                                title={t("tasks.actionPause")}
                               >
                                 <Pause size={14} />
                               </button>
@@ -992,7 +1036,7 @@ export default function TasksPage(): React.JSX.Element {
                                   e.stopPropagation();
                                   handleAction(task, "cancel");
                                 }}
-                                title="取消"
+                                title={t("tasks.actionCancel")}
                               >
                                 <Square size={14} />
                               </button>
@@ -1004,7 +1048,7 @@ export default function TasksPage(): React.JSX.Element {
                                   e.stopPropagation();
                                   handleDelete(task);
                                 }}
-                                title="删除"
+                                title={t("tasks.actionDelete")}
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -1016,7 +1060,7 @@ export default function TasksPage(): React.JSX.Element {
                                   e.stopPropagation();
                                   handleAction(task, "retry");
                                 }}
-                                title="重试"
+                                title={t("tasks.actionRetry")}
                               >
                                 <RotateCw size={14} />
                               </button>
@@ -1029,7 +1073,7 @@ export default function TasksPage(): React.JSX.Element {
                                   e.stopPropagation();
                                   handleAction(task, "retry");
                                 }}
-                                title="重试失败文件"
+                                title={t("tasks.retryFailedFiles")}
                               >
                                 <RotateCw size={14} />
                               </button>
@@ -1043,15 +1087,15 @@ export default function TasksPage(): React.JSX.Element {
                                 const summary = {
                                   ID: task.ID,
                                   DisplayID: task.DisplayID,
-                                  Type: isSniff ? '嗅探' : isGallery ? '图包' : '视频',
+                                  Type: isSniff ? t("tasks.typeSniff") : isGallery ? t("tasks.typeGallery") : t("tasks.typeVideo"),
                                   Title: isGallery ? (task.GalleryTitle || '—') : (task.VideoInfo?.Title || '—'),
                                   URL: task.URL,
                                   M3U8URL: task.M3U8URL || undefined,
                                   Status: STATUS_LABEL[task.Status] ?? task.Status,
                                   Progress: `${task.Progress.toFixed(1)}%`,
                                   FilePath: task.FilePath || undefined,
-                                  CreatedAt: task.CreatedAt ? new Date(task.CreatedAt).toLocaleString('zh-CN') : undefined,
-                                  UpdatedAt: task.UpdatedAt ? new Date(task.UpdatedAt).toLocaleString('zh-CN') : undefined,
+                                  CreatedAt: task.CreatedAt ? new Date(task.CreatedAt).toLocaleString(locale) : undefined,
+                                  UpdatedAt: task.UpdatedAt ? new Date(task.UpdatedAt).toLocaleString(locale) : undefined,
                                   ...(isSniff ? {
                                     SniffTotalFound: task.SniffTotalFound ?? 0,
                                     SniffTotalCreated: task.SniffTotalCreated ?? 0,
@@ -1076,7 +1120,7 @@ export default function TasksPage(): React.JSX.Element {
                                     Segment: task.Segment ?? undefined,
                                     TotalSegments: task.TotalSegments ?? undefined,
                                     FileSize: task.VideoInfo?.FileSize ? formatFileSize(task.VideoInfo.FileSize) : undefined,
-                                    Duration: task.VideoInfo?.Duration ? `${task.VideoInfo.Duration} 分钟` : undefined,
+                                    Duration: task.VideoInfo?.Duration ? t("tasks.durationMinutes", { count: task.VideoInfo.Duration }) : undefined,
                                     Resolution: task.VideoInfo?.Resolution || undefined,
                                     Tags: task.VideoInfo?.Tags?.length ? task.VideoInfo.Tags : undefined,
                                     Actors: task.VideoInfo?.Actors?.length ? task.VideoInfo.Actors : undefined,
@@ -1084,11 +1128,11 @@ export default function TasksPage(): React.JSX.Element {
                                   ErrorMsg: task.ErrorMsg || undefined,
                                 };
                                 navigator.clipboard.writeText(JSON.stringify(summary, null, 2)).then(
-                                  () => toast.success(`已复制 #${task.DisplayID ?? task.ID} 数据`),
-                                  () => toast.error("复制失败"),
+                                  () => toast.success("tasks.taskDataCopied", { id: task.DisplayID ?? task.ID }),
+                                  () => toast.error("tasks.copyFailed"),
                                 );
                               }}
-                              title="复制任务数据"
+                              title={t("tasks.copyTaskData")}
                             >
                               <Copy size={14} />
                             </button>
@@ -1115,7 +1159,7 @@ export default function TasksPage(): React.JSX.Element {
             <div className="modal-header">
               <h2 style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
                 <Plus size={18} style={{ flexShrink: 0 }} />
-                添加任务
+                {t("tasks.addTask")}
               </h2>
               <button className="btn-close" onClick={() => setShowAddModal(false)}>
                 <X size={18} />
@@ -1128,14 +1172,14 @@ export default function TasksPage(): React.JSX.Element {
                   onClick={() => setAddTab("link")}
                 >
                   <LinkIcon size={14} className="tab-icon" />
-                  链接导入
+                  {t("tasks.linkImport")}
                 </button>
                 <button
                   className={`modal-tab ${addTab === "search" ? "active" : ""}`}
                   onClick={() => setAddTab("search")}
                 >
                   <SearchIcon size={14} className="tab-icon" />
-                  批量搜索
+                  {t("tasks.batchSearch")}
                 </button>
               </div>
 
@@ -1144,25 +1188,25 @@ export default function TasksPage(): React.JSX.Element {
                   <div className="modal-section">
                     <div className="modal-input-group">
                       <div className="modal-input-label">
-                        <span>粘贴链接</span>
+                        <span>{t("tasks.pasteLinks")}</span>
                         <div className="input-stats-bar">
                           <div className="input-stat-item stat-input">
                             <FileText size={14} className="stat-icon" />
-                            <span className="stat-label">已输入</span>
+                            <span className="stat-label">{t("tasks.statInput")}</span>
                             <span className="stat-value">{totalInputLines}</span>
-                            <span className="stat-label">行</span>
+                            <span className="stat-label">{t("tasks.statLines")}</span>
                           </div>
                           <div className={`input-stat-item ${parsedUrls.length > 0 ? "stat-detected" : "stat-input"}`}>
                             <LinkIcon size={14} className="stat-icon" />
-                            <span className="stat-label">已识别</span>
+                            <span className="stat-label">{t("tasks.statDetected")}</span>
                             <span className="stat-value">{parsedUrls.length}</span>
-                            <span className="stat-label">个</span>
+                            <span className="stat-label">{t("tasks.statItems")}</span>
                           </div>
                         </div>
                       </div>
                       <textarea
                         className="form-control"
-                        placeholder="支持 M3U8 直链、视频页面或图库页面地址，多个链接换行分隔"
+                        placeholder={t("tasks.linkInputPlaceholder")}
                         value={linkInput}
                         onChange={(e) => setLinkInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -1190,7 +1234,7 @@ export default function TasksPage(): React.JSX.Element {
                         }}
                       >
                         <p className="modal-input-hint" style={{ margin: 0 }}>
-                          自动识别 HTTP(S) 链接，支持混合导入
+                          {t("tasks.autoDetectHint")}
                         </p>
                         <div className="quick-actions-bar" style={{ margin: 0 }}>
                           <button
@@ -1204,7 +1248,7 @@ export default function TasksPage(): React.JSX.Element {
                                     .map((s) => s.trim())
                                     .filter((s) => s.startsWith("http://") || s.startsWith("https://"));
                                   if (urls.length === 0) {
-                                    toast.error("剪贴板中没有检测到有效链接");
+                                    toast.error("tasks.clipboardNoLinks");
                                     return prev;
                                   }
                                   const existing = prev
@@ -1213,30 +1257,30 @@ export default function TasksPage(): React.JSX.Element {
                                     .filter((s) => s.startsWith("http"));
                                   const newUrls = urls.filter((u) => !existing.includes(u));
                                   if (newUrls.length === 0) {
-                                    toast.info("所有链接已存在");
+                                    toast.info("tasks.clipboardAllExist");
                                     return prev;
                                   }
-                                  toast.success(`已粘贴 ${newUrls.length} 个新链接`);
+                                    toast.success("tasks.pastedNewLinks", { count: newUrls.length });
                                   return prev ? prev + "\n" + newUrls.join("\n") : newUrls.join("\n");
                                 });
                               } catch {
-                                toast.error("无法读取剪贴板，请手动粘贴");
+                                toast.error("tasks.clipboardReadFail");
                               }
                             }}
                           >
                             <ClipboardPaste size={12} />
-                            粘贴
+                            {t("tasks.paste")}
                           </button>
                           <button
                             className="quick-action-btn"
                             onClick={() => {
                               setLinkInput("");
-                              toast.info("已清空输入框");
+                              toast.info("tasks.clipboardCleared");
                             }}
                             disabled={!linkInput}
                           >
                             <Trash2 size={12} />
-                            清空
+                            {t("tasks.clear")}
                           </button>
                         </div>
                       </div>
@@ -1250,8 +1294,8 @@ export default function TasksPage(): React.JSX.Element {
                     style={{ marginTop: 4 }}
                   >
                     {parsedUrls.length > 1
-                      ? `批量导入 ${parsedUrls.length} 个任务`
-                      : "添加任务"}
+                      ? t("tasks.batchImport", { count: parsedUrls.length })
+                      : t("tasks.addTask")}
                   </button>
                 </div>
               ) : (
@@ -1272,7 +1316,7 @@ export default function TasksPage(): React.JSX.Element {
             <div className="task-detail-popover" onClick={(e) => e.stopPropagation()}>
               <div className="task-detail-popover-header">
                 <span className="task-detail-popover-title">
-                  {isSniffTask ? '嗅探任务' : isGalleryTask ? '图包' : '任务'}详情 #{task.DisplayID ?? task.ID}
+                  {isSniffTask ? t("tasks.detailTaskTypeSniff") : isGalleryTask ? t("tasks.detailTaskTypeGallery") : t("tasks.detailTaskTypeVideo")}{t("tasks.detailTaskSuffix")} #{task.DisplayID ?? task.ID}
                 </span>
                 <button
                   className="btn-close"
@@ -1284,16 +1328,16 @@ export default function TasksPage(): React.JSX.Element {
               <div className="task-detail-popover-body">
                 <div className="task-detail-grid">
                   <div className="task-detail-item full-width">
-                    <span className="task-detail-label">{isGalleryTask ? '源页面' : '视频链接'}</span>
+                    <span className="task-detail-label">{isGalleryTask ? t("tasks.detailSourcePage") : t("tasks.detailVideoLink")}</span>
                     <span className="task-detail-value task-detail-value-with-copy">
                       <span className="task-detail-value-text">{task.URL}</span>
                       <button
                         className="btn-copy-inline"
                         onClick={() => {
                           navigator.clipboard.writeText(task.URL);
-                          toast.success("已复制");
+                          toast.success("common.copied");
                         }}
-                        title="复制"
+                        title={t("common.copy")}
                       >
                         <Copy size={13} />
                       </button>
@@ -1303,22 +1347,22 @@ export default function TasksPage(): React.JSX.Element {
                     <>
                       <div className="task-detail-row full-width">
                         <div className="task-detail-item task-detail-item-flex">
-                          <span className="task-detail-label">状态</span>
+                          <span className="task-detail-label">{t("tasks.colStatus")}</span>
                           <span className="task-detail-value">{STATUS_LABEL[task.Status] ?? task.Status}</span>
                         </div>
                         <div className="task-detail-item task-detail-item-flex">
-                          <span className="task-detail-label">发现图包</span>
-                          <span className="task-detail-value">{task.SniffTotalFound ?? 0} 个</span>
+                          <span className="task-detail-label">{t("tasks.detailFoundGalleries")}</span>
+                          <span className="task-detail-value">{t("tasks.countUnit", { count: task.SniffTotalFound ?? 0 })}</span>
                         </div>
                       </div>
                       <div className="task-detail-row full-width">
                         <div className="task-detail-item task-detail-item-flex">
-                          <span className="task-detail-label">已创建任务</span>
-                          <span className="task-detail-value">{task.SniffTotalCreated ?? 0} 个</span>
+                          <span className="task-detail-label">{t("tasks.detailCreatedTasks")}</span>
+                          <span className="task-detail-value">{t("tasks.countUnit", { count: task.SniffTotalCreated ?? 0 })}</span>
                         </div>
                         <div className="task-detail-item task-detail-item-flex">
-                          <span className="task-detail-label">已跳过</span>
-                          <span className="task-detail-value">{task.SniffTotalSkipped ?? 0} 个</span>
+                          <span className="task-detail-label">{t("tasks.detailSkipped")}</span>
+                          <span className="task-detail-value">{t("tasks.countUnit", { count: task.SniffTotalSkipped ?? 0 })}</span>
                         </div>
                       </div>
                       {task.Status === 'failed' && task.ErrorMsg && (
@@ -1326,40 +1370,40 @@ export default function TasksPage(): React.JSX.Element {
                           <div className="failure-reason-card">
                             <div className="failure-reason-header">
                               <span className="failure-reason-icon">⚠</span>
-                              <span className="failure-reason-title">失败原因</span>
+                              <span className="failure-reason-title">{t("tasks.detailFailureReason")}</span>
                             </div>
                             <div className="failure-reason-content">
-                              {task.ErrorMsg}
+                              <strong>{task.ErrorMsg}</strong>
                             </div>
                           </div>
                         </div>
                       )}
                       {task.ErrorMsg && task.Status !== 'failed' && (
                         <div className="task-detail-item full-width">
-                          <span className="task-detail-label">错误信息</span>
+                          <span className="task-detail-label">{t("tasks.errorMsg")}</span>
                           <span className="task-detail-value" style={{ color: "var(--danger)" }}>{task.ErrorMsg}</span>
                         </div>
                       )}
                       {task.CreatedAt && (
                         <div className="task-detail-item full-width">
-                          <span className="task-detail-label">创建时间</span>
-                          <span className="task-detail-value">{new Date(task.CreatedAt).toLocaleString('zh-CN')}</span>
+                          <span className="task-detail-label">{t("tasks.createdAt")}</span>
+                          <span className="task-detail-value">{new Date(task.CreatedAt).toLocaleString(locale)}</span>
                         </div>
                       )}
                     </>
                   )}
                   {task.M3U8URL && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">M3U8 链接</span>
+                      <span className="task-detail-label">{t("tasks.m3u8Url")}</span>
                       <span className="task-detail-value task-detail-value-with-copy">
                         <span className="task-detail-value-text">{task.M3U8URL}</span>
                         <button
                           className="btn-copy-inline"
                           onClick={() => {
                             navigator.clipboard.writeText(task.M3U8URL);
-                            toast.success("已复制");
+                            toast.success("common.copied");
                           }}
-                          title="复制"
+                          title={t("common.copy")}
                         >
                           <Copy size={13} />
                         </button>
@@ -1368,16 +1412,16 @@ export default function TasksPage(): React.JSX.Element {
                   )}
                   {task.FilePath && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">{isGalleryTask ? '保存路径' : '文件路径'}</span>
+                      <span className="task-detail-label">{isGalleryTask ? t("tasks.savePath") : t("tasks.filePath")}</span>
                       <span className="task-detail-value task-detail-value-with-copy">
                         <span className="task-detail-value-text">{task.FilePath}</span>
                         <button
                           className="btn-copy-inline"
                           onClick={() => {
                             navigator.clipboard.writeText(task.FilePath!);
-                            toast.success("已复制");
+                            toast.success("common.copied");
                           }}
-                          title="复制"
+                          title={t("common.copy")}
                         >
                           <Copy size={13} />
                         </button>
@@ -1386,16 +1430,16 @@ export default function TasksPage(): React.JSX.Element {
                   )}
                   {isGalleryTask && task.GalleryTitle && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">图库标题</span>
+                      <span className="task-detail-label">{t("tasks.detailGalleryTitle")}</span>
                       <span className="task-detail-value task-detail-value-with-copy">
                         <span className="task-detail-value-text">{task.GalleryTitle}</span>
                         <button
                           className="btn-copy-inline"
                           onClick={() => {
                             navigator.clipboard.writeText(task.GalleryTitle!);
-                            toast.success("已复制");
+                            toast.success("common.copied");
                           }}
-                          title="复制"
+                          title={t("common.copy")}
                         >
                           <Copy size={13} />
                         </button>
@@ -1404,26 +1448,26 @@ export default function TasksPage(): React.JSX.Element {
                     )}
                   {task.Person && isGalleryTask && (
                     <div className="task-detail-item">
-                      <span className="task-detail-label">主角</span>
+                      <span className="task-detail-label">{t("tasks.person")}</span>
                       <span className="task-detail-value">{task.Person}</span>
                     </div>
                   )}
                   {isGalleryTask && (task.ImageCount !== undefined || task.VideoCount !== undefined || (task.DownloadMethod && task.DownloadMethod !== 'pending')) && (
                     <div className="task-detail-row full-width">
                       <div className="task-detail-item task-detail-item-flex">
-                        <span className="task-detail-label">图片数量</span>
-                        <span className="task-detail-value">{task.ImageCount ?? 0} 张</span>
+                        <span className="task-detail-label">{t("tasks.detailImageCount")}</span>
+                        <span className="task-detail-value">{t("tasks.imageUnit", { count: task.ImageCount ?? 0 })}</span>
                       </div>
                       <div className="task-detail-item task-detail-item-flex">
-                        <span className="task-detail-label">视频数量</span>
-                        <span className="task-detail-value">{task.VideoCount ?? 0} 个</span>
+                        <span className="task-detail-label">{t("tasks.detailVideoCount")}</span>
+                        <span className="task-detail-value">{t("tasks.countUnit", { count: task.VideoCount ?? 0 })}</span>
                       </div>
                       <div className="task-detail-item task-detail-item-flex">
-                        <span className="task-detail-label">下载方式</span>
+                        <span className="task-detail-label">{t("tasks.detailDownloadMethod")}</span>
                         <span className="task-detail-value">
-                          {task.DownloadMethod === 'zip' ? 'ZIP 压缩包' :
-                            task.DownloadMethod === 'scrape' ? '逐张爬取' :
-                              task.DownloadMethod === 'both' ? 'ZIP + 爬取' : (task.DownloadMethod ?? '—')}
+                          {task.DownloadMethod === 'zip' ? t("tasks.downloadMethodZip") :
+                            task.DownloadMethod === 'scrape' ? t("tasks.downloadMethodScrape") :
+                              task.DownloadMethod === 'both' ? t("tasks.downloadMethodBoth") : (task.DownloadMethod ?? '—')}
                         </span>
                       </div>
                     </div>
@@ -1433,17 +1477,17 @@ export default function TasksPage(): React.JSX.Element {
                       <div className="failure-reason-card">
                         <div className="failure-reason-header">
                           <span className="failure-reason-icon">⚠</span>
-                          <span className="failure-reason-title">失败原因</span>
+                          <span className="failure-reason-title">{t("tasks.detailFailureReason")}</span>
                         </div>
                         <div className="failure-reason-content">
-                          {task.ErrorMsg}
+                          <strong>{task.ErrorMsg}</strong>
                         </div>
                       </div>
                     </div>
                   )}
                   {task.ErrorMsg && task.Status !== 'failed' && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">错误信息</span>
+                      <span className="task-detail-label">{t("tasks.errorMsg")}</span>
                       <span
                         className="task-detail-value"
                         style={{ color: "var(--danger)" }}
@@ -1454,16 +1498,16 @@ export default function TasksPage(): React.JSX.Element {
                   )}
                   {task.VideoInfo?.Title && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">视频标题</span>
+                      <span className="task-detail-label">{t("tasks.detailVideoTitle")}</span>
                       <span className="task-detail-value task-detail-value-with-copy">
                         <span className="task-detail-value-text">{task.VideoInfo.Title}</span>
                         <button
                           className="btn-copy-inline"
                           onClick={() => {
                             navigator.clipboard.writeText(task.VideoInfo!.Title!);
-                            toast.success("已复制");
+                            toast.success("common.copied");
                           }}
-                          title="复制"
+                          title={t("common.copy")}
                         >
                           <Copy size={13} />
                         </button>
@@ -1472,7 +1516,7 @@ export default function TasksPage(): React.JSX.Element {
                   )}
                   {isGalleryTask && task.GalleryTitle && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">标签</span>
+                      <span className="task-detail-label">{t("tasks.detailTags")}</span>
                       <span className="task-detail-value">
                         {task.GalleryTitle ? (
                           <div className="task-detail-tags">
@@ -1482,7 +1526,7 @@ export default function TasksPage(): React.JSX.Element {
                                 className="pill pill-clickable"
                                 onClick={() => {
                                   navigator.clipboard.writeText(tag);
-                                  toast.success("已复制");
+                                  toast.success("common.copied");
                                 }}
                               >
                                 {tag}
@@ -1496,7 +1540,7 @@ export default function TasksPage(): React.JSX.Element {
                   {!isGalleryTask && (
                     <div className="task-detail-row full-width">
                       <div className="task-detail-item task-detail-item-flex">
-                        <span className="task-detail-label">标签</span>
+                        <span className="task-detail-label">{t("tasks.detailTags")}</span>
                         <span className="task-detail-value">
                           {task.VideoInfo?.Tags && task.VideoInfo.Tags.length > 0 ? (
                             <div className="task-detail-tags">
@@ -1506,7 +1550,7 @@ export default function TasksPage(): React.JSX.Element {
                                   className="pill pill-clickable"
                                   onClick={() => {
                                     navigator.clipboard.writeText(tag);
-                                    toast.success("已复制");
+                                    toast.success("common.copied");
                                   }}
                                 >
                                   {tag}
@@ -1520,13 +1564,13 @@ export default function TasksPage(): React.JSX.Element {
                   )}
                   {!isGalleryTask && task.VideoInfo?.Actors && task.VideoInfo.Actors.length > 0 && (
                     <div className="task-detail-item full-width">
-                      <span className="task-detail-label">演员</span>
+                      <span className="task-detail-label">{t("tasks.detailActors")}</span>
                       <span className="task-detail-value">{task.VideoInfo.Actors.join("、")}</span>
                     </div>
                   )}
                   {!isGalleryTask && task.VideoInfo?.Director && (
                     <div className="task-detail-item">
-                      <span className="task-detail-label">导演/系列</span>
+                      <span className="task-detail-label">{t("tasks.detailDirector")}</span>
                       <span className="task-detail-value">{task.VideoInfo.Director}</span>
                     </div>
                   )}
@@ -1537,7 +1581,7 @@ export default function TasksPage(): React.JSX.Element {
                         {task.VideoInfo?.Duration ? (
                           <div className="info-bar-item">
                             <Clock size={14} className="info-bar-icon" />
-                            <span className="info-bar-text">{task.VideoInfo.Duration} 分钟</span>
+                            <span className="info-bar-text">{t("tasks.durationMinutes", { count: task.VideoInfo.Duration })}</span>
                           </div>
                         ) : null}
                         {task.VideoInfo?.Resolution && (
@@ -1556,18 +1600,20 @@ export default function TasksPage(): React.JSX.Element {
                           <div className="info-bar-item">
                             <HardDrive size={14} className="info-bar-icon" />
                             <span className="info-bar-text">
-                              {task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
-                                ? formatFileSize(task.DownloadInfo.ActualSize)
-                                : task.DownloadInfo?.FileSizeText
-                                  ? task.DownloadInfo.FileSizeText
-                                  : '—'}
+                              {task.GalleryTotalSize && task.GalleryTotalSize > 0
+                                ? formatFileSize(task.GalleryTotalSize)
+                                : task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
+                                  ? formatFileSize(task.DownloadInfo.ActualSize)
+                                  : task.DownloadInfo?.FileSizeText
+                                    ? task.DownloadInfo.FileSizeText
+                                    : '—'}
                             </span>
                           </div>
                         )}
                         {task.CreatedAt && (
                           <div className="info-bar-item">
                             <Calendar size={14} className="info-bar-icon" />
-                            <span className="info-bar-text">{new Date(task.CreatedAt).toLocaleString()}</span>
+                            <span className="info-bar-text">{new Date(task.CreatedAt).toLocaleString(locale)}</span>
                           </div>
                         )}
                       </div>
@@ -1583,21 +1629,14 @@ export default function TasksPage(): React.JSX.Element {
   );
 }
 
-function actionLabel(action: string): string {
+function actionLabel(action: string, t: (key: string, params?: Record<string, string | number>) => string): string {
   const map: Record<string, string> = {
-    start: "开始",
-    pause: "暂停",
-    resume: "继续",
-    cancel: "取消",
-    retry: "重试",
-    delete: "删除",
+    start: t("tasks.actionStart"),
+    pause: t("tasks.actionPause"),
+    resume: t("tasks.actionResume"),
+    cancel: t("tasks.actionCancel"),
+    retry: t("tasks.actionRetry"),
+    delete: t("tasks.actionDelete"),
   };
   return map[action] ?? action;
 }
-
-function getUrlType(url: string): string {
-  if (url.includes(".m3u8") || url.includes(".m3u")) return "M3U8";
-  if (url.includes("/gallery/") || url.includes("/album/") || url.includes("photo")) return "图库";
-  return "页面";
-}
-

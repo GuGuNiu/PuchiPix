@@ -7,6 +7,7 @@ import { lifecycle } from "./src/lib/core/lifecycle";
 import { eventBus } from "./src/lib/core/event-bus";
 import { ttlLock } from "./src/lib/core/ttl-lock";
 import type { ProgressMessage } from "@/types";
+import { logT } from "@/lib/i18n/server";
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
@@ -24,6 +25,18 @@ app.prepare().then(async () => {
     }
 
     handle(req, res, parsedUrl);
+  });
+
+  lifecycle.onInit({
+    name: "task-state-reset",
+    timeout: 15000,
+    fn: async () => {
+      const { resetRunningTasksOnStartup } = await import(
+        "./src/lib/core/task-state-reset"
+      );
+      await resetRunningTasksOnStartup();
+      console.log(logT("log.server.taskStateReset"));
+    },
   });
 
   lifecycle.onInit({
@@ -62,7 +75,7 @@ app.prepare().then(async () => {
         }
       });
 
-      console.log("[Server] Download manager initialized");
+      console.log(logT("log.server.downloadManagerInit"));
     },
   });
 
@@ -75,7 +88,7 @@ app.prepare().then(async () => {
         } catch {}
       });
 
-      console.log("[Server] EventBus bridge initialized");
+      console.log(logT("log.server.eventBusBridgeInit"));
     },
   });
 
@@ -85,7 +98,19 @@ app.prepare().then(async () => {
       const { getOuoOrchestrator } =
         await import("./src/lib/core/ouo-orchestrator");
       getOuoOrchestrator().start();
-      console.log("[Server] OUO orchestrator started");
+      console.log(logT("log.server.ouoOrchestratorStart"));
+    },
+  });
+
+  lifecycle.onShutdown({
+    name: "task-state-reset",
+    timeout: 10000,
+    fn: async () => {
+      const { resetRunningTasksOnStartup } = await import(
+        "./src/lib/core/task-state-reset"
+      );
+      await resetRunningTasksOnStartup();
+      console.log("[Server] Task states reset on shutdown");
     },
   });
 
@@ -108,8 +133,20 @@ app.prepare().then(async () => {
     fn: async () => {
       const { getDownloadManager } = await import("./src/lib/api-helpers");
       const dm = getDownloadManager();
-      dm.stop();
+      await dm.stop();
       console.log("[Server] Download manager stopped");
+    },
+  });
+
+  lifecycle.onShutdown({
+    name: "gallery-downloader",
+    timeout: 10000,
+    fn: async () => {
+      const { getGalleryDownloader } = await import(
+        "./src/lib/downloader/gallery-downloader"
+      );
+      getGalleryDownloader().stopAll();
+      console.log("[Server] Gallery downloader stopped");
     },
   });
 

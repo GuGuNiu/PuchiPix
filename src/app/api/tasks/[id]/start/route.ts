@@ -5,6 +5,7 @@ import { getDownloadManager, ensureM3U8URL, mapTask } from '@/lib/api-helpers';
 import { eventBus } from '@/lib/core/event-bus';
 import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import type { DownloadTask } from '@/types';
+import { logT } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -54,7 +55,7 @@ export async function POST(
 
     taskQueueManager.acquireSlot('video', taskId).then(async (acquired) => {
       if (!acquired) {
-        console.log(`[Start] 视频 #${taskId} 在排队等待中被取消`);
+        console.log(logT('log.galleryHandler.cancelledInQueue', { id: taskId }));
         return;
       }
 

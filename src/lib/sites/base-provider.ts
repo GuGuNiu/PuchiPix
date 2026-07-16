@@ -1,6 +1,7 @@
 import type { Page } from 'playwright';
 import type { SiteProvider, SiteSearchResult, ExtendedMetadata } from './types';
 import type { ScrapeResult } from '@/types';
+import { logT } from '@/lib/i18n/server';
 
 /** 演员/主演正则匹配模式（中英文），所有站点通用 */
 const ACTOR_PATTERNS = [
@@ -48,13 +49,6 @@ const DEFAULT_SEARCH_RESULT_SELECTORS = [
   '.search-result a',
   '.vodlist_item .vodlist_title a',
   '.module-item a',
-];
-
-/** 搜索结果列表中匹配日期文本的正则（YYYY-MM-DD / YYYY-MM / YYYY） */
-const DATE_PATTERNS = [
-  /\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/,
-  /\b(\d{4}[-/]\d{1,2})\b/,
-  /\b(\d{4})\b/,
 ];
 
 /** 通用搜索结果列表项中的日期选择器 */
@@ -623,7 +617,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
     } catch {
     }
 
-    console.log(`[Scrape] ${pageUrl} — 捕获到 ${capturedM3U8.length} 个 M3U8 URL: ${capturedM3U8.join(', ')}`);
+    console.log(logT('log.scrape.capturedM3u8', { url: pageUrl, count: capturedM3U8.length, urls: capturedM3U8.join(', ') }));
 
     const m3u8Url = this.selectBestM3U8(capturedM3U8);
 

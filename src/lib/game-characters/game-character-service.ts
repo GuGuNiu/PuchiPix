@@ -1,11 +1,24 @@
-import { pinyin as pinyinPro } from 'pinyin-pro';
-import {
-  ALL_GAME_CHARACTERS,
-  GAME_LABELS,
-  type GameCharacter,
-  type GameType,
-} from './character-data';
+/**
+ * 游戏角色服务（已迁移到 CharacterDB）
+ *
+ * 此文件现在作为 CharacterDB 的代理，保持向后兼容
+ * 所有实际逻辑已委托给 CharacterDBService
+ */
 
+import type { CharacterEntry, CharacterMatch } from '@/lib/character-db/types';
+import { getCharacterDBService } from '@/lib/character-db/character-db-service';
+
+/** 向后兼容：游戏类型 */
+export type GameType = 'genshin' | 'starrail' | 'wuthering' | 'azurlane' | 'bluearchive' | 'arknights' | 'zenless';
+
+/** 向后兼容：游戏角色 */
+export interface GameCharacter {
+  name: string;
+  aliases?: string[];
+  game: GameType;
+}
+
+/** 向后兼容：匹配结果 */
 export interface GameCharacterMatch {
   character: GameCharacter;
   matchedText: string;
@@ -13,44 +26,56 @@ export interface GameCharacterMatch {
   confidence: number;
 }
 
+/** 向后兼容：游戏标签映射 */
+export const GAME_LABELS: Record<GameType, string> = {
+  genshin: '原神',
+  starrail: '星穹铁道',
+  wuthering: '鸣潮',
+  azurlane: '碧蓝航线',
+  bluearchive: '碧蓝档案',
+  arknights: '明日方舟',
+  zenless: '绝区零',
+};
+
+/**
+ * 将 CharacterEntry 转换为向后兼容的 GameCharacter
+ */
+function toLegacyCharacter(entry: CharacterEntry): GameCharacter {
+  return {
+    name: entry.name,
+    aliases: entry.aliases,
+    game: entry.gameId as GameType,
+  };
+}
+
+/**
+ * 将 CharacterMatch 转换为向后兼容的 GameCharacterMatch
+ */
+function toLegacyMatch(match: CharacterMatch): GameCharacterMatch {
+  const legacyMatchType: 'exact' | 'alias' | 'pinyin' =
+    match.matchType === 'exact' ? 'exact' :
+    match.matchType === 'alias' ? 'alias' : 'pinyin';
+  return {
+    character: toLegacyCharacter(match.character),
+    matchedText: match.matchedText,
+    matchType: legacyMatchType,
+    confidence: match.confidence,
+  };
+}
+
 export class GameCharacterService {
-  private readonly exactIndex = new Map<string, GameCharacter>();
-  private readonly aliasIndex = new Map<string, GameCharacter>();
-  private readonly pinyinIndex = new Map<string, GameCharacter>();
-  private readonly allCharacters: GameCharacter[];
+  private dbService = getCharacterDBService();
+  private initialized = false;
 
-  constructor() {
-    this.allCharacters = ALL_GAME_CHARACTERS;
-    this.buildIndexes();
-  }
-
-  private buildIndexes(): void {
-    for (const char of this.allCharacters) {
-      this.exactIndex.set(char.name.toLowerCase(), char);
-
-      if (char.aliases) {
-        for (const alias of char.aliases) {
-          this.aliasIndex.set(alias.toLowerCase(), char);
-        }
+  /**
+   * 确保数据库已加载
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      if (!this.dbService.isLoaded()) {
+        await this.dbService.load();
       }
-
-      const py = this.toPinyin(char.name);
-      if (py && py !== char.name.toLowerCase()) {
-        this.pinyinIndex.set(py, char);
-      }
-    }
-  }
-
-  private toPinyin(text: string): string {
-    try {
-      const py = pinyinPro(text, {
-        toneType: 'none',
-        type: 'array',
-        nonZh: 'consecutive',
-      });
-      return (py as string[]).join('').toLowerCase();
-    } catch {
-      return text.toLowerCase().replace(/\s/g, '');
+      this.initialized = true;
     }
   }
 
@@ -60,144 +85,70 @@ export class GameCharacterService {
    * @param tags - 图包的 TAG 列表
    * @returns 匹配结果列表（去重）
    */
-  identifyInTags(tags: string[]): GameCharacterMatch[] {
-    const results: GameCharacterMatch[] = [];
-    const seen = new Set<string>();
-
-    for (const tag of tags) {
-      const normalized = tag.trim().toLowerCase();
-      if (!normalized || normalized.length < 1) continue;
-
-      // 精确匹配
-      const exact = this.exactIndex.get(normalized);
-      if (exact) {
-        const key = `${exact.game}:${exact.name}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            character: exact,
-            matchedText: tag,
-            matchType: 'exact',
-            confidence: 1.0,
-          });
-        }
-        continue;
-      }
-
-      // 别名匹配
-      const alias = this.aliasIndex.get(normalized);
-      if (alias) {
-        const key = `${alias.game}:${alias.name}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            character: alias,
-            matchedText: tag,
-            matchType: 'alias',
-            confidence: 0.95,
-          });
-        }
-        continue;
-      }
-
-      // 拼音匹配
-      const tagPinyin = this.toPinyin(tag.trim());
-      const pinyinMatch = this.pinyinIndex.get(tagPinyin);
-      if (pinyinMatch) {
-        const key = `${pinyinMatch.game}:${pinyinMatch.name}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            character: pinyinMatch,
-            matchedText: tag,
-            matchType: 'pinyin',
-            confidence: 0.85,
-          });
-        }
-      }
-    }
-
-    return results;
+  async identifyInTags(tags: string[]): Promise<GameCharacterMatch[]> {
+    await this.ensureInitialized();
+    const matches = this.dbService.identifyInTags(tags);
+    // 只返回游戏角色（排除动漫角色）
+    return matches
+      .filter(m => m.character.category === 'game')
+      .map(toLegacyMatch);
   }
 
   /**
    * 在文本中识别游戏角色名
    *
-   * 遍历所有角色名，检查是否作为子串出现在文本中。
-   *
    * @param text - 待检测文本（如标题）
    * @returns 匹配结果列表
    */
-  identifyInText(text: string): GameCharacterMatch[] {
-    if (!text) return [];
-
-    const results: GameCharacterMatch[] = [];
-    const seen = new Set<string>();
-
-    for (const char of this.allCharacters) {
-      if (text.includes(char.name)) {
-        const key = `${char.game}:${char.name}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            character: char,
-            matchedText: char.name,
-            matchType: 'exact',
-            confidence: 1.0,
-          });
-        }
-        continue;
-      }
-
-      if (char.aliases) {
-        for (const alias of char.aliases) {
-          if (alias.length >= 3 && text.toLowerCase().includes(alias.toLowerCase())) {
-            const key = `${char.game}:${char.name}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              results.push({
-                character: char,
-                matchedText: alias,
-                matchType: 'alias',
-                confidence: 0.9,
-              });
-            }
-            break;
-          }
-        }
-      }
-    }
-
-    return results;
+  async identifyInText(text: string): Promise<GameCharacterMatch[]> {
+    await this.ensureInitialized();
+    const matches = this.dbService.identifyInText(text);
+    return matches
+      .filter(m => m.character.category === 'game')
+      .map(toLegacyMatch);
   }
 
   /**
    * 按名称精确查找角色
    */
-  getCharacter(name: string): GameCharacter | null {
-    const normalized = name.trim().toLowerCase();
-    return this.exactIndex.get(normalized) || this.aliasIndex.get(normalized) || null;
+  async getCharacter(name: string): Promise<GameCharacter | null> {
+    await this.ensureInitialized();
+    const char = this.dbService.getCharacter(name);
+    if (char && char.category === 'game') {
+      return toLegacyCharacter(char);
+    }
+    return null;
   }
 
   /**
    * 获取指定游戏的全部角色
    */
-  getCharactersByGame(game: GameType): GameCharacter[] {
-    return this.allCharacters.filter((c) => c.game === game);
+  async getCharactersByGame(game: GameType): Promise<GameCharacter[]> {
+    await this.ensureInitialized();
+    return this.dbService
+      .getCharactersByGame(game)
+      .filter(c => c.category === 'game')
+      .map(toLegacyCharacter);
   }
 
   /**
    * 获取全部角色
    */
-  getAllCharacters(): GameCharacter[] {
-    return this.allCharacters;
+  async getAllCharacters(): Promise<GameCharacter[]> {
+    await this.ensureInitialized();
+    return this.dbService
+      .getAllCharacters()
+      .filter(c => c.category === 'game')
+      .map(toLegacyCharacter);
   }
 
   /**
    * 获取角色总数统计
    */
-  getStats(): Record<GameType, number> {
-    const stats: Record<GameType, number> = {
+  async getStats(): Promise<Record<GameType, number>> {
+    await this.ensureInitialized();
+    const stats = this.dbService.getStats();
+    const result: Record<GameType, number> = {
       genshin: 0,
       starrail: 0,
       wuthering: 0,
@@ -206,10 +157,14 @@ export class GameCharacterService {
       arknights: 0,
       zenless: 0,
     };
-    for (const char of this.allCharacters) {
-      stats[char.game]++;
+
+    for (const [gameId, count] of Object.entries(stats)) {
+      if (gameId in result) {
+        result[gameId as GameType] = count;
+      }
     }
-    return stats;
+
+    return result;
   }
 
   /**

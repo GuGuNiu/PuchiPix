@@ -2,6 +2,7 @@ import { pinyin as pinyinPro } from 'pinyin-pro';
 import prisma from '@/lib/db/prisma';
 import { getGameCharacterService } from '@/lib/game-characters/game-character-service';
 import type { GameCharacterMatch } from '@/lib/game-characters/game-character-service';
+import { logT } from '@/lib/i18n/server';
 
 /** 主角名字解析结果 */
 export interface ProtagonistParseResult {
@@ -243,7 +244,7 @@ export class ProtagonistService {
 
       this.cacheInitialized = true;
     } catch (err) {
-      console.warn('[ProtagonistService] Person 缓存初始化失败:', err);
+      console.warn(logT('log.protagonist.personCacheInitFailed'), err);
       this.cacheInitialized = true; // 标记已尝试，避免重复失败
     }
   }
@@ -360,9 +361,9 @@ export class ProtagonistService {
    * @param text - 待检测文本（如标题）
    * @returns 匹配到的游戏角色名，未匹配返回 null
    */
-  matchGameCharacterInText(text: string): string | null {
+  async matchGameCharacterInText(text: string): Promise<string | null> {
     if (!text) return null;
-    const matches = getGameCharacterService().identifyInText(text);
+    const matches = await getGameCharacterService().identifyInText(text);
     if (matches.length === 0) return null;
     matches.sort((a, b) => b.character.name.length - a.character.name.length);
     return matches[0].character.name;
@@ -399,7 +400,7 @@ export class ProtagonistService {
     const cleanedTitle = this.cleanTitlePrefix(title);
 
     // 策略 0：从 TAG 中识别人物名（最可靠）
-    const personFromTags = this.extractPersonFromTags(cleanedTitle, tags);
+    const personFromTags = await this.extractPersonFromTags(cleanedTitle, tags);
     if (personFromTags) {
       return personFromTags;
     }
@@ -417,7 +418,7 @@ export class ProtagonistService {
     }
 
     // 策略 2：游戏角色库 identifyInText 子串匹配
-    const gameChar = this.matchGameCharacterInText(cleanedTitle);
+    const gameChar = await this.matchGameCharacterInText(cleanedTitle);
     if (gameChar) {
       // 关键修复：强制尝试提取游戏角色前面的 Cosplayer 名
       // 对于 "Cosplayer - 游戏作品 游戏角色" 格式，Cosplayer 才是真正的主角
@@ -430,13 +431,13 @@ export class ProtagonistService {
     }
 
     // 策略 3：『』【】括号内容解析
-    const bracketResult = this.extractFromBrackets(cleanedTitle);
+    const bracketResult = await this.extractFromBrackets(cleanedTitle);
     if (bracketResult) {
       return bracketResult;
     }
 
     // 策略 4：标准 "名字 - 描述" 格式 + 交叉验证
-    const standardResult = this.extractStandardFormat(cleanedTitle, tags);
+    const standardResult = await this.extractStandardFormat(cleanedTitle, tags);
     if (standardResult) {
       return standardResult;
     }
@@ -492,7 +493,7 @@ export class ProtagonistService {
    * @param tags - TAG 列表
    * @returns 提取到的人物名，未匹配返回 null
    */
-  private extractPersonFromTags(title: string, tags: string[]): string | null {
+  private async extractPersonFromTags(title: string, tags: string[]): Promise<string | null> {
     if (!tags || tags.length === 0) return null;
 
     // 过滤掉常见非人物 TAG
@@ -513,7 +514,7 @@ export class ProtagonistService {
       if (nonPersonTags.has(tag)) continue;
       if (tag.length < 2 || tag.length > 20) continue;
       // 跳过游戏角色 TAG（游戏角色不是真实出镜者）
-      if (this.isGameCharacter(tag)) continue;
+      if (await this.isGameCharacter(tag)) continue;
 
       // 检查 TAG 是否在标题开头
       if (title.startsWith(tag)) {
@@ -539,7 +540,7 @@ export class ProtagonistService {
     for (const tag of tags) {
       if (nonPersonTags.has(tag)) continue;
       // 跳过游戏角色 TAG
-      if (this.isGameCharacter(tag)) continue;
+      if (await this.isGameCharacter(tag)) continue;
       const knownPerson = this.matchKnownPerson(tag);
       if (knownPerson) {
         return knownPerson;
@@ -553,7 +554,7 @@ export class ProtagonistService {
       if (nonPersonTags.has(tag)) continue;
       if (tag.length < 2 || tag.length > 20) continue;
       // 跳过游戏角色 TAG
-      if (this.isGameCharacter(tag)) continue;
+      if (await this.isGameCharacter(tag)) continue;
 
       if (this.looksLikePersonName(tag)) {
         // 检查 TAG 是否出现在标题第一段（分隔符前）
@@ -718,7 +719,7 @@ export class ProtagonistService {
    * @param title - 标题
    * @returns 匹配到的人名，未匹配返回 null
    */
-  private extractFromBrackets(title: string): string | null {
+  private async extractFromBrackets(title: string): Promise<string | null> {
     // 匹配 『...』 或 【...】 或 「...」 中的内容
     const bracketMatch = title.match(/[『「【\[]([^」」】\]]+)[」】\]]/);
     if (!bracketMatch) return null;
@@ -735,7 +736,7 @@ export class ProtagonistService {
       if (person) return person;
 
       // 检查是否为已知游戏角色 — 游戏角色不是主角，跳过
-      if (this.isGameCharacter(candidate)) continue;
+      if (await this.isGameCharacter(candidate)) continue;
 
       // 拼音模糊匹配 Person DB
       const fuzzyMatch = this.fuzzyMatchPerson(candidate);
@@ -763,7 +764,7 @@ export class ProtagonistService {
    * @param tags - 标签列表
    * @returns 提取到的人名，未匹配返回 null
    */
-  private extractStandardFormat(title: string, tags: string[]): string | null {
+  private async extractStandardFormat(title: string, tags: string[]): Promise<string | null> {
     const parts = title.split(/\s*[-—–]\s*/).filter((p) => p.length > 0);
     if (parts.length < 2) return null;
 
@@ -780,7 +781,7 @@ export class ProtagonistService {
 
     // 如果候选本身是游戏角色，跳过此策略
     // （游戏角色不是真实出镜者，不应作为主角返回）
-    if (this.isGameCharacter(candidate)) return null;
+    if (await this.isGameCharacter(candidate)) return null;
 
     // 检查候选是否为已知 Person（排除游戏角色）
     const person = this.matchKnownPerson(candidate);
@@ -814,7 +815,7 @@ export class ProtagonistService {
           // 检查后面的部分是否包含游戏/作品名
           const restOfTitle = parts.slice(1).join(' - ');
           // 如果后面有游戏角色或作品名，则候选很可能是 Cosplayer
-          if (this.matchGameCharacterInText(restOfTitle) ||
+          if (await this.matchGameCharacterInText(restOfTitle) ||
               /^(原神|星穹铁道|崩坏|碧蓝航线|碧蓝档案|鸣潮|火影忍者|电锯人|葬送的芙莉莲|明日方舟|绝区零)/.test(restOfTitle)) {
             return candidate;
           }
@@ -895,7 +896,7 @@ export class ProtagonistService {
     if (!name) return;
 
     // 游戏角色不应作为人物学习（它们由 importGameCharacters 管理）
-    if (this.isGameCharacter(name)) return;
+    if (await this.isGameCharacter(name)) return;
 
     await this.ensureCacheInitialized();
 
@@ -989,7 +990,7 @@ export class ProtagonistService {
    */
   async importGameCharacters(): Promise<number> {
     const service = getGameCharacterService();
-    const allChars = service.getAllCharacters();
+    const allChars = await service.getAllCharacters();
     let imported = 0;
 
     for (const char of allChars) {
@@ -1170,24 +1171,24 @@ export class ProtagonistService {
     /**
    * 在 TAG 列表中识别游戏角色名
    */
-  identifyGameCharacters(tags: string[]): string[] {
+  async identifyGameCharacters(tags: string[]): Promise<string[]> {
     const service = getGameCharacterService();
-    const matches = service.identifyInTags(tags);
+    const matches = await service.identifyInTags(tags);
     return matches.map((m) => m.character.name);
   }
 
   /**
    * 在 TAG 列表中识别游戏角色（含详细匹配信息）
    */
-  identifyGameCharactersDetailed(tags: string[]): GameCharacterMatch[] {
-    return getGameCharacterService().identifyInTags(tags);
+  async identifyGameCharactersDetailed(tags: string[]): Promise<GameCharacterMatch[]> {
+    return await getGameCharacterService().identifyInTags(tags);
   }
 
   /**
    * 检查指定名字是否为已知游戏角色
    */
-  isGameCharacter(name: string): boolean {
-    return getGameCharacterService().getCharacter(name) !== null;
+  async isGameCharacter(name: string): Promise<boolean> {
+    return (await getGameCharacterService().getCharacter(name)) !== null;
   }
 }
 

@@ -162,7 +162,6 @@ export interface BlockCheckResult {
  * - 内容屏蔽检查
  * - 多域名自适应（可选）
  *
- * 通用逻辑（M3U8 拦截、标签提取、演员提取等）由 BaseSiteProvider 提供。
  */
 export interface SiteProvider extends SiteConfig {
   /**

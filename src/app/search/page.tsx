@@ -16,7 +16,7 @@ import VideoCard from "@/components/search/video-card";
 import { useI18n } from "@/lib/i18n";
 import { useRouteState } from "@/lib/core/route-state";
 import { useUrlState } from "@/hooks/use-url-state";
-import { ENABLED_SITE_MODULES, getSiteModule } from "@/lib/sites/site-modules";
+import { ENABLED_SITE_MODULES, getSiteModule, getSiteModuleByUrl } from "@/lib/sites/site-modules";
 
 const SITES = ENABLED_SITE_MODULES
   .filter((m) => m.id !== 'universal')
@@ -219,6 +219,24 @@ export default function SearchPage(): React.JSX.Element {
 
   const selectedSite = SITES.find((s) => s.id === selectedSiteId);
 
+  const isGalleryMode = useMemo(() => {
+    if (selectedSite?.gallery) return true;
+
+    if (job?.siteId) {
+      const jobSite = SITES.find((s) => s.id === job.siteId);
+      if (jobSite?.gallery) return true;
+    }
+
+    if (allItems.length > 0) {
+      return allItems.some((item) => {
+        const moduleInfo = getSiteModuleByUrl(item.pageUrl);
+        return moduleInfo?.type === 'photo';
+      });
+    }
+
+    return false;
+  }, [selectedSite, job, allItems]);
+
   return (
     <div className="search-page">
       <div className="search-floating-bar">
@@ -228,7 +246,7 @@ export default function SearchPage(): React.JSX.Element {
             <input
               type="text"
               placeholder={
-                selectedSite?.gallery
+                isGalleryMode
                   ? t("search.placeholderGallery")
                   : t("search.placeholderVideo")
               }
@@ -333,8 +351,8 @@ export default function SearchPage(): React.JSX.Element {
         {allItems.length > 0 && (
           <div className="search-results-bar">
             <span className="search-results-info">
-              {selectedSite?.gallery ? t("search.totalResultsGallery", { count: allItems.length }) : t("search.totalResultsVideo", { count: allItems.length })}
-              {!selectedSite?.gallery && ` · ${t("search.hoverPreview")}`}
+              {isGalleryMode ? t("search.totalResultsGallery", { count: allItems.length }) : t("search.totalResultsVideo", { count: allItems.length })}
+              {!isGalleryMode && ` · ${t("search.hoverPreview")}`}
               {pendingCount > 0 && ` · ${t("search.pendingScrape", { count: pendingCount })}`}
               {scrapingCount > 0 && ` · ${t("search.scraping", { count: scrapingCount })}`}
             </span>
@@ -371,7 +389,7 @@ export default function SearchPage(): React.JSX.Element {
                 item={item}
                 index={i}
                 onScrape={handleScrapeOne}
-                gallery={selectedSite?.gallery ?? false}
+                gallery={isGalleryMode}
               />
             ))}
           </div>
@@ -463,11 +481,11 @@ export default function SearchPage(): React.JSX.Element {
           <div className="search-gallery-empty">
             <Radar size={48} strokeWidth={1.5} style={{ opacity: 0.3, marginBottom: 16 }} />
             <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>
-              {selectedSite?.gallery ? t("search.emptyGallery") : t("search.emptyVideo")}
+              {isGalleryMode ? t("search.emptyGallery") : t("search.emptyVideo")}
             </div>
             <div style={{ fontSize: 13 }}>
               {selectedSite
-                ? selectedSite.gallery
+                ? isGalleryMode
                   ? t("search.currentSiteGallery", { name: selectedSite.name, url: selectedSite.baseUrl })
                   : t("search.currentSiteVideo", { name: selectedSite.name, url: selectedSite.baseUrl })
                 : t("search.resultsAsCards")}

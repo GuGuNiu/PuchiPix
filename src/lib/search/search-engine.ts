@@ -25,31 +25,31 @@ import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import { createGalleryTask } from '@/lib/tasks/gallery-handler';
 
 const MAX_RESULTS_PER_KEYWORD = 50;
-/** æ¯ä¸ªå…³é”®è¯æœ€å¤§ç¿»é¡µæ•° */
+/** Ã¿¸ö¹Ø¼ü´Ê×î´ó·­Ò³Êı */
 const MAX_PAGES_PER_KEYWORD = 5;
 
-/** æ‰¹é‡æœç´¢ï¼šæ¯ä¸ªæ ‡é¢˜æœ€å¤§ç¿»é¡µæ•°ï¼ˆå‡å°‘ä»¥æå‡é€Ÿåº¦ï¼‰ */
+/** ÅúÁ¿ËÑË÷£ºÃ¿¸ö±êÌâ×î´ó·­Ò³Êı£¨¼õÉÙÒÔÌáÉıËÙ¶È£© */
 const BATCH_MAX_PAGES = 2;
-/** æ‰¹é‡æœç´¢ï¼šæ¨¡ç³ŠåŒ¹é…é˜ˆå€¼ï¼Œä½äºæ­¤åˆ†æ•°è§†ä¸ºæœªæ‰¾åˆ° */
+/** ÅúÁ¿ËÑË÷£ºÄ£ºıÆ¥ÅäãĞÖµ£¬µÍÓÚ´Ë·ÖÊıÊÓÎªÎ´ÕÒµ½ */
 const MATCH_THRESHOLD = 0.6;
 
 /**
- * æ ‡é¢˜å½’ä¸€åŒ–ï¼šå»é™¤ç©ºæ ¼ã€æ ‡ç‚¹ã€ç‰¹æ®Šå­—ç¬¦ï¼Œè½¬å°å†™
+ * ±êÌâ¹éÒ»»¯£ºÈ¥³ı¿Õ¸ñ¡¢±êµã¡¢ÌØÊâ×Ö·û£¬×ªĞ¡Ğ´
  */
 function normalizeTitle(s: string): string {
   return s
     .toLowerCase()
-    .replace(/[\s\-_â€”â€“Â·:ï¼š.,ï¼Œã€‚ï¼!ï¼Ÿ?Â·\[\]ï¼ˆï¼‰()ã€ã€‘"'<>ã€Šã€‹/|]+/g, '')
+    .replace(/[\s\-_¡ª¨C¡¤:£º.,£¬¡££¡!£¿?¡¤\[\]£¨£©()¡¾¡¿"'<>¡¶¡·/|]+/g, '')
     .trim();
 }
 
 /**
- * è®¡ç®—ä¸¤ä¸ªæ ‡é¢˜çš„ç›¸ä¼¼åº¦åˆ†æ•°ï¼ˆ0-1ï¼‰
+ * ¼ÆËãÁ½¸ö±êÌâµÄÏàËÆ¶È·ÖÊı£¨0-1£©
  *
- * ç­–ç•¥ï¼š
- - å½’ä¸€åŒ–åå®Œå…¨ç›¸åŒ â†’ 1.0
- - ä¸€æ–¹åŒ…å«å¦ä¸€æ–¹ â†’ 0.85 Ã— (è¾ƒçŸ­é•¿åº¦/è¾ƒé•¿é•¿åº¦)
- - å¦åˆ™ä½¿ç”¨å­—ç¬¦é‡å ç‡
+ * ²ßÂÔ£º
+ - ¹éÒ»»¯ºóÍêÈ«ÏàÍ¬ ¡ú 1.0
+ - Ò»·½°üº¬ÁíÒ»·½ ¡ú 0.85 ¡Á (½Ï¶Ì³¤¶È/½Ï³¤³¤¶È)
+ - ·ñÔòÊ¹ÓÃ×Ö·ûÖØµşÂÊ
  */
 function titleSimilarity(input: string, candidate: string): number {
   const a = normalizeTitle(input);
@@ -92,7 +92,7 @@ export class SearchEngine {
     if (job.logs.length > 300) {
       job.logs = job.logs.slice(-300);
     }
-    const prefix = level === 'error' ? 'âŒ' : level === 'warn' ? 'âš ï¸' : 'â„¹ï¸';
+    const prefix = level === 'error' ? '?' : level === 'warn' ? '??' : '??';
     console.log(`[Search ${job.id}] ${prefix} ${message}`);
   }
 
@@ -102,18 +102,18 @@ export class SearchEngine {
       const provider = registry.getProvider(siteId);
       if (provider) return provider;
     }
-    // é»˜è®¤è¿”å› KanAV æä¾›è€…
+    // Ä¬ÈÏ·µ»Ø KanAV Ìá¹©Õß
     return registry.getProvider('kanav') ?? registry.getEnabledProviders()[0];
   }
 
   async search(rawKeywords: string, siteId?: string): Promise<SearchJob> {
     const keywords = rawKeywords
-      .split(/[,ï¼Œ\n\sã€|]+/)
+      .split(/[,£¬\n\s¡¢|]+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
     if (keywords.length === 0) {
-      throw new Error('æœªæä¾›æœ‰æ•ˆå…³é”®è¯');
+      throw new Error('Î´Ìá¹©ÓĞĞ§¹Ø¼ü´Ê');
     }
 
     const provider = this.getProvider(siteId);
@@ -139,10 +139,10 @@ export class SearchEngine {
     };
 
     this.activeJobs.set(job.id, job);
-    this.log(job, `æœç´¢ä»»åŠ¡å¯åŠ¨ï¼Œç«™ç‚¹: ${provider.name} (${provider.baseUrl})ï¼Œå…± ${keywords.length} ä¸ªå…³é”®è¯`);
+    this.log(job, `ËÑË÷ÈÎÎñÆô¶¯£¬Õ¾µã: ${provider.name} (${provider.baseUrl})£¬¹² ${keywords.length} ¸ö¹Ø¼ü´Ê`);
 
     this.executeSearch(job, provider).catch((err) => {
-      this.log(job, `æœç´¢ä»»åŠ¡å¼‚å¸¸ç»ˆæ­¢: ${err.message}`, 'error');
+      this.log(job, `ËÑË÷ÈÎÎñÒì³£ÖÕÖ¹: ${err.message}`, 'error');
       job.status = 'failed';
     });
 
@@ -150,16 +150,16 @@ export class SearchEngine {
   }
 
   /**
-   * æ‰§è¡Œæœç´¢ï¼ˆå«è‡ªåŠ¨ç¿»é¡µï¼‰ã€‚
+   * Ö´ĞĞËÑË÷£¨º¬×Ô¶¯·­Ò³£©¡£
    *
-   * æœç´¢æµç¨‹ï¼š
-   - æ‰“å¼€æœç´¢ç»“æœç¬¬ä¸€é¡µ
-   - æå–è§†é¢‘åˆ—è¡¨
-   - ç­‰å¾… 2~3 ç§’ï¼ˆé˜²çˆ¬é—´éš”ï¼‰
-   - å¦‚æœå­˜åœ¨ä¸‹ä¸€é¡µä¸”æœªè¾¾ä¸Šé™ï¼Œç‚¹å‡»ç¿»é¡µ
-   - é‡å¤ 2-4 ç›´åˆ°æ— ä¸‹ä¸€é¡µæˆ–è¾¾åˆ°æœ€å¤§é¡µæ•°
-   - åº”ç”¨ kanav å±è”½å™¨è¿‡æ»¤åˆ†ç±»
-   - å¤„ç†ä¸‹ä¸€ä¸ªå…³é”®è¯ï¼ˆæ— å…³é”®è¯é—´å»¶è¿Ÿï¼‰
+   * ËÑË÷Á÷³Ì£º
+   - ´ò¿ªËÑË÷½á¹ûµÚÒ»Ò³
+   - ÌáÈ¡ÊÓÆµÁĞ±í
+   - µÈ´ı 2~3 Ãë£¨·ÀÅÀ¼ä¸ô£©
+   - Èç¹û´æÔÚÏÂÒ»Ò³ÇÒÎ´´ïÉÏÏŞ£¬µã»÷·­Ò³
+   - ÖØ¸´ 2-4 Ö±µ½ÎŞÏÂÒ»Ò³»ò´ïµ½×î´óÒ³Êı
+   - Ó¦ÓÃ kanav ÆÁ±ÎÆ÷¹ıÂË·ÖÀà
+   - ´¦ÀíÏÂÒ»¸ö¹Ø¼ü´Ê£¨ÎŞ¹Ø¼ü´Ê¼äÑÓ³Ù£©
    */
   private async executeSearch(job: SearchJob, provider: SiteProvider): Promise<void> {
     const browser = await this.getBrowser();
@@ -167,7 +167,7 @@ export class SearchEngine {
 
     for (let ki = 0; ki < job.keywords.length; ki++) {
       if (this.cancelledJobs.has(job.id)) {
-        this.log(job, 'æœç´¢ä»»åŠ¡å·²å–æ¶ˆ', 'warn');
+        this.log(job, 'ËÑË÷ÈÎÎñÒÑÈ¡Ïû', 'warn');
         job.status = 'cancelled';
         return;
       }
@@ -176,12 +176,12 @@ export class SearchEngine {
       const kwResult = job.results[ki];
       job.currentIndex = ki;
 
-      this.log(job, `æœç´¢å…³é”®è¯ [${ki + 1}/${job.keywords.length}]: "${keyword}"`);
+      this.log(job, `ËÑË÷¹Ø¼ü´Ê [${ki + 1}/${job.keywords.length}]: "${keyword}"`);
 
       const allItems: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
       const seenUrls = new Set<string>();
 
-      // URL æœç´¢æ¨¡å¼ï¼šå½“å…³é”®è¯æ˜¯å®Œæ•´ URL ä¸”ç«™ç‚¹æ”¯æŒå›¾åº“åˆ—è¡¨é¡µåˆ¤æ–­æ—¶
+      // URL ËÑË÷Ä£Ê½£ºµ±¹Ø¼ü´ÊÊÇÍêÕû URL ÇÒÕ¾µãÖ§³ÖÍ¼¿âÁĞ±íÒ³ÅĞ¶ÏÊ±
       const isUrlMode = /^https?:\/\//i.test(keyword);
       const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
       let skipSearch = false;
@@ -189,8 +189,8 @@ export class SearchEngine {
       if (isUrlMode && galleryProvider.isListingPage) {
         if (galleryProvider.isListingPage(keyword)) {
           if (galleryProvider.scrapeListingPage) {
-            // åˆ—è¡¨é¡µ URLï¼šä½¿ç”¨ provider çš„ scrapeListingPage æ–¹æ³•çˆ¬å–ï¼ˆæœ€å¤š 5 é¡µï¼‰
-            this.log(job, `æ£€æµ‹åˆ°åˆ—è¡¨é¡µ URLï¼Œç›´æ¥çˆ¬å–: ${keyword}`);
+            // ÁĞ±íÒ³ URL£ºÊ¹ÓÃ provider µÄ scrapeListingPage ·½·¨ÅÀÈ¡£¨×î¶à 5 Ò³£©
+            this.log(job, `¼ì²âµ½ÁĞ±íÒ³ URL£¬Ö±½ÓÅÀÈ¡: ${keyword}`);
             try {
               const listPage = await browser.newPage();
               await applyStealthToPage(listPage);
@@ -203,17 +203,17 @@ export class SearchEngine {
                   allItems.push(r);
                 }
               }
-              this.log(job, `åˆ—è¡¨é¡µçˆ¬å–å®Œæˆï¼Œå…± ${allItems.length} ä¸ªç»“æœ`);
+              this.log(job, `ÁĞ±íÒ³ÅÀÈ¡Íê³É£¬¹² ${allItems.length} ¸ö½á¹û`);
               skipSearch = true;
             } catch (err) {
-              this.log(job, `åˆ—è¡¨é¡µçˆ¬å–å¤±è´¥: ${err instanceof Error ? err.message : String(err)}`, 'warn');
-              // å¤±è´¥æ—¶å›é€€åˆ°é€šç”¨æœç´¢æµç¨‹
+              this.log(job, `ÁĞ±íÒ³ÅÀÈ¡Ê§°Ü: ${err instanceof Error ? err.message : String(err)}`, 'warn');
+              // Ê§°ÜÊ±»ØÍËµ½Í¨ÓÃËÑË÷Á÷³Ì
             }
           }
-          // else: åˆ—è¡¨é¡µä½† provider æœªå®ç° scrapeListingPage â†’ å›é€€åˆ°é€šç”¨æœç´¢æµç¨‹
+          // else: ÁĞ±íÒ³µ« provider Î´ÊµÏÖ scrapeListingPage ¡ú »ØÍËµ½Í¨ÓÃËÑË÷Á÷³Ì
         } else {
-          // æ–‡ç« è¯¦æƒ…é¡µ URLï¼šæ‰“å¼€é¡µé¢æå–æ ‡é¢˜å’Œå°é¢
-          this.log(job, `æ£€æµ‹åˆ°æ–‡ç« é¡µ URLï¼Œæå–ä¿¡æ¯: ${keyword}`);
+          // ÎÄÕÂÏêÇéÒ³ URL£º´ò¿ªÒ³ÃæÌáÈ¡±êÌâºÍ·âÃæ
+          this.log(job, `¼ì²âµ½ÎÄÕÂÒ³ URL£¬ÌáÈ¡ĞÅÏ¢: ${keyword}`);
           try {
             const metaPage = await browser.newPage();
             await applyStealthToPage(metaPage);
@@ -223,7 +223,7 @@ export class SearchEngine {
             let articleTitle = keyword;
             let articleCover: string | undefined;
 
-            // ä½¿ç”¨ provider çš„æ‰©å±•å…ƒä¿¡æ¯æå–æ–¹æ³•è·å–æ ‡é¢˜
+            // Ê¹ÓÃ provider µÄÀ©Õ¹ÔªĞÅÏ¢ÌáÈ¡·½·¨»ñÈ¡±êÌâ
             if (galleryProvider.extractExtendedMetadata) {
               try {
                 const metadata = await galleryProvider.extractExtendedMetadata(metaPage);
@@ -253,10 +253,10 @@ export class SearchEngine {
               ? galleryProvider.normalizeUrl(keyword)
               : keyword;
             allItems.push({ url: normalizedUrl, title: articleTitle, coverUrl: articleCover });
-            this.log(job, `æ–‡ç« é¡µä¿¡æ¯æå–æˆåŠŸ: "${articleTitle}"`);
+            this.log(job, `ÎÄÕÂÒ³ĞÅÏ¢ÌáÈ¡³É¹¦: "${articleTitle}"`);
             skipSearch = true;
           } catch (err) {
-            this.log(job, `æ–‡ç« é¡µ URL æå–å¤±è´¥: ${err instanceof Error ? err.message : String(err)}`, 'warn');
+            this.log(job, `ÎÄÕÂÒ³ URL ÌáÈ¡Ê§°Ü: ${err instanceof Error ? err.message : String(err)}`, 'warn');
             const normalizedUrl = galleryProvider.normalizeUrl
               ? galleryProvider.normalizeUrl(keyword)
               : keyword;
@@ -282,12 +282,12 @@ export class SearchEngine {
           kwResult.retries = retry;
 
           const searchPageUrl = searchUrls[Math.min(searchUrlIdx, searchUrls.length - 1)];
-          this.log(job, `æœç´¢ URL: ${searchPageUrl}`);
+          this.log(job, `ËÑË÷ URL: ${searchPageUrl}`);
 
           const page = await browser.newPage();
           await applyStealthToPage(page);
 
-          // ç«™ç‚¹ç‰¹å®šçš„æµè§ˆå™¨ä¸Šä¸‹æ–‡é…ç½®ï¼ˆå¦‚ ExHentai Cookie æ³¨å…¥ï¼‰
+          // Õ¾µãÌØ¶¨µÄä¯ÀÀÆ÷ÉÏÏÂÎÄÅäÖÃ£¨Èç ExHentai Cookie ×¢Èë£©
           const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
           if (galleryProvider.setupBrowserContext) {
             await galleryProvider.setupBrowserContext(page.context());
@@ -301,7 +301,7 @@ export class SearchEngine {
           const httpStatus = response?.status();
           if (httpStatus === 403 || httpStatus === 429) {
             const domain = extractDomainFromUrl(searchPageUrl);
-            this.log(job, `åŸŸå ${searchPageUrl} è¿”å› ${httpStatus}ï¼ˆé™æµï¼‰ï¼Œåˆ‡æ¢æœç´¢åŸŸå`, 'warn');
+            this.log(job, `ÓòÃû ${searchPageUrl} ·µ»Ø ${httpStatus}£¨ÏŞÁ÷£©£¬ÇĞ»»ËÑË÷ÓòÃû`, 'warn');
             if (domain && provider.markDomainRateLimited) {
               provider.markDomainRateLimited(domain);
             }
@@ -309,17 +309,17 @@ export class SearchEngine {
             searchUrlIdx++;
             if (searchUrlIdx < searchUrls.length) {
               const delay = backoffDelay(retry);
-              this.log(job, `ç­‰å¾… ${(delay / 1000).toFixed(0)}s ååˆ‡æ¢åŸŸåé‡è¯•...`);
+              this.log(job, `µÈ´ı ${(delay / 1000).toFixed(0)}s ºóÇĞ»»ÓòÃûÖØÊÔ...`);
               await sleep(delay);
-              // ä¸æ¶ˆè€— retry é…é¢ï¼Œæ¢åŸŸåé‡è¯•
+              // ²»ÏûºÄ retry Åä¶î£¬»»ÓòÃûÖØÊÔ
               retry--;
               continue;
             }
-            throw new Error(`æ‰€æœ‰æœç´¢åŸŸåå‡è¿”å› ${httpStatus}ï¼ˆé™æµï¼‰`);
+            throw new Error(`ËùÓĞËÑË÷ÓòÃû¾ù·µ»Ø ${httpStatus}£¨ÏŞÁ÷£©`);
           }
 
-          // ç­‰å¾…æœç´¢ç»“æœæ¸²æŸ“å®Œæˆï¼ˆæœ€å¤šç­‰ 5sï¼Œæå‰å‡ºç°å³è·³è¿‡ï¼‰
-          // åŒ…å« WordPressï¼ˆarticleï¼‰ã€è§†é¢‘ç«™é€‰æ‹©å™¨å’Œ E-Hentaiï¼ˆ.itg, #gdtï¼‰é€‰æ‹©å™¨
+          // µÈ´ıËÑË÷½á¹ûäÖÈ¾Íê³É£¨×î¶àµÈ 5s£¬ÌáÇ°³öÏÖ¼´Ìø¹ı£©
+          // °üº¬ WordPress£¨article£©¡¢ÊÓÆµÕ¾Ñ¡ÔñÆ÷ºÍ E-Hentai£¨.itg, #gdt£©Ñ¡ÔñÆ÷
           await page.waitForSelector(
             'article, .stui-vodlist__item, .vodlist_item, .module-search-item, .module-item, .searchlist_item, .list-item, .video-item, .movie-item, .itg, #gdt',
             { timeout: 5000 }
@@ -331,7 +331,7 @@ export class SearchEngine {
               return;
             }
 
-            this.log(job, `æ­£åœ¨æå–ç¬¬ ${pageNum} é¡µç»“æœ`);
+            this.log(job, `ÕıÔÚÌáÈ¡µÚ ${pageNum} Ò³½á¹û`);
 
             const pageResults = await provider.extractSearchResults(page);
 
@@ -344,7 +344,7 @@ export class SearchEngine {
               }
             }
 
-            this.log(job, `ç¬¬ ${pageNum} é¡µæ–°å¢ ${newCount} ä¸ªç»“æœï¼ˆç´¯è®¡ ${allItems.length}ï¼‰`);
+            this.log(job, `µÚ ${pageNum} Ò³ĞÂÔö ${newCount} ¸ö½á¹û£¨ÀÛ¼Æ ${allItems.length}£©`);
 
             if (pageNum >= MAX_PAGES_PER_KEYWORD || newCount === 0) {
               break;
@@ -352,12 +352,12 @@ export class SearchEngine {
 
             const hasNextPage = await this.goToNextPage(page, pageNum + 1);
             if (!hasNextPage) {
-              this.log(job, 'å·²æ— ä¸‹ä¸€é¡µ');
+              this.log(job, 'ÒÑÎŞÏÂÒ»Ò³');
               break;
             }
 
             const delay = randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX);
-            this.log(job, `ç¿»é¡µé—´éš” ${(delay / 1000).toFixed(1)}s`);
+            this.log(job, `·­Ò³¼ä¸ô ${(delay / 1000).toFixed(1)}s`);
             await sleep(delay);
           }
 
@@ -371,22 +371,22 @@ export class SearchEngine {
 
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          this.log(job, `æœç´¢å…³é”®è¯ "${keyword}" å¤±è´¥ï¼ˆç¬¬ ${retry + 1} æ¬¡ï¼‰: ${errMsg}`, 'warn');
+          this.log(job, `ËÑË÷¹Ø¼ü´Ê "${keyword}" Ê§°Ü£¨µÚ ${retry + 1} ´Î£©: ${errMsg}`, 'warn');
 
           if (retry < MAX_RETRIES - 1) {
             const delay = backoffDelay(retry);
-            this.log(job, `ç­‰å¾… ${(delay / 1000).toFixed(0)}s åé‡è¯•...`);
+            this.log(job, `µÈ´ı ${(delay / 1000).toFixed(0)}s ºóÖØÊÔ...`);
             await sleep(delay);
           } else {
             kwResult.status = 'failed';
-            kwResult.error = `æœç´¢å¤±è´¥: ${errMsg}`;
-            this.log(job, `å…³é”®è¯ "${keyword}" æœç´¢å½»åº•å¤±è´¥`, 'error');
+            kwResult.error = `ËÑË÷Ê§°Ü: ${errMsg}`;
+            this.log(job, `¹Ø¼ü´Ê "${keyword}" ËÑË÷³¹µ×Ê§°Ü`, 'error');
             continue;
           }
         }
       }
 
-      // ä½¿ç”¨æ ‡å‡†åŒ–æ¥å£è¿‡æ»¤å±è”½å†…å®¹
+      // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú¹ıÂËÆÁ±ÎÄÚÈİ
       let filteredItems = allItems;
       const beforeFilter = filteredItems.length;
       filteredItems = filteredItems.filter((item) => {
@@ -395,13 +395,13 @@ export class SearchEngine {
       });
       const blockedCount = beforeFilter - filteredItems.length;
       if (blockedCount > 0) {
-        this.log(job, `å†…å®¹å±è”½å™¨è¿‡æ»¤äº† ${blockedCount} ä¸ªè§†é¢‘`);
+        this.log(job, `ÄÚÈİÆÁ±ÎÆ÷¹ıÂËÁË ${blockedCount} ¸öÊÓÆµ`);
       }
 
-      // é™åˆ¶ç»“æœæ•°é‡
+      // ÏŞÖÆ½á¹ûÊıÁ¿
       filteredItems = filteredItems.slice(0, MAX_RESULTS_PER_KEYWORD);
 
-      // å¡«å……ç»“æœ
+      // Ìî³ä½á¹û
       kwResult.items = filteredItems.map((v) => ({
         pageUrl: v.url,
         title: v.title || v.url,
@@ -413,60 +413,60 @@ export class SearchEngine {
       job.totalFound += filteredItems.length;
 
       kwResult.status = 'completed';
-      this.log(job, `å…³é”®è¯ "${keyword}" æœç´¢å®Œæˆï¼Œæ‰¾åˆ° ${filteredItems.length} ä¸ªè§†é¢‘`);
+      this.log(job, `¹Ø¼ü´Ê "${keyword}" ËÑË÷Íê³É£¬ÕÒµ½ ${filteredItems.length} ¸öÊÓÆµ`);
     }
 
     job.status = 'completed';
     job.completedAt = new Date().toISOString();
     eventBus.emit('search:completed', { jobId: job.id, totalFound: job.totalFound, totalDownloaded: job.totalDownloaded });
-    this.log(job, `ğŸ‰ æœç´¢ä»»åŠ¡å…¨éƒ¨å®Œæˆï¼å…±æ‰¾åˆ° ${job.totalFound} ä¸ªè§†é¢‘`);
+    this.log(job, `?? ËÑË÷ÈÎÎñÈ«²¿Íê³É£¡¹²ÕÒµ½ ${job.totalFound} ¸öÊÓÆµ`);
   }
 
   /**
-   * ç¿»åˆ°ä¸‹ä¸€é¡µã€‚
+   * ·­µ½ÏÂÒ»Ò³¡£
    *
-   * ç¿»é¡µç­–ç•¥ï¼ˆæŒ‰ä¼˜å…ˆçº§ï¼‰ï¼š
-   - WordPress æœç´¢ URLï¼ˆ?s=keywordï¼‰ï¼šè·¯å¾„å¼åˆ†é¡µ /page/N/?s=keyword
-   *    â€” çˆ±å¦¹å­ç«™ç‚¹è‡ªå®šä¹‰ä¸»é¢˜ä¸æ”¯æŒ ?paged=N å‚æ•°ï¼Œå¿…é¡»ç”¨è·¯å¾„å¼åˆ†é¡µ
-   - è·¯å¾„å¼ç¿»é¡µï¼š/tag/xxx/page/2/ï¼ˆæ”¯æŒé¦–æ¬¡ç¿»é¡µï¼š/tag/xxx/ â†’ /tag/xxx/page/2/ï¼‰
-   - é€šç”¨åˆ†é¡µå®¹å™¨æ£€æµ‹ + ç‚¹å‡» / URL å…œåº•
+   * ·­Ò³²ßÂÔ£¨°´ÓÅÏÈ¼¶£©£º
+   - WordPress ËÑË÷ URL£¨?s=keyword£©£ºÂ·¾¶Ê½·ÖÒ³ /page/N/?s=keyword
+   *    ¡ª °®ÃÃ×ÓÕ¾µã×Ô¶¨ÒåÖ÷Ìâ²»Ö§³Ö ?paged=N ²ÎÊı£¬±ØĞëÓÃÂ·¾¶Ê½·ÖÒ³
+   - Â·¾¶Ê½·­Ò³£º/tag/xxx/page/2/£¨Ö§³ÖÊ×´Î·­Ò³£º/tag/xxx/ ¡ú /tag/xxx/page/2/£©
+   - Í¨ÓÃ·ÖÒ³ÈİÆ÷¼ì²â + µã»÷ / URL ¶µµ×
    *
    */
   private async goToNextPage(page: import('playwright').Page, pageNum: number): Promise<boolean> {
     const currentUrl = page.url();
     const parsed = new URL(currentUrl);
 
-    // çˆ±å¦¹å­ç«™ç‚¹è‡ªå®šä¹‰ WordPress ä¸»é¢˜ä¸æ”¯æŒ ?paged=N å‚æ•°ï¼ˆè¢«å¿½ç•¥ï¼Œè¿”å›ç¬¬ 1 é¡µï¼‰ï¼Œ
-    // å¿…é¡»ä½¿ç”¨è·¯å¾„å¼åˆ†é¡µï¼š/page/N/?s=keyword
+    // °®ÃÃ×ÓÕ¾µã×Ô¶¨Òå WordPress Ö÷Ìâ²»Ö§³Ö ?paged=N ²ÎÊı£¨±»ºöÂÔ£¬·µ»ØµÚ 1 Ò³£©£¬
+    // ±ØĞëÊ¹ÓÃÂ·¾¶Ê½·ÖÒ³£º/page/N/?s=keyword
     if (parsed.searchParams.has('s')) {
       parsed.searchParams.delete('paged');
       const searchParams = parsed.searchParams.toString();
       const nextUrl = `${parsed.origin}/page/${pageNum}/${searchParams ? '?' + searchParams : ''}`;
-      console.log(`[goToNextPage] WordPress æœç´¢è·¯å¾„ç¿»é¡µ: ${currentUrl} â†’ ${nextUrl}`);
+      console.log(`[goToNextPage] WordPress ËÑË÷Â·¾¶·­Ò³: ${currentUrl} ¡ú ${nextUrl}`);
       try {
         const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        console.log(`[goToNextPage] è·³è½¬å“åº”çŠ¶æ€: ${response?.status()}, å½“å‰URL: ${page.url()}`);
+        console.log(`[goToNextPage] Ìø×ªÏìÓ¦×´Ì¬: ${response?.status()}, µ±Ç°URL: ${page.url()}`);
 
-        // ç­‰å¾…æ–‡ç« å…ƒç´ åŠ è½½ï¼ˆWordPress æœç´¢ç»“æœç”¨ article æ ‡ç­¾ï¼‰
+        // µÈ´ıÎÄÕÂÔªËØ¼ÓÔØ£¨WordPress ËÑË÷½á¹ûÓÃ article ±êÇ©£©
         await page.waitForSelector('article', { timeout: 5000 }).catch(() => {});
         await page.waitForTimeout(1000);
 
-        // éªŒè¯ URL æ˜¯å¦çœŸæ­£å˜åŒ–
+        // ÑéÖ¤ URL ÊÇ·ñÕæÕı±ä»¯
         if (page.url() === currentUrl) {
-          console.log(`[goToNextPage] URL æœªå˜åŒ–ï¼Œç¿»é¡µå¤±è´¥`);
+          console.log(`[goToNextPage] URL Î´±ä»¯£¬·­Ò³Ê§°Ü`);
           return false;
         }
 
         const hasArticles = await page.locator('article').first().isVisible({ timeout: 2000 }).catch(() => false);
         if (!hasArticles) {
-          console.log(`[goToNextPage] é¡µé¢æ—  article å…ƒç´ ï¼Œå¯èƒ½å·²åˆ°æœ€åä¸€é¡µ`);
+          console.log(`[goToNextPage] Ò³ÃæÎŞ article ÔªËØ£¬¿ÉÄÜÒÑµ½×îºóÒ»Ò³`);
           return false;
         }
 
-        console.log(`[goToNextPage] WordPress æœç´¢è·¯å¾„ç¿»é¡µæˆåŠŸ`);
+        console.log(`[goToNextPage] WordPress ËÑË÷Â·¾¶·­Ò³³É¹¦`);
         return true;
       } catch (err) {
-        console.log(`[goToNextPage] WordPress æœç´¢è·¯å¾„ç¿»é¡µå¤±è´¥: ${err instanceof Error ? err.message : String(err)}`);
+        console.log(`[goToNextPage] WordPress ËÑË÷Â·¾¶·­Ò³Ê§°Ü: ${err instanceof Error ? err.message : String(err)}`);
         return false;
       }
     }
@@ -476,7 +476,7 @@ export class SearchEngine {
     if (/\/page\/\d+\/?$/.test(path)) {
       const nextPath = path.replace(/\/page\/\d+\/?$/, `/page/${pageNum}/`);
       const nextUrl = `${parsed.origin}${nextPath}${parsed.search}`;
-      console.log(`[goToNextPage] è·¯å¾„ç¿»é¡µ(æ›¿æ¢): ${currentUrl} â†’ ${nextUrl}`);
+      console.log(`[goToNextPage] Â·¾¶·­Ò³(Ìæ»»): ${currentUrl} ¡ú ${nextUrl}`);
       try {
         await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
         await page.waitForTimeout(800);
@@ -487,14 +487,14 @@ export class SearchEngine {
       }
     }
 
-    // æ’é™¤æ–‡ç« è¯¦æƒ…é¡µå’Œé¦–é¡µ
+    // ÅÅ³ıÎÄÕÂÏêÇéÒ³ºÍÊ×Ò³
     if (pageNum > 1 && !path.includes('/article/') && path !== '' && path !== '/') {
       const nextUrl = `${parsed.origin}${path}/page/${pageNum}/${parsed.search}`;
-      console.log(`[goToNextPage] è·¯å¾„ç¿»é¡µ(è¿½åŠ ): ${currentUrl} â†’ ${nextUrl}`);
+      console.log(`[goToNextPage] Â·¾¶·­Ò³(×·¼Ó): ${currentUrl} ¡ú ${nextUrl}`);
       try {
         const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
         if (response?.status() === 404) {
-          console.log(`[goToNextPage] è·¯å¾„ç¿»é¡µ 404ï¼Œå·²åˆ°æœ€åä¸€é¡µ`);
+          console.log(`[goToNextPage] Â·¾¶·­Ò³ 404£¬ÒÑµ½×îºóÒ»Ò³`);
           return false;
         }
         await page.waitForTimeout(800);
@@ -510,11 +510,11 @@ export class SearchEngine {
     ).first().isVisible({ timeout: 1000 }).catch(() => false);
 
     if (!hasPagination) {
-      console.log(`[goToNextPage] æ— åˆ†é¡µå®¹å™¨ï¼Œä¸ç¿»é¡µ`);
+      console.log(`[goToNextPage] ÎŞ·ÖÒ³ÈİÆ÷£¬²»·­Ò³`);
       return false;
     }
 
-    // å°è¯•ç‚¹å‡»åˆ†é¡µæŒ‰é’®
+    // ³¢ÊÔµã»÷·ÖÒ³°´Å¥
     const nextSelectors = [
       `.pagination a:has-text("${pageNum}")`,
       `.pagenavi a:has-text("${pageNum}")`,
@@ -523,13 +523,13 @@ export class SearchEngine {
       `a[href*="page=${pageNum}"]`,
       `a[href*="paged=${pageNum}"]`,
       `.pagination a.next`,
-      `a:has-text("ä¸‹ä¸€é¡µ")`,
+      `a:has-text("ÏÂÒ»Ò³")`,
       `a:has-text("Next")`,
       `.mac_pages a.next`,
       `a.next.page-numbers`,
       `nav[aria-label="Pagination"] a[rel="next"]`,
       `.nav-links a.next`,
-      // E-Hentai ä¸‹ä¸€é¡µé€‰æ‹©å™¨
+      // E-Hentai ÏÂÒ»Ò³Ñ¡ÔñÆ÷
       `a#dnext`,
     ];
 
@@ -537,12 +537,12 @@ export class SearchEngine {
       try {
         const el = page.locator(sel).first();
         if (await el.isVisible({ timeout: 300 }).catch(() => false)) {
-          console.log(`[goToNextPage] ç‚¹å‡»é€‰æ‹©å™¨: ${sel}`);
+          console.log(`[goToNextPage] µã»÷Ñ¡ÔñÆ÷: ${sel}`);
           await el.click({ timeout: 1000 }).catch(() => {});
           await page.waitForTimeout(800);
-          // éªŒè¯ URL æ˜¯å¦å˜åŒ–
+          // ÑéÖ¤ URL ÊÇ·ñ±ä»¯
           if (page.url() === currentUrl) {
-            console.log(`[goToNextPage] ç‚¹å‡»å URL æœªå˜åŒ–ï¼Œå°è¯•ä¸‹ä¸€ä¸ªé€‰æ‹©å™¨`);
+            console.log(`[goToNextPage] µã»÷ºó URL Î´±ä»¯£¬³¢ÊÔÏÂÒ»¸öÑ¡ÔñÆ÷`);
             continue;
           }
           return true;
@@ -551,7 +551,7 @@ export class SearchEngine {
       }
     }
 
-    // é€šç”¨ URL ç¿»é¡µå…œåº•
+    // Í¨ÓÃ URL ·­Ò³¶µµ×
     try {
       if (currentUrl.includes('page=')) {
         const nextUrl = currentUrl.replace(/page=\d+/, `page=${pageNum}`);
@@ -570,7 +570,7 @@ export class SearchEngine {
   }
 
   /**
-   * çˆ¬å–å•ä¸ªè§†é¢‘é¡µé¢ã€‚
+   * ÅÀÈ¡µ¥¸öÊÓÆµÒ³Ãæ¡£
    */
   async scrapeVideo(jobId: string, itemUrl: string): Promise<SearchItem | null> {
     const job = this.activeJobs.get(jobId);
@@ -592,28 +592,27 @@ export class SearchEngine {
 
     const itemKey = `${jobId}:${itemUrl}`;
     if (this.scrapingItems.has(itemKey)) {
-      this.log(job, `è§†é¢‘å·²åœ¨çˆ¬å–ä¸­: ${targetItem.title}`, 'warn');
+      this.log(job, `ÊÓÆµÒÑÔÚÅÀÈ¡ÖĞ: ${targetItem.title}`, 'warn');
       return targetItem;
     }
 
-    // TTL é”é˜²æ­¢è·¨ job é‡å¤çˆ¬å–åŒä¸€ URL
+    // TTL Ëø·ÀÖ¹¿ç job ÖØ¸´ÅÀÈ¡Í¬Ò» URL
     const lockKey = `scrape:${itemUrl}`;
     const lockHandle = await ttlLock.acquire(lockKey, { ttl: 60000 });
     if (!lockHandle) {
-      this.log(job, `è§†é¢‘æ­£åœ¨è¢«å…¶ä»–ä»»åŠ¡çˆ¬å–: ${targetItem.title}`, 'warn');
+      this.log(job, `ÊÓÆµÕıÔÚ±»ÆäËûÈÎÎñÅÀÈ¡: ${targetItem.title}`, 'warn');
       return targetItem;
     }
 
     this.scrapingItems.add(itemKey);
 
     const provider = this.getProvider(job.siteId);
-    const browser = await this.getBrowser();
 
     targetItem.status = 'scraping';
-    this.log(job, `å¼€å§‹çˆ¬å–: ${targetItem.title || targetItem.pageUrl}`);
+    this.log(job, `¿ªÊ¼ÅÀÈ¡: ${targetItem.title || targetItem.pageUrl}`);
 
     try {
-      // å›¾åº“ç«™ç‚¹ï¼ˆçˆ±å¦¹å­ç­‰ï¼‰èµ°å›¾åº“å¤„ç†æµç¨‹ï¼Œä¸å°è¯•æå– M3U8
+      // Í¼¿âÕ¾µã£¨°®ÃÃ×ÓµÈ£©×ßÍ¼¿â´¦ÀíÁ÷³Ì£¬²»³¢ÊÔÌáÈ¡ M3U8
       const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
       if (typeof galleryProvider.scrapeGallery === 'function') {
         eventBus.emit('scrape:started', { pageUrl: targetItem.pageUrl });
@@ -622,15 +621,15 @@ export class SearchEngine {
 
         if (galleryResult.duplicate) {
           targetItem.status = 'failed';
-          targetItem.error = `é‡å¤: ${galleryResult.existingStatus ?? 'å·²å­˜åœ¨'}`;
-          this.log(job, `âš ï¸ å›¾åŒ…å·²å­˜åœ¨: ${targetItem.title} â€” çŠ¶æ€: ${galleryResult.existingStatus ?? 'æœªçŸ¥'}`, 'warn');
+          targetItem.error = `ÖØ¸´: ${galleryResult.existingStatus ?? 'ÒÑ´æÔÚ'}`;
+          this.log(job, `?? Í¼°üÒÑ´æÔÚ: ${targetItem.title} ¡ª ×´Ì¬: ${galleryResult.existingStatus ?? 'Î´Öª'}`, 'warn');
           job.totalFailed += 1;
           return { ...targetItem };
         }
 
         targetItem.taskId = galleryResult.galleryId;
         targetItem.status = 'downloaded';
-        this.log(job, `âœ… åˆ›å»ºå›¾åº“ä»»åŠ¡ #${galleryResult.seq}: ${targetItem.title || targetItem.pageUrl}`);
+        this.log(job, `? ´´½¨Í¼¿âÈÎÎñ #${galleryResult.seq}: ${targetItem.title || targetItem.pageUrl}`);
 
         eventBus.emit('scrape:completed', {
           pageUrl: targetItem.pageUrl,
@@ -647,6 +646,7 @@ export class SearchEngine {
         return { ...targetItem };
       }
 
+      const browser = await this.getBrowser();
       const scrapeResult = await this.scrapeVideoPage(browser, targetItem.pageUrl, provider);
       eventBus.emit('scrape:started', { pageUrl: targetItem.pageUrl });
 
@@ -658,7 +658,7 @@ export class SearchEngine {
           targetItem.title = scrapeResult.title;
         }
 
-        // ä½¿ç”¨æ ‡å‡†åŒ–æ¥å£è¿›è¡Œå†…å®¹å±è”½æ£€æŸ¥
+        // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú½øĞĞÄÚÈİÆÁ±Î¼ì²é
         {
           const blockCheck = provider.checkContentBlocked(
             scrapeResult.title,
@@ -667,8 +667,8 @@ export class SearchEngine {
           );
           if (blockCheck.blocked) {
             targetItem.status = 'failed';
-            targetItem.error = `å±è”½: ${blockCheck.reason}`;
-            this.log(job, `å±è”½è§†é¢‘: ${targetItem.title} â€” ${blockCheck.reason}`, 'warn');
+            targetItem.error = `ÆÁ±Î: ${blockCheck.reason}`;
+            this.log(job, `ÆÁ±ÎÊÓÆµ: ${targetItem.title} ¡ª ${blockCheck.reason}`, 'warn');
             job.totalFailed += 1;
             return { ...targetItem };
           }
@@ -697,7 +697,7 @@ export class SearchEngine {
         });
 
         targetItem.taskId = task.id;
-        this.log(job, `âœ… åˆ›å»ºä¸‹è½½ä»»åŠ¡ #${task.id}: ${scrapeResult.title || targetItem.title}`);
+        this.log(job, `? ´´½¨ÏÂÔØÈÎÎñ #${task.id}: ${scrapeResult.title || targetItem.title}`);
 
         eventBus.emit('task:created', {
           taskId: task.id,
@@ -710,7 +710,7 @@ export class SearchEngine {
         const newTaskId = task.id;
         taskQueueManager.acquireSlot('video', newTaskId).then(async (acquired) => {
           if (!acquired) {
-            this.log(job, `ä¸‹è½½ä»»åŠ¡ #${newTaskId} åœ¨æ’é˜Ÿç­‰å¾…ä¸­è¢«å–æ¶ˆ`, 'warn');
+            this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} ÔÚÅÅ¶ÓµÈ´ıÖĞ±»È¡Ïû`, 'warn');
             return;
           }
           const currentTask = await prisma.downloadTask.findUnique({ where: { id: newTaskId } });
@@ -719,20 +719,20 @@ export class SearchEngine {
             return;
           }
           dm.startDownload(dlTask).catch((err) => {
-            this.log(job, `ä¸‹è½½ä»»åŠ¡ #${newTaskId} å¯åŠ¨å¤±è´¥: ${err.message}`, 'error');
+            this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} Æô¶¯Ê§°Ü: ${err.message}`, 'error');
             eventBus.emit('task:failed', { taskId: newTaskId, error: err.message });
           });
         });
 
         job.totalDownloaded += 1;
       } else {
-        throw new Error('æœªæ‰¾åˆ° M3U8 URL');
+        throw new Error('Î´ÕÒµ½ M3U8 URL');
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       targetItem.status = 'failed';
-      targetItem.error = `çˆ¬å–å¤±è´¥: ${errMsg}`;
-      this.log(job, `âŒ è§†é¢‘çˆ¬å–å¤±è´¥: ${targetItem.title || targetItem.pageUrl} â€” ${errMsg}`, 'error');
+      targetItem.error = `ÅÀÈ¡Ê§°Ü: ${errMsg}`;
+      this.log(job, `? ÊÓÆµÅÀÈ¡Ê§°Ü: ${targetItem.title || targetItem.pageUrl} ¡ª ${errMsg}`, 'error');
       eventBus.emit('scrape:failed', { pageUrl: targetItem.pageUrl, error: errMsg });
       job.totalFailed += 1;
     } finally {
@@ -744,13 +744,13 @@ export class SearchEngine {
   }
 
   /**
-   * æ‰¹é‡çˆ¬å–æ‰€æœ‰ pending è§†é¢‘ã€‚
+   * ÅúÁ¿ÅÀÈ¡ËùÓĞ pending ÊÓÆµ¡£
    */
   async scrapeAll(jobId: string): Promise<void> {
     const job = this.activeJobs.get(jobId);
     if (!job) return;
 
-    this.log(job, `å¼€å§‹æ‰¹é‡çˆ¬å–ï¼Œå…± ${job.totalFound} ä¸ªè§†é¢‘`);
+    this.log(job, `¿ªÊ¼ÅúÁ¿ÅÀÈ¡£¬¹² ${job.totalFound} ¸öÊÓÆµ`);
     const browser = await this.getBrowser();
     const provider = this.getProvider(job.siteId);
 
@@ -765,32 +765,32 @@ export class SearchEngine {
         const lockKey = `scrape:${item.pageUrl}`;
         const lockHandle = await ttlLock.acquire(lockKey, { ttl: 60000 });
         if (!lockHandle) {
-          this.log(job, `è§†é¢‘æ­£åœ¨è¢«å…¶ä»–ä»»åŠ¡çˆ¬å–: ${item.title}`, 'warn');
+          this.log(job, `ÊÓÆµÕıÔÚ±»ÆäËûÈÎÎñÅÀÈ¡: ${item.title}`, 'warn');
           continue;
         }
 
         this.scrapingItems.add(itemKey);
 
         item.status = 'scraping';
-        this.log(job, `çˆ¬å–: ${item.title || item.pageUrl}`);
+        this.log(job, `ÅÀÈ¡: ${item.title || item.pageUrl}`);
         eventBus.emit('scrape:started', { pageUrl: item.pageUrl });
 
         try {
-          // å›¾åº“ç«™ç‚¹ï¼ˆçˆ±å¦¹å­ç­‰ï¼‰èµ°å›¾åº“å¤„ç†æµç¨‹
+          // Í¼¿âÕ¾µã£¨°®ÃÃ×ÓµÈ£©×ßÍ¼¿â´¦ÀíÁ÷³Ì
           const batchGalleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
           if (typeof batchGalleryProvider.scrapeGallery === 'function') {
             const galleryResult = await createGalleryTask(item.pageUrl, batchGalleryProvider as SiteProvider & GallerySiteProvider);
 
             if (galleryResult.duplicate) {
               item.status = 'failed';
-              item.error = `é‡å¤: ${galleryResult.existingStatus ?? 'å·²å­˜åœ¨'}`;
+              item.error = `ÖØ¸´: ${galleryResult.existingStatus ?? 'ÒÑ´æÔÚ'}`;
               job.totalFailed += 1;
-              this.log(job, `âš ï¸ å›¾åŒ…å·²å­˜åœ¨: ${item.title} â€” çŠ¶æ€: ${galleryResult.existingStatus ?? 'æœªçŸ¥'}`, 'warn');
-              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: 'é‡å¤å›¾åŒ…' });
+              this.log(job, `?? Í¼°üÒÑ´æÔÚ: ${item.title} ¡ª ×´Ì¬: ${galleryResult.existingStatus ?? 'Î´Öª'}`, 'warn');
+              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: 'ÖØ¸´Í¼°ü' });
             } else {
               item.taskId = galleryResult.galleryId;
               item.status = 'downloaded';
-              this.log(job, `âœ… åˆ›å»ºå›¾åº“ä»»åŠ¡ #${galleryResult.seq}: ${item.title || item.pageUrl}`);
+              this.log(job, `? ´´½¨Í¼¿âÈÎÎñ #${galleryResult.seq}: ${item.title || item.pageUrl}`);
 
               eventBus.emit('scrape:completed', {
                 pageUrl: item.pageUrl,
@@ -815,7 +815,7 @@ export class SearchEngine {
               item.title = scrapeResult.title;
             }
 
-          // ä½¿ç”¨æ ‡å‡†åŒ–æ¥å£è¿›è¡Œå†…å®¹å±è”½æ£€æŸ¥
+          // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú½øĞĞÄÚÈİÆÁ±Î¼ì²é
           {
             const blockCheck = provider.checkContentBlocked(
               scrapeResult.title,
@@ -824,10 +824,10 @@ export class SearchEngine {
             );
             if (blockCheck.blocked) {
               item.status = 'failed';
-              item.error = `å±è”½: ${blockCheck.reason}`;
+              item.error = `ÆÁ±Î: ${blockCheck.reason}`;
               job.totalFailed += 1;
-              this.log(job, `å±è”½è§†é¢‘: ${item.title} â€” ${blockCheck.reason}`, 'warn');
-              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: blockCheck.reason || 'æœªçŸ¥åŸå› ' });
+              this.log(job, `ÆÁ±ÎÊÓÆµ: ${item.title} ¡ª ${blockCheck.reason}`, 'warn');
+              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: blockCheck.reason || 'Î´ÖªÔ­Òò' });
               continue;
             }
           }
@@ -855,7 +855,7 @@ export class SearchEngine {
             });
 
             item.taskId = task.id;
-            this.log(job, `âœ… åˆ›å»ºä¸‹è½½ä»»åŠ¡ #${task.id}: ${scrapeResult.title || item.title}`);
+            this.log(job, `? ´´½¨ÏÂÔØÈÎÎñ #${task.id}: ${scrapeResult.title || item.title}`);
 
             eventBus.emit('scrape:completed', {
               pageUrl: item.pageUrl,
@@ -874,7 +874,7 @@ export class SearchEngine {
             const newTaskId = task.id;
             taskQueueManager.acquireSlot('video', newTaskId).then(async (acquired) => {
               if (!acquired) {
-                this.log(job, `ä¸‹è½½ä»»åŠ¡ #${newTaskId} åœ¨æ’é˜Ÿç­‰å¾…ä¸­è¢«å–æ¶ˆ`, 'warn');
+                this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} ÔÚÅÅ¶ÓµÈ´ıÖĞ±»È¡Ïû`, 'warn');
                 return;
               }
               const currentTask = await prisma.downloadTask.findUnique({ where: { id: newTaskId } });
@@ -883,21 +883,21 @@ export class SearchEngine {
                 return;
               }
               dm.startDownload(dlTask).catch((err) => {
-                this.log(job, `ä¸‹è½½ä»»åŠ¡ #${newTaskId} å¯åŠ¨å¤±è´¥: ${err.message}`, 'error');
+                this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} Æô¶¯Ê§°Ü: ${err.message}`, 'error');
                 eventBus.emit('task:failed', { taskId: newTaskId, error: err.message });
               });
             });
 
             job.totalDownloaded += 1;
           } else {
-            throw new Error('æœªæ‰¾åˆ° M3U8 URL');
+            throw new Error('Î´ÕÒµ½ M3U8 URL');
           }
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           item.status = 'failed';
-          item.error = `çˆ¬å–å¤±è´¥: ${errMsg}`;
-          this.log(job, `âŒ çˆ¬å–å¤±è´¥: ${item.title || item.pageUrl} â€” ${errMsg}`, 'error');
+          item.error = `ÅÀÈ¡Ê§°Ü: ${errMsg}`;
+          this.log(job, `? ÅÀÈ¡Ê§°Ü: ${item.title || item.pageUrl} ¡ª ${errMsg}`, 'error');
           eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: errMsg });
           job.totalFailed += 1;
         } finally {
@@ -909,7 +909,7 @@ export class SearchEngine {
       }
     }
 
-    this.log(job, `ğŸ‰ æ‰¹é‡çˆ¬å–å®Œæˆï¼æˆåŠŸ ${job.totalDownloaded}ï¼Œå¤±è´¥ ${job.totalFailed}`);
+    this.log(job, `?? ÅúÁ¿ÅÀÈ¡Íê³É£¡³É¹¦ ${job.totalDownloaded}£¬Ê§°Ü ${job.totalFailed}`);
   }
 
   private async scrapeVideoPage(
@@ -962,15 +962,15 @@ export class SearchEngine {
     if (job.logs.length > 500) {
       job.logs = job.logs.slice(-500);
     }
-    const prefix = level === 'error' ? 'âŒ' : level === 'warn' ? 'âš ï¸' : 'â„¹ï¸';
+    const prefix = level === 'error' ? '?' : level === 'warn' ? '??' : '??';
     console.log(`[BatchSearch ${job.id}] ${prefix} ${message}`);
   }
 
   /**
-   * å¯åŠ¨æ‰¹é‡æœç´¢ä»»åŠ¡
+   * Æô¶¯ÅúÁ¿ËÑË÷ÈÎÎñ
    *
-   * @param rawTitles - ç”¨æˆ·è¾“å…¥çš„åŸå§‹æ–‡æœ¬ï¼ˆæ¯è¡Œä¸€ä¸ªæ ‡é¢˜ï¼‰
-   * @param siteId - ç«™ç‚¹ IDï¼Œé»˜è®¤ kanav
+   * @param rawTitles - ÓÃ»§ÊäÈëµÄÔ­Ê¼ÎÄ±¾£¨Ã¿ĞĞÒ»¸ö±êÌâ£©
+   * @param siteId - Õ¾µã ID£¬Ä¬ÈÏ kanav
    * @returns BatchSearchJob
    */
   async batchSearch(rawTitles: string, siteId?: string): Promise<BatchSearchJob> {
@@ -980,7 +980,7 @@ export class SearchEngine {
       .filter((s) => s.length > 0);
 
     if (titles.length === 0) {
-      throw new Error('æœªæä¾›æœ‰æ•ˆæ ‡é¢˜');
+      throw new Error('Î´Ìá¹©ÓĞĞ§±êÌâ');
     }
 
     const provider = this.getProvider(siteId);
@@ -1007,10 +1007,10 @@ export class SearchEngine {
     };
 
     this.batchJobs.set(job.id, job);
-    this.logBatch(job, `æ‰¹é‡æœç´¢ä»»åŠ¡å¯åŠ¨ï¼Œç«™ç‚¹: ${provider.name}ï¼Œå…± ${titles.length} ä¸ªæ ‡é¢˜`);
+    this.logBatch(job, `ÅúÁ¿ËÑË÷ÈÎÎñÆô¶¯£¬Õ¾µã: ${provider.name}£¬¹² ${titles.length} ¸ö±êÌâ`);
 
     this.executeBatchSearch(job, provider).catch((err) => {
-      this.logBatch(job, `æ‰¹é‡æœç´¢ä»»åŠ¡å¼‚å¸¸ç»ˆæ­¢: ${err.message}`, 'error');
+      this.logBatch(job, `ÅúÁ¿ËÑË÷ÈÎÎñÒì³£ÖÕÖ¹: ${err.message}`, 'error');
       job.status = 'failed';
     });
 
@@ -1018,15 +1018,15 @@ export class SearchEngine {
   }
 
   /**
-   * æ‰§è¡Œæ‰¹é‡æœç´¢
+   * Ö´ĞĞÅúÁ¿ËÑË÷
    *
-   * å¯¹æ¯ä¸ªæ ‡é¢˜ï¼š
-   - ä»¥æ ‡é¢˜ä¸ºå…³é”®è¯æœç´¢ï¼ˆæœ€å¤šç¿» 2 é¡µï¼‰
-   - ç”¨ provider.cleanTitle æ¸…æ´—ç»“æœæ ‡é¢˜
-   - è®¡ç®—ç›¸ä¼¼åº¦ï¼Œé€‰å–æœ€ä½³åŒ¹é…
-   - åˆ†æ•° â‰¥ é˜ˆå€¼ â†’ çˆ¬å–è§†é¢‘é¡µ â†’ åˆ›å»ºä¸‹è½½ä»»åŠ¡
-   - åˆ†æ•° < é˜ˆå€¼ â†’ æ ‡è®° not_found
-   - æ™ºèƒ½è°ƒåº¦ï¼šçŸ­å‘¨æœŸä¼‘æ¯ 10-30sï¼Œé•¿å‘¨æœŸä¼‘æ¯ 20-40min
+   * ¶ÔÃ¿¸ö±êÌâ£º
+   - ÒÔ±êÌâÎª¹Ø¼ü´ÊËÑË÷£¨×î¶à·­ 2 Ò³£©
+   - ÓÃ provider.cleanTitle ÇåÏ´½á¹û±êÌâ
+   - ¼ÆËãÏàËÆ¶È£¬Ñ¡È¡×î¼ÑÆ¥Åä
+   - ·ÖÊı ¡İ ãĞÖµ ¡ú ÅÀÈ¡ÊÓÆµÒ³ ¡ú ´´½¨ÏÂÔØÈÎÎñ
+   - ·ÖÊı < ãĞÖµ ¡ú ±ê¼Ç not_found
+   - ÖÇÄÜµ÷¶È£º¶ÌÖÜÆÚĞİÏ¢ 10-30s£¬³¤ÖÜÆÚĞİÏ¢ 20-40min
    *
    */
   private async executeBatchSearch(job: BatchSearchJob, provider: SiteProvider): Promise<void> {
@@ -1038,22 +1038,22 @@ export class SearchEngine {
 
     for (let ti = 0; ti < job.titles.length; ti++) {
       if (this.cancelledBatchJobs.has(job.id)) {
-        this.logBatch(job, 'æ‰¹é‡æœç´¢ä»»åŠ¡å·²å–æ¶ˆ', 'warn');
+        this.logBatch(job, 'ÅúÁ¿ËÑË÷ÈÎÎñÒÑÈ¡Ïû', 'warn');
         job.status = 'cancelled';
         return;
       }
 
-      // æ™ºèƒ½è°ƒåº¦ï¼šæ£€æŸ¥æ˜¯å¦éœ€è¦ä¼‘æ¯
+      // ÖÇÄÜµ÷¶È£º¼ì²éÊÇ·ñĞèÒªĞİÏ¢
       await scheduler.waitIfNeeded();
 
       const title = job.titles[ti];
       const result = job.results[ti];
       job.currentIndex = ti;
 
-      this.logBatch(job, `å¤„ç†æ ‡é¢˜ [${ti + 1}/${job.titles.length}]: "${title}"`);
+      this.logBatch(job, `´¦Àí±êÌâ [${ti + 1}/${job.titles.length}]: "${title}"`);
       result.status = 'searching';
 
-      // æœç´¢é˜¶æ®µ
+      // ËÑË÷½×¶Î
       const allItems: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
       const seenUrls = new Set<string>();
       let searchSuccess = false;
@@ -1068,7 +1068,7 @@ export class SearchEngine {
           const page = await browser.newPage();
           await applyStealthToPage(page);
 
-          // ç«™ç‚¹ç‰¹å®šçš„æµè§ˆå™¨ä¸Šä¸‹æ–‡é…ç½®ï¼ˆå¦‚ ExHentai Cookie æ³¨å…¥ï¼‰
+          // Õ¾µãÌØ¶¨µÄä¯ÀÀÆ÷ÉÏÏÂÎÄÅäÖÃ£¨Èç ExHentai Cookie ×¢Èë£©
           const batchGalleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
           if (batchGalleryProvider.setupBrowserContext) {
             await batchGalleryProvider.setupBrowserContext(page.context());
@@ -1079,8 +1079,8 @@ export class SearchEngine {
             timeout: 30000,
           });
 
-          // ç­‰å¾…æœç´¢ç»“æœæ¸²æŸ“å®Œæˆï¼ˆæœ€å¤šç­‰ 5sï¼Œæå‰å‡ºç°å³è·³è¿‡ï¼‰
-          // åŒ…å« WordPressï¼ˆarticleï¼‰ã€è§†é¢‘ç«™é€‰æ‹©å™¨å’Œ E-Hentaiï¼ˆ.itg, #gdtï¼‰é€‰æ‹©å™¨
+          // µÈ´ıËÑË÷½á¹ûäÖÈ¾Íê³É£¨×î¶àµÈ 5s£¬ÌáÇ°³öÏÖ¼´Ìø¹ı£©
+          // °üº¬ WordPress£¨article£©¡¢ÊÓÆµÕ¾Ñ¡ÔñÆ÷ºÍ E-Hentai£¨.itg, #gdt£©Ñ¡ÔñÆ÷
           await page.waitForSelector(
             'article, .stui-vodlist__item, .vodlist_item, .module-search-item, .module-item, .searchlist_item, .list-item, .video-item, .movie-item, .itg, #gdt',
             { timeout: 5000 }
@@ -1115,7 +1115,7 @@ export class SearchEngine {
           break;
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          this.logBatch(job, `æœç´¢"${title}"å¤±è´¥ï¼ˆç¬¬ ${retry + 1} æ¬¡ï¼‰: ${errMsg}`, 'warn');
+          this.logBatch(job, `ËÑË÷"${title}"Ê§°Ü£¨µÚ ${retry + 1} ´Î£©: ${errMsg}`, 'warn');
           if (retry < MAX_RETRIES - 1) {
             await sleep(backoffDelay(retry));
           }
@@ -1124,15 +1124,15 @@ export class SearchEngine {
 
       if (!searchSuccess) {
         result.status = 'failed';
-        result.error = 'æœç´¢è¯·æ±‚å¤±è´¥';
+        result.error = 'ËÑË÷ÇëÇóÊ§°Ü';
         job.totalFailed++;
         job.totalProcessed++;
-        this.logBatch(job, `âŒ æ ‡é¢˜"${title}"æœç´¢å½»åº•å¤±è´¥`, 'error');
+        this.logBatch(job, `? ±êÌâ"${title}"ËÑË÷³¹µ×Ê§°Ü`, 'error');
         scheduler.markCompleted();
         continue;
       }
 
-      // æ¨¡ç³ŠåŒ¹é…é˜¶æ®µ
+      // Ä£ºıÆ¥Åä½×¶Î
       const scored = allItems
         .map((item) => {
           const cleanedTitle = provider.cleanTitle(item.title || item.url);
@@ -1159,7 +1159,7 @@ export class SearchEngine {
         result.matchScore = scored.length > 0 ? scored[0].score : 0;
         job.totalNotFound++;
         job.totalProcessed++;
-        this.logBatch(job, `âš ï¸ æ ‡é¢˜"${title}"æœªæ‰¾åˆ°åŒ¹é…è§†é¢‘ï¼ˆæœ€é«˜åˆ†: ${result.matchScore?.toFixed(2)}ï¼‰`, 'warn');
+        this.logBatch(job, `?? ±êÌâ"${title}"Î´ÕÒµ½Æ¥ÅäÊÓÆµ£¨×î¸ß·Ö: ${result.matchScore?.toFixed(2)}£©`, 'warn');
         scheduler.markCompleted();
         continue;
       }
@@ -1168,22 +1168,22 @@ export class SearchEngine {
       result.selectedItem = result.searchResults[0];
       result.matchScore = best.score;
       result.status = 'found';
-      this.logBatch(job, `âœ“ åŒ¹é…æˆåŠŸ: "${title}" â†’ "${best.cleanedTitle}"ï¼ˆåˆ†æ•°: ${best.score.toFixed(2)}ï¼‰`);
+      this.logBatch(job, `? Æ¥Åä³É¹¦: "${title}" ¡ú "${best.cleanedTitle}"£¨·ÖÊı: ${best.score.toFixed(2)}£©`);
 
-      // çˆ¬å–é˜¶æ®µ
+      // ÅÀÈ¡½×¶Î
       result.status = 'scraping';
       try {
-        // å›¾åº“ç«™ç‚¹èµ°å›¾åº“å¤„ç†æµç¨‹
+        // Í¼¿âÕ¾µã×ßÍ¼¿â´¦ÀíÁ÷³Ì
         const batchGalleryProvider2 = provider as SiteProvider & Partial<GallerySiteProvider>;
         if (typeof batchGalleryProvider2.scrapeGallery === 'function') {
           const galleryResult = await createGalleryTask(best.item.url, batchGalleryProvider2 as SiteProvider & GallerySiteProvider);
 
           if (galleryResult.duplicate) {
             result.status = 'failed';
-            result.error = `é‡å¤: ${galleryResult.existingStatus ?? 'å·²å­˜åœ¨'}`;
+            result.error = `ÖØ¸´: ${galleryResult.existingStatus ?? 'ÒÑ´æÔÚ'}`;
             job.totalFailed++;
             job.totalProcessed++;
-            this.logBatch(job, `âš ï¸ å›¾åŒ…å·²å­˜åœ¨: ${best.cleanedTitle} â€” çŠ¶æ€: ${galleryResult.existingStatus ?? 'æœªçŸ¥'}`, 'warn');
+            this.logBatch(job, `?? Í¼°üÒÑ´æÔÚ: ${best.cleanedTitle} ¡ª ×´Ì¬: ${galleryResult.existingStatus ?? 'Î´Öª'}`, 'warn');
             scheduler.markCompleted();
             continue;
           }
@@ -1192,7 +1192,7 @@ export class SearchEngine {
           result.status = 'completed';
           job.totalDownloaded++;
           job.totalProcessed++;
-          this.logBatch(job, `âœ… åˆ›å»ºå›¾åº“ä»»åŠ¡ #${galleryResult.seq}: ${best.cleanedTitle}`);
+          this.logBatch(job, `? ´´½¨Í¼¿âÈÎÎñ #${galleryResult.seq}: ${best.cleanedTitle}`);
           eventBus.emit('task:created', {
             taskId: galleryResult.galleryId,
             title: best.cleanedTitle,
@@ -1205,14 +1205,14 @@ export class SearchEngine {
         const scrapeResult = await this.scrapeVideoPage(browser, best.item.url, provider);
 
         if (!scrapeResult.m3u8_url) {
-          throw new Error('æœªæ‰¾åˆ° M3U8 URL');
+          throw new Error('Î´ÕÒµ½ M3U8 URL');
         }
 
         if (scrapeResult.title && scrapeResult.title.length > 0) {
           result.selectedItem.title = scrapeResult.title;
         }
 
-        // ä½¿ç”¨æ ‡å‡†åŒ–æ¥å£è¿›è¡Œå†…å®¹å±è”½æ£€æŸ¥
+        // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú½øĞĞÄÚÈİÆÁ±Î¼ì²é
         {
           const blockCheck = provider.checkContentBlocked(
             scrapeResult.title,
@@ -1221,10 +1221,10 @@ export class SearchEngine {
           );
           if (blockCheck.blocked) {
             result.status = 'failed';
-            result.error = `å±è”½: ${blockCheck.reason}`;
+            result.error = `ÆÁ±Î: ${blockCheck.reason}`;
             job.totalFailed++;
             job.totalProcessed++;
-            this.logBatch(job, `âš ï¸ è§†é¢‘è¢«å±è”½: ${best.cleanedTitle} â€” ${blockCheck.reason}`, 'warn');
+            this.logBatch(job, `?? ÊÓÆµ±»ÆÁ±Î: ${best.cleanedTitle} ¡ª ${blockCheck.reason}`, 'warn');
             scheduler.markCompleted();
             continue;
           }
@@ -1255,7 +1255,7 @@ export class SearchEngine {
         result.taskId = task.id;
         result.status = 'completed';
         job.totalDownloaded++;
-        this.logBatch(job, `âœ… åˆ›å»ºä¸‹è½½ä»»åŠ¡ #${task.id}: ${scrapeResult.title || title}`);
+        this.logBatch(job, `? ´´½¨ÏÂÔØÈÎÎñ #${task.id}: ${scrapeResult.title || title}`);
 
         eventBus.emit('task:created', {
           taskId: task.id,
@@ -1268,7 +1268,7 @@ export class SearchEngine {
         const taskId = task.id;
         taskQueueManager.acquireSlot('video', taskId).then(async (acquired) => {
           if (!acquired) {
-            this.logBatch(job, `ä¸‹è½½ä»»åŠ¡ #${taskId} åœ¨æ’é˜Ÿç­‰å¾…ä¸­è¢«å–æ¶ˆ`, 'warn');
+            this.logBatch(job, `ÏÂÔØÈÎÎñ #${taskId} ÔÚÅÅ¶ÓµÈ´ıÖĞ±»È¡Ïû`, 'warn');
             return;
           }
           const currentTask = await prisma.downloadTask.findUnique({ where: { id: taskId } });
@@ -1277,16 +1277,16 @@ export class SearchEngine {
             return;
           }
           dm.startDownload(dlTask).catch((err) => {
-            this.logBatch(job, `ä¸‹è½½ä»»åŠ¡ #${taskId} å¯åŠ¨å¤±è´¥: ${err.message}`, 'error');
+            this.logBatch(job, `ÏÂÔØÈÎÎñ #${taskId} Æô¶¯Ê§°Ü: ${err.message}`, 'error');
             eventBus.emit('task:failed', { taskId, error: err.message });
           });
         });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         result.status = 'failed';
-        result.error = `çˆ¬å–å¤±è´¥: ${errMsg}`;
+        result.error = `ÅÀÈ¡Ê§°Ü: ${errMsg}`;
         job.totalFailed++;
-        this.logBatch(job, `âŒ çˆ¬å–å¤±è´¥: "${title}" â€” ${errMsg}`, 'error');
+        this.logBatch(job, `? ÅÀÈ¡Ê§°Ü: "${title}" ¡ª ${errMsg}`, 'error');
       }
 
       job.totalProcessed++;
@@ -1297,7 +1297,7 @@ export class SearchEngine {
     job.completedAt = new Date().toISOString();
     this.logBatch(
       job,
-      `ğŸ‰ æ‰¹é‡æœç´¢å®Œæˆï¼å·²å¤„ç† ${job.totalProcessed}ï¼Œä¸‹è½½ ${job.totalDownloaded}ï¼Œæœªæ‰¾åˆ° ${job.totalNotFound}ï¼Œå¤±è´¥ ${job.totalFailed}`,
+      `?? ÅúÁ¿ËÑË÷Íê³É£¡ÒÑ´¦Àí ${job.totalProcessed}£¬ÏÂÔØ ${job.totalDownloaded}£¬Î´ÕÒµ½ ${job.totalNotFound}£¬Ê§°Ü ${job.totalFailed}`,
     );
   }
 
@@ -1318,7 +1318,7 @@ export class SearchEngine {
   }
 
   async close(): Promise<void> {
-    // å…±äº«æµè§ˆå™¨ç”± browser-pool ç»Ÿä¸€ç®¡ç†ï¼Œæ­¤å¤„æ— éœ€å…³é—­
+    // ¹²Ïíä¯ÀÀÆ÷ÓÉ browser-pool Í³Ò»¹ÜÀí£¬´Ë´¦ÎŞĞè¹Ø±Õ
   }
 }
 

@@ -1,5 +1,5 @@
 import fs from 'fs';
-import path from 'path';
+import { logT } from '@/lib/i18n/server';
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 500;
@@ -41,10 +41,10 @@ export async function safeDeleteFile(filePath: string): Promise<DeleteResult> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (retry < MAX_RETRIES - 1) {
-        console.warn(`[SafeDelete] 文件删除失败 (${retry + 1}/${MAX_RETRIES}): ${filePath} — ${msg}`);
+        console.warn(logT('log.safeDelete.fileFailed', { retry: retry + 1, max: MAX_RETRIES, path: filePath, msg }));
         await sleep(backoffDelay(retry));
       } else {
-        console.error(`[SafeDelete] 文件删除最终失败: ${filePath} — ${msg}`);
+        console.error(logT('log.safeDelete.fileFinalFailed', { path: filePath, msg }));
         return { path: filePath, success: false, error: msg };
       }
     }
@@ -90,10 +90,10 @@ export async function safeDeleteDir(dirPath: string): Promise<DeleteResult> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (retry < MAX_RETRIES - 1) {
-        console.warn(`[SafeDelete] 目录删除失败 (${retry + 1}/${MAX_RETRIES}): ${dirPath} — ${msg}`);
+        console.warn(logT('log.safeDelete.dirFailed', { retry: retry + 1, max: MAX_RETRIES, path: dirPath, msg }));
         await sleep(backoffDelay(retry));
       } else {
-        console.error(`[SafeDelete] 目录删除最终失败: ${dirPath} — ${msg}`);
+        console.error(logT('log.safeDelete.dirFinalFailed', { path: dirPath, msg }));
         return { path: dirPath, success: false, error: msg };
       }
     }

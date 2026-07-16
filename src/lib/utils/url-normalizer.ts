@@ -164,30 +164,18 @@ export function getUrlSignature(url: string): string {
   }
 }
 
-/**
- * 根据输入 URL 生成所有可能的镜像域名 URL
- *
- * 用于跨域名去重：如果用户提交的 URL 来自域名 A，
- * 但数据库中存储的是域名 B（同一站点模块的不同镜像），
- * 通过生成所有镜像域名变体来查找匹配记录。
- *
- * @param url - 用户提交的 URL
- * @returns 该 URL 在同一站点模块下的所有镜像域名变体（含原始 URL）
- */
 export function generateMirrorUrls(url: string): string[] {
   if (!url) return [];
 
-  try {
-    const parsed = new URL(url);
-    const path = getUrlSignature(url);
+    try {
+      new URL(url);
+      const path = getUrlSignature(url);
     const siteModule = getSiteModuleByUrl(url);
 
     if (!siteModule || !siteModule.domains || siteModule.domains.length <= 1) {
-      // 没有镜像域名，只返回规范化的原始 URL
       return [normalizeUrl(url)];
     }
 
-    // 生成所有镜像域名变体
     const mirrorUrls: string[] = [];
     for (const domain of siteModule.domains) {
       try {
@@ -234,15 +222,6 @@ export function getAllSiteDomains(): string[] {
   return [...new Set(domains)];
 }
 
-/**
- * 从 URL 中提取域名（含协议）
- *
- * 示例：
- *   https://www.lovecutes.com/post/12345 → https://www.lovecutes.com
- *
- * @param url - 完整 URL
- * @returns 域名部分（含协议），解析失败返回空字符串
- */
 export function extractDomain(url: string): string {
   if (!url) return '';
 

@@ -1050,3 +1050,94 @@ animation: progress-indeterminate 1.4s ease-in-out infinite;
   word-break: break-all;
   font-weight: 500;
 }
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  transform: translateX(0) scale(0.95);
+  padding: 8px 12px;
+  background: var(--bg-inverse, #1e293b);
+  color: var(--text-inverse, #fff);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  z-index: 9999;
+  max-width: 400px;
+  min-width: 160px;
+  text-align: left;
+}
+
+/* Tooltip 顶部小三角 */
+[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 8px;
+  transform: scale(0.95);
+  border-width: 4px;
+  border-style: solid;
+  border-color: transparent transparent var(--bg-inverse, #1e293b) transparent;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  z-index: 9999;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0) scale(1);
+}
+
+/* 确保 table 内的 tooltip 能正常显示 */
+table td [data-tooltip]::after,
+table td [data-tooltip]::before {
+  will-change: opacity, transform;
+}
+
+/* ===== Radix Tooltip ===== */
+.tooltip-content {
+  background: var(--bg-inverse, #1e293b);
+  color: var(--text-inverse, #fff);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 400px;
+  min-width: 160px;
+  text-align: left;
+  box-shadow: var(--shadow-md);
+  z-index: 9999;
+  animation: tooltipFadeIn 0.15s ease;
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Tooltip Arrow */
+.tooltip-arrow {
+  fill: var(--bg-inverse, #1e293b);
+}

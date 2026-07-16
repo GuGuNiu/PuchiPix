@@ -7,11 +7,11 @@
 
 /* ===== 1100px 以下 — Ops 面板 ===== */
 @media (max-width: 1100px) {
-  .ops-stats-main { grid-template-columns: repeat(2, 1fr); }
-  .ops-kpi-col:nth-child(2)::after { display: none; }
-  .ops-stats-secondary { flex-wrap: wrap; gap: var(--space-4); }
-  .ops-monitor-grid { grid-template-columns: repeat(2, 1fr); }
   .ops-two-col { grid-template-columns: 1fr; }
+  .ops-two-col > .ops-activity-feed,
+  .ops-two-col > .ops-log-console { height: auto; }
+  .ops-activity-body { max-height: 400px; }
+  .ops-log-body { max-height: 320px; }
 }
 
 /* ===== 900px 以下 ===== */
@@ -145,9 +145,6 @@
   .dash-input-actions { flex-direction: column; gap: 10px; align-items: stretch; }
   .format-pills { justify-content: center; }
   .dashboard-page { padding: var(--space-4); gap: var(--space-4); }
-  .ops-stats-main { grid-template-columns: repeat(2, 1fr); }
-  .ops-kpi-col:nth-child(2)::after { display: none; }
-  .ops-monitor-grid { grid-template-columns: 1fr; }
   .ops-ticker { flex-wrap: wrap; gap: var(--space-4); }
 
   /* 嗅探 */
@@ -234,8 +231,6 @@
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .stat-card-value { font-size: 22px; }
 
-  .ops-stats-main { grid-template-columns: 1fr 1fr; }
-  .ops-kpi-value { font-size: 22px; }
   .ops-ticker { flex-wrap: wrap; gap: var(--space-3); }
   .ops-two-col { grid-template-columns: 1fr; }
 

@@ -58,3 +58,26 @@ export { BatchScheduler } from './batch-scheduler';
 export type { BatchSchedulerOptions } from './batch-scheduler';
 
 export { DomainHealthTracker, shuffleDomainList, getGlobalDomainHealthTracker } from './domain-health-tracker';
+
+export {
+  PinyinService,
+  getPinyinService,
+  resetPinyinService,
+  PinyinProAdapter,
+  LevenshteinCalculator,
+  JaroWinklerCalculator,
+  BigramCalculator,
+  CombinedCalculator,
+  createSimilarityCalculator,
+} from './pinyin-service';
+export type {
+  PinyinConvertOptions,
+  PinyinMatchOptions,
+  SimilarityOptions,
+  SimilarityAlgorithm,
+  PinyinVariants,
+  PinyinMatchResult,
+  PinyinServiceConfig,
+  PinyinEngine,
+  SimilarityCalculator,
+} from './pinyin-service';

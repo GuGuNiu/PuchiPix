@@ -6,19 +6,21 @@ import {
   buyThread,
   httpLogin,
 } from '@/lib/sites/sjs-actions';
+import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /** POST — 执行司机社论坛操作 */
 export async function POST(request: Request): Promise<NextResponse> {
+  setServerLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { action, accountId, tid } = body;
 
     if (!action) {
       return NextResponse.json(
-        { error: '缺少 action 参数' },
+        { error: t('api.sjs.missingAction') },
         { status: 400 },
       );
     }
@@ -27,7 +29,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             case 'checkin': {
         if (!accountId) {
           return NextResponse.json(
-            { error: '签到需要 accountId 参数' },
+            { error: t('api.sjs.signMissingAccountId') },
             { status: 400 },
           );
         }
@@ -49,13 +51,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       case 'buy': {
         if (!accountId) {
           return NextResponse.json(
-            { error: '购买帖子需要 accountId 参数' },
+            { error: t('api.sjs.buyMissingAccountId') },
             { status: 400 },
           );
         }
         if (!tid) {
           return NextResponse.json(
-            { error: '购买帖子需要 tid 参数（帖子 ID）' },
+            { error: t('api.sjs.buyMissingTid') },
             { status: 400 },
           );
         }
@@ -72,7 +74,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             case 'login': {
         if (!accountId) {
           return NextResponse.json(
-            { error: '登录需要 accountId 参数' },
+            { error: t('api.sjs.loginMissingAccountId') },
             { status: 400 },
           );
         }

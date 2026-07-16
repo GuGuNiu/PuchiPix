@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { getSiteAccountManager, type CookieData } from './site-account-manager';
 import { DomainHealthTracker } from '@/lib/core/domain-health-tracker';
+import { logT } from '@/lib/i18n/server';
 
 /** 司机社多域名列表 */
 const SITE_DOMAINS = [
@@ -319,7 +320,7 @@ export async function httpLogin(
       };
     }
 
-    console.log(`[SJS-Actions] 获取 formhash: ${formhash}`);
+    console.log(logT('log.sjs.gotFormhash', { value: formhash }));
 
     const loginUrl = `${targetDomain}/member.php?mod=logging&action=login&loginsubmit=yes&handlekey=login&loginhash=L${getRandomString(4)}&inajax=1`;
     const passwordMd5 = md5(password);
@@ -346,7 +347,7 @@ export async function httpLogin(
 
     if (loginText.includes('欢迎您回来')) {
       const cookies = cookieJar.toCookieData(targetDomain);
-      console.log(`[SJS-Actions] HTTP 登录成功（${cookies.length} 个 Cookie）`);
+      console.log(logT('log.sjs.httpLoginSuccess', { count: cookies.length }));
       domainHealthTracker.markHealthy(targetDomain);
 
       return {
@@ -437,7 +438,7 @@ export async function performCheckin(accountId: number): Promise<CheckinResult> 
       };
     }
 
-    console.log(`[SJS-Actions] 签到链接: ${signHref}`);
+    console.log(logT('log.sjs.signLink', { href: signHref }));
 
     const checkInUrl = signHref.startsWith('http')
       ? signHref
@@ -544,7 +545,7 @@ export async function buyThread(
     if (linksDiv) {
       if (linksDiv.includes('购买后可查看')) {
         // 未购买，继续购买流程
-        console.log(`[SJS-Actions] 帖子 "${subject}" 未购买，开始购买流程...`);
+        console.log(logT('log.sjs.postNotPurchased', { title: subject }));
       } else {
         // 已购买，直接解析下载链接
         const downloadLinks = parseDownloadLinks(linksDiv);
@@ -589,7 +590,7 @@ export async function buyThread(
     const buyTid = extractInputValue(formData, 'tid');
     const pid = extractInputValue(formData, 'pid');
 
-    console.log(`[SJS-Actions] 购买表单参数: formhash=${buyFormhash}, tid=${buyTid}`);
+    console.log(logT('log.sjs.buyFormParams', { formhash: buyFormhash, tid: buyTid }));
 
     const buyUrl = `${domain}/plugin.php?id=jnpar_pansell:pay`;
     const buyBody = new URLSearchParams({
@@ -731,7 +732,7 @@ export async function checkinAllAccounts(): Promise<
   for (const account of accounts) {
     if (account.status !== 'active') continue;
 
-    console.log(`[SJS-Actions] 开始签到: ${account.username}`);
+    console.log(logT('log.sjs.startSign', { username: account.username }));
     const result = await performCheckin(account.id);
 
     await accountManager.markUsed(account.id).catch(() => {});

@@ -1,14 +1,9 @@
 "use client";
 
-/**
- * 图包管理页面
- *
- * 卡片式展示图包，支持状态筛选、搜索、详情查看和 SSE 实时进度更新。
- */
-
-import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { FixedSizeGrid as Grid } from "react-window";
 import { usePathname } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/i18n/toast";
 import {
   RefreshCw,
   Trash2,
@@ -205,10 +200,10 @@ export default function GalleryPage(): React.JSX.Element {
       if (!confirm(t("gallery.confirmDelete", { id }))) return;
       const ok = await deleteGallery(id);
       if (ok) {
-        toast.success(t("gallery.deleted", { id }));
+        toast.success("gallery.deleted", { id });
         if (expandedId === id) setExpandedId(null);
       } else {
-        toast.error(t("gallery.deleteFailed"));
+        toast.error("gallery.deleteFailed");
       }
     },
     [deleteGallery, expandedId, setExpandedId]
@@ -217,8 +212,8 @@ export default function GalleryPage(): React.JSX.Element {
   const handleRetry = useCallback(
     async (id: number) => {
       const ok = await retryDownload(id);
-      if (ok) toast.success(t("gallery.retryStarted", { id }));
-      else toast.error(t("gallery.retryFailed"));
+      if (ok) toast.success("gallery.retryStarted", { id });
+      else toast.error("gallery.retryFailed");
     },
     [retryDownload]
   );
@@ -314,7 +309,7 @@ export default function GalleryPage(): React.JSX.Element {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fill, minmax(288px, 1fr))",
                 gap: 16,
                 padding: 20,
               }}
@@ -352,7 +347,7 @@ export default function GalleryPage(): React.JSX.Element {
                         style={{
                           position: "relative",
                           width: "100%",
-                          aspectRatio: "4 / 3",
+                          height: 220,
                           background: "var(--bg-inset)",
                           overflow: "hidden",
                         }}
@@ -399,7 +394,7 @@ export default function GalleryPage(): React.JSX.Element {
                         </span>
                       </div>
 
-                      <div style={{ padding: "12px 14px" }}>
+                      <div style={{ padding: "8px 12px" }}>
                         <div
                           style={{
                             fontSize: 14,
@@ -408,7 +403,7 @@ export default function GalleryPage(): React.JSX.Element {
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
-                            marginBottom: 4,
+                            marginBottom: 2,
                           }}
                           title={gallery.Title}
                         >
@@ -425,7 +420,7 @@ export default function GalleryPage(): React.JSX.Element {
                             {t("gallery.model")}：{gallery.Protagonist}
                           </div>
                         )}
-                        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 4, marginBottom: 4, flexWrap: "wrap" }}>
                           <span
                             className="pill"
                             style={{ fontSize: 11, padding: "2px 8px" }}
@@ -547,21 +542,21 @@ function GalleryDetailPanel({
 
   const handleDownloadZip = useCallback(async () => {
     const ok = await onDownloadZip(gallery.ID);
-    if (ok) toast.success(t("gallery.zipDownloadComplete"));
-    else toast.error(t("gallery.zipDownloadFailed"));
-  }, [gallery.ID, onDownloadZip, t]);
+    if (ok) toast.success("gallery.zipDownloadComplete");
+    else toast.error("gallery.zipDownloadFailed");
+  }, [gallery.ID, onDownloadZip]);
 
   const handleDownloadZipManual = useCallback(async () => {
     if (!manualUrl.trim()) {
-      toast.error(t("gallery.pleaseInputDownloadLink"));
+      toast.error("gallery.pleaseInputDownloadLink");
       return;
     }
     const ok = await onDownloadZip(gallery.ID, manualUrl.trim());
-    if (ok) toast.success(t("gallery.zipDownloadComplete"));
-    else toast.error(t("gallery.zipDownloadFailed"));
+    if (ok) toast.success("gallery.zipDownloadComplete");
+    else toast.error("gallery.zipDownloadFailed");
     setShowManualUrl(false);
     setManualUrl("");
-  }, [gallery.ID, manualUrl, onDownloadZip, t]);
+  }, [gallery.ID, manualUrl, onDownloadZip]);
 
   return (
     <div
@@ -643,7 +638,7 @@ function GalleryDetailPanel({
                     className="btn-copy-inline"
                     onClick={() => {
                       navigator.clipboard.writeText(gallery.SourceURL);
-                      toast.success(t("common.copied"));
+                      toast.success("common.copied");
                     }}
                     title={t("common.copy")}
                   >
@@ -661,7 +656,7 @@ function GalleryDetailPanel({
 
               {gallery.Tags && gallery.Tags.length > 0 && (
                 <div className="task-detail-item full-width">
-                  <span className="task-detail-label">标签</span>
+                  <span className="task-detail-label">{t("gallery.tags")}</span>
                   <span className="task-detail-value">
                     <div className="task-detail-tags">
                       {gallery.Tags.map((tag) => (
@@ -676,30 +671,30 @@ function GalleryDetailPanel({
 
               {gallery.Category && (
                 <div className="task-detail-item">
-                  <span className="task-detail-label">分类</span>
+                  <span className="task-detail-label">{t("gallery.category")}</span>
                   <span className="task-detail-value">{gallery.Category}</span>
                 </div>
               )}
 
               {gallery.PublishTime && (
                 <div className="task-detail-item">
-                  <span className="task-detail-label">发布时间</span>
+                  <span className="task-detail-label">{t("gallery.publishTime")}</span>
                   <span className="task-detail-value">{gallery.PublishTime}</span>
                 </div>
               )}
 
               {gallery.SavePath && (
                 <div className="task-detail-item full-width">
-                  <span className="task-detail-label">保存路径</span>
+                  <span className="task-detail-label">{t("gallery.savePath")}</span>
                   <span className="task-detail-value task-detail-value-with-copy">
                     <span className="task-detail-value-text">{gallery.SavePath}</span>
                     <button
                       className="btn-copy-inline"
                       onClick={() => {
                         navigator.clipboard.writeText(gallery.SavePath);
-                        toast.success("已复制");
+                        toast.success("common.copied");
                       }}
-                      title="复制"
+                      title={t("common.copy")}
                     >
                       <Copy size={13} />
                     </button>
@@ -738,7 +733,7 @@ function GalleryDetailPanel({
                     <HardDrive size={14} className="info-bar-icon" />
                     <span className="info-bar-text">
                       {progress.completed}/{progress.total}
-                      {progress.failed > 0 && ` (失败 ${progress.failed})`}
+                      {progress.failed > 0 && ` (${t("gallery.galleryFailed", { count: progress.failed })})`}
                     </span>
                   </div>
                 )}
@@ -783,29 +778,29 @@ function GalleryDetailPanel({
                   >
                     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Archive size={14} />
-                      ZIP 压缩包
+                      {t("gallery.zipPackage")}
                       {currentZipStatus === 'completed' && (
                         <span style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: 3, fontSize: 12 }}>
                           <CheckCircle size={12} />
-                          已下载解压
+                          {t("gallery.zipDownloaded")}
                         </span>
                       )}
                       {currentZipStatus === 'downloading' && (
                         <span style={{ color: "var(--accent)", display: "flex", alignItems: "center", gap: 3, fontSize: 12 }}>
                           <Loader2 size={12} className="spin" />
-                          下载中
+                          {t("gallery.zipDownloading")}
                         </span>
                       )}
                       {currentZipStatus === 'extracting' && (
                         <span style={{ color: "var(--accent)", display: "flex", alignItems: "center", gap: 3, fontSize: 12 }}>
                           <Loader2 size={12} className="spin" />
-                          解压中
+                          {t("gallery.zipExtracting")}
                         </span>
                       )}
                       {currentZipStatus === 'failed' && (
                         <span style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: 3, fontSize: 12 }}>
                           <AlertCircle size={12} />
-                          失败
+                          {t("gallery.zipFailed")}
                         </span>
                       )}
                     </span>
@@ -816,7 +811,7 @@ function GalleryDetailPanel({
                         style={{ fontSize: 12 }}
                       >
                         <Download size={12} />
-                        下载并解压
+                        {t("gallery.downloadAndExtract")}
                       </button>
                     )}
                   </div>
@@ -846,19 +841,19 @@ function GalleryDetailPanel({
                   >
                     {zipInfo.Title && (
                       <div>
-                        <span style={{ color: "var(--text-muted)" }}>标题：</span>
+                        <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipTitle")}：</span>
                         <span style={{ color: "var(--text-primary)" }}>{zipInfo.Title}</span>
                       </div>
                     )}
                     {zipInfo.FileCount > 0 && (
                       <div>
-                        <span style={{ color: "var(--text-muted)" }}>文件数：</span>
+                        <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipFileCount")}：</span>
                         <span style={{ color: "var(--text-primary)" }}>{zipInfo.FileCount}</span>
                       </div>
                     )}
                     {zipInfo.FileSizeText && (
                       <div>
-                        <span style={{ color: "var(--text-muted)" }}>体积：</span>
+                        <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipFileSize")}：</span>
                         <span style={{ color: "var(--text-primary)" }}>{zipInfo.FileSizeText}</span>
                       </div>
                     )}
@@ -881,7 +876,7 @@ function GalleryDetailPanel({
                           style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono), ui-monospace, monospace", cursor: "pointer" }}
                           onClick={() => {
                             navigator.clipboard.writeText(zipInfo.Password);
-                            toast.success(t("gallery.zipPasswordCopied"));
+                            toast.success("gallery.zipPasswordCopied");
                           }}
                           title={t("gallery.clickToCopy")}
                         >
@@ -931,7 +926,7 @@ function GalleryDetailPanel({
                         className="btn btn-outline btn-sm"
                         onClick={() => {
                           navigator.clipboard.writeText(zipInfo.DownloadURL);
-                          toast.success(t("gallery.zipLinkCopied"));
+                          toast.success("gallery.zipLinkCopied");
                         }}
                         style={{ flexShrink: 0 }}
                       >
@@ -959,7 +954,7 @@ function GalleryDetailPanel({
                         className="btn btn-outline btn-sm"
                         onClick={() => {
                           navigator.clipboard.writeText(zipInfo.LocalPath);
-                          toast.success(t("gallery.zipPathCopied"));
+                          toast.success("gallery.zipPathCopied");
                         }}
                         style={{ flexShrink: 0 }}
                       >
@@ -986,7 +981,7 @@ function GalleryDetailPanel({
                         className="btn btn-outline btn-sm"
                         onClick={() => {
                           navigator.clipboard.writeText(zipInfo.ExtractedPath);
-                          toast.success(t("gallery.zipPathCopied"));
+                          toast.success("gallery.zipPathCopied");
                         }}
                         style={{ flexShrink: 0 }}
                       >
@@ -1074,68 +1069,7 @@ function GalleryDetailPanel({
             </div>
 
             {images.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    marginBottom: 8,
-                  }}
-                >
-                  图片列表（{images.length}）
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
-                    gap: 10,
-                    padding: 4,
-                  }}
-                >
-                  {images.map((img) => (
-                    <div
-                      key={img.ID}
-                      style={{
-                        position: "relative",
-                        aspectRatio: "3/4",
-                        borderRadius: "var(--radius-sm)",
-                        overflow: "hidden",
-                        background: "var(--bg-inset)",
-                        border: "1px solid var(--border)",
-                      }}
-                      title={`第${img.PageIndex + 1}页 #${img.OrderIndex + 1}`}
-                    >
-                      <img
-                        src={img.LocalPath ? `/api/proxy?path=${encodeURIComponent(img.LocalPath)}` : img.URL}
-                        alt={`img-${img.OrderIndex + 1}`}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        loading="lazy"
-                        decoding="async"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.opacity = "0.2";
-                        }}
-                      />
-                      <span
-                        style={{
-                          position: "absolute",
-                          bottom: 2,
-                          right: 2,
-                          width: 8,
-                          height: 8,
-                          borderRadius: "50%",
-                          background:
-                            img.Status === "downloaded"
-                              ? "var(--success)"
-                              : img.Status === "failed"
-                              ? "var(--danger)"
-                              : "var(--text-muted)",
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <VirtualImageGrid images={images} />
             )}
 
             {videos.length > 0 && (
@@ -1148,7 +1082,7 @@ function GalleryDetailPanel({
                     marginBottom: 8,
                   }}
                 >
-                  视频列表（{videos.length}）
+                  {t("gallery.videoList", { count: videos.length })}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {videos.map((vid, i) => (

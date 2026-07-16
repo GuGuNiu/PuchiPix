@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/i18n/toast";
 import { Save, RotateCcw } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
@@ -38,7 +38,7 @@ export default function ConfigPage(): React.JSX.Element {
           default_transcode: data?.default_transcode ?? data?.transcode_to_mp4 ?? false,
         });
       } catch {
-        toast.error(t("config.loadConfigFailed"));
+        toast.error("config.loadConfigFailed");
       } finally {
         setLoading(false);
       }
@@ -64,7 +64,7 @@ export default function ConfigPage(): React.JSX.Element {
         const text = await res.text();
         throw new Error(text || t("config.saveConfigFailed"));
       }
-      toast.success(t("config.configSaved"));
+      toast.success("config.configSaved");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg);
@@ -85,7 +85,7 @@ export default function ConfigPage(): React.JSX.Element {
         concurrency: data?.concurrency ?? data?.max_concurrent ?? 3,
         default_transcode: data?.default_transcode ?? data?.transcode_to_mp4 ?? false,
       });
-      toast.success(t("config.restoredDefault"));
+      toast.success("config.restoredDefault");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg);

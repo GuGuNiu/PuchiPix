@@ -148,7 +148,7 @@ export default function ProtagonistsPage(): React.JSX.Element {
         <div className="flex flex-1 flex-col items-center justify-center min-h-0 text-muted-foreground">
           <User className="w-16 h-16 mb-4 opacity-50" />
           <p>{t('common.noData')}</p>
-          <p className="text-sm mt-2">请先爬取一些图库</p>
+          <p className="text-sm mt-2">{t('protagonists.emptyHint')}</p>
         </div>
       )}
     </div>

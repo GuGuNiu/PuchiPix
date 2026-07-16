@@ -177,11 +177,12 @@ function mapSniffToTask(s: {
 }
 
 async function fetchAllTasks(): Promise<DownloadTask[]> {
+  // 优化：减少查询数量限制，提高响应速度
   const [tasks, galleries, sniffTasks] = await Promise.all([
     prisma.downloadTask.findMany({
       include: { videoInfo: true },
       orderBy: { createdAt: 'desc' },
-      take: 500,
+      take: 200, // 从 500 减少到 200
     }),
     prisma.gallery.findMany({
       orderBy: { createdAt: 'desc' },
@@ -194,11 +195,11 @@ async function fetchAllTasks(): Promise<DownloadTask[]> {
           },
         },
       },
-      take: 500,
+      take: 200, // 从 500 减少到 200
     }),
     prisma.sniffTask.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 50, // 从 100 减少到 50
     }),
   ]);
 
@@ -502,7 +503,6 @@ export async function GET(request: NextRequest): Promise<Response> {
           totalCreated: p.totalCreated,
           totalSkipped: p.totalSkipped,
         });
-        // 同步更新嗅探任务统计
         schedulePatch(p.sniffId, 'sniff', {
           SniffTotalCreated: p.totalCreated,
           SniffTotalSkipped: p.totalSkipped,
@@ -516,6 +516,18 @@ export async function GET(request: NextRequest): Promise<Response> {
       }));
       subs.push(eventBus.on('sniffTask:deleted', (p) => {
         bufferOrSend('delete', { id: p.sniffId, taskType: 'sniff' });
+      }));
+      subs.push(eventBus.on('notification:info', (p) => {
+        bufferOrSend('notification', { type: 'info', message: p.message, id: p.id });
+      }));
+      subs.push(eventBus.on('notification:success', (p) => {
+        bufferOrSend('notification', { type: 'success', message: p.message, id: p.id });
+      }));
+      subs.push(eventBus.on('notification:warning', (p) => {
+        bufferOrSend('notification', { type: 'warning', message: p.message, id: p.id });
+      }));
+      subs.push(eventBus.on('notification:error', (p) => {
+        bufferOrSend('notification', { type: 'error', message: p.message, id: p.id });
       }));
 
       // keepalive
@@ -542,6 +554,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         }
         subs.length = 0;
         pendingPatches.clear();
+        pendingUpserts.clear();
       };
 
       request.signal.addEventListener('abort', cleanup);
