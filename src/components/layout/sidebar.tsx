@@ -6,7 +6,7 @@ const APP_VERSION = packageInfo.version;
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Home,
   Download,
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useI18n } from "@/lib/i18n";
+import { useSidebarCollapsed, useSidebarToggle } from "@/hooks/use-sidebar-collapsed";
 import CyberpunkCityBg from "./cyberpunk-city-bg";
 import LanguageSwitcher from "./language-switcher";
 
@@ -41,25 +42,11 @@ export default function Sidebar(): React.JSX.Element {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const { t } = useI18n();
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = useSidebarCollapsed();
+  const { toggle: toggleCollapsed } = useSidebarToggle();
   const [hoverExpand, setHoverExpand] = useState(false);
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("sidebar-collapsed");
-    if (saved === "true") setCollapsed(true);
-  }, []);
-
-  const toggleCollapsed = useCallback(() => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem("sidebar-collapsed", String(next));
-      window.dispatchEvent(new CustomEvent("sidebar:collapsed", { detail: next }));
-      return next;
-    });
-    setHoverExpand(false);
-  }, []);
 
   const handleMouseEnter = useCallback(() => {
     if (!collapsed) return;
@@ -129,9 +116,9 @@ export default function Sidebar(): React.JSX.Element {
             );
           })}
         </nav>
+        <div className="theme-toggle-divider" />
         <LanguageSwitcher />
         <div className="theme-toggle-section">
-          <div className="theme-toggle-divider" />
           <button
             className="theme-toggle-btn"
             onClick={toggleTheme}

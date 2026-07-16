@@ -2,6 +2,7 @@ import { eventBus } from './event-bus';
 import { getOrCreateGlobal } from './global-singleton';
 import { sleep, randomDelay } from './anti-crawler';
 import { SchedulerStrategy, type SchedulerStrategyOptions } from './scheduler-strategy';
+import { DagManager, type DagTaskId, type DagCapableTask, type DagStats } from './dag-manager';
 
 
 /** 任务基础接口 — 所有编排器任务类型必须满足此接口 */
@@ -19,6 +20,10 @@ export interface BaseTask {
   retryCount: number;
   /** 最大重试次数 */
   maxRetries: number;
+  /** 调度优先级，数值越大优先级越高，同就绪任务中先执行 */
+  priority?: number;
+  /** 前置依赖任务 ID 列表，所有依赖完成后才可调度 */
+  dependsOn?: DagTaskId[];
 }
 
 export type BaseTaskStatus =
@@ -90,6 +95,8 @@ export abstract class OrchestratorBase<T extends BaseTask> {
   protected nextTaskAt = 0;
   /** 处理循环的 AbortController */
   protected abortController: AbortController | null = null;
+  /** DAG 依赖管理器，追踪任务间前置依赖与级联状态 */
+  protected dag = new DagManager<DagCapableTask>();
 
   /** 配置 */
   protected readonly config: Required<OrchestratorConfig>;
@@ -180,6 +187,11 @@ export abstract class OrchestratorBase<T extends BaseTask> {
     }
 
     this.queue.push(task);
+    this.dag.addTask({
+      id: this.getTaskId(task),
+      priority: task.priority,
+      dependsOn: task.dependsOn,
+    });
     const position = this.queue.length;
 
     this.emitTaskQueued(task, position);
@@ -194,6 +206,17 @@ export abstract class OrchestratorBase<T extends BaseTask> {
     }
 
     return position;
+  }
+
+  /**
+   * 声明任务间依赖关系
+   *
+   * 被依赖的任务完成后，依赖任务才可被调度。
+   * 添加依赖后自动执行循环检测，存在环路时抛出 DagCycleError。
+   */
+  declareDependency(taskId: DagTaskId, dependsOnId: DagTaskId): void {
+    this.dag.addDependency(taskId, dependsOnId);
+    this.dag.detectCycles();
   }
 
   /**
@@ -315,7 +338,55 @@ export abstract class OrchestratorBase<T extends BaseTask> {
     };
   }
 
+  /** 获取 DAG 依赖管理器统计数据 */
+  getDagStats(): DagStats {
+    return this.dag.getStats();
+  }
+
   // ─── 内部方法 ───
+
+  /**
+   * 从队列中选出下一个可执行任务
+   *
+   * 无依赖关系时退化为 FIFO；有依赖时通过 DAG 选出
+   * 依赖就绪且优先级最高的任务。
+   */
+  private getNextTask(): T | null {
+    const pendingTasks = this.queue.filter((t) => t.status === 'pending');
+    if (pendingTasks.length === 0) return null;
+
+    if (!this.dag.hasDependencies()) {
+      return pendingTasks[0];
+    }
+
+    const dagCandidates: DagCapableTask[] = pendingTasks.map((t) => ({
+      id: this.getTaskId(t),
+      priority: t.priority,
+      dependsOn: t.dependsOn,
+    }));
+    const next = this.dag.getNextExecutable(dagCandidates);
+    if (!next) return null;
+
+    return pendingTasks.find((t) => this.getTaskId(t) === next.id) ?? null;
+  }
+
+  /**
+   * 取消因前置依赖失败而级联取消的任务
+   */
+  private cancelCascadedTasks(cascadedIds: DagTaskId[]): void {
+    for (const id of cascadedIds) {
+      const idx = this.queue.findIndex(
+        (t) => t.status === 'pending' && this.getTaskId(t) === id,
+      );
+      if (idx >= 0) {
+        this.queue[idx].status = 'cancelled';
+        this.queue.splice(idx, 1);
+        console.log(
+          `[${this.config.name}] 任务因依赖失败而级联取消: ID=${id}`,
+        );
+      }
+    }
+  }
 
   /**
    * 启动处理循环
@@ -351,8 +422,8 @@ export abstract class OrchestratorBase<T extends BaseTask> {
         continue;
       }
 
-      // 取出下一个待处理任务
-      const task = this.queue.find((t) => t.status === 'pending');
+      // 取出下一个待处理任务（DAG 感知调度）
+      const task = this.getNextTask();
       if (!task) {
         this.abortController = null;
         console.log(
@@ -397,6 +468,7 @@ export abstract class OrchestratorBase<T extends BaseTask> {
       if (success) {
         task.status = 'completed';
         this.succeededCount++;
+        this.dag.markCompleted(this.getTaskId(task));
         console.log(`[${this.config.name}] 任务成功: ID=${this.getTaskId(task)}`);
         this.emitTaskCompleted(task);
       } else {
@@ -422,6 +494,8 @@ export abstract class OrchestratorBase<T extends BaseTask> {
 
         task.status = 'failed';
         this.failedCount++;
+        const cascaded = this.dag.markFailed(this.getTaskId(task));
+        this.cancelCascadedTasks(cascaded);
         console.error(`[${this.config.name}] 任务失败（已耗尽重试）: ID=${this.getTaskId(task)}: ${errorMsg}`);
         this.emitTaskFailed(task, errorMsg, false);
       }
@@ -451,6 +525,8 @@ export abstract class OrchestratorBase<T extends BaseTask> {
 
       task.status = 'failed';
       this.failedCount++;
+      const cascaded = this.dag.markFailed(this.getTaskId(task));
+      this.cancelCascadedTasks(cascaded);
       console.error(`[${this.config.name}] 任务异常（已耗尽重试）: ID=${this.getTaskId(task)}: ${errorMsg}`);
       this.emitTaskFailed(task, errorMsg, false);
     } finally {
@@ -459,11 +535,12 @@ export abstract class OrchestratorBase<T extends BaseTask> {
       }
       this.currentTask = null;
 
-      // 从队列中移除已完成或已失败的任务
+      // 从队列中移除已完成或已失败的任务，并清理 DAG 状态
       const idx = this.queue.indexOf(task);
       if (idx >= 0) {
         if (task.status === 'completed' || task.status === 'failed') {
           this.queue.splice(idx, 1);
+          this.dag.removeTask(this.getTaskId(task));
           this.history.push({ ...task });
           if (this.history.length > this.config.historyLimit) {
             this.history.shift();

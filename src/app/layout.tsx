@@ -24,7 +24,7 @@ const dancingScript = Dancing_Script({
 });
 
 export const metadata: Metadata = {
-  title: "PuchiPix — M3U8 Video Downloader",
+  title: "PuchiPix - Puch Puch ~~",
   description: "Browser-automated M3U8 video downloading tool",
 };
 

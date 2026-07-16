@@ -249,3 +249,16 @@ model BlocklistRule {
 
   @@map("blocklist_rules")
 }
+
+model UserPreference {
+  id            Int      @id @default(autoincrement())
+  key           String   @unique
+  value         String   @default("")
+  category      String   @default("general") @map("category")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+
+  @@map("user_preferences")
+}

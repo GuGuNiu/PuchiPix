@@ -55,7 +55,7 @@ class TaskQueueManager {
   private listenersRegistered = false;
 
   /**
-   * 从数据库加载配置
+   * 从数据库加载配置，若不存在则使用默认值并预写入数据库
    */
   private async ensureSettingsLoaded(): Promise<void> {
     if (this.settingsLoaded) return;
@@ -66,24 +66,51 @@ class TaskQueueManager {
           key: { in: [CONFIG_KEY_MAX_CONCURRENT, CONFIG_KEY_SNIFF_MAX_CONCURRENT, CONFIG_KEY_TS_SEGMENT_CONCURRENT, CONFIG_KEY_GALLERY_IMAGE_CONCURRENT, CONFIG_KEY_MAX_SCRAPING] },
         },
       });
-      for (const config of configs) {
-        if (config.key === CONFIG_KEY_MAX_CONCURRENT) {
-          const v = parseInt(config.value, 10);
-          if (!isNaN(v) && v >= 1) this.maxConcurrentTasks = v;
-        } else if (config.key === CONFIG_KEY_SNIFF_MAX_CONCURRENT) {
-          const v = parseInt(config.value, 10);
-          if (!isNaN(v) && v >= 1) this.maxConcurrentSniffTasks = v;
-        } else if (config.key === CONFIG_KEY_TS_SEGMENT_CONCURRENT) {
-          const v = parseInt(config.value, 10);
-          if (!isNaN(v) && v >= 1) this.tsSegmentConcurrent = v;
-        } else if (config.key === CONFIG_KEY_GALLERY_IMAGE_CONCURRENT) {
-          const v = parseInt(config.value, 10);
-          if (!isNaN(v) && v >= 1) this.galleryImageConcurrent = v;
-        } else if (config.key === CONFIG_KEY_MAX_SCRAPING) {
-          const v = parseInt(config.value, 10);
-          if (!isNaN(v) && v >= 1) this.maxScrapingTasks = v;
+
+      const configMap = new Map(configs.map((c) => [c.key, c.value]));
+      const missingKeys: string[] = [];
+
+      const readOrDefault = (key: string, defaultValue: number): number => {
+        const raw = configMap.get(key);
+        if (raw === undefined) {
+          missingKeys.push(key);
+          return defaultValue;
         }
+        const v = parseInt(raw, 10);
+        return !isNaN(v) && v >= 1 ? v : defaultValue;
+      };
+
+      this.maxConcurrentTasks = readOrDefault(CONFIG_KEY_MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT);
+      this.maxConcurrentSniffTasks = readOrDefault(CONFIG_KEY_SNIFF_MAX_CONCURRENT, DEFAULT_SNIFF_MAX_CONCURRENT);
+      this.tsSegmentConcurrent = readOrDefault(CONFIG_KEY_TS_SEGMENT_CONCURRENT, DEFAULT_TS_SEGMENT_CONCURRENT);
+      this.galleryImageConcurrent = readOrDefault(CONFIG_KEY_GALLERY_IMAGE_CONCURRENT, DEFAULT_GALLERY_IMAGE_CONCURRENT);
+      this.maxScrapingTasks = readOrDefault(CONFIG_KEY_MAX_SCRAPING, DEFAULT_MAX_SCRAPING);
+
+      // 将缺失的默认配置预写入数据库
+      if (missingKeys.length > 0) {
+        const defaults: Record<string, number> = {
+          [CONFIG_KEY_MAX_CONCURRENT]: DEFAULT_MAX_CONCURRENT,
+          [CONFIG_KEY_SNIFF_MAX_CONCURRENT]: DEFAULT_SNIFF_MAX_CONCURRENT,
+          [CONFIG_KEY_TS_SEGMENT_CONCURRENT]: DEFAULT_TS_SEGMENT_CONCURRENT,
+          [CONFIG_KEY_GALLERY_IMAGE_CONCURRENT]: DEFAULT_GALLERY_IMAGE_CONCURRENT,
+          [CONFIG_KEY_MAX_SCRAPING]: DEFAULT_MAX_SCRAPING,
+        };
+        await Promise.all(
+          missingKeys.map((key) =>
+            prisma.appConfig.upsert({
+              where: { key },
+              create: { key, value: String(defaults[key]) },
+              update: { value: String(defaults[key]) },
+            })
+          )
+        );
+        console.log(
+          logT('log.taskQueue.configSeeded', {
+            keys: missingKeys.join(', '),
+          }),
+        );
       }
+
     console.log(
       logT('log.taskQueue.configLoaded', {
         maxConcurrent: this.maxConcurrentTasks,

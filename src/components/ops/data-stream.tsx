@@ -18,6 +18,21 @@ export function DataStream(): React.JSX.Element {
 }
 
 /**
+ * 硬盘活动指示器组件
+ *
+ * 3 个圆点水平依次跳动，表示磁盘读写活动。
+ */
+export function DiskActivity(): React.JSX.Element {
+  return (
+    <div className="ops-disk-activity">
+      {Array.from({ length: 3 }, (_, i) => (
+        <div key={i} className="disk-dot" />
+      ))}
+    </div>
+  );
+}
+
+/**
  * 实时速度图表组件
  *
  * 使用 CSS 柱状图展示下载速度历史，渐变填充 + 交互。

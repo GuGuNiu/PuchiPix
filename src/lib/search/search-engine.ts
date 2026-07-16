@@ -1,75 +1,32 @@
 import type { Browser } from 'playwright';
 import type { SearchJob, SearchLogEntry, SearchItem, BatchSearchJob, ScrapeResult } from '@/types';
-import prisma from '@/lib/db/prisma';
-import { getDownloadManager, mapTask } from '@/lib/api-helpers';
 import { getSiteRegistry, extractDomainFromUrl } from '@/lib/sites';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
-import { ttlLock } from '@/lib/core/ttl-lock';
 import { eventBus } from '@/lib/core/event-bus';
 import { getSharedBrowser } from '@/lib/core/browser-pool';
 import {
   sleep,
   randomDelay,
   backoffDelay,
-  gaussianDelay,
   applyStealthToPage,
   PAGE_DELAY_MIN,
   PAGE_DELAY_MAX,
-  BATCH_DELAY_MIN,
-  BATCH_DELAY_MAX,
   MAX_RETRIES,
 } from '@/lib/core/anti-crawler';
-import { BatchScheduler } from '@/lib/core/batch-scheduler';
-import { allocateSeq } from '@/lib/core/seq-allocator';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
-import { createGalleryTask } from '@/lib/tasks/gallery-handler';
 
-const MAX_RESULTS_PER_KEYWORD = 50;
-/** Ã¿¸ö¹Ø¼ü´Ê×î´ó·­Ò³Êı */
-const MAX_PAGES_PER_KEYWORD = 5;
-
-/** ÅúÁ¿ËÑË÷£ºÃ¿¸ö±êÌâ×î´ó·­Ò³Êı£¨¼õÉÙÒÔÌáÉıËÙ¶È£© */
-const BATCH_MAX_PAGES = 2;
-/** ÅúÁ¿ËÑË÷£ºÄ£ºıÆ¥ÅäãĞÖµ£¬µÍÓÚ´Ë·ÖÊıÊÓÎªÎ´ÕÒµ½ */
-const MATCH_THRESHOLD = 0.6;
-
-/**
- * ±êÌâ¹éÒ»»¯£ºÈ¥³ı¿Õ¸ñ¡¢±êµã¡¢ÌØÊâ×Ö·û£¬×ªĞ¡Ğ´
- */
-function normalizeTitle(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[\s\-_¡ª¨C¡¤:£º.,£¬¡££¡!£¿?¡¤\[\]£¨£©()¡¾¡¿"'<>¡¶¡·/|]+/g, '')
-    .trim();
-}
-
-/**
- * ¼ÆËãÁ½¸ö±êÌâµÄÏàËÆ¶È·ÖÊı£¨0-1£©
- *
- * ²ßÂÔ£º
- - ¹éÒ»»¯ºóÍêÈ«ÏàÍ¬ ¡ú 1.0
- - Ò»·½°üº¬ÁíÒ»·½ ¡ú 0.85 ¡Á (½Ï¶Ì³¤¶È/½Ï³¤³¤¶È)
- - ·ñÔòÊ¹ÓÃ×Ö·ûÖØµşÂÊ
- */
-function titleSimilarity(input: string, candidate: string): number {
-  const a = normalizeTitle(input);
-  const b = normalizeTitle(candidate);
-  if (!a || !b) return 0;
-  if (a === b) return 1.0;
-
-  if (a.includes(b) || b.includes(a)) {
-    const shorter = Math.min(a.length, b.length);
-    const longer = Math.max(a.length, b.length);
-    return 0.85 * (shorter / longer);
-  }
-
-  const setB = new Set(b);
-  let common = 0;
-  for (const ch of a) {
-    if (setB.has(ch)) common++;
-  }
-  return common / Math.max(a.length, b.length);
-}
+import {
+  MAX_RESULTS_PER_KEYWORD,
+  MAX_PAGES_PER_KEYWORD,
+} from './search-engine/utils';
+import { goToNextPage } from './search-engine/pagination';
+import { executeBatchSearch, logBatch } from './search-engine/batch-search';
+import type { BatchSearchDeps } from './search-engine/batch-search';
+import {
+  scrapeVideo as scrapeVideoOp,
+  scrapeAll as scrapeAllOp,
+  scrapeVideoPage as scrapeVideoPageOp,
+} from './search-engine/scrape-operations';
+import type { ScrapeDeps } from './search-engine/scrape-operations';
 
 export class SearchEngine {
   private activeJobs: Map<string, SearchJob> = new Map();
@@ -92,7 +49,7 @@ export class SearchEngine {
     if (job.logs.length > 300) {
       job.logs = job.logs.slice(-300);
     }
-    const prefix = level === 'error' ? '?' : level === 'warn' ? '??' : '??';
+    const prefix = level === 'error' ? 'âŒ' : level === 'warn' ? 'âš ï¸' : 'â„¹ï¸';
     console.log(`[Search ${job.id}] ${prefix} ${message}`);
   }
 
@@ -102,18 +59,28 @@ export class SearchEngine {
       const provider = registry.getProvider(siteId);
       if (provider) return provider;
     }
-    // Ä¬ÈÏ·µ»Ø KanAV Ìá¹©Õß
     return registry.getProvider('kanav') ?? registry.getEnabledProviders()[0];
+  }
+
+  private getScrapeDeps(): ScrapeDeps {
+    return {
+      getBrowser: () => this.getBrowser(),
+      getProvider: (siteId) => this.getProvider(siteId),
+      log: (job, msg, level) => this.log(job, msg, level),
+      isCancelled: (jobId) => this.cancelledJobs.has(jobId),
+      scrapingItems: this.scrapingItems,
+      scrapeVideoPage: (browser, url, provider) => scrapeVideoPageOp(browser, url, provider),
+    };
   }
 
   async search(rawKeywords: string, siteId?: string): Promise<SearchJob> {
     const keywords = rawKeywords
-      .split(/[,£¬\n\s¡¢|]+/)
+      .split(/[,ï¼Œ\n\sã€|]+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
     if (keywords.length === 0) {
-      throw new Error('Î´Ìá¹©ÓĞĞ§¹Ø¼ü´Ê');
+      throw new Error('æœªæä¾›æœ‰æ•ˆå…³é”®è¯');
     }
 
     const provider = this.getProvider(siteId);
@@ -139,10 +106,10 @@ export class SearchEngine {
     };
 
     this.activeJobs.set(job.id, job);
-    this.log(job, `ËÑË÷ÈÎÎñÆô¶¯£¬Õ¾µã: ${provider.name} (${provider.baseUrl})£¬¹² ${keywords.length} ¸ö¹Ø¼ü´Ê`);
+    this.log(job, `å¼€å§‹æœç´¢ï¼ˆç½‘ç«™ï¼š${provider.name} ${provider.baseUrl}ï¼‰ï¼Œå…± ${keywords.length} ä¸ªå…³é”®è¯`);
 
     this.executeSearch(job, provider).catch((err) => {
-      this.log(job, `ËÑË÷ÈÎÎñÒì³£ÖÕÖ¹: ${err.message}`, 'error');
+      this.log(job, `æœç´¢ä»»åŠ¡å¼‚å¸¸ç»ˆæ­¢: ${err.message}`, 'error');
       job.status = 'failed';
     });
 
@@ -150,16 +117,7 @@ export class SearchEngine {
   }
 
   /**
-   * Ö´ĞĞËÑË÷£¨º¬×Ô¶¯·­Ò³£©¡£
-   *
-   * ËÑË÷Á÷³Ì£º
-   - ´ò¿ªËÑË÷½á¹ûµÚÒ»Ò³
-   - ÌáÈ¡ÊÓÆµÁĞ±í
-   - µÈ´ı 2~3 Ãë£¨·ÀÅÀ¼ä¸ô£©
-   - Èç¹û´æÔÚÏÂÒ»Ò³ÇÒÎ´´ïÉÏÏŞ£¬µã»÷·­Ò³
-   - ÖØ¸´ 2-4 Ö±µ½ÎŞÏÂÒ»Ò³»ò´ïµ½×î´óÒ³Êı
-   - Ó¦ÓÃ kanav ÆÁ±ÎÆ÷¹ıÂË·ÖÀà
-   - ´¦ÀíÏÂÒ»¸ö¹Ø¼ü´Ê£¨ÎŞ¹Ø¼ü´Ê¼äÑÓ³Ù£©
+   * æ‰§è¡Œæœç´¢ï¼Œè‡ªåŠ¨ç¿»é¡µå¤„ç†
    */
   private async executeSearch(job: SearchJob, provider: SiteProvider): Promise<void> {
     const browser = await this.getBrowser();
@@ -167,7 +125,7 @@ export class SearchEngine {
 
     for (let ki = 0; ki < job.keywords.length; ki++) {
       if (this.cancelledJobs.has(job.id)) {
-        this.log(job, 'ËÑË÷ÈÎÎñÒÑÈ¡Ïû', 'warn');
+        this.log(job, 'æœç´¢ä»»åŠ¡å·²å–æ¶ˆ', 'warn');
         job.status = 'cancelled';
         return;
       }
@@ -176,12 +134,11 @@ export class SearchEngine {
       const kwResult = job.results[ki];
       job.currentIndex = ki;
 
-      this.log(job, `ËÑË÷¹Ø¼ü´Ê [${ki + 1}/${job.keywords.length}]: "${keyword}"`);
+      this.log(job, `å¼€å§‹å…³é”®è¯ [${ki + 1}/${job.keywords.length}]: "${keyword}"`);
 
       const allItems: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
       const seenUrls = new Set<string>();
 
-      // URL ËÑË÷Ä£Ê½£ºµ±¹Ø¼ü´ÊÊÇÍêÕû URL ÇÒÕ¾µãÖ§³ÖÍ¼¿âÁĞ±íÒ³ÅĞ¶ÏÊ±
       const isUrlMode = /^https?:\/\//i.test(keyword);
       const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
       let skipSearch = false;
@@ -189,8 +146,7 @@ export class SearchEngine {
       if (isUrlMode && galleryProvider.isListingPage) {
         if (galleryProvider.isListingPage(keyword)) {
           if (galleryProvider.scrapeListingPage) {
-            // ÁĞ±íÒ³ URL£ºÊ¹ÓÃ provider µÄ scrapeListingPage ·½·¨ÅÀÈ¡£¨×î¶à 5 Ò³£©
-            this.log(job, `¼ì²âµ½ÁĞ±íÒ³ URL£¬Ö±½ÓÅÀÈ¡: ${keyword}`);
+            this.log(job, `æ£€æµ‹åˆ°åˆ—è¡¨é¡µ URLï¼Œç›´æ¥æŠ“å–: ${keyword}`);
             try {
               const listPage = await browser.newPage();
               await applyStealthToPage(listPage);
@@ -203,17 +159,14 @@ export class SearchEngine {
                   allItems.push(r);
                 }
               }
-              this.log(job, `ÁĞ±íÒ³ÅÀÈ¡Íê³É£¬¹² ${allItems.length} ¸ö½á¹û`);
+              this.log(job, `åˆ—è¡¨é¡µæŠ“å–å®Œæˆï¼Œè· ${allItems.length} æ¡ç»“æœ`);
               skipSearch = true;
             } catch (err) {
-              this.log(job, `ÁĞ±íÒ³ÅÀÈ¡Ê§°Ü: ${err instanceof Error ? err.message : String(err)}`, 'warn');
-              // Ê§°ÜÊ±»ØÍËµ½Í¨ÓÃËÑË÷Á÷³Ì
+              this.log(job, `åˆ—è¡¨é¡µæŠ“å–å¤±è´¥: ${err instanceof Error ? err.message : String(err)}`, 'warn');
             }
           }
-          // else: ÁĞ±íÒ³µ« provider Î´ÊµÏÖ scrapeListingPage ¡ú »ØÍËµ½Í¨ÓÃËÑË÷Á÷³Ì
         } else {
-          // ÎÄÕÂÏêÇéÒ³ URL£º´ò¿ªÒ³ÃæÌáÈ¡±êÌâºÍ·âÃæ
-          this.log(job, `¼ì²âµ½ÎÄÕÂÒ³ URL£¬ÌáÈ¡ĞÅÏ¢: ${keyword}`);
+          this.log(job, `æ£€æµ‹åˆ°è¯¦æƒ…é¡µ URLï¼ŒæŠ“å–ä¿¡æ¯: ${keyword}`);
           try {
             const metaPage = await browser.newPage();
             await applyStealthToPage(metaPage);
@@ -223,13 +176,11 @@ export class SearchEngine {
             let articleTitle = keyword;
             let articleCover: string | undefined;
 
-            // Ê¹ÓÃ provider µÄÀ©Õ¹ÔªĞÅÏ¢ÌáÈ¡·½·¨»ñÈ¡±êÌâ
             if (galleryProvider.extractExtendedMetadata) {
               try {
                 const metadata = await galleryProvider.extractExtendedMetadata(metaPage);
                 if (metadata.title) articleTitle = metadata.title;
-              } catch {
-              }
+              } catch {}
             }
 
             const rawCover = await metaPage.evaluate(() => {
@@ -253,10 +204,10 @@ export class SearchEngine {
               ? galleryProvider.normalizeUrl(keyword)
               : keyword;
             allItems.push({ url: normalizedUrl, title: articleTitle, coverUrl: articleCover });
-            this.log(job, `ÎÄÕÂÒ³ĞÅÏ¢ÌáÈ¡³É¹¦: "${articleTitle}"`);
+            this.log(job, `è¯¦æƒ…é¡µä¿¡æ¯æŠ“å–æˆåŠŸ: "${articleTitle}"`);
             skipSearch = true;
           } catch (err) {
-            this.log(job, `ÎÄÕÂÒ³ URL ÌáÈ¡Ê§°Ü: ${err instanceof Error ? err.message : String(err)}`, 'warn');
+            this.log(job, `è¯¦æƒ…é¡µ URL æŠ“å–å¤±è´¥: ${err instanceof Error ? err.message : String(err)}`, 'warn');
             const normalizedUrl = galleryProvider.normalizeUrl
               ? galleryProvider.normalizeUrl(keyword)
               : keyword;
@@ -282,13 +233,11 @@ export class SearchEngine {
           kwResult.retries = retry;
 
           const searchPageUrl = searchUrls[Math.min(searchUrlIdx, searchUrls.length - 1)];
-          this.log(job, `ËÑË÷ URL: ${searchPageUrl}`);
+          this.log(job, `æœç´¢ URL: ${searchPageUrl}`);
 
           const page = await browser.newPage();
           await applyStealthToPage(page);
 
-          // Õ¾µãÌØ¶¨µÄä¯ÀÀÆ÷ÉÏÏÂÎÄÅäÖÃ£¨Èç ExHentai Cookie ×¢Èë£©
-          const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
           if (galleryProvider.setupBrowserContext) {
             await galleryProvider.setupBrowserContext(page.context());
           }
@@ -301,7 +250,7 @@ export class SearchEngine {
           const httpStatus = response?.status();
           if (httpStatus === 403 || httpStatus === 429) {
             const domain = extractDomainFromUrl(searchPageUrl);
-            this.log(job, `ÓòÃû ${searchPageUrl} ·µ»Ø ${httpStatus}£¨ÏŞÁ÷£©£¬ÇĞ»»ËÑË÷ÓòÃû`, 'warn');
+            this.log(job, `è®¿é—® ${searchPageUrl} è¿”å› ${httpStatus}ï¼Œå°è¯•åˆ‡æ¢å¤‡ç”¨åŸŸå`, 'warn');
             if (domain && provider.markDomainRateLimited) {
               provider.markDomainRateLimited(domain);
             }
@@ -309,17 +258,14 @@ export class SearchEngine {
             searchUrlIdx++;
             if (searchUrlIdx < searchUrls.length) {
               const delay = backoffDelay(retry);
-              this.log(job, `µÈ´ı ${(delay / 1000).toFixed(0)}s ºóÇĞ»»ÓòÃûÖØÊÔ...`);
+              this.log(job, `ç­‰å¾… ${(delay / 1000).toFixed(0)}s ååˆ‡æ¢å¤‡ç”¨åŸŸå...`);
               await sleep(delay);
-              // ²»ÏûºÄ retry Åä¶î£¬»»ÓòÃûÖØÊÔ
               retry--;
               continue;
             }
-            throw new Error(`ËùÓĞËÑË÷ÓòÃû¾ù·µ»Ø ${httpStatus}£¨ÏŞÁ÷£©`);
+            throw new Error(`æ‰€æœ‰åŸŸåå‡è¿”å› ${httpStatus}ï¼Œæœç´¢å¤±è´¥`);
           }
 
-          // µÈ´ıËÑË÷½á¹ûäÖÈ¾Íê³É£¨×î¶àµÈ 5s£¬ÌáÇ°³öÏÖ¼´Ìø¹ı£©
-          // °üº¬ WordPress£¨article£©¡¢ÊÓÆµÕ¾Ñ¡ÔñÆ÷ºÍ E-Hentai£¨.itg, #gdt£©Ñ¡ÔñÆ÷
           await page.waitForSelector(
             'article, .stui-vodlist__item, .vodlist_item, .module-search-item, .module-item, .searchlist_item, .list-item, .video-item, .movie-item, .itg, #gdt',
             { timeout: 5000 }
@@ -331,7 +277,7 @@ export class SearchEngine {
               return;
             }
 
-            this.log(job, `ÕıÔÚÌáÈ¡µÚ ${pageNum} Ò³½á¹û`);
+            this.log(job, `å¼€å§‹æŠ“å–ç¬¬ ${pageNum} é¡µç»“æœ`);
 
             const pageResults = await provider.extractSearchResults(page);
 
@@ -344,20 +290,18 @@ export class SearchEngine {
               }
             }
 
-            this.log(job, `µÚ ${pageNum} Ò³ĞÂÔö ${newCount} ¸ö½á¹û£¨ÀÛ¼Æ ${allItems.length}£©`);
+            this.log(job, `ç¬¬ ${pageNum} é¡µæ–°å¢ ${newCount} æ¡ç»“æœï¼ˆç´¯è®¡ ${allItems.length}ï¼‰`);
 
-            if (pageNum >= MAX_PAGES_PER_KEYWORD || newCount === 0) {
-              break;
-            }
+            if (pageNum >= MAX_PAGES_PER_KEYWORD || newCount === 0) break;
 
-            const hasNextPage = await this.goToNextPage(page, pageNum + 1);
+            const hasNextPage = await goToNextPage(page, pageNum + 1);
             if (!hasNextPage) {
-              this.log(job, 'ÒÑÎŞÏÂÒ»Ò³');
+              this.log(job, 'æ²¡æœ‰ä¸‹ä¸€é¡µ');
               break;
             }
 
             const delay = randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX);
-            this.log(job, `·­Ò³¼ä¸ô ${(delay / 1000).toFixed(1)}s`);
+            this.log(job, `ç¿»é¡µé—´éš” ${(delay / 1000).toFixed(1)}s`);
             await sleep(delay);
           }
 
@@ -371,22 +315,21 @@ export class SearchEngine {
 
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          this.log(job, `ËÑË÷¹Ø¼ü´Ê "${keyword}" Ê§°Ü£¨µÚ ${retry + 1} ´Î£©: ${errMsg}`, 'warn');
+          this.log(job, `æœç´¢å…³é”®è¯ "${keyword}" å¤±è´¥ï¼ˆç¬¬ ${retry + 1} æ¬¡ï¼‰: ${errMsg}`, 'warn');
 
           if (retry < MAX_RETRIES - 1) {
             const delay = backoffDelay(retry);
-            this.log(job, `µÈ´ı ${(delay / 1000).toFixed(0)}s ºóÖØÊÔ...`);
+            this.log(job, `ç­‰å¾… ${(delay / 1000).toFixed(0)}s åé‡è¯•...`);
             await sleep(delay);
           } else {
             kwResult.status = 'failed';
-            kwResult.error = `ËÑË÷Ê§°Ü: ${errMsg}`;
-            this.log(job, `¹Ø¼ü´Ê "${keyword}" ËÑË÷³¹µ×Ê§°Ü`, 'error');
+            kwResult.error = `æœç´¢å¤±è´¥: ${errMsg}`;
+            this.log(job, `å…³é”®è¯ "${keyword}" æœç´¢å…¨éƒ¨å¤±è´¥`, 'error');
             continue;
           }
         }
       }
 
-      // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú¹ıÂËÆÁ±ÎÄÚÈİ
       let filteredItems = allItems;
       const beforeFilter = filteredItems.length;
       filteredItems = filteredItems.filter((item) => {
@@ -395,13 +338,11 @@ export class SearchEngine {
       });
       const blockedCount = beforeFilter - filteredItems.length;
       if (blockedCount > 0) {
-        this.log(job, `ÄÚÈİÆÁ±ÎÆ÷¹ıÂËÁË ${blockedCount} ¸öÊÓÆµ`);
+        this.log(job, `å†…å®¹è¿‡æ»¤å·²æ‹¦æˆª ${blockedCount} ä¸ªè§†é¢‘`);
       }
 
-      // ÏŞÖÆ½á¹ûÊıÁ¿
       filteredItems = filteredItems.slice(0, MAX_RESULTS_PER_KEYWORD);
 
-      // Ìî³ä½á¹û
       kwResult.items = filteredItems.map((v) => ({
         pageUrl: v.url,
         title: v.title || v.url,
@@ -413,527 +354,25 @@ export class SearchEngine {
       job.totalFound += filteredItems.length;
 
       kwResult.status = 'completed';
-      this.log(job, `¹Ø¼ü´Ê "${keyword}" ËÑË÷Íê³É£¬ÕÒµ½ ${filteredItems.length} ¸öÊÓÆµ`);
+      this.log(job, `å…³é”®è¯ "${keyword}" æœç´¢å®Œæˆï¼Œæ‰¾åˆ° ${filteredItems.length} ä¸ªè§†é¢‘`);
     }
 
     job.status = 'completed';
     job.completedAt = new Date().toISOString();
     eventBus.emit('search:completed', { jobId: job.id, totalFound: job.totalFound, totalDownloaded: job.totalDownloaded });
-    this.log(job, `?? ËÑË÷ÈÎÎñÈ«²¿Íê³É£¡¹²ÕÒµ½ ${job.totalFound} ¸öÊÓÆµ`);
+    this.log(job, `ğŸ‰ æœç´¢ä»»åŠ¡å…¨éƒ¨å®Œæˆï¼æ‰¾åˆ° ${job.totalFound} ä¸ªè§†é¢‘`);
   }
 
-  /**
-   * ·­µ½ÏÂÒ»Ò³¡£
-   *
-   * ·­Ò³²ßÂÔ£¨°´ÓÅÏÈ¼¶£©£º
-   - WordPress ËÑË÷ URL£¨?s=keyword£©£ºÂ·¾¶Ê½·ÖÒ³ /page/N/?s=keyword
-   *    ¡ª °®ÃÃ×ÓÕ¾µã×Ô¶¨ÒåÖ÷Ìâ²»Ö§³Ö ?paged=N ²ÎÊı£¬±ØĞëÓÃÂ·¾¶Ê½·ÖÒ³
-   - Â·¾¶Ê½·­Ò³£º/tag/xxx/page/2/£¨Ö§³ÖÊ×´Î·­Ò³£º/tag/xxx/ ¡ú /tag/xxx/page/2/£©
-   - Í¨ÓÃ·ÖÒ³ÈİÆ÷¼ì²â + µã»÷ / URL ¶µµ×
-   *
-   */
-  private async goToNextPage(page: import('playwright').Page, pageNum: number): Promise<boolean> {
-    const currentUrl = page.url();
-    const parsed = new URL(currentUrl);
-
-    // °®ÃÃ×ÓÕ¾µã×Ô¶¨Òå WordPress Ö÷Ìâ²»Ö§³Ö ?paged=N ²ÎÊı£¨±»ºöÂÔ£¬·µ»ØµÚ 1 Ò³£©£¬
-    // ±ØĞëÊ¹ÓÃÂ·¾¶Ê½·ÖÒ³£º/page/N/?s=keyword
-    if (parsed.searchParams.has('s')) {
-      parsed.searchParams.delete('paged');
-      const searchParams = parsed.searchParams.toString();
-      const nextUrl = `${parsed.origin}/page/${pageNum}/${searchParams ? '?' + searchParams : ''}`;
-      console.log(`[goToNextPage] WordPress ËÑË÷Â·¾¶·­Ò³: ${currentUrl} ¡ú ${nextUrl}`);
-      try {
-        const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        console.log(`[goToNextPage] Ìø×ªÏìÓ¦×´Ì¬: ${response?.status()}, µ±Ç°URL: ${page.url()}`);
-
-        // µÈ´ıÎÄÕÂÔªËØ¼ÓÔØ£¨WordPress ËÑË÷½á¹ûÓÃ article ±êÇ©£©
-        await page.waitForSelector('article', { timeout: 5000 }).catch(() => {});
-        await page.waitForTimeout(1000);
-
-        // ÑéÖ¤ URL ÊÇ·ñÕæÕı±ä»¯
-        if (page.url() === currentUrl) {
-          console.log(`[goToNextPage] URL Î´±ä»¯£¬·­Ò³Ê§°Ü`);
-          return false;
-        }
-
-        const hasArticles = await page.locator('article').first().isVisible({ timeout: 2000 }).catch(() => false);
-        if (!hasArticles) {
-          console.log(`[goToNextPage] Ò³ÃæÎŞ article ÔªËØ£¬¿ÉÄÜÒÑµ½×îºóÒ»Ò³`);
-          return false;
-        }
-
-        console.log(`[goToNextPage] WordPress ËÑË÷Â·¾¶·­Ò³³É¹¦`);
-        return true;
-      } catch (err) {
-        console.log(`[goToNextPage] WordPress ËÑË÷Â·¾¶·­Ò³Ê§°Ü: ${err instanceof Error ? err.message : String(err)}`);
-        return false;
-      }
-    }
-
-    const path = parsed.pathname.replace(/\/$/, '');
-
-    if (/\/page\/\d+\/?$/.test(path)) {
-      const nextPath = path.replace(/\/page\/\d+\/?$/, `/page/${pageNum}/`);
-      const nextUrl = `${parsed.origin}${nextPath}${parsed.search}`;
-      console.log(`[goToNextPage] Â·¾¶·­Ò³(Ìæ»»): ${currentUrl} ¡ú ${nextUrl}`);
-      try {
-        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        await page.waitForTimeout(800);
-        if (page.url() === currentUrl) return false;
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    // ÅÅ³ıÎÄÕÂÏêÇéÒ³ºÍÊ×Ò³
-    if (pageNum > 1 && !path.includes('/article/') && path !== '' && path !== '/') {
-      const nextUrl = `${parsed.origin}${path}/page/${pageNum}/${parsed.search}`;
-      console.log(`[goToNextPage] Â·¾¶·­Ò³(×·¼Ó): ${currentUrl} ¡ú ${nextUrl}`);
-      try {
-        const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        if (response?.status() === 404) {
-          console.log(`[goToNextPage] Â·¾¶·­Ò³ 404£¬ÒÑµ½×îºóÒ»Ò³`);
-          return false;
-        }
-        await page.waitForTimeout(800);
-        if (page.url() === currentUrl) return false;
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    const hasPagination = await page.locator(
-      '.pagination, .pagenavi, .mac_pages, .pages, .page-box, .nav-links, nav[aria-label="Pagination"], .page-navigator'
-    ).first().isVisible({ timeout: 1000 }).catch(() => false);
-
-    if (!hasPagination) {
-      console.log(`[goToNextPage] ÎŞ·ÖÒ³ÈİÆ÷£¬²»·­Ò³`);
-      return false;
-    }
-
-    // ³¢ÊÔµã»÷·ÖÒ³°´Å¥
-    const nextSelectors = [
-      `.pagination a:has-text("${pageNum}")`,
-      `.pagenavi a:has-text("${pageNum}")`,
-      `a[onclick*="page"][onclick*="${pageNum}"]`,
-      `.mac_pages a:has-text("${pageNum}")`,
-      `a[href*="page=${pageNum}"]`,
-      `a[href*="paged=${pageNum}"]`,
-      `.pagination a.next`,
-      `a:has-text("ÏÂÒ»Ò³")`,
-      `a:has-text("Next")`,
-      `.mac_pages a.next`,
-      `a.next.page-numbers`,
-      `nav[aria-label="Pagination"] a[rel="next"]`,
-      `.nav-links a.next`,
-      // E-Hentai ÏÂÒ»Ò³Ñ¡ÔñÆ÷
-      `a#dnext`,
-    ];
-
-    for (const sel of nextSelectors) {
-      try {
-        const el = page.locator(sel).first();
-        if (await el.isVisible({ timeout: 300 }).catch(() => false)) {
-          console.log(`[goToNextPage] µã»÷Ñ¡ÔñÆ÷: ${sel}`);
-          await el.click({ timeout: 1000 }).catch(() => {});
-          await page.waitForTimeout(800);
-          // ÑéÖ¤ URL ÊÇ·ñ±ä»¯
-          if (page.url() === currentUrl) {
-            console.log(`[goToNextPage] µã»÷ºó URL Î´±ä»¯£¬³¢ÊÔÏÂÒ»¸öÑ¡ÔñÆ÷`);
-            continue;
-          }
-          return true;
-        }
-      } catch {
-      }
-    }
-
-    // Í¨ÓÃ URL ·­Ò³¶µµ×
-    try {
-      if (currentUrl.includes('page=')) {
-        const nextUrl = currentUrl.replace(/page=\d+/, `page=${pageNum}`);
-        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        await page.waitForTimeout(800);
-        return page.url() !== currentUrl;
-      }
-
-      const nextUrl = `${currentUrl}${currentUrl.includes('?') ? '&' : '?'}page=${pageNum}`;
-      await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-      await page.waitForTimeout(800);
-      return page.url() !== currentUrl;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * ÅÀÈ¡µ¥¸öÊÓÆµÒ³Ãæ¡£
-   */
   async scrapeVideo(jobId: string, itemUrl: string): Promise<SearchItem | null> {
     const job = this.activeJobs.get(jobId);
     if (!job) return null;
-
-    let targetItem: SearchItem | null = null;
-
-    for (let ki = 0; ki < job.results.length; ki++) {
-      for (let vi = 0; vi < job.results[ki].items.length; vi++) {
-        if (job.results[ki].items[vi].pageUrl === itemUrl) {
-          targetItem = job.results[ki].items[vi];
-          break;
-        }
-      }
-      if (targetItem) break;
-    }
-
-    if (!targetItem) return null;
-
-    const itemKey = `${jobId}:${itemUrl}`;
-    if (this.scrapingItems.has(itemKey)) {
-      this.log(job, `ÊÓÆµÒÑÔÚÅÀÈ¡ÖĞ: ${targetItem.title}`, 'warn');
-      return targetItem;
-    }
-
-    // TTL Ëø·ÀÖ¹¿ç job ÖØ¸´ÅÀÈ¡Í¬Ò» URL
-    const lockKey = `scrape:${itemUrl}`;
-    const lockHandle = await ttlLock.acquire(lockKey, { ttl: 60000 });
-    if (!lockHandle) {
-      this.log(job, `ÊÓÆµÕıÔÚ±»ÆäËûÈÎÎñÅÀÈ¡: ${targetItem.title}`, 'warn');
-      return targetItem;
-    }
-
-    this.scrapingItems.add(itemKey);
-
-    const provider = this.getProvider(job.siteId);
-
-    targetItem.status = 'scraping';
-    this.log(job, `¿ªÊ¼ÅÀÈ¡: ${targetItem.title || targetItem.pageUrl}`);
-
-    try {
-      // Í¼¿âÕ¾µã£¨°®ÃÃ×ÓµÈ£©×ßÍ¼¿â´¦ÀíÁ÷³Ì£¬²»³¢ÊÔÌáÈ¡ M3U8
-      const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
-      if (typeof galleryProvider.scrapeGallery === 'function') {
-        eventBus.emit('scrape:started', { pageUrl: targetItem.pageUrl });
-
-        const galleryResult = await createGalleryTask(targetItem.pageUrl, galleryProvider as SiteProvider & GallerySiteProvider);
-
-        if (galleryResult.duplicate) {
-          targetItem.status = 'failed';
-          targetItem.error = `ÖØ¸´: ${galleryResult.existingStatus ?? 'ÒÑ´æÔÚ'}`;
-          this.log(job, `?? Í¼°üÒÑ´æÔÚ: ${targetItem.title} ¡ª ×´Ì¬: ${galleryResult.existingStatus ?? 'Î´Öª'}`, 'warn');
-          job.totalFailed += 1;
-          return { ...targetItem };
-        }
-
-        targetItem.taskId = galleryResult.galleryId;
-        targetItem.status = 'downloaded';
-        this.log(job, `? ´´½¨Í¼¿âÈÎÎñ #${galleryResult.seq}: ${targetItem.title || targetItem.pageUrl}`);
-
-        eventBus.emit('scrape:completed', {
-          pageUrl: targetItem.pageUrl,
-          m3u8Url: '',
-          title: targetItem.title,
-        });
-        eventBus.emit('task:created', {
-          taskId: galleryResult.galleryId,
-          title: targetItem.title,
-          source: 'search',
-        });
-
-        job.totalDownloaded += 1;
-        return { ...targetItem };
-      }
-
-      const browser = await this.getBrowser();
-      const scrapeResult = await this.scrapeVideoPage(browser, targetItem.pageUrl, provider);
-      eventBus.emit('scrape:started', { pageUrl: targetItem.pageUrl });
-
-      if (scrapeResult.m3u8_url) {
-        targetItem.m3u8Url = scrapeResult.m3u8_url;
-        targetItem.status = 'downloaded';
-
-        if (scrapeResult.title && scrapeResult.title.length > 0) {
-          targetItem.title = scrapeResult.title;
-        }
-
-        // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú½øĞĞÄÚÈİÆÁ±Î¼ì²é
-        {
-          const blockCheck = provider.checkContentBlocked(
-            scrapeResult.title,
-            scrapeResult.categories.join(','),
-            scrapeResult.actors[0],
-          );
-          if (blockCheck.blocked) {
-            targetItem.status = 'failed';
-            targetItem.error = `ÆÁ±Î: ${blockCheck.reason}`;
-            this.log(job, `ÆÁ±ÎÊÓÆµ: ${targetItem.title} ¡ª ${blockCheck.reason}`, 'warn');
-            job.totalFailed += 1;
-            return { ...targetItem };
-          }
-        }
-
-        const searchSeq = await allocateSeq();
-        const task = await prisma.downloadTask.create({
-          data: {
-            url: targetItem.pageUrl,
-            m3u8Url: scrapeResult.m3u8_url,
-            format: 'mp4',
-            status: 'pending',
-            seq: searchSeq,
-            videoInfo: {
-              create: {
-                title: scrapeResult.title || targetItem.title || '',
-                sourceUrl: targetItem.pageUrl,
-                tags: JSON.stringify(scrapeResult.tags || []),
-                actors: JSON.stringify(scrapeResult.actors || []),
-                categories: JSON.stringify(scrapeResult.categories || []),
-                director: scrapeResult.director || '',
-              },
-            },
-          },
-          include: { videoInfo: true },
-        });
-
-        targetItem.taskId = task.id;
-        this.log(job, `? ´´½¨ÏÂÔØÈÎÎñ #${task.id}: ${scrapeResult.title || targetItem.title}`);
-
-        eventBus.emit('task:created', {
-          taskId: task.id,
-          title: scrapeResult.title || targetItem.title,
-          source: 'search',
-        });
-
-        const dm = getDownloadManager();
-        const dlTask = mapTask(task);
-        const newTaskId = task.id;
-        taskQueueManager.acquireSlot('video', newTaskId).then(async (acquired) => {
-          if (!acquired) {
-            this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} ÔÚÅÅ¶ÓµÈ´ıÖĞ±»È¡Ïû`, 'warn');
-            return;
-          }
-          const currentTask = await prisma.downloadTask.findUnique({ where: { id: newTaskId } });
-          if (!currentTask || currentTask.status === 'cancelled' || currentTask.status === 'paused') {
-            taskQueueManager.releaseSlot('video', newTaskId);
-            return;
-          }
-          dm.startDownload(dlTask).catch((err) => {
-            this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} Æô¶¯Ê§°Ü: ${err.message}`, 'error');
-            eventBus.emit('task:failed', { taskId: newTaskId, error: err.message });
-          });
-        });
-
-        job.totalDownloaded += 1;
-      } else {
-        throw new Error('Î´ÕÒµ½ M3U8 URL');
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      targetItem.status = 'failed';
-      targetItem.error = `ÅÀÈ¡Ê§°Ü: ${errMsg}`;
-      this.log(job, `? ÊÓÆµÅÀÈ¡Ê§°Ü: ${targetItem.title || targetItem.pageUrl} ¡ª ${errMsg}`, 'error');
-      eventBus.emit('scrape:failed', { pageUrl: targetItem.pageUrl, error: errMsg });
-      job.totalFailed += 1;
-    } finally {
-      this.scrapingItems.delete(itemKey);
-      if (lockHandle) ttlLock.releaseHandle(lockHandle);
-    }
-
-    return { ...targetItem };
+    return scrapeVideoOp(jobId, itemUrl, job, this.getScrapeDeps());
   }
 
-  /**
-   * ÅúÁ¿ÅÀÈ¡ËùÓĞ pending ÊÓÆµ¡£
-   */
   async scrapeAll(jobId: string): Promise<void> {
     const job = this.activeJobs.get(jobId);
     if (!job) return;
-
-    this.log(job, `¿ªÊ¼ÅúÁ¿ÅÀÈ¡£¬¹² ${job.totalFound} ¸öÊÓÆµ`);
-    const browser = await this.getBrowser();
-    const provider = this.getProvider(job.siteId);
-
-    for (const kwResult of job.results) {
-      for (const item of kwResult.items) {
-        if (this.cancelledJobs.has(jobId)) return;
-        if (item.status !== 'pending') continue;
-
-        const itemKey = `${jobId}:${item.pageUrl}`;
-        if (this.scrapingItems.has(itemKey)) continue;
-
-        const lockKey = `scrape:${item.pageUrl}`;
-        const lockHandle = await ttlLock.acquire(lockKey, { ttl: 60000 });
-        if (!lockHandle) {
-          this.log(job, `ÊÓÆµÕıÔÚ±»ÆäËûÈÎÎñÅÀÈ¡: ${item.title}`, 'warn');
-          continue;
-        }
-
-        this.scrapingItems.add(itemKey);
-
-        item.status = 'scraping';
-        this.log(job, `ÅÀÈ¡: ${item.title || item.pageUrl}`);
-        eventBus.emit('scrape:started', { pageUrl: item.pageUrl });
-
-        try {
-          // Í¼¿âÕ¾µã£¨°®ÃÃ×ÓµÈ£©×ßÍ¼¿â´¦ÀíÁ÷³Ì
-          const batchGalleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
-          if (typeof batchGalleryProvider.scrapeGallery === 'function') {
-            const galleryResult = await createGalleryTask(item.pageUrl, batchGalleryProvider as SiteProvider & GallerySiteProvider);
-
-            if (galleryResult.duplicate) {
-              item.status = 'failed';
-              item.error = `ÖØ¸´: ${galleryResult.existingStatus ?? 'ÒÑ´æÔÚ'}`;
-              job.totalFailed += 1;
-              this.log(job, `?? Í¼°üÒÑ´æÔÚ: ${item.title} ¡ª ×´Ì¬: ${galleryResult.existingStatus ?? 'Î´Öª'}`, 'warn');
-              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: 'ÖØ¸´Í¼°ü' });
-            } else {
-              item.taskId = galleryResult.galleryId;
-              item.status = 'downloaded';
-              this.log(job, `? ´´½¨Í¼¿âÈÎÎñ #${galleryResult.seq}: ${item.title || item.pageUrl}`);
-
-              eventBus.emit('scrape:completed', {
-                pageUrl: item.pageUrl,
-                m3u8Url: '',
-                title: item.title,
-              });
-              eventBus.emit('task:created', {
-                taskId: galleryResult.galleryId,
-                title: item.title,
-                source: 'batch',
-              });
-              job.totalDownloaded += 1;
-            }
-          } else {
-          const scrapeResult = await this.scrapeVideoPage(browser, item.pageUrl, provider);
-
-          if (scrapeResult.m3u8_url) {
-            item.m3u8Url = scrapeResult.m3u8_url;
-            item.status = 'downloaded';
-
-            if (scrapeResult.title && scrapeResult.title.length > 0) {
-              item.title = scrapeResult.title;
-            }
-
-          // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú½øĞĞÄÚÈİÆÁ±Î¼ì²é
-          {
-            const blockCheck = provider.checkContentBlocked(
-              scrapeResult.title,
-              scrapeResult.categories.join(','),
-              scrapeResult.actors[0],
-            );
-            if (blockCheck.blocked) {
-              item.status = 'failed';
-              item.error = `ÆÁ±Î: ${blockCheck.reason}`;
-              job.totalFailed += 1;
-              this.log(job, `ÆÁ±ÎÊÓÆµ: ${item.title} ¡ª ${blockCheck.reason}`, 'warn');
-              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: blockCheck.reason || 'Î´ÖªÔ­Òò' });
-              continue;
-            }
-          }
-
-            const searchSeq2 = await allocateSeq();
-            const task = await prisma.downloadTask.create({
-              data: {
-                url: item.pageUrl,
-                m3u8Url: scrapeResult.m3u8_url,
-                format: 'mp4',
-                status: 'pending',
-                seq: searchSeq2,
-                videoInfo: {
-                  create: {
-                    title: scrapeResult.title || item.title || '',
-                    sourceUrl: item.pageUrl,
-                    tags: JSON.stringify(scrapeResult.tags || []),
-                    actors: JSON.stringify(scrapeResult.actors || []),
-                    categories: JSON.stringify(scrapeResult.categories || []),
-                    director: scrapeResult.director || '',
-                  },
-                },
-              },
-              include: { videoInfo: true },
-            });
-
-            item.taskId = task.id;
-            this.log(job, `? ´´½¨ÏÂÔØÈÎÎñ #${task.id}: ${scrapeResult.title || item.title}`);
-
-            eventBus.emit('scrape:completed', {
-              pageUrl: item.pageUrl,
-              m3u8Url: scrapeResult.m3u8_url,
-              title: scrapeResult.title || item.title,
-            });
-
-            eventBus.emit('task:created', {
-              taskId: task.id,
-              title: scrapeResult.title || item.title,
-              source: 'search',
-            });
-
-            const dm = getDownloadManager();
-            const dlTask = mapTask(task);
-            const newTaskId = task.id;
-            taskQueueManager.acquireSlot('video', newTaskId).then(async (acquired) => {
-              if (!acquired) {
-                this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} ÔÚÅÅ¶ÓµÈ´ıÖĞ±»È¡Ïû`, 'warn');
-                return;
-              }
-              const currentTask = await prisma.downloadTask.findUnique({ where: { id: newTaskId } });
-              if (!currentTask || currentTask.status === 'cancelled' || currentTask.status === 'paused') {
-                taskQueueManager.releaseSlot('video', newTaskId);
-                return;
-              }
-              dm.startDownload(dlTask).catch((err) => {
-                this.log(job, `ÏÂÔØÈÎÎñ #${newTaskId} Æô¶¯Ê§°Ü: ${err.message}`, 'error');
-                eventBus.emit('task:failed', { taskId: newTaskId, error: err.message });
-              });
-            });
-
-            job.totalDownloaded += 1;
-          } else {
-            throw new Error('Î´ÕÒµ½ M3U8 URL');
-          }
-          }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          item.status = 'failed';
-          item.error = `ÅÀÈ¡Ê§°Ü: ${errMsg}`;
-          this.log(job, `? ÅÀÈ¡Ê§°Ü: ${item.title || item.pageUrl} ¡ª ${errMsg}`, 'error');
-          eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: errMsg });
-          job.totalFailed += 1;
-        } finally {
-          this.scrapingItems.delete(itemKey);
-          if (lockHandle) ttlLock.releaseHandle(lockHandle);
-        }
-
-        await sleep(gaussianDelay((PAGE_DELAY_MIN + PAGE_DELAY_MAX) / 2, 200));
-      }
-    }
-
-    this.log(job, `?? ÅúÁ¿ÅÀÈ¡Íê³É£¡³É¹¦ ${job.totalDownloaded}£¬Ê§°Ü ${job.totalFailed}`);
-  }
-
-  private async scrapeVideoPage(
-    browser: Browser,
-    pageUrl: string,
-    provider: SiteProvider
-  ): Promise<ScrapeResult> {
-    const page = await browser.newPage();
-    await applyStealthToPage(page, undefined, provider.baseUrl);
-
-    try {
-      await page.goto(pageUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-
-      const result = await provider.scrapePage(page, pageUrl);
-
-      await page.close();
-      return result;
-    } catch (err) {
-      await page.close().catch(() => {});
-      throw err;
-    }
+    await scrapeAllOp(jobId, job, this.getScrapeDeps());
   }
 
   getJob(jobId: string): SearchJob | undefined {
@@ -952,26 +391,8 @@ export class SearchEngine {
     return false;
   }
 
-  private logBatch(job: BatchSearchJob, message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
-    const entry: SearchLogEntry = {
-      time: new Date().toISOString(),
-      message,
-      level,
-    };
-    job.logs.push(entry);
-    if (job.logs.length > 500) {
-      job.logs = job.logs.slice(-500);
-    }
-    const prefix = level === 'error' ? '?' : level === 'warn' ? '??' : '??';
-    console.log(`[BatchSearch ${job.id}] ${prefix} ${message}`);
-  }
-
   /**
-   * Æô¶¯ÅúÁ¿ËÑË÷ÈÎÎñ
-   *
-   * @param rawTitles - ÓÃ»§ÊäÈëµÄÔ­Ê¼ÎÄ±¾£¨Ã¿ĞĞÒ»¸ö±êÌâ£©
-   * @param siteId - Õ¾µã ID£¬Ä¬ÈÏ kanav
-   * @returns BatchSearchJob
+   * å¯åŠ¨æ‰¹é‡æ ‡é¢˜æœç´¢
    */
   async batchSearch(rawTitles: string, siteId?: string): Promise<BatchSearchJob> {
     const titles = rawTitles
@@ -980,7 +401,7 @@ export class SearchEngine {
       .filter((s) => s.length > 0);
 
     if (titles.length === 0) {
-      throw new Error('Î´Ìá¹©ÓĞĞ§±êÌâ');
+      throw new Error('æœªæä¾›æœ‰æ•ˆæ ‡é¢˜');
     }
 
     const provider = this.getProvider(siteId);
@@ -1007,298 +428,20 @@ export class SearchEngine {
     };
 
     this.batchJobs.set(job.id, job);
-    this.logBatch(job, `ÅúÁ¿ËÑË÷ÈÎÎñÆô¶¯£¬Õ¾µã: ${provider.name}£¬¹² ${titles.length} ¸ö±êÌâ`);
+    logBatch(job, `å¼€å§‹æ‰¹é‡æœç´¢ï¼ˆç½‘ç«™ï¼š${provider.name}ï¼‰ï¼Œå…± ${titles.length} ä¸ªæ ‡é¢˜`);
 
-    this.executeBatchSearch(job, provider).catch((err) => {
-      this.logBatch(job, `ÅúÁ¿ËÑË÷ÈÎÎñÒì³£ÖÕÖ¹: ${err.message}`, 'error');
+    const deps: BatchSearchDeps = {
+      getBrowser: () => this.getBrowser(),
+      isCancelled: (jobId) => this.cancelledBatchJobs.has(jobId),
+      scrapeVideoPage: (browser, url, prov) => scrapeVideoPageOp(browser, url, prov),
+    };
+
+    executeBatchSearch(job, provider, deps).catch((err) => {
+      logBatch(job, `æ‰¹é‡æœç´¢ä»»åŠ¡å¼‚å¸¸ç»ˆæ­¢: ${err.message}`, 'error');
       job.status = 'failed';
     });
 
     return job;
-  }
-
-  /**
-   * Ö´ĞĞÅúÁ¿ËÑË÷
-   *
-   * ¶ÔÃ¿¸ö±êÌâ£º
-   - ÒÔ±êÌâÎª¹Ø¼ü´ÊËÑË÷£¨×î¶à·­ 2 Ò³£©
-   - ÓÃ provider.cleanTitle ÇåÏ´½á¹û±êÌâ
-   - ¼ÆËãÏàËÆ¶È£¬Ñ¡È¡×î¼ÑÆ¥Åä
-   - ·ÖÊı ¡İ ãĞÖµ ¡ú ÅÀÈ¡ÊÓÆµÒ³ ¡ú ´´½¨ÏÂÔØÈÎÎñ
-   - ·ÖÊı < ãĞÖµ ¡ú ±ê¼Ç not_found
-   - ÖÇÄÜµ÷¶È£º¶ÌÖÜÆÚĞİÏ¢ 10-30s£¬³¤ÖÜÆÚĞİÏ¢ 20-40min
-   *
-   */
-  private async executeBatchSearch(job: BatchSearchJob, provider: SiteProvider): Promise<void> {
-    const browser = await this.getBrowser();
-
-    const scheduler = new BatchScheduler({
-      onLog: (msg: string) => this.logBatch(job, msg),
-    });
-
-    for (let ti = 0; ti < job.titles.length; ti++) {
-      if (this.cancelledBatchJobs.has(job.id)) {
-        this.logBatch(job, 'ÅúÁ¿ËÑË÷ÈÎÎñÒÑÈ¡Ïû', 'warn');
-        job.status = 'cancelled';
-        return;
-      }
-
-      // ÖÇÄÜµ÷¶È£º¼ì²éÊÇ·ñĞèÒªĞİÏ¢
-      await scheduler.waitIfNeeded();
-
-      const title = job.titles[ti];
-      const result = job.results[ti];
-      job.currentIndex = ti;
-
-      this.logBatch(job, `´¦Àí±êÌâ [${ti + 1}/${job.titles.length}]: "${title}"`);
-      result.status = 'searching';
-
-      // ËÑË÷½×¶Î
-      const allItems: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
-      const seenUrls = new Set<string>();
-      let searchSuccess = false;
-
-      for (let retry = 0; retry < MAX_RETRIES; retry++) {
-        if (this.cancelledBatchJobs.has(job.id)) return;
-
-        try {
-          result.retries = retry;
-          const searchPageUrl = provider.buildSearchUrl(title);
-
-          const page = await browser.newPage();
-          await applyStealthToPage(page);
-
-          // Õ¾µãÌØ¶¨µÄä¯ÀÀÆ÷ÉÏÏÂÎÄÅäÖÃ£¨Èç ExHentai Cookie ×¢Èë£©
-          const batchGalleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
-          if (batchGalleryProvider.setupBrowserContext) {
-            await batchGalleryProvider.setupBrowserContext(page.context());
-          }
-
-          await page.goto(searchPageUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000,
-          });
-
-          // µÈ´ıËÑË÷½á¹ûäÖÈ¾Íê³É£¨×î¶àµÈ 5s£¬ÌáÇ°³öÏÖ¼´Ìø¹ı£©
-          // °üº¬ WordPress£¨article£©¡¢ÊÓÆµÕ¾Ñ¡ÔñÆ÷ºÍ E-Hentai£¨.itg, #gdt£©Ñ¡ÔñÆ÷
-          await page.waitForSelector(
-            'article, .stui-vodlist__item, .vodlist_item, .module-search-item, .module-item, .searchlist_item, .list-item, .video-item, .movie-item, .itg, #gdt',
-            { timeout: 5000 }
-          ).catch(() => {});
-
-          for (let pageNum = 1; pageNum <= BATCH_MAX_PAGES; pageNum++) {
-            if (this.cancelledBatchJobs.has(job.id)) {
-              await page.close();
-              return;
-            }
-
-            const pageResults = await provider.extractSearchResults(page);
-            let newCount = 0;
-            for (const item of pageResults) {
-              if (!seenUrls.has(item.url)) {
-                seenUrls.add(item.url);
-                allItems.push(item);
-                newCount++;
-              }
-            }
-
-            if (pageNum >= BATCH_MAX_PAGES || newCount === 0) break;
-
-            const hasNextPage = await this.goToNextPage(page, pageNum + 1);
-            if (!hasNextPage) break;
-
-            await sleep(randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX));
-          }
-
-          await page.close();
-          searchSuccess = true;
-          break;
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          this.logBatch(job, `ËÑË÷"${title}"Ê§°Ü£¨µÚ ${retry + 1} ´Î£©: ${errMsg}`, 'warn');
-          if (retry < MAX_RETRIES - 1) {
-            await sleep(backoffDelay(retry));
-          }
-        }
-      }
-
-      if (!searchSuccess) {
-        result.status = 'failed';
-        result.error = 'ËÑË÷ÇëÇóÊ§°Ü';
-        job.totalFailed++;
-        job.totalProcessed++;
-        this.logBatch(job, `? ±êÌâ"${title}"ËÑË÷³¹µ×Ê§°Ü`, 'error');
-        scheduler.markCompleted();
-        continue;
-      }
-
-      // Ä£ºıÆ¥Åä½×¶Î
-      const scored = allItems
-        .map((item) => {
-          const cleanedTitle = provider.cleanTitle(item.title || item.url);
-          const score = titleSimilarity(title, cleanedTitle);
-          return {
-            item,
-            cleanedTitle,
-            score,
-          };
-        })
-        .sort((a, b) => b.score - a.score);
-
-      result.searchResults = scored.map((s) => ({
-        pageUrl: s.item.url,
-        title: s.cleanedTitle || s.item.title,
-        coverUrl: s.item.coverUrl,
-        date: s.item.date,
-        status: 'pending' as const,
-        retries: 0,
-      }));
-
-      if (scored.length === 0 || scored[0].score < MATCH_THRESHOLD) {
-        result.status = 'not_found';
-        result.matchScore = scored.length > 0 ? scored[0].score : 0;
-        job.totalNotFound++;
-        job.totalProcessed++;
-        this.logBatch(job, `?? ±êÌâ"${title}"Î´ÕÒµ½Æ¥ÅäÊÓÆµ£¨×î¸ß·Ö: ${result.matchScore?.toFixed(2)}£©`, 'warn');
-        scheduler.markCompleted();
-        continue;
-      }
-
-      const best = scored[0];
-      result.selectedItem = result.searchResults[0];
-      result.matchScore = best.score;
-      result.status = 'found';
-      this.logBatch(job, `? Æ¥Åä³É¹¦: "${title}" ¡ú "${best.cleanedTitle}"£¨·ÖÊı: ${best.score.toFixed(2)}£©`);
-
-      // ÅÀÈ¡½×¶Î
-      result.status = 'scraping';
-      try {
-        // Í¼¿âÕ¾µã×ßÍ¼¿â´¦ÀíÁ÷³Ì
-        const batchGalleryProvider2 = provider as SiteProvider & Partial<GallerySiteProvider>;
-        if (typeof batchGalleryProvider2.scrapeGallery === 'function') {
-          const galleryResult = await createGalleryTask(best.item.url, batchGalleryProvider2 as SiteProvider & GallerySiteProvider);
-
-          if (galleryResult.duplicate) {
-            result.status = 'failed';
-            result.error = `ÖØ¸´: ${galleryResult.existingStatus ?? 'ÒÑ´æÔÚ'}`;
-            job.totalFailed++;
-            job.totalProcessed++;
-            this.logBatch(job, `?? Í¼°üÒÑ´æÔÚ: ${best.cleanedTitle} ¡ª ×´Ì¬: ${galleryResult.existingStatus ?? 'Î´Öª'}`, 'warn');
-            scheduler.markCompleted();
-            continue;
-          }
-
-          result.taskId = galleryResult.galleryId;
-          result.status = 'completed';
-          job.totalDownloaded++;
-          job.totalProcessed++;
-          this.logBatch(job, `? ´´½¨Í¼¿âÈÎÎñ #${galleryResult.seq}: ${best.cleanedTitle}`);
-          eventBus.emit('task:created', {
-            taskId: galleryResult.galleryId,
-            title: best.cleanedTitle,
-            source: 'batch',
-          });
-          scheduler.markCompleted();
-          continue;
-        }
-
-        const scrapeResult = await this.scrapeVideoPage(browser, best.item.url, provider);
-
-        if (!scrapeResult.m3u8_url) {
-          throw new Error('Î´ÕÒµ½ M3U8 URL');
-        }
-
-        if (scrapeResult.title && scrapeResult.title.length > 0) {
-          result.selectedItem.title = scrapeResult.title;
-        }
-
-        // Ê¹ÓÃ±ê×¼»¯½Ó¿Ú½øĞĞÄÚÈİÆÁ±Î¼ì²é
-        {
-          const blockCheck = provider.checkContentBlocked(
-            scrapeResult.title,
-            scrapeResult.categories.join(','),
-            scrapeResult.actors[0],
-          );
-          if (blockCheck.blocked) {
-            result.status = 'failed';
-            result.error = `ÆÁ±Î: ${blockCheck.reason}`;
-            job.totalFailed++;
-            job.totalProcessed++;
-            this.logBatch(job, `?? ÊÓÆµ±»ÆÁ±Î: ${best.cleanedTitle} ¡ª ${blockCheck.reason}`, 'warn');
-            scheduler.markCompleted();
-            continue;
-          }
-        }
-
-        const batchSeq = await allocateSeq();
-        const task = await prisma.downloadTask.create({
-          data: {
-            url: best.item.url,
-            m3u8Url: scrapeResult.m3u8_url,
-            format: 'mp4',
-            status: 'pending',
-            seq: batchSeq,
-            videoInfo: {
-              create: {
-                title: scrapeResult.title || title,
-                sourceUrl: best.item.url,
-                tags: JSON.stringify(scrapeResult.tags || []),
-                actors: JSON.stringify(scrapeResult.actors || []),
-                categories: JSON.stringify(scrapeResult.categories || []),
-                director: scrapeResult.director || '',
-              },
-            },
-          },
-          include: { videoInfo: true },
-        });
-
-        result.taskId = task.id;
-        result.status = 'completed';
-        job.totalDownloaded++;
-        this.logBatch(job, `? ´´½¨ÏÂÔØÈÎÎñ #${task.id}: ${scrapeResult.title || title}`);
-
-        eventBus.emit('task:created', {
-          taskId: task.id,
-          title: scrapeResult.title || title,
-          source: 'batch',
-        });
-
-        const dm = getDownloadManager();
-        const dlTask = mapTask(task);
-        const taskId = task.id;
-        taskQueueManager.acquireSlot('video', taskId).then(async (acquired) => {
-          if (!acquired) {
-            this.logBatch(job, `ÏÂÔØÈÎÎñ #${taskId} ÔÚÅÅ¶ÓµÈ´ıÖĞ±»È¡Ïû`, 'warn');
-            return;
-          }
-          const currentTask = await prisma.downloadTask.findUnique({ where: { id: taskId } });
-          if (!currentTask || currentTask.status === 'cancelled' || currentTask.status === 'paused') {
-            taskQueueManager.releaseSlot('video', taskId);
-            return;
-          }
-          dm.startDownload(dlTask).catch((err) => {
-            this.logBatch(job, `ÏÂÔØÈÎÎñ #${taskId} Æô¶¯Ê§°Ü: ${err.message}`, 'error');
-            eventBus.emit('task:failed', { taskId, error: err.message });
-          });
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        result.status = 'failed';
-        result.error = `ÅÀÈ¡Ê§°Ü: ${errMsg}`;
-        job.totalFailed++;
-        this.logBatch(job, `? ÅÀÈ¡Ê§°Ü: "${title}" ¡ª ${errMsg}`, 'error');
-      }
-
-      job.totalProcessed++;
-      scheduler.markCompleted();
-    }
-
-    job.status = 'completed';
-    job.completedAt = new Date().toISOString();
-    this.logBatch(
-      job,
-      `?? ÅúÁ¿ËÑË÷Íê³É£¡ÒÑ´¦Àí ${job.totalProcessed}£¬ÏÂÔØ ${job.totalDownloaded}£¬Î´ÕÒµ½ ${job.totalNotFound}£¬Ê§°Ü ${job.totalFailed}`,
-    );
   }
 
   getBatchJob(jobId: string): BatchSearchJob | undefined {
@@ -1318,7 +461,7 @@ export class SearchEngine {
   }
 
   async close(): Promise<void> {
-    // ¹²Ïíä¯ÀÀÆ÷ÓÉ browser-pool Í³Ò»¹ÜÀí£¬´Ë´¦ÎŞĞè¹Ø±Õ
+    // æµè§ˆå™¨ç”± browser-pool ç»Ÿä¸€ç®¡ç†ï¼Œæ­¤å¤„ä¸å…³é—­
   }
 }
 

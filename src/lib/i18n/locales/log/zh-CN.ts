@@ -86,6 +86,7 @@ const zhCN: TranslationDict = {
   "log.taskQueue.scrapingFull": "识别槽位已满，任务排队等待: {key} (队列位置 {position})",
   "log.taskQueue.configLoaded": "配置已加载: 普通任务上限={maxConcurrent}, 识别中上限={maxScraping}, 嗅探任务上限={maxSniff}, TS分片并发={tsSegment}, 图库图片并发={galleryImage}",
   "log.taskQueue.configUpdated": "配置已更新: 普通任务上限={maxConcurrent}, 识别中上限={maxScraping}, 嗅探任务上限={maxSniff}, TS分片并发={tsSegment}, 图库图片并发={galleryImage}",
+  "log.taskQueue.configSeeded": "默认配置已预写入数据库: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus 终态监听器已注册",
   "log.taskQueue.resetWarn": "计数器已强制重置",
   "log.taskQueue.configLoadFailed": "加载配置失败，使用默认值: {error}",

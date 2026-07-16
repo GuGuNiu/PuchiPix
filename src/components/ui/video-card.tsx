@@ -4,17 +4,11 @@ import { useRef, useState, useCallback } from "react";
 import { Film, Clock, HardDrive, Play, Monitor } from "lucide-react";
 import type { DownloadTask } from "@/types";
 import { useI18n } from "@/lib/i18n";
+import { formatFileSize } from "@/lib/utils";
 
 interface VideoCardProps {
   task: DownloadTask;
   onClick?: () => void;
-}
-
-function formatFileSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return "—";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 const PREVIEW_SPEED = 8;

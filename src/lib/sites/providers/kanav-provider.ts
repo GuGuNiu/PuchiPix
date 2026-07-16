@@ -1,6 +1,7 @@
 import { BaseSiteProvider } from '../base-provider';
 import type { ExtendedMetadata, SeriesItem, BlockCheckResult } from '../types';
 import { getBlocklistService } from '../blocklist-service';
+import { removePublisherPrefix } from '@/lib/utils/title-cleaner';
 
 /** KanAV 播放器数据中的 vod_data 结构 */
 interface KanavVodData {
@@ -94,6 +95,8 @@ export class KanavProvider extends BaseSiteProvider {
       /^(在线播放|在线观看|播放|观看|播放页面)\s*[-—–·:：\s]+/i,
       ''
     );
+
+    title = removePublisherPrefix(title);
 
     // 去除站点后缀
     const siteSuffixPatterns = [

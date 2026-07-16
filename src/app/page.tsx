@@ -1,20 +1,5 @@
 "use client";
 
-/**
- * 仪表盘首页
- *
- * 浅色主题运维监控面板，全宽布局，包含：
- * - 顶部实时数据条（总任务、进行中、已完成、失败）
- * - KPI 统计卡片（带数字滚动动画，从 SSE 任务流实时派生）
- * - 最近任务活动流
- * - 实时速度图表
- *
- * 实时策略：
- * - KPI 计数（总数/进行中/已完成/失败）从 SSE 任务列表 useMemo 派生，零延迟
- * - 体积/速度等聚合数据通过 /api/stats 每 30 秒补充轮询
- *
- */
-
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -25,18 +10,12 @@ import {
 import type { DownloadTask, Stats, TaskStatus } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import { useI18n } from "@/lib/i18n";
+import { formatFileSize } from "@/lib/utils";
 import Link from "next/link";
 import { DataStream } from "@/components/ops/data-stream";
 import { LogConsole } from "@/components/ops/log-console";
 
 const STATS_POLL_INTERVAL = 30000;
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 
 export default function Dashboard(): React.JSX.Element {
   const { tasks, sseConnected, fetchTasks, connectSSE } = useTaskStore();
@@ -51,7 +30,6 @@ export default function Dashboard(): React.JSX.Element {
           setApiStats(data);
         }
       } catch {
-        /* ignore */
       }
     };
     fetchStats();
@@ -64,7 +42,6 @@ export default function Dashboard(): React.JSX.Element {
     };
   }, [fetchTasks, connectSSE]);
 
-  // 从 SSE 任务列表实时派生 KPI 计数
   const derivedStats = useMemo(() => {
     let downloading = 0;
     let completed = 0;
@@ -96,7 +73,6 @@ export default function Dashboard(): React.JSX.Element {
 
   const recent = useMemo(() => tasks.slice(0, 16), [tasks]);
 
-  // 合并：SSE 派生数据优先，apiStats 补充无法派生的字段
   const s: Stats = {
     total_tasks: derivedStats.total_tasks,
     downloading_tasks: derivedStats.downloading_tasks,
@@ -122,10 +98,6 @@ export default function Dashboard(): React.JSX.Element {
     </div>
   );
 }
-
-/* ================================================================
-   实时数据条
-   ================================================================ */
 
 function RealtimeTicker({ stats, sseConnected }: { stats: Stats; sseConnected: boolean }): React.JSX.Element {
   const { t } = useI18n();

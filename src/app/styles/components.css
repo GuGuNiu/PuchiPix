@@ -1112,6 +1112,26 @@ table td [data-tooltip]::before {
   will-change: opacity, transform;
 }
 
+/* 表格内 tooltip 显示在元素正下方，方便鼠标移入复制 */
+table td [data-tooltip]::after {
+  top: calc(100% + 6px);
+  left: 0;
+  transform: scale(0.95);
+  transform-origin: top left;
+}
+
+table td [data-tooltip]::before {
+  top: calc(100% + 2px);
+  left: 8px;
+  transform: scale(0.95);
+  border-color: transparent transparent var(--bg-inverse, #1e293b) transparent;
+}
+
+table td [data-tooltip]:hover::after,
+table td [data-tooltip]:hover::before {
+  transform: scale(1);
+}
+
 /* ===== Radix Tooltip ===== */
 .tooltip-content {
   background: var(--bg-inverse, #1e293b);
@@ -1140,4 +1160,32 @@ table td [data-tooltip]::before {
 /* Tooltip Arrow */
 .tooltip-arrow {
   fill: var(--bg-inverse, #1e293b);
+}
+
+/* ─── 控制台实时日志 ─── */
+.console-log {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  background: var(--bg-inset);
+  border-radius: 3px;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 400px;
+  max-width: 480px;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+}
+
+.console-log-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+  text-align: center;
 }

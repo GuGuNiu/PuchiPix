@@ -66,6 +66,7 @@ const enUS: TranslationDict = {
   "dashboard.completed": "Completed",
   "dashboard.failed": "Failed",
   "dashboard.speed": "Speed",
+  "dashboard.disk": "Disk",
   "dashboard.totalDownload": "Total Downloaded",
   "dashboard.avgSpeed": "Avg Speed",
   "dashboard.completionRate": "Completion Rate",

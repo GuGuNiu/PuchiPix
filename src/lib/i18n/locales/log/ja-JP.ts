@@ -76,6 +76,7 @@ const jaJP: TranslationDict = {
   "log.taskQueue.scrapingFull": "識別スロット満杯、タスクキュー待機: {key} (キュー位置 {position})",
   "log.taskQueue.configLoaded": "設定読み込み完了: maxConcurrent={maxConcurrent}, maxScraping={maxScraping}, maxSniff={maxSniff}, tsSegment={tsSegment}, galleryImage={galleryImage}",
   "log.taskQueue.configUpdated": "設定更新完了: maxConcurrent={maxConcurrent}, maxScraping={maxScraping}, maxSniff={maxSniff}, tsSegment={tsSegment}, galleryImage={galleryImage}",
+  "log.taskQueue.configSeeded": "デフォルト設定をデータベースに書き込みました: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus 末端リスナー登録済み",
   "log.taskQueue.resetWarn": "カウンター強制リセット",
   "log.taskQueue.configLoadFailed": "設定の読み込みに失敗、デフォルトを使用: {error}",

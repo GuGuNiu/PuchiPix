@@ -1,18 +1,9 @@
 import fs from 'fs';
 import { logT } from '@/lib/i18n/server';
+import { sleep, exponentialBackoff } from './delay';
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 500;
-
-/** 等待函数 */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** 指数退避延迟 */
-function backoffDelay(retry: number): number {
-  return BASE_DELAY_MS * Math.pow(2, retry);
-}
 
 export interface DeleteResult {
   path: string;
@@ -42,7 +33,7 @@ export async function safeDeleteFile(filePath: string): Promise<DeleteResult> {
       const msg = err instanceof Error ? err.message : String(err);
       if (retry < MAX_RETRIES - 1) {
         console.warn(logT('log.safeDelete.fileFailed', { retry: retry + 1, max: MAX_RETRIES, path: filePath, msg }));
-        await sleep(backoffDelay(retry));
+        await sleep(exponentialBackoff(retry, BASE_DELAY_MS));
       } else {
         console.error(logT('log.safeDelete.fileFinalFailed', { path: filePath, msg }));
         return { path: filePath, success: false, error: msg };
@@ -91,7 +82,7 @@ export async function safeDeleteDir(dirPath: string): Promise<DeleteResult> {
       const msg = err instanceof Error ? err.message : String(err);
       if (retry < MAX_RETRIES - 1) {
         console.warn(logT('log.safeDelete.dirFailed', { retry: retry + 1, max: MAX_RETRIES, path: dirPath, msg }));
-        await sleep(backoffDelay(retry));
+        await sleep(exponentialBackoff(retry, BASE_DELAY_MS));
       } else {
         console.error(logT('log.safeDelete.dirFinalFailed', { path: dirPath, msg }));
         return { path: dirPath, success: false, error: msg };

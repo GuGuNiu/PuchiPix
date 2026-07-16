@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal, AlertTriangle, XCircle, Info, Bug, Trash2, Pause, Play } from "lucide-react";
 import type { LogEntry } from "@/app/api/logs/route";
+import { formatTime } from "@/lib/utils";
 
 interface LogConsoleProps {
   maxHeight?: number;
@@ -14,17 +15,6 @@ const LEVEL_CONFIG = {
   error: { icon: XCircle, color: "#dc2626", bg: "rgba(220, 38, 38, 0.08)", label: "ERROR" },
   debug: { icon: Bug, color: "#7c3aed", bg: "rgba(124, 58, 237, 0.08)", label: "DEBUG" },
 };
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("zh-CN", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    fractionalSecondDigits: 3,
-  });
-}
 
 export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Element {
   const [logs, setLogs] = useState<LogEntry[]>([]);

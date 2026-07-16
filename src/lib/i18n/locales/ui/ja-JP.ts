@@ -69,6 +69,7 @@ const jaJP: TranslationDict = {
   "dashboard.completed": "完了",
   "dashboard.failed": "失敗",
   "dashboard.speed": "速度",
+  "dashboard.disk": "ディスク",
   "dashboard.totalDownload": "総ダウンロード量",
   "dashboard.avgSpeed": "平均速度",
   "dashboard.completionRate": "完了率",

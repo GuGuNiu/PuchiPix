@@ -2,7 +2,6 @@ import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
-import { pinyin as pinyinPro } from 'pinyin-pro';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -82,18 +81,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    // 生成拼音
-    let pinyinStr = '';
-    try {
-      const py = pinyinPro(name, {
-        toneType: 'none',
-        type: 'array',
-        nonZh: 'consecutive',
-      });
-      pinyinStr = (py as string[]).join('').toLowerCase();
-    } catch {
-      pinyinStr = name.toLowerCase().replace(/\s/g, '');
-    }
+    const pinyinStr = getProtagonistService().toStandardPinyin(name);
 
     const person = await prisma.person.upsert({
       where: { name },

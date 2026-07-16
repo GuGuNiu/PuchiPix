@@ -1,4 +1,4 @@
-import { pinyin as pinyinPro } from 'pinyin-pro';
+import { getPinyinService } from '@/lib/core/pinyin-service';
 import * as fs from 'fs';
 import * as path from 'path';
 import type {
@@ -184,16 +184,11 @@ export class CharacterDBService {
    * 转换为拼音
    */
   private toPinyin(text: string): string {
-    try {
-      const py = pinyinPro(text, {
-        toneType: 'none',
-        type: 'array',
-        nonZh: 'consecutive',
-      });
-      return (py as string[]).join('').toLowerCase();
-    } catch {
-      return text.toLowerCase().replace(/\s/g, '');
+    const py = getPinyinService().convert(text, { type: 'array' });
+    if (Array.isArray(py)) {
+      return py.join('').toLowerCase();
     }
+    return py.toLowerCase().replace(/\s/g, '');
   }
 
   /**

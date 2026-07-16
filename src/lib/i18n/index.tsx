@@ -8,6 +8,7 @@ import zhTW from "./locales/zh-TW";
 import enUS from "./locales/en-US";
 import jaJP from "./locales/ja-JP";
 import type { TranslationDict } from "./types";
+import { usePreferenceStore } from "@/store/preference-store";
 
 const LOCALE_MAP: Record<Locale, TranslationDict> = {
   "zh-CN": zhCN,
@@ -15,8 +16,6 @@ const LOCALE_MAP: Record<Locale, TranslationDict> = {
   "en-US": enUS,
   "ja-JP": jaJP,
 };
-
-const STORAGE_KEY = "locale";
 
 interface I18nContextValue {
   locale: Locale;
@@ -34,20 +33,7 @@ export function useI18n(): I18nContextValue {
   return useContext(I18nContext);
 }
 
-/**
- * 从 localStorage 安全读取语言偏好
- */
-function detectInitialLocale(): Locale {
-  if (typeof window === "undefined") return DEFAULT_LOCALE;
-
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
-    if (saved && saved in LOCALE_MAP) return saved;
-  } catch {
-    /* localStorage 不可用 */
-  }
-
-  // 尝试从浏览器语言推断
+function detectBrowserLocale(): Locale {
   const browserLang = navigator.language;
   if (browserLang.startsWith("zh")) {
     if (browserLang.includes("TW") || browserLang.includes("HK") || browserLang.includes("Hant")) {
@@ -57,13 +43,9 @@ function detectInitialLocale(): Locale {
   }
   if (browserLang.startsWith("ja")) return "ja-JP";
   if (browserLang.startsWith("en")) return "en-US";
-
   return DEFAULT_LOCALE;
 }
 
-/**
- * 插值：将 {param} 替换为实际值
- */
 function interpolate(template: string, params?: Record<string, string | number>): string {
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (_, key: string) => {
@@ -73,23 +55,33 @@ function interpolate(template: string, params?: Record<string, string | number>)
 }
 
 export function I18nProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const storeLocale = usePreferenceStore((s) => s.locale);
+  const setStoreLocale = usePreferenceStore((s) => s.setLocale);
+  const loaded = usePreferenceStore((s) => s.loaded);
+  const loadFromServer = usePreferenceStore((s) => s.loadFromServer);
+
   const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
 
   useEffect(() => {
-    const detected = detectInitialLocale();
-    setLocaleState(detected);
-    document.documentElement.lang = detected;
-  }, []);
+    loadFromServer();
+  }, [loadFromServer]);
 
-  const setLocale = useCallback((next: Locale) => {
-    setLocaleState(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* ignore */
+  useEffect(() => {
+    if (loaded) {
+      const effective = storeLocale || detectBrowserLocale();
+      setLocaleState(effective);
+      document.documentElement.lang = effective;
     }
-    document.documentElement.lang = next;
-  }, []);
+  }, [loaded, storeLocale]);
+
+  const setLocale = useCallback(
+    (next: Locale) => {
+      setLocaleState(next);
+      setStoreLocale(next);
+      document.documentElement.lang = next;
+    },
+    [setStoreLocale]
+  );
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>): string => {

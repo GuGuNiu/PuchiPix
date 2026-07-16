@@ -1,12 +1,4 @@
-/**
- * 侧边栏布局样式
- *
- * 包含 sidebar 整体结构、logo、导航项、底部信息、折叠态与 hover 展开。
- * 折叠/hover 均直接改变 aside 宽度，由 flexbox 驱动内容区跟随变化。
- *
- */
 
-/* ===== Sidebar ===== */
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
@@ -375,6 +367,7 @@
 .theme-toggle-section {
   padding: 0 var(--space-3);
   margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
   position: relative;
   z-index: 1;
 }
@@ -496,9 +489,14 @@
 
 .sidebar.collapsed:not(.hover-expand) .theme-toggle-section {
   padding: 0 var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .sidebar.collapsed:not(.hover-expand) .theme-toggle-divider {
+  margin: var(--space-2) var(--space-2);
+}
+
+.sidebar.collapsed:not(.hover-expand) .lang-switcher + .theme-toggle-divider {
   margin: var(--space-2) var(--space-2);
 }
 

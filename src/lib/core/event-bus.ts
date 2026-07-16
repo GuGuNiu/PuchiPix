@@ -66,6 +66,12 @@ export interface EventMap {
   // 系统事件
   'system:health': { status: string; uptime: number };
   'system:shutdown': { reason: string };
+
+  // 通知事件
+  'notification:info': { message: string; id?: string };
+  'notification:success': { message: string; id?: string };
+  'notification:warning': { message: string; id?: string };
+  'notification:error': { message: string; id?: string };
 }
 
 export type EventName = keyof EventMap;

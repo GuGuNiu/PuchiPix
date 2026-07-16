@@ -13,18 +13,6 @@ import { taskQueueManager } from '@/lib/core/task-queue-manager';
 import { checkGalleryDuplicate } from '@/lib/utils/task-dedup';
 import { normalizeUrl, cleanUrl } from '@/lib/utils/url-normalizer';
 
-/**
- * 图库任务处理器
- *
- * 从 tasks/route.ts 提取的图库相关逻辑，供搜索引擎和任务路由共享调用。
- * 负责图库 URL 检测、图库记录创建、异步爬取和下载触发。
- */
-
-/**
- * 检测 URL 是否属于图库站点
- *
- * 匹配优先级：SiteRegistry → site-modules 域名配置 → URL 路径兜底
- */
 export function getGalleryProvider(url: string): (SiteProvider & GallerySiteProvider) | null {
   const trimmedUrl = url.trim();
   if (trimmedUrl.endsWith('.m3u8')) return null;
@@ -56,9 +44,6 @@ export function getGalleryProvider(url: string): (SiteProvider & GallerySiteProv
   return null;
 }
 
-/**
- * 异步爬取图库全部页面图片和视频，完成后触发下载
- */
 export async function scrapeGalleryAsync(
   galleryId: number,
   url: string,
@@ -104,6 +89,29 @@ export async function scrapeGalleryAsync(
       } else {
         log(`HTTP 爬取成功: 标题="${httpResult.title.substring(0, 30)}" 图片=${httpResult.imageCount} 视频=${httpResult.videoCount}`);
 
+        const httpHasImages = httpResult.images.length > 0;
+        const httpHasVideos = httpResult.videos.length > 0;
+        const httpHasZipInfo = httpResult.zipInfo && httpResult.zipInfo.downloadUrl;
+
+        if (!httpHasImages && !httpHasVideos && !httpHasZipInfo) {
+          log(`图库 #${galleryId} 爬取完成，但未找到任何可下载内容`);
+          await prisma.gallery.update({
+            where: { id: galleryId },
+            data: {
+              title: httpResult.title || '未命名图库',
+              status: 'failed',
+              errorMsg: '页面爬取成功，但未找到任何图片、视频或下载链接',
+            },
+          });
+          eventBus.emit('gallery:scrapeFailed', {
+            galleryId,
+            url,
+            error: '页面爬取成功，但未找到任何可下载内容',
+          });
+          taskQueueManager.releaseScrapingSlot('gallery', galleryId);
+          return;
+        }
+
         await prisma.gallery.update({
           where: { id: galleryId },
           data: {
@@ -118,7 +126,7 @@ export async function scrapeGalleryAsync(
             videoCount: httpResult.videoCount,
             pageCount: httpResult.pageCount,
             scrapedDomain: httpResult.scrapedDomain || '',
-            status: 'downloading',
+            status: 'pending',
           },
         });
 
@@ -299,6 +307,29 @@ export async function scrapeGalleryAsync(
       throw lastError || new Error('所有域名均爬取失败');
     }
 
+    const hasImages = result.images.length > 0;
+    const hasVideos = result.videos.length > 0;
+    const hasZipInfo = result.zipInfo && result.zipInfo.downloadUrl;
+    
+    if (!hasImages && !hasVideos && !hasZipInfo) {
+      log(`图库 #${galleryId} 爬取完成，但未找到任何可下载内容`);
+      await prisma.gallery.update({
+        where: { id: galleryId },
+        data: {
+          title: result.title || '未命名图库',
+          status: 'failed',
+          errorMsg: '页面爬取成功，但未找到任何图片、视频或下载链接',
+        },
+      });
+      eventBus.emit('gallery:scrapeFailed', {
+        galleryId,
+        url,
+        error: '页面爬取成功，但未找到任何可下载内容',
+      });
+      taskQueueManager.releaseScrapingSlot('gallery', galleryId);
+      return;
+    }
+
     log('开始数据库写入');
     await prisma.gallery.update({
       where: { id: galleryId },
@@ -314,7 +345,7 @@ export async function scrapeGalleryAsync(
         videoCount: result.videoCount,
         pageCount: result.pageCount,
         scrapedDomain: result.scrapedDomain || '',
-        status: 'downloading',
+        status: 'pending',
       },
     });
 

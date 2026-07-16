@@ -76,6 +76,7 @@ const zhTW: TranslationDict = {
   "log.taskQueue.scrapingFull": "識別槽位已滿，任務排隊等待: {key} (佇列位置 {position})",
   "log.taskQueue.configLoaded": "配置已載入: 普通任務上限={maxConcurrent}, 識別中上限={maxScraping}, 嗅探任務上限={maxSniff}, TS分片並行={tsSegment}, 圖庫圖片並行={galleryImage}",
   "log.taskQueue.configUpdated": "配置已更新: 普通任務上限={maxConcurrent}, 識別中上限={maxScraping}, 嗅探任務上限={maxSniff}, TS分片並行={tsSegment}, 圖庫圖片並行={galleryImage}",
+  "log.taskQueue.configSeeded": "預設配置已預寫入資料庫: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus 終態監聽器已註冊",
   "log.taskQueue.resetWarn": "計數器已強制重置",
   "log.taskQueue.configLoadFailed": "載入配置失敗，使用預設值: {error}",

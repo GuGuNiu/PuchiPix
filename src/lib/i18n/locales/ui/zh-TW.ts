@@ -61,6 +61,7 @@ const zhTW: TranslationDict = {
   "dashboard.completed": "已完成",
   "dashboard.failed": "失敗",
   "dashboard.speed": "速度",
+  "dashboard.disk": "硬碟",
   "dashboard.totalDownload": "總下載量",
   "dashboard.avgSpeed": "平均速度",
   "dashboard.completionRate": "完成率",

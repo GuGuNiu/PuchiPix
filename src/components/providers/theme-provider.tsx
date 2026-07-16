@@ -1,8 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
-
-type Theme = "light" | "dark";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { usePreferenceStore, type Theme } from "@/store/preference-store";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -19,31 +18,28 @@ export function useTheme(): ThemeContextValue {
 }
 
 export default function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const [theme, setTheme] = useState<Theme>("light");
+  const theme = usePreferenceStore((s) => s.theme);
+  const setTheme = usePreferenceStore((s) => s.setTheme);
+  const loaded = usePreferenceStore((s) => s.loaded);
+  const loadFromServer = usePreferenceStore((s) => s.loadFromServer);
 
   useEffect(() => {
-    const saved = localStorage.getItem("theme") as Theme | null;
-    if (saved === "dark" || saved === "light") {
-      setTheme(saved);
-      document.documentElement.setAttribute("data-theme", saved);
-      // 同步到 cookie，供服务端 SSR 读取（替代内联 script 防闪烁方案）
-      document.cookie = `theme=${saved}; path=/; max-age=31536000; samesite=lax`;
-    }
-  }, []);
+    loadFromServer();
+  }, [loadFromServer]);
 
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next: Theme = prev === "light" ? "dark" : "light";
-      localStorage.setItem("theme", next);
-      document.documentElement.setAttribute("data-theme", next);
-      // 同步到 cookie，供服务端 SSR 读取
-      document.cookie = `theme=${next}; path=/; max-age=31536000; samesite=lax`;
-      return next;
-    });
-  }, []);
+    setTheme(theme === "light" ? "dark" : "light");
+  }, [theme, setTheme]);
 
+  const value = useMemo<ThemeContextValue>(
+    () => ({ theme, toggleTheme }),
+    [theme, toggleTheme]
+  );
+
+  // 在服务端渲染和客户端加载前，避免闪烁：先用 cookie 中的 theme 初始化
+  // 此处 Provider 本身不阻塞渲染，由全局 CSS [data-theme] 处理
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

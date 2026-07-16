@@ -76,6 +76,7 @@ const enUS: TranslationDict = {
   "log.taskQueue.scrapingFull": "Scraping slots full, task queued: {key} (queue position {position})",
   "log.taskQueue.configLoaded": "Config loaded: maxConcurrent={maxConcurrent}, maxScraping={maxScraping}, maxSniff={maxSniff}, tsSegment={tsSegment}, galleryImage={galleryImage}",
   "log.taskQueue.configUpdated": "Config updated: maxConcurrent={maxConcurrent}, maxScraping={maxScraping}, maxSniff={maxSniff}, tsSegment={tsSegment}, galleryImage={galleryImage}",
+  "log.taskQueue.configSeeded": "Default config seeded to database: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus terminal listeners registered",
   "log.taskQueue.resetWarn": "Counters force-reset",
   "log.taskQueue.configLoadFailed": "Failed to load config, using defaults: {error}",

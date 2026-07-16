@@ -66,6 +66,7 @@ const zhCN: TranslationDict = {
   "dashboard.completed": "已完成",
   "dashboard.failed": "失败",
   "dashboard.speed": "速度",
+  "dashboard.disk": "硬盘",
   "dashboard.totalDownload": "总下载量",
   "dashboard.avgSpeed": "平均速度",
   "dashboard.completionRate": "完成率",

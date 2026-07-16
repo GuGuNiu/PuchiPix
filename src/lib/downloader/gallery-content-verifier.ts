@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { pinyin as pinyinPro } from 'pinyin-pro';
+import { getPinyinService } from '@/lib/core/pinyin-service';
 
 /**
  * 从标题中解析预期的图片和视频数量
@@ -76,32 +76,25 @@ const CJK_ROMAN_MAP: Record<string, string> = {
 function cjkToRoman(text: string): string {
   if (!text) return '';
 
-  // 优先使用 pinyin-pro
-  try {
-    const py = pinyinPro(text, {
-      toneType: 'none',
-      type: 'array',
-      nonZh: 'consecutive',
-    }) as string[];
-    const result = py.join('').replace(/\s+/g, '_');
-    if (result && /[a-zA-Z]/.test(result)) {
-      return result.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-    }
-  } catch {
+  const py = getPinyinService().convert(text, { type: 'array' });
+  const pyStr = Array.isArray(py) ? py.join('') : py;
+  const result = pyStr.replace(/\s+/g, '_');
+  if (result && /[a-zA-Z]/.test(result)) {
+    return result.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
   }
 
-  // 回退：逐字符查表转换
-  let result = '';
+  // pinyin-pro 无法转换时，逐字符查表回退
+  let fallback = '';
   for (const char of text) {
     if (CJK_ROMAN_MAP[char]) {
-      result += CJK_ROMAN_MAP[char];
+      fallback += CJK_ROMAN_MAP[char];
     } else if (/[a-zA-Z0-9]/.test(char)) {
-      result += char;
+      fallback += char;
     } else if (/[\s\-_]/.test(char)) {
-      result += '_';
+      fallback += '_';
     }
   }
-  return result.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  return fallback.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 /**

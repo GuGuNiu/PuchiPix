@@ -3,6 +3,7 @@ import { BaseSiteProvider } from '../base-provider';
 import type { M3U8Candidate } from '@/types';
 import type { ScrapeResult } from '@/types';
 import type { BlockCheckResult } from '../types';
+import { removePublisherPrefix } from '@/lib/utils/title-cleaner';
 
 export class UniversalProvider extends BaseSiteProvider {
   // 站点基础信息
@@ -42,6 +43,9 @@ export class UniversalProvider extends BaseSiteProvider {
   cleanTitle(rawTitle: string): string {
     if (!rawTitle) return '';
     let title = rawTitle.trim();
+
+    // 去除发布组前缀
+    title = removePublisherPrefix(title);
 
     // 去除常见站点后缀
     const suffixPatterns = [

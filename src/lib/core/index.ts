@@ -15,6 +15,9 @@ export type { SchedulerStrategyOptions } from './scheduler-strategy';
 export { OrchestratorBase } from './orchestrator-base';
 export type { BaseTask, BaseTaskStatus, OrchestratorConfig, OrchestratorStatus } from './orchestrator-base';
 
+export { DagManager, DagCycleError, DagTaskNotFoundError } from './dag-manager';
+export type { DagTaskId, DagCapableTask, DagStats } from './dag-manager';
+
 export { routeState, useRouteState } from './route-state';
 export type { RouteStateEntry, RouteStateConfig } from './route-state';
 
@@ -81,3 +84,6 @@ export type {
   PinyinEngine,
   SimilarityCalculator,
 } from './pinyin-service';
+
+export { SlotTypeRegistry } from './slot-registry';
+export type { SlotTypeConfig, SlotStats } from './slot-registry';
