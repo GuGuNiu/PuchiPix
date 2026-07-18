@@ -128,7 +128,6 @@ class SiteAccountManager {
         return null;
       }
 
-      // 检查是否有过期 Cookie（expires > 0 且已过期）
       const now = Math.floor(Date.now() / 1000);
       const hasValidCookie = cookies.some(
         (c) => !c.expires || c.expires === 0 || c.expires > now,

@@ -40,6 +40,17 @@ app.prepare().then(async () => {
   });
 
   lifecycle.onInit({
+    name: "seed-preset-data",
+    timeout: 10000,
+    fn: async () => {
+      const { seedPresetData } = await import(
+        "./src/lib/core/seed-preset-data"
+      );
+      await seedPresetData();
+    },
+  });
+
+  lifecycle.onInit({
     name: "socket.io",
     fn: async () => {
       initSocketIO(server);

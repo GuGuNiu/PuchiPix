@@ -1,20 +1,23 @@
 /**
  * 角色数据库同步调度器
  *
- * 负责定时从Wiki同步角色数据
+ * 负责从 BWiki 同步角色数据。当前通过 API 端点（POST /api/character-db/sync）手动触发，
+ * 定时任务尚未实现。
+ *
+ * @todo 接入 cron 调度库以支持 enableCron / cronExpression 配置项，实现自动定时同步
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { CharacterDBIndex, GameIndexEntry, SyncLog, GameSyncResult, SyncError } from '../types';
+import type { CharacterDBIndex, GameIndexEntry, SyncLog, GameSyncResult, SyncError, GameCharacterFile } from '../types';
 import { getBWikiCrawler } from '../crawlers/bwiki-crawler';
 
 export interface SchedulerConfig {
   /** 数据库基础路径 */
   dbPath: string;
-  /** 是否启用定时任务 */
+  /** 是否启用定时任务（尚未实现，当前仅支持手动触发） */
   enableCron: boolean;
-  /** 定时表达式 (cron格式) */
+  /** 定时表达式 (cron格式，尚未实现） */
   cronExpression: string;
 }
 
@@ -51,17 +54,14 @@ export class CharacterDBScheduler {
     try {
       console.log('[CharacterDBScheduler] 开始同步任务');
 
-      // 1. 读取索引
       const index = await this.loadIndex();
 
-      // 2. 确定要同步的游戏
       const gamesToSync = specificGames
         ? index.games.filter(g => specificGames.includes(g.id) && g.enabled)
         : index.games.filter(g => g.enabled);
 
       console.log(`[CharacterDBScheduler] 将同步 ${gamesToSync.length} 个游戏`);
 
-      // 3. 逐个同步
       for (const game of gamesToSync) {
         try {
           const result = await this.syncGame(game);
@@ -75,10 +75,8 @@ export class CharacterDBScheduler {
         }
       }
 
-      // 4. 更新索引统计
       await this.updateIndexStats(index);
 
-      // 5. 保存同步日志
       syncLog.completedAt = new Date().toISOString();
       await this.saveSyncLog(syncLog);
 
@@ -108,13 +106,10 @@ export class CharacterDBScheduler {
     // 读取现有数据用于对比
     const existingFile = await this.loadGameFile(game);
 
-    // 计算变更
     const changes = this.calculateChanges(existingFile?.characters || [], gameFile.characters);
 
-    // 保存新数据
     await this.saveGameFile(game, gameFile);
 
-    // 更新游戏索引
     game.characterCount = gameFile.characters.length;
     game.lastSync = new Date().toISOString();
 
@@ -142,7 +137,6 @@ export class CharacterDBScheduler {
     let removed = 0;
     let modified = 0;
 
-    // 新增
     for (const [id, char] of newMap) {
       if (!oldMap.has(id)) {
         added++;
@@ -151,7 +145,6 @@ export class CharacterDBScheduler {
       }
     }
 
-    // 删除
     for (const id of oldMap.keys()) {
       if (!newMap.has(id)) {
         removed++;
@@ -199,7 +192,7 @@ export class CharacterDBScheduler {
       const filePath = path.join(this.config.dbPath, game.file);
       if (!fs.existsSync(filePath)) return null;
       const content = await fs.promises.readFile(filePath, 'utf-8');
-      return JSON.parse(content);
+      return JSON.parse(content) as GameCharacterFile;
     } catch {
       return null;
     }

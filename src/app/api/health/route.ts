@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { lifecycle } from '@/lib/core/lifecycle';
-import { eventBus } from '@/lib/core/event-bus';
-import { ttlLock } from '@/lib/core/ttl-lock';
+import { lifecycle } from '@/lib/core/infra/lifecycle';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { ttlLock } from '@/lib/core/infra/ttl-lock';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,13 +17,13 @@ export async function GET(): Promise<Response> {
   let domainHealth: unknown = null;
 
   try {
-    const { getOuoOrchestrator } = await import('@/lib/core/ouo-orchestrator');
+    const { getOuoOrchestrator } = await import('@/lib/core/orchestrator/ouo-orchestrator');
     ouoStatus = getOuoOrchestrator().getStatus();
   } catch {
   }
 
   try {
-    const { getGlobalDomainHealthTracker } = await import('@/lib/core/domain-health-tracker');
+    const { getGlobalDomainHealthTracker } = await import('@/lib/core/domain/domain-health-tracker');
     const tracker = getGlobalDomainHealthTracker();
     domainHealth = {
       rateLimitedDomains: tracker.getRateLimitedDomains(),

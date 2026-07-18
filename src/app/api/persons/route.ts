@@ -49,7 +49,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         pinyin: p.pinyin,
         aliases: (() => {
           try {
-            return JSON.parse(p.aliases);
+            return JSON.parse(p.aliases) as string[];
           } catch {
             return [];
           }

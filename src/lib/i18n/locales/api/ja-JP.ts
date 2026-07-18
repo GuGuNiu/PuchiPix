@@ -40,11 +40,17 @@ const jaJP: TranslationDict = {
   "api.gallery.alreadyScraping": "このギャラリーは別のタスクでスクレイプ中です、後で再試行してください",
   "api.gallery.pageNotFound": "ページが存在しません (404)",
   "api.gallery.pageNotFoundSkipped": "ページが存在しません (404)、スキップしました",
+  "api.gallery.identifying": "ギャラリー識別中です。識別完了後にダウンロードを開始してください",
+  "api.gallery.scrapeComplete": "ギャラリースクレイプ完了、ダウンロードを非同期で開始しました",
+  "api.gallery.batchMissingUrls": "urls パラメータは空でない配列である必要があります",
+  "api.gallery.batchEmptyUrl": "空の URL",
+  "api.gallery.noProviderForRescrape": "ギャラリープロバイダーが見つかりません、再スクレイプできません",
 
   "api.tasks.noM3u8Extracted": "ページから M3U8 リンクを抽出できません",
 
   "api.blocklist.addFailed": "追加失敗",
 
+  "api.characterDb.syncRunning": "同期タスクが実行中です",
   "api.common.internalError": "サーバー内部エラー",
   "api.common.missingParams": "必須パラメータが不足しています: {params}",
 };

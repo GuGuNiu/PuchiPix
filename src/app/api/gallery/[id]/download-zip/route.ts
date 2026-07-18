@@ -8,10 +8,10 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { downloadAndExtractZip } from '@/lib/downloader/zip-downloader';
-import { getOuoOrchestrator } from '@/lib/core/ouo-orchestrator';
+import { downloadAndExtractZip } from '@/lib/downloader/zip';
+import { getOuoOrchestrator } from '@/lib/core/orchestrator/ouo-orchestrator';
 import { detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
-import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -24,7 +24,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { id } = await params;
     const galleryId = parseInt(id);

@@ -1,6 +1,6 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
-import { getScraper } from '@/lib/scraper/scraper';
+import { getScraper } from '@/lib/sites/scraper';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

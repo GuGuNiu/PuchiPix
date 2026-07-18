@@ -139,8 +139,9 @@ export class JaroWinklerCalculator implements SimilarityCalculator {
 /**
  * Bigram (二元语法) 相似度算法
  *
- * 将字符串拆分为连续的二元组，计算集合的 Jaccard 相似度。
- * 适合拼音模糊匹配，对字符顺序变化有一定容错性。
+ * 将字符串拆分为连续的二元组，计算集合的 Dice 系数。
+ * Dice 系数 = 2×|A∩B| / (|A|+|B|)，对部分匹配比 Jaccard 更宽容，
+ * 适合拼音模糊匹配场景。
  */
 export class BigramCalculator implements SimilarityCalculator {
   name: SimilarityAlgorithm = 'bigram';
@@ -153,11 +154,11 @@ export class BigramCalculator implements SimilarityCalculator {
     const bigrams2 = this.getBigrams(s2);
 
     const intersection = this.getIntersection(bigrams1, bigrams2);
-    const union = new Set([...bigrams1, ...bigrams2]);
+    const denominator = bigrams1.size + bigrams2.size;
 
-    if (union.size === 0) return 0.0;
+    if (denominator === 0) return 0.0;
 
-    return intersection.size / union.size;
+    return (2 * intersection.size) / denominator;
   }
 
   private getBigrams(str: string): Set<string> {
@@ -186,7 +187,9 @@ export class BigramCalculator implements SimilarityCalculator {
 /**
  * 组合相似度计算器
  *
- * 综合多种算法的加权结果，提供更准确的相似度评估。
+ * 综合 Levenshtein、Jaro-Winkler 和 Bigram(Dice) 三种算法的加权结果。
+ * 默认权重为 Levenshtein×0.4 + JaroWinkler×0.3 + Bigram(Dice)×0.3，
+ * 权重经归一化后求和，确保总分在 0-1 范围内。
  */
 export class CombinedCalculator implements SimilarityCalculator {
   name: SimilarityAlgorithm = 'combined';

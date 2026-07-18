@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { SiteIndicator } from "./data-stream";
+import { useI18n } from "@/lib/i18n";
 
 interface SiteMonitorInfo {
   id: string;
@@ -68,6 +69,7 @@ function useSiteMonitorData(): SiteMonitorInfo[] {
  * 每个站点卡片包含：在线状态指示灯、任务数统计、速度、最后检查时间。
  */
 export function SiteMonitorGrid(): React.JSX.Element {
+  const { t } = useI18n();
   const sites = useSiteMonitorData();
 
   if (sites.length === 0) {
@@ -81,7 +83,7 @@ export function SiteMonitorGrid(): React.JSX.Element {
         color: "var(--text-muted)",
         fontSize: 13,
       }}>
-        正在加载站点监控数据...
+        {t("ops.loadingSites")}
       </div>
     );
   }
@@ -96,6 +98,7 @@ export function SiteMonitorGrid(): React.JSX.Element {
 }
 
 function SiteCard({ site }: { site: SiteMonitorInfo }): React.JSX.Element {
+  const { t } = useI18n();
   return (
     <div className="ops-site-card">
       <div className="ops-site-header">
@@ -109,24 +112,24 @@ function SiteCard({ site }: { site: SiteMonitorInfo }): React.JSX.Element {
           ) : (
             <XCircle size={14} style={{ color: "var(--danger)" }} />
           )}
-          <span>{site.online ? "在线" : "离线"}</span>
+          <span>{site.online ? t("ops.online") : t("ops.offline")}</span>
         </div>
       </div>
       <div className="ops-site-stats">
         <div className="ops-site-stat">
-          <span className="ops-site-stat-label">今日任务</span>
+          <span className="ops-site-stat-label">{t("ops.todayTasks")}</span>
           <span className="ops-site-stat-value">{site.tasksToday}</span>
         </div>
         <div className="ops-site-stat">
-          <span className="ops-site-stat-label">平均速度</span>
+          <span className="ops-site-stat-label">{t("ops.avgSpeed")}</span>
           <span className="ops-site-stat-value">{site.avgSpeed}</span>
         </div>
         <div className="ops-site-stat">
-          <span className="ops-site-stat-label">可用性</span>
+          <span className="ops-site-stat-label">{t("ops.uptime")}</span>
           <span className="ops-site-stat-value">{site.uptime}</span>
         </div>
         <div className="ops-site-stat">
-          <span className="ops-site-stat-label">最后检查</span>
+          <span className="ops-site-stat-label">{t("ops.lastChecked")}</span>
           <span className="ops-site-stat-value">{site.lastChecked}</span>
         </div>
       </div>

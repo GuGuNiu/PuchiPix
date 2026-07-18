@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal, AlertTriangle, XCircle, Info, Bug, Trash2, Pause, Play } from "lucide-react";
 import type { LogEntry } from "@/app/api/logs/route";
 import { formatTime } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 interface LogConsoleProps {
   maxHeight?: number;
@@ -17,6 +18,7 @@ const LEVEL_CONFIG = {
 };
 
 export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Element {
+  const { t } = useI18n();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -43,7 +45,6 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
         setLogs(data);
         setConnected(true);
       } catch {
-        /* ignore */
       }
     });
 
@@ -56,7 +57,6 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
           setLogs((prev) => [...prev.slice(-499), entry]);
         }
       } catch {
-        /* ignore */
       }
     });
 
@@ -68,7 +68,6 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
       setConnected(true);
     };
 
-    // 定期 flush 缓冲区
     const timer = setInterval(flushBuffer, 500);
 
     return () => {
@@ -77,7 +76,6 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
     };
   }, [paused, flushBuffer]);
 
-  // 自动滚动到底部
   useEffect(() => {
     if (shouldScrollRef.current && scrollRef.current && !paused) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -99,7 +97,6 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
   const togglePause = useCallback(() => {
     setPaused((p) => {
       if (p) {
-        // 恢复时 flush 缓冲区
         setTimeout(flushBuffer, 0);
       }
       return !p;
@@ -118,11 +115,10 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
 
   return (
     <div className="ops-log-console">
-      {/* Header */}
       <div className="ops-log-header">
         <div className="ops-log-title">
           <Terminal size={14} style={{ color: "var(--accent)" }} />
-          <span>系统控制台</span>
+          <span>{t("ops.systemConsole")}</span>
           <span
             className="ops-log-indicator"
             style={{
@@ -131,11 +127,10 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
             }}
           />
           <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>
-            {connected ? "实时连接" : "已断开"}
+            {connected ? t("ops.realtimeConnected") : t("ops.disconnected")}
           </span>
         </div>
         <div className="ops-log-actions">
-          {/* 级别筛选 */}
           <div className="ops-log-filters">
             {(["all", "info", "warn", "error", "debug"] as const).map((level) => (
               <button
@@ -143,7 +138,7 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
                 className={`ops-log-filter ${filter === level ? "active" : ""}`}
                 onClick={() => setFilter(level)}
               >
-                {level === "all" ? "全部" : LEVEL_CONFIG[level].label}
+                {level === "all" ? t("ops.all") : LEVEL_CONFIG[level].label}
                 <span className="ops-log-count">{counts[level]}</span>
               </button>
             ))}
@@ -151,21 +146,20 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
           <button
             className="ops-log-btn"
             onClick={togglePause}
-            title={paused ? "恢复" : "暂停"}
+            title={paused ? t("ops.resume") : t("ops.pause")}
           >
             {paused ? <Play size={13} /> : <Pause size={13} />}
           </button>
           <button
             className="ops-log-btn"
             onClick={clearLogs}
-            title="清空"
+            title={t("ops.clear")}
           >
             <Trash2 size={13} />
           </button>
         </div>
       </div>
 
-      {/* Log Body */}
       <div
         ref={scrollRef}
         className="ops-log-body"
@@ -175,7 +169,7 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
         {filteredLogs.length === 0 ? (
           <div className="ops-log-empty">
             <Terminal size={32} style={{ color: "var(--text-muted)", opacity: 0.4 }} />
-            <span>暂无日志</span>
+            <span>{t("ops.noLogs")}</span>
           </div>
         ) : (
           filteredLogs.map((log) => {
@@ -203,7 +197,7 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
         {paused && bufferRef.current.length > 0 && (
           <div className="ops-log-paused-banner">
             <Pause size={12} />
-            已暂停 — 缓冲区有 {bufferRef.current.length} 条新日志
+            {t("ops.pausedBuffer", { count: bufferRef.current.length })}
           </div>
         )}
       </div>

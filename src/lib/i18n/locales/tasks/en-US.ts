@@ -56,6 +56,8 @@ const enUS: TranslationDict = {
   "tasks.progressStageProbing": "Probing",
   "tasks.progressStageTranscoding": "Transcoding",
   "tasks.progressStageMerging": "Merging",
+"tasks.progressStageScrapePending": "Queued for identification",
+"tasks.progressStageDownloadPending": "Queued for download",
   "tasks.actionStart": "started",
   "tasks.actionPause": "paused",
   "tasks.actionResume": "resumed",
@@ -155,7 +157,7 @@ const enUS: TranslationDict = {
   "tasks.statInput": "Input",
   "tasks.statLines": "lines",
   "tasks.statDetected": "Detected",
-  "tasks.statItems": "items",
+  "tasks.statItems": "items", "tasks.firstPage": "First Page", "tasks.prevPage": "Previous Page", "tasks.nextPage": "Next Page", "tasks.lastPage": "Last Page", "tasks.recordCount": "{count} items", "tasks.jumpToPage": "Jump to page", "tasks.jumpToPagePlaceholder": "Page",
 };
 
 export default enUS;

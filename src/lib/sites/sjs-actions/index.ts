@@ -1,5 +1,5 @@
-import { getSiteAccountManager } from '../site-account-manager';
-import { DomainHealthTracker } from '@/lib/core/domain-health-tracker';
+﻿import { getSiteAccountManager } from '../site-account-manager';
+import { DomainHealthTracker } from '@/lib/core/domain/domain-health-tracker';
 import { logT } from '@/lib/i18n/server';
 import {
   SITE_DOMAINS,
@@ -19,11 +19,11 @@ import {
   httpRequest,
 } from './http-utils';
 
-/** 域名健康度跟踪器 */
+/** 鍩熷悕鍋ュ悍搴﹁窡韪櫒 */
 const domainHealthTracker = new DomainHealthTracker();
 
 /**
- * HTTP 快速登录（无需 Playwright）。
+ * HTTP 蹇€熺櫥褰曪紙鏃犻渶 Playwright锛夈€?
  */
 export async function httpLogin(
   username: string,
@@ -45,7 +45,7 @@ export async function httpLogin(
     if (!formhash) {
       return {
         success: false,
-        message: '无法提取 formhash，页面可能需要验证码或域名不可用',
+        message: '鏃犳硶鎻愬彇 formhash锛岄〉闈㈠彲鑳介渶瑕侀獙璇佺爜鎴栧煙鍚嶄笉鍙敤',
       };
     }
 
@@ -74,38 +74,38 @@ export async function httpLogin(
     );
     cookieJar.parseSetCookie(loginCookies);
 
-    if (loginText.includes('欢迎您回来')) {
+    if (loginText.includes('娆㈣繋鎮ㄥ洖鏉?)) {
       const cookies = cookieJar.toCookieData(targetDomain);
       console.log(logT('log.sjs.httpLoginSuccess', { count: cookies.length }));
       domainHealthTracker.markHealthy(targetDomain);
 
       return {
         success: true,
-        message: '登录成功',
+        message: '鐧诲綍鎴愬姛',
         cookies,
         domain: targetDomain,
       };
     }
 
     domainHealthTracker.markRateLimited(targetDomain);
-    const errorMsg = loginText.includes('密码错误')
-      ? '密码错误'
-      : loginText.includes('用户名')
-        ? '用户名不存在'
-        : `登录失败: ${loginText.slice(0, 200)}`;
+    const errorMsg = loginText.includes('瀵嗙爜閿欒')
+      ? '瀵嗙爜閿欒'
+      : loginText.includes('鐢ㄦ埛鍚?)
+        ? '鐢ㄦ埛鍚嶄笉瀛樺湪'
+        : `鐧诲綍澶辫触: ${loginText.slice(0, 200)}`;
 
     return { success: false, message: errorMsg };
   } catch (err) {
     domainHealthTracker.markRateLimited(targetDomain);
     return {
       success: false,
-      message: `HTTP 登录异常: ${err instanceof Error ? err.message : String(err)}`,
+      message: `HTTP 鐧诲綍寮傚父: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
 
 /**
- * 使用已有 Cookie 进行 HTTP 请求（验证登录态）。
+ * 浣跨敤宸叉湁 Cookie 杩涜 HTTP 璇锋眰锛堥獙璇佺櫥褰曟€侊級銆?
  */
 async function getRequestContext(
   accountId: number,
@@ -122,12 +122,12 @@ async function getRequestContext(
 }
 
 /**
- * 执行每日签到。
+ * 鎵ц姣忔棩绛惧埌銆?
  */
 export async function performCheckin(accountId: number): Promise<CheckinResult> {
   const ctx = await getRequestContext(accountId);
   if (!ctx) {
-    return { success: false, alreadyCheckedIn: false, message: '无有效 Cookie，请先登录' };
+    return { success: false, alreadyCheckedIn: false, message: '鏃犳湁鏁?Cookie锛岃鍏堢櫥褰? };
   }
 
   const { cookieJar, domain } = ctx;
@@ -143,13 +143,13 @@ export async function performCheckin(accountId: number): Promise<CheckinResult> 
     const signHref = extractAnchorHref(signPageText, 'JD_sign');
 
     if (!signHref) {
-      if (signPageText.includes('今日已签') || signPageText.includes('您今天已经签到过了')) {
+      if (signPageText.includes('浠婃棩宸茬') || signPageText.includes('鎮ㄤ粖澶╁凡缁忕鍒拌繃浜?)) {
         return parseCheckinResult(signPageText, true);
       }
       return {
         success: false,
         alreadyCheckedIn: false,
-        message: '未找到签到按钮，页面结构可能已变更',
+        message: '鏈壘鍒扮鍒版寜閽紝椤甸潰缁撴瀯鍙兘宸插彉鏇?,
       };
     }
 
@@ -166,13 +166,13 @@ export async function performCheckin(accountId: number): Promise<CheckinResult> 
     cookieJar.parseSetCookie(cookies2);
 
     if (
-      checkInText.includes('今日已签') ||
-      checkInText.includes('您今天已经签到过了')
+      checkInText.includes('浠婃棩宸茬') ||
+      checkInText.includes('鎮ㄤ粖澶╁凡缁忕鍒拌繃浜?)
     ) {
       return parseCheckinResult(checkInText, true);
     }
 
-    if (checkInText.includes('签到成功') || checkInText.includes('CDATA')) {
+    if (checkInText.includes('绛惧埌鎴愬姛') || checkInText.includes('CDATA')) {
       const { text: afterText } = await httpRequest(signPageUrl, {
         cookieJar,
         referer: `${domain}/`,
@@ -183,19 +183,19 @@ export async function performCheckin(accountId: number): Promise<CheckinResult> 
     return {
       success: false,
       alreadyCheckedIn: false,
-      message: `签到失败: ${checkInText.slice(0, 200)}`,
+      message: `绛惧埌澶辫触: ${checkInText.slice(0, 200)}`,
     };
   } catch (err) {
     return {
       success: false,
       alreadyCheckedIn: false,
-      message: `签到异常: ${err instanceof Error ? err.message : String(err)}`,
+      message: `绛惧埌寮傚父: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
 
 /**
- * 从签到页面解析签到结果信息。
+ * 浠庣鍒伴〉闈㈣В鏋愮鍒扮粨鏋滀俊鎭€?
  */
 function parseCheckinResult(html: string, alreadyCheckedIn: boolean): CheckinResult {
   const rank = extractInputValue(html, 'qiandaobtnnum') || undefined;
@@ -211,7 +211,7 @@ function parseCheckinResult(html: string, alreadyCheckedIn: boolean): CheckinRes
   return {
     success: true,
     alreadyCheckedIn,
-    message: alreadyCheckedIn ? '今日已签到' : '签到成功',
+    message: alreadyCheckedIn ? '浠婃棩宸茬鍒? : '绛惧埌鎴愬姛',
     rank,
     level: level ? `Lv.${level}` : undefined,
     continuousDays,
@@ -222,7 +222,7 @@ function parseCheckinResult(html: string, alreadyCheckedIn: boolean): CheckinRes
 }
 
 /**
- * 购买帖子以解锁隐藏的下载链接。
+ * 璐拱甯栧瓙浠ヨВ閿侀殣钘忕殑涓嬭浇閾炬帴銆?
  */
 export async function buyThread(
   accountId: number,
@@ -230,7 +230,7 @@ export async function buyThread(
 ): Promise<BuyResult> {
   const ctx = await getRequestContext(accountId);
   if (!ctx) {
-    return { success: false, alreadyBought: false, message: '无有效 Cookie，请先登录' };
+    return { success: false, alreadyBought: false, message: '鏃犳湁鏁?Cookie锛岃鍏堢櫥褰? };
   }
 
   const { cookieJar, domain } = ctx;
@@ -246,14 +246,14 @@ export async function buyThread(
 
     const linksDiv = extractClassContent(threadText, 'jnpar-pansell-links');
     if (linksDiv) {
-      if (linksDiv.includes('购买后可查看')) {
+      if (linksDiv.includes('璐拱鍚庡彲鏌ョ湅')) {
         console.log(logT('log.sjs.postNotPurchased', { title: subject }));
       } else {
         const downloadLinks = parseDownloadLinks(linksDiv);
         return {
           success: true,
           alreadyBought: true,
-          message: '帖子已购买',
+          message: '甯栧瓙宸茶喘涔?,
           subject,
           downloadLinks,
         };
@@ -262,7 +262,7 @@ export async function buyThread(
       return {
         success: true,
         alreadyBought: true,
-        message: '此帖子无需购买',
+        message: '姝ゅ笘瀛愭棤闇€璐拱',
         subject,
       };
     }
@@ -279,7 +279,7 @@ export async function buyThread(
       return {
         success: false,
         alreadyBought: false,
-        message: '无法解析购买表单 CDATA',
+        message: '鏃犳硶瑙ｆ瀽璐拱琛ㄥ崟 CDATA',
         subject,
       };
     }
@@ -317,7 +317,7 @@ export async function buyThread(
       return {
         success: true,
         alreadyBought: false,
-        message: '购买成功',
+        message: '璐拱鎴愬姛',
         subject,
         downloadLinks,
       };
@@ -326,20 +326,20 @@ export async function buyThread(
     return {
       success: false,
       alreadyBought: false,
-      message: '购买失败：积分不足或帖子不可购买',
+      message: '璐拱澶辫触锛氱Н鍒嗕笉瓒虫垨甯栧瓙涓嶅彲璐拱',
       subject,
     };
   } catch (err) {
     return {
       success: false,
       alreadyBought: false,
-      message: `购买异常: ${err instanceof Error ? err.message : String(err)}`,
+      message: `璐拱寮傚父: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
 
 /**
- * 从购买后的 jnpar-pansell-links 区域解析下载链接。
+ * 浠庤喘涔板悗鐨?jnpar-pansell-links 鍖哄煙瑙ｆ瀽涓嬭浇閾炬帴銆?
  */
 function parseDownloadLinks(linksHtml: string): string[] {
   const links: string[] = [];
@@ -350,7 +350,7 @@ function parseDownloadLinks(linksHtml: string): string[] {
     const text = match[1]
       .replace(/<[^>]+>/g, ' ')
       .replace(/[\n\r\t]/g, ' ')
-      .replace(/【|】/g, '')
+      .replace(/銆恷銆?g, '')
       .trim();
     if (text) {
       links.push(text);
@@ -378,13 +378,13 @@ function parseDownloadLinks(linksHtml: string): string[] {
 }
 
 /**
- * 从帖子页面 HTML 中提取已购买的下载链接。
+ * 浠庡笘瀛愰〉闈?HTML 涓彁鍙栧凡璐拱鐨勪笅杞介摼鎺ャ€?
  */
-export function extractDownloadLinksFromPage(html: string): string[] {
+export function extractDownloadLinks(html: string): string[] {
   const linksDiv = extractClassContent(html, 'jnpar-pansell-links');
   if (!linksDiv) return [];
 
-  if (linksDiv.includes('购买后可查看')) {
+  if (linksDiv.includes('璐拱鍚庡彲鏌ョ湅')) {
     return [];
   }
 
@@ -392,16 +392,16 @@ export function extractDownloadLinksFromPage(html: string): string[] {
 }
 
 /**
- * 检查帖子是否需要购买才能查看下载链接。
+ * 妫€鏌ュ笘瀛愭槸鍚﹂渶瑕佽喘涔版墠鑳芥煡鐪嬩笅杞介摼鎺ャ€?
  */
 export function isThreadPurchasable(html: string): boolean {
   const linksDiv = extractClassContent(html, 'jnpar-pansell-links');
   if (!linksDiv) return false;
-  return linksDiv.includes('购买后可查看');
+  return linksDiv.includes('璐拱鍚庡彲鏌ョ湅');
 }
 
 /**
- * 为所有可用账户执行签到。
+ * 涓烘墍鏈夊彲鐢ㄨ处鎴锋墽琛岀鍒般€?
  */
 export async function checkinAllAccounts(): Promise<
   Array<{ accountId: number; username: string; result: CheckinResult }>

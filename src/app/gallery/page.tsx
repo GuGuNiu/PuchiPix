@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useGalleryStore } from "@/store/gallery-store";
 import { useI18n } from "@/lib/i18n";
-import { useRouteState } from "@/lib/core/route-state";
+import { useRouteState } from "@/lib/core/infra/route-state";
 import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
 import GlassSelect from "@/components/ui/glass-select";
 import {

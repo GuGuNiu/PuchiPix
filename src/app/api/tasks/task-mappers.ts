@@ -13,6 +13,10 @@ export function mapGalleryStatus(status: string): TaskStatus {
       return 'downloading';
     case 'scraping':
       return 'scraping';
+    case 'scrape_pending':
+      return 'scrape_pending';
+    case 'download_pending':
+      return 'download_pending';
     case 'failed':
     case 'not_found':
       return 'failed';
@@ -78,7 +82,7 @@ export function mapGalleryToTask(g: {
   let person = g.protagonist || '';
   if (!person && g.gameCharacters) {
     try {
-      const gc = JSON.parse(g.gameCharacters);
+      const gc = JSON.parse(g.gameCharacters) as string[];
       if (Array.isArray(gc) && gc.length > 0) {
         person = gc.join('、');
       }

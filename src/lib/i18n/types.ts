@@ -1,4 +1,4 @@
-export type Locale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
+export type Locale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP" | "ko-KR" | "ru-RU" | "de-DE" | "vi-VN" | "es-ES" | "pt-BR" | "fr-FR" | "id-ID";
 
 export interface LocaleMeta {
   code: Locale;
@@ -12,13 +12,15 @@ export const LOCALES: LocaleMeta[] = [
   { code: "zh-TW", label: "繁體中文", shortLabel: "繁體", flag: "🇹🇼" },
   { code: "en-US", label: "English (US)", shortLabel: "EN", flag: "🇺🇸" },
   { code: "ja-JP", label: "日本語", shortLabel: "日本語", flag: "🇯🇵" },
+  { code: "ko-KR", label: "한국어", shortLabel: "한국어", flag: "🇰🇷" },
+  { code: "ru-RU", label: "Русский", shortLabel: "RU", flag: "🇷🇺" },
+  { code: "de-DE", label: "Deutsch", shortLabel: "DE", flag: "🇩🇪" },
+  { code: "vi-VN", label: "Tiếng Việt", shortLabel: "VI", flag: "🇻🇳" },
+  { code: "es-ES", label: "Español", shortLabel: "ES", flag: "🇪🇸" },
+  { code: "pt-BR", label: "Português (BR)", shortLabel: "PT", flag: "🇧🇷" },
+  { code: "fr-FR", label: "Français", shortLabel: "FR", flag: "🇫🇷" },
+  { code: "id-ID", label: "Bahasa Indonesia", shortLabel: "ID", flag: "🇮🇩" },
 ];
 
 export const DEFAULT_LOCALE: Locale = "zh-CN";
-
-/**
- * 翻译键值结构 — 扁平化 dot-notation
- *
- * 以 zh-CN 为基准，其他语言必须覆盖全部键。
- */
 export type TranslationDict = Record<string, string>;

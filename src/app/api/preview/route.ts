@@ -12,7 +12,7 @@ function extractM3U8FromHtml(html: string): string | null {
   const playerMatch = html.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})\s*[;<]/);
   if (playerMatch) {
     try {
-      const playerData = JSON.parse(playerMatch[1]);
+      const playerData = JSON.parse(playerMatch[1]) as { url?: string };
       if (playerData.url && typeof playerData.url === 'string') {
         const url = playerData.url.trim();
         if (url.includes('.m3u8') || url.includes('.m3u')) {

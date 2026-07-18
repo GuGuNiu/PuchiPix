@@ -262,3 +262,32 @@ model UserPreference {
 
   @@map("user_preferences")
 }
+
+model DagEvent {
+  id        Int      @id @default(autoincrement())
+  seq       Int      @unique
+  dagId     String   @map("dag_id")
+  nodeId    String?  @map("node_id")
+  type      String
+  payload   String
+  timestamp DateTime @default(now())
+
+  @@index([dagId])
+  @@index([seq])
+  @@index([type])
+
+  @@map("dag_events")
+}
+
+model DagSnapshot {
+  id        Int      @id @default(autoincrement())
+  dagId     String   @map("dag_id")
+  state     String
+  lastSeq   Int      @map("last_seq")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([dagId])
+  @@index([createdAt])
+
+  @@map("dag_snapshots")
+}

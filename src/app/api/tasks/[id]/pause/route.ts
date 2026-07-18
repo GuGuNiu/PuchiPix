@@ -2,8 +2,8 @@ import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getDownloadManager } from '@/lib/api-helpers';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
-import { eventBus } from '@/lib/core/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { eventBus } from '@/lib/core/infra/event-bus';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

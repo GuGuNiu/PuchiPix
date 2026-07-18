@@ -19,7 +19,8 @@ export const useSniffStore = create<SniffStore>((set) => ({
     try {
       const res = await fetch('/api/sniff/status');
       set({ status: await res.json() });
-    } catch {
+    } catch (err) {
+      console.warn('[SniffStore] fetchStatus failed:', err instanceof Error ? err.message : String(err));
     }
   },
   fetchURLs: async (type?: string) => {
@@ -27,7 +28,8 @@ export const useSniffStore = create<SniffStore>((set) => ({
       const url = type ? `/api/sniff/urls?type=${type}` : '/api/sniff/urls';
       const res = await fetch(url);
       set({ urls: await res.json() });
-    } catch {
+    } catch (err) {
+      console.warn('[SniffStore] fetchURLs failed:', err instanceof Error ? err.message : String(err));
     }
   },
   startSniff: async (url) => {

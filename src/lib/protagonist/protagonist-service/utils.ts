@@ -11,22 +11,10 @@ export function toStandardPinyin(chineseName: string): string {
 }
 
 /**
- * 计算两个字符串的相似度（基于二元组算法）
- *
- * 委托至 core/pinyin-service 的 Bigram 算法。
- * 保留函数名以兼容 protagonist-service 内部调用。
- */
-export function bigramDiceSimilarity(str1: string, str2: string): number {
-  if (!str1 || !str2) return 0;
-  if (str1 === str2) return 1;
-  return getPinyinService().calculateSimilarity(str1, str2, { algorithm: 'bigram' });
-}
-
-/**
  * 计算两个名字的综合相似度
  *
  * 委托至 core/pinyin-service 的 Combined 算法
- * （Levenshtein × 0.4 + JaroWinkler × 0.3 + Bigram × 0.3），
+ * （Levenshtein × 0.4 + JaroWinkler × 0.3 + Bigram(Dice) × 0.3），
  * 与 character-db 模块的相似度计算保持一致。
  */
 export function calculateSimilarity(name1: string, name2: string): number {
@@ -37,10 +25,6 @@ export function calculateSimilarity(name1: string, name2: string): number {
 
 /**
  * 解析混名，分离中文部分和拼音/英文部分
- *
- * 示例：
- * - "樱井宁宁ningning" → { chinese: "樱井宁宁", pinyin: "ningning", isMixed: true }
- * - "桜井宁宁" → { chinese: "桜井宁宁", pinyin: "", isMixed: false }
  */
 export function parseMixedName(name: string): { chinese: string; pinyin: string; isMixed: boolean } {
   if (!name) return { chinese: '', pinyin: '', isMixed: false };
@@ -55,29 +39,6 @@ export function parseMixedName(name: string): { chinese: string; pinyin: string;
     pinyin,
     isMixed: pinyin.length > 0,
   };
-}
-
-/**
- * 从标题中提取主角名字（旧版简单提取，保留兼容）
- *
- * @deprecated 使用 extractFromTitleSmart 替代
- */
-export function extractFromTitle(title: string): string {
-  if (!title) return '';
-
-  const cleaned = title.replace(/^\[[^\]]+\]\s*/, '');
-  const parts = cleaned.split(/\s*[-—–]\s*/);
-
-  if (parts.length >= 2) {
-    return parts[0].trim();
-  }
-
-  const chineseMatch = cleaned.match(/^[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]+/);
-  if (chineseMatch) {
-    return chineseMatch[0];
-  }
-
-  return cleaned.trim();
 }
 
 /**

@@ -40,11 +40,17 @@ const zhTW: TranslationDict = {
   "api.gallery.alreadyScraping": "該圖庫正在被其他任務爬取，請稍後重試",
   "api.gallery.pageNotFound": "頁面不存在 (404)",
   "api.gallery.pageNotFoundSkipped": "頁面不存在 (404)，已跳過",
+  "api.gallery.identifying": "圖庫正在識別中，請等待識別完成後再開始下載",
+  "api.gallery.scrapeComplete": "圖庫爬取完成，下載已非同步啟動",
+  "api.gallery.batchMissingUrls": "urls 參數必須是非空陣列",
+  "api.gallery.batchEmptyUrl": "空 URL",
+  "api.gallery.noProviderForRescrape": "無法匹配圖庫提供商，無法重新爬取",
 
   "api.tasks.noM3u8Extracted": "無法從頁面提取 M3U8 連結",
 
   "api.blocklist.addFailed": "新增失敗",
 
+  "api.characterDb.syncRunning": "同步任務正在執行中",
   "api.common.internalError": "伺服器內部錯誤",
   "api.common.missingParams": "缺少必需參數: {params}",
 };

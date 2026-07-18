@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { GalleryData, DownloadTask, TaskStatus } from '@/types';
 
-/** 单个图库的实时下载进度 */
 export interface GalleryProgress {
   galleryId: number;
   completed: number;
@@ -9,7 +8,6 @@ export interface GalleryProgress {
   failed: number;
 }
 
-/** ZIP 下载进度 */
 export interface ZipProgress {
   galleryId: number;
   downloaded: number;
@@ -17,7 +15,6 @@ export interface ZipProgress {
   percent: number;
 }
 
-/** ZIP 下载状态 */
 export type ZipStatus = 'idle' | 'downloading' | 'completed' | 'failed' | 'extracting';
 
 interface GalleryStore {
@@ -37,11 +34,9 @@ interface GalleryStore {
   setZipProgress: (p: ZipProgress) => void;
   setZipStatus: (galleryId: number, status: ZipStatus) => void;
   connectSSE: () => () => void;
-  /** 向后兼容别名 */
   subscribeToSocket: () => () => void;
 }
 
-/** 将 SSE DownloadTask.Status 映射回 GalleryData.Status */
 function mapTaskStatusToGallery(status: TaskStatus): string {
   switch (status) {
     case 'completed':
@@ -50,8 +45,12 @@ function mapTaskStatusToGallery(status: TaskStatus): string {
       return 'partial';
     case 'downloading':
       return 'downloading';
+    case 'download_pending':
+      return 'download_pending';
     case 'scraping':
       return 'scraping';
+    case 'scrape_pending':
+      return 'scrape_pending';
     case 'failed':
       return 'failed';
     default:
@@ -59,7 +58,6 @@ function mapTaskStatusToGallery(status: TaskStatus): string {
   }
 }
 
-/** 正在请求中的图包详情 ID 集合，防止 SSE upsert 事件密集时重复请求 */
 const detailInFlight = new Set<number>();
 
 export const useGalleryStore = create<GalleryStore>((set, get) => ({
@@ -216,7 +214,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
               return g;
             }),
           }));
-        } catch {
+        } catch (err) {
+          console.warn('[GalleryStore] SSE initial parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -264,7 +263,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
               zipStatusMap: { ...s.zipStatusMap, [id]: zipStatus },
             }));
           }
-        } catch {
+        } catch (err) {
+          console.warn('[GalleryStore] SSE patch parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -273,7 +273,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
           const task = JSON.parse(e.data) as DownloadTask;
           if (task.TaskType !== 'gallery') return;
           get().fetchGalleryDetail(task.ID);
-        } catch {
+        } catch (err) {
+          console.warn('[GalleryStore] SSE upsert parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -297,7 +298,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
               return next;
             })(),
           }));
-        } catch {
+        } catch (err) {
+          console.warn('[GalleryStore] SSE delete parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
     };

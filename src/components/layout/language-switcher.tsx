@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * 语言切换器组件
- *
- * 在侧边栏底部显示当前语言，点击展开语言选择菜单。
- * 支持简体中文、繁体中文、美式英文、日文。
- */
-
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Languages, Check, ChevronDown } from "lucide-react";
 import { useI18n } from "@/lib/i18n";

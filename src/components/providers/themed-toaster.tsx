@@ -14,5 +14,17 @@ export default function ThemedToaster(): React.JSX.Element {
   const { theme } = useTheme();
   // 订阅 locale 变化，切换语言时触发 Toaster 重渲染
   useI18n();
-  return <Toaster richColors theme={theme} position="bottom-right" />;
+  return (
+    <Toaster
+      richColors
+      theme={theme}
+      position="bottom-right"
+      toastOptions={{
+        style: {
+          maxWidth: "500px",
+          width: "auto",
+        },
+      }}
+    />
+  );
 }

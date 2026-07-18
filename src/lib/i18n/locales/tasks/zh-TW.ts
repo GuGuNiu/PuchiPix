@@ -56,6 +56,8 @@ const zhTW: TranslationDict = {
   "tasks.progressStageProbing": "探測中",
   "tasks.progressStageTranscoding": "轉碼中",
   "tasks.progressStageMerging": "合併中",
+"tasks.progressStageScrapePending": "等待識別",
+"tasks.progressStageDownloadPending": "等待下載",
   "tasks.actionStart": "開始",
   "tasks.actionPause": "暫停",
   "tasks.actionResume": "恢復",
@@ -155,7 +157,7 @@ const zhTW: TranslationDict = {
   "tasks.statInput": "已輸入",
   "tasks.statLines": "行",
   "tasks.statDetected": "已識別",
-  "tasks.statItems": "個",
+  "tasks.statItems": "個", "tasks.firstPage": "首頁", "tasks.prevPage": "上一頁", "tasks.nextPage": "下一頁", "tasks.lastPage": "末頁", "tasks.recordCount": "{count} 條", "tasks.jumpToPage": "跳至頁碼", "tasks.jumpToPagePlaceholder": "頁碼",
 };
 
 export default zhTW;

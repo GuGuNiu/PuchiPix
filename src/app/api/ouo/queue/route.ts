@@ -1,6 +1,6 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
-import { getOuoOrchestrator } from '@/lib/core/ouo-orchestrator';
+import { getOuoOrchestrator } from '@/lib/core/orchestrator/ouo-orchestrator';
 import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';

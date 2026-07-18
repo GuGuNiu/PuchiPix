@@ -1,15 +1,9 @@
-/**
- * 重试失败的下载任务
- *
- * POST /api/tasks/:id/retry — 重试已失败或已取消的任务
- */
-
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getDownloadManager, ensureM3U8URL, mapTask } from '@/lib/api-helpers';
-import { eventBus } from '@/lib/core/event-bus';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
 import type { DownloadTask } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +34,6 @@ export async function POST(
       return NextResponse.json({ error: 'Only failed or cancelled tasks can be retried' }, { status: 400 });
     }
 
-    // 重置任务状态
     await prisma.downloadTask.update({
       where: { id: taskId },
       data: { status: 'pending', progress: 0, errorMsg: '' },
@@ -65,14 +58,12 @@ export async function POST(
       errorMsg: '',
     });
 
-    // 通过队列管理器获取槽位，遵守并发上限设置
     taskQueueManager.acquireSlot('video', taskId).then(async (acquired) => {
       if (!acquired) {
         console.log(`[Retry] 视频 #${taskId} 在排队等待中被取消`);
         return;
       }
 
-      // 获取槽位后再次检查任务状态，可能已被取消或暂停
       const currentTask = await prisma.downloadTask.findUnique({ where: { id: taskId } });
       if (!currentTask || currentTask.status === 'cancelled' || currentTask.status === 'paused') {
         taskQueueManager.releaseSlot('video', taskId);

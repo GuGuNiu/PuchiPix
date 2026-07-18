@@ -56,6 +56,8 @@ const zhCN: TranslationDict = {
   "tasks.progressStageProbing": "探测中",
   "tasks.progressStageTranscoding": "转码中",
   "tasks.progressStageMerging": "合并中",
+"tasks.progressStageScrapePending": "等待识别",
+"tasks.progressStageDownloadPending": "等待下载",
   "tasks.actionStart": "开始",
   "tasks.actionPause": "暂停",
   "tasks.actionResume": "恢复",
@@ -155,7 +157,7 @@ const zhCN: TranslationDict = {
   "tasks.statInput": "已输入",
   "tasks.statLines": "行",
   "tasks.statDetected": "已识别",
-  "tasks.statItems": "个",
+  "tasks.statItems": "个", "tasks.firstPage": "首页", "tasks.prevPage": "上一页", "tasks.nextPage": "下一页", "tasks.lastPage": "末页", "tasks.recordCount": "{count} 条", "tasks.jumpToPage": "跳至页码", "tasks.jumpToPagePlaceholder": "页码",
 };
 
 export default zhCN;

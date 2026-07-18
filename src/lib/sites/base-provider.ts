@@ -1,3 +1,8 @@
+/**
+ * 站点提供者抽象基类
+ *
+ * 定义搜索、爬取、屏蔽检查等通用接口和默认实现，各站点 Provider 继承此类实现站点特定逻辑。
+ */
 import type { Page } from 'playwright';
 import type { SiteProvider, SiteSearchResult, ExtendedMetadata } from './types';
 import type { ScrapeResult } from '@/types';
@@ -32,7 +37,7 @@ const DEFAULT_PLAY_BUTTON_SELECTORS = [
 const DEFAULT_M3U8_EXCLUDE_PATTERNS = ['ad', 'stat', 'analytics', 'tracker', 'beacon'];
 
 /** 通用搜索结果选择器（MacCMS / 常见 CMS 标准） */
-const DEFAULT_SEARCH_RESULT_SELECTORS = [
+const DEFAULT_SEARCH_SELECTORS = [
   '.stui-vodlist__item a',
   '.stui-vodlist__box a',
   '.vodlist_item a',
@@ -91,7 +96,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
   abstract readonly enabled: boolean;
 
   /** 搜索结果页 CSS 选择器列表，子类可覆写以添加站点特有选择器 */
-  readonly searchResultSelectors: string[] = DEFAULT_SEARCH_RESULT_SELECTORS;
+  readonly searchResultSelectors: string[] = DEFAULT_SEARCH_SELECTORS;
 
   /** 播放按钮选择器 */
   readonly playButtonSelectors: string[] = DEFAULT_PLAY_BUTTON_SELECTORS;
@@ -139,8 +144,8 @@ export abstract class BaseSiteProvider implements SiteProvider {
         const dateRegexShort = /\b(\d{4}[-/]\d{1,2})\b/;
 
         for (const sel of sels) {
-          document.querySelectorAll(sel).forEach((el) => {
-            const href = (el as HTMLAnchorElement).href;
+          document.querySelectorAll<HTMLAnchorElement>(sel).forEach((el) => {
+            const href = el.href;
             const text = el.textContent?.trim() || '';
             const titleAttr = el.getAttribute('title') || '';
 
@@ -291,7 +296,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
         const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
         jsonLdScripts.forEach((script) => {
           try {
-            const data = JSON.parse(script.textContent || '{}');
+            const data = JSON.parse(script.textContent || '{}') as Record<string, unknown>;
             const crawlActor = (obj: Record<string, unknown>): void => {
               if (!obj || typeof obj !== 'object') return;
               const name = (obj as Record<string, unknown>)['name'] as string | undefined;
@@ -423,8 +428,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
         };
 
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const playerData = (window as any).player_aaaa;
+          const playerData = window.player_aaaa;
           if (playerData && typeof playerData.url === 'string') {
             tryAddUrl(playerData.url);
           }
@@ -437,7 +441,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
               const content = script.textContent || script.innerHTML || '';
               const match = content.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;/);
               if (match) {
-                const playerData = JSON.parse(match[1]);
+                const playerData = JSON.parse(match[1]) as { url?: string };
                 if (playerData.url && typeof playerData.url === 'string') {
                   tryAddUrl(playerData.url);
                 }
@@ -586,8 +590,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
           const iframeM3u8 = await frame.evaluate(() => {
             const urls: string[] = [];
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const playerData = (window as any).player_aaaa;
+              const playerData = window.player_aaaa;
               if (playerData && typeof playerData.url === 'string') {
                 const url = playerData.url.trim();
                 if (url.includes('.m3u8') || url.includes('.m3u')) {

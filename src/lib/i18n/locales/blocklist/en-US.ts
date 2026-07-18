@@ -38,6 +38,11 @@ const enUS: TranslationDict = {
   "blocklist.confirmDelete": "Confirm delete selected rules?",
   "blocklist.noRules": "No rules yet",
   "blocklist.noMatchingRules": "No matching rules",
+  "blocklist.loadFailed": "Failed to load block rules",
+  "blocklist.addSuccess": "Rule added",
+  "blocklist.toggleFailed": "Update failed",
+  "blocklist.pleaseSelectRules": "Please select rules to delete first",
+  "blocklist.confirmAdd": "Confirm Add",
 };
 
 export default enUS;

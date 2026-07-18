@@ -40,11 +40,17 @@ const enUS: TranslationDict = {
   "api.gallery.alreadyScraping": "This gallery is being scraped by another task, please retry later",
   "api.gallery.pageNotFound": "Page not found (404)",
   "api.gallery.pageNotFoundSkipped": "Page not found (404), skipped",
+  "api.gallery.identifying": "Gallery is being identified, please wait for identification to complete before downloading",
+  "api.gallery.scrapeComplete": "Gallery scraping complete, download started asynchronously",
+  "api.gallery.batchMissingUrls": "urls parameter must be a non-empty array",
+  "api.gallery.batchEmptyUrl": "Empty URL",
+  "api.gallery.noProviderForRescrape": "No matching gallery provider found, cannot re-scrape",
 
   "api.tasks.noM3u8Extracted": "Unable to extract M3U8 link from page",
 
   "api.blocklist.addFailed": "Add failed",
 
+  "api.characterDb.syncRunning": "Sync task is already running",
   "api.common.internalError": "Internal server error",
   "api.common.missingParams": "Missing required parameters: {params}",
 };

@@ -36,7 +36,9 @@ export function initSocketIO(httpServer: HTTPServer): SocketIOServer {
 
   // 引擎级错误处理
   io.engine.on('connection_error', (err) => {
-    console.error('[WS] Connection error:', err.code, err.message);
+    const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[WS] Connection error:', code, msg);
   });
 
   return io;

@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// 日誌訊息模板 — 繁體中文
 const zhTW: TranslationDict = {
   "log.safeDelete.fileFailed": "檔案刪除失敗 ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "檔案刪除最終失敗: {path} — {msg}",
@@ -12,6 +11,8 @@ const zhTW: TranslationDict = {
   "log.galleryHandler.domainRateLimited": "域名 {url} 返回 {status}（限流），快速切換",
   "log.galleryHandler.asyncScrapeError": "圖庫 #{id} 非同步爬取異常",
   "log.galleryHandler.scrapeTiming": "{ms}ms — {msg}",
+  "log.galleryHandler.downloadFailed": "下載失敗: {msg}",
+  "log.galleryHandler.downloadComplete": "下載完成: 成功 {success}, 失敗 {failed}, 跳過 {skipped}",
 
   "log.sjs.noAccount": "無可用帳戶，將以遊客模式存取（可能無法看到完整內容）",
   "log.sjs.cookieInjected": "帳戶 #{id} Cookie 已注入（{count} 個）",
@@ -62,6 +63,19 @@ const zhTW: TranslationDict = {
   "log.protagonist.personCacheInitFailed": "Person 快取初始化失敗",
 
   "log.search.batchComplete": "批次爬取完成！成功 {ok}，失敗 {fail}",
+  "log.search.terminated": "搜尋任務異常終止: {msg}",
+  "log.search.batchTerminated": "批次搜尋任務異常終止: {msg}",
+
+  // 任務隊列管理器
+  "log.taskCreator.downloadStartFailed": "下載任務 #{taskId} 啟動失敗: {msg}",
+
+  // 並行下載器
+  "log.parallelDL.writeFailed": "[ParallelDL] 寫入失敗: {msg}",
+  "log.parallelDL.requestFailed": "[ParallelDL] 請求失敗: {msg}",
+
+  // 下載管理器
+  "log.downloadManager.segmentFailed": "  分片 #{idx}: {msg}",
+  "log.downloadManager.incomplete": "下載不完整：{failedCount} 個分片下載失敗（共 {totalSegments} 個分片）\n{details}",
 
   // 任務隊列管理器
   "log.taskQueue.slotAllocated": "槽位已分配: {key} (執行中: 普通={normal}/{maxNormal}, 嗅探={sniff}/{maxSniff})",
@@ -79,6 +93,7 @@ const zhTW: TranslationDict = {
   "log.taskQueue.configSeeded": "預設配置已預寫入資料庫: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus 終態監聽器已註冊",
   "log.taskQueue.resetWarn": "計數器已強制重置",
+"log.taskQueue.startupRecovery": "啟動恢復：已重新排隊 {count} 個任務",
   "log.taskQueue.configLoadFailed": "載入配置失敗，使用預設值: {error}",
 
   // 服務端生命週期
@@ -92,6 +107,9 @@ const zhTW: TranslationDict = {
   "log.taskStateReset.cleanupSlots": "清理殘留槽位: 普通={normal}, 嗅探={sniff}, 識別={scraping}",
   "log.taskStateReset.completed": "重置完成：影片 {videoTasks}, 圖庫 {galleries}, 圖片 {galleryImages}, 影片 {galleryVideos}, 嗅探 {sniffTasks}, ZIP資訊 {galleryDownloadInfos}, 共 {total} 個任務已重置為待處理狀態",
   "log.taskStateReset.noop": "未發現執行中任務，無需重置",
+
+  // 預置資料種子
+  "log.seed.presetDataSeeded": "預置資料已寫入資料庫: 使用者偏好 {prefs} 條, 屏蔽詞 {blocklists} 條",
 };
 
 export default zhTW;

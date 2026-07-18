@@ -1,14 +1,14 @@
 import prisma from '@/lib/db/prisma';
-import { getScraper } from '@/lib/scraper/scraper';
+import { getScraper } from '@/lib/sites/scraper';
 import { mapTask, getDownloadManager } from '@/lib/api-helpers';
-import { eventBus } from '@/lib/core/event-bus';
-import { setM3U8Candidates } from '@/lib/core/m3u8-candidate-store';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { setM3U8Candidates } from '@/lib/core/domain/m3u8-candidate-store';
 import { t } from '@/lib/i18n/server';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
-import { scrapeGalleryAsync } from '@/lib/tasks/gallery-handler';
-import { getSharedBrowser } from '@/lib/core/browser-pool';
-import { createStealthPage, sleep, randomDelay } from '@/lib/core/anti-crawler';
-import { allocateSeq } from '@/lib/core/seq-allocator';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { scrapeGalleryAsync } from '@/lib/downloader/gallery-handler';
+import { getSharedBrowser } from '@/lib/core/stealth/browser-pool';
+import { createStealthPage, sleep, randomDelay } from '@/lib/core/stealth/anti-crawler';
+import { allocateSeq } from '@/lib/core/orchestrator/seq-allocator';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
 
 /**

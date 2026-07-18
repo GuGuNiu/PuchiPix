@@ -1,11 +1,11 @@
-import type { BrowserContext } from "playwright";
+﻿import type { BrowserContext } from "playwright";
 import type { CookieData } from "../../site-account-manager";
 import { getSiteAccountManager } from "../../site-account-manager";
-import { DomainHealthTracker } from "@/lib/core/domain-health-tracker";
+import { DomainHealthTracker } from "@/lib/core/domain/domain-health-tracker";
 import { logT } from "@/lib/i18n/server";
 import { SITE_DOMAINS, DISCUZ_COOKIE_PREFIX } from "./constants";
 
-/** 域名健康度跟踪器 */
+/** 鍩熷悕鍋ュ悍搴﹁窡韪櫒 */
 const domainHealthTracker = new DomainHealthTracker();
 
 export function getBestDomain(): string {
@@ -25,7 +25,7 @@ export function markDomainRateLimited(domain: string): void {
 }
 
 /**
- * 设置浏览器上下文 Cookie。
+ * 璁剧疆娴忚鍣ㄤ笂涓嬫枃 Cookie銆?
  */
 export async function setupSjsBrowserContext(
   context: BrowserContext,
@@ -69,7 +69,7 @@ export async function setupSjsBrowserContext(
 }
 
 /**
- * 执行 Discuz 论坛登录流程。
+ * 鎵ц Discuz 璁哄潧鐧诲綍娴佺▼銆?
  */
 async function performLogin(
   context: BrowserContext,
@@ -88,7 +88,7 @@ async function performLogin(
 
     const loginForm = await page.locator('form[id^="loginform_"]').first();
     if (!loginForm) {
-      throw new Error("未找到登录表单");
+      throw new Error("鏈壘鍒扮櫥褰曡〃鍗?);
     }
 
     const _formhash = await page
@@ -118,7 +118,7 @@ async function performLogin(
     const isLoggedIn = await logoutLink.isVisible({ timeout: 5000 }).catch(() => false);
 
     if (!isLoggedIn) {
-      throw new Error("登录失败：未检测到登录状态");
+      throw new Error("鐧诲綍澶辫触锛氭湭妫€娴嬪埌鐧诲綍鐘舵€?);
     }
 
     const cookies = await context.cookies();
@@ -146,7 +146,7 @@ async function performLogin(
       );
 
     if (sjsCookies.length === 0) {
-      throw new Error("登录后未获取到 Cookie");
+      throw new Error("鐧诲綍鍚庢湭鑾峰彇鍒?Cookie");
     }
 
     await accountManager.saveAuthCookies(accountId, sjsCookies, DISCUZ_COOKIE_PREFIX);
@@ -164,7 +164,7 @@ async function performLogin(
 
     domainHealthTracker.markRateLimited(domain);
 
-    throw new Error(`司机社登录失败: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`鍙告満绀剧櫥褰曞け璐? ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     await page.close().catch(() => {});
   }

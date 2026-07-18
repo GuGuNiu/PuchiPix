@@ -1,4 +1,4 @@
-import type { SiteProvider, SiteInfo, GallerySiteProvider } from './types';
+import type { SiteProvider, SiteInfo } from './types';
 import { getSiteModule, ALL_SITE_MODULES } from './site-modules';
 import { KanavProvider } from './providers/kanav-provider';
 import { AimeiziziProvider } from './providers/aimeizizi-provider';
@@ -80,7 +80,7 @@ class SiteRegistry {
   getSiteInfos(): SiteInfo[] {
     return this.getAllProviders().map((p) => {
       const mod = getSiteModule(p.id);
-      const gallery = typeof (p as unknown as GallerySiteProvider).scrapeGallery === 'function';
+      const gallery = typeof (p as { scrapeGallery?: unknown }).scrapeGallery === 'function';
       return {
         id: p.id,
         name: mod?.nameCn ?? p.name,

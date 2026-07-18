@@ -1,11 +1,3 @@
-/**
- * 统一工具模块导出
- *
- * 所有基础工具函数从这里统一导出，方便使用：
- * @example
- * import { parseFileSize, formatFileSize, sleep, retry, sanitizeFilename } from '@/lib/utils';
- */
-
 // 文件大小处理
 export {
   parseFileSize,
@@ -22,6 +14,7 @@ export {
   withTimeout,
   retry,
   exponentialBackoff,
+  type RetryOptions,
 } from './delay';
 
 // URL 处理
@@ -57,17 +50,6 @@ export {
   formatDate,
   formatNumber,
 } from './format';
-
-// 文件系统操作（仅服务端使用，不统一导出以避免客户端打包 fs）
-// import {
-//   safeDeleteFile,
-//   safeDeleteDir,
-//   safeDeletePaths,
-//   hasDeleteFailures,
-//   summarizeDeleteResults,
-//   type DeleteResult,
-// } from './safe-delete';
-// 需要时直接 import from '@/lib/utils/safe-delete'
 
 // 任务去重
 export {

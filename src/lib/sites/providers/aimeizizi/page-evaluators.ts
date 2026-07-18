@@ -107,7 +107,7 @@ export async function extractGalleryPageData(page: Page, pageIndex: number): Pro
       document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
         if (result.publishTime) return;
         try {
-          const data = JSON.parse(script.textContent || '');
+          const data = JSON.parse(script.textContent || '') as { '@type'?: string; uploadDate?: string };
           if (data['@type'] === 'VideoObject' && data.uploadDate) {
             result.publishTime = String(data.uploadDate).substring(0, 10);
           }
@@ -303,7 +303,7 @@ export async function extractSearchResultsRaw(page: Page): Promise<{ url: string
     };
 
     document.querySelectorAll('article').forEach((article) => {
-      const link = article.querySelector('a[href*="/article/"]') as HTMLAnchorElement;
+      const link = article.querySelector('a[href*="/article/"]') as HTMLAnchorElement | null;
       if (!link) return;
       const href = link.href;
       if (href && !seen.has(href)) {
@@ -334,7 +334,7 @@ export async function extractSearchResultsRaw(page: Page): Promise<{ url: string
   });
 }
 
-export async function extractExtendedMetadataRaw(page: Page): Promise<{
+export async function extractExtMetadataRaw(page: Page): Promise<{
   h1Title: string;
   category: string;
   tags: string[];

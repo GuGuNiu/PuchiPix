@@ -1,7 +1,6 @@
 import type { TaskStatus, DownloadTask } from "@/types";
 import { formatFileSize } from "@/lib/utils";
 
-// 重新导出 formatFileSize 以保持向后兼容
 export { formatFileSize };
 
 export type TranslateFunction = (key: string, params?: Record<string, string | number>) => string;
@@ -26,6 +25,11 @@ export const FILTER_PILL_KEYS = [
   { value: "failed", labelKey: "common.failed" },
 ];
 
+export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
+  scraping: ["scraping", "scrape_pending"],
+  downloading: ["downloading", "download_pending"],
+};
+
 export const SORT_OPTION_KEYS = [
   { value: "date_desc", labelKey: "tasks.sortDateDesc" },
   { value: "date_asc", labelKey: "tasks.sortDateAsc" },
@@ -36,20 +40,24 @@ export const SORT_OPTION_KEYS = [
 
 export const STATUS_ORDER: Record<TaskStatus, number> = {
   scraping: 0,
-  downloading: 1,
-  pending: 2,
-  paused: 3,
-  transcoding: 4,
-  failed: 5,
-  cancelled: 6,
-  partial: 7,
-  completed: 8,
+  scrape_pending: 1,
+  downloading: 2,
+  download_pending: 3,
+  pending: 4,
+  paused: 5,
+  transcoding: 6,
+  failed: 7,
+  cancelled: 8,
+  partial: 9,
+  completed: 10,
 };
 
 export function useStatusLabel(t: TranslateFunction): Record<TaskStatus, string> {
   return {
     pending: t("common.pending"),
+    scrape_pending: t("common.scrapePending"),
     scraping: t("common.scraping"),
+    download_pending: t("common.downloadPending"),
     downloading: t("common.downloading"),
     paused: t("common.paused"),
     completed: t("common.completed"),
@@ -60,10 +68,6 @@ export function useStatusLabel(t: TranslateFunction): Record<TaskStatus, string>
   };
 }
 
-/**
- * 从标题中去除人物名前缀
- * 如果标题以人物名开头，去除人物名及后续的分隔符（-、—、–）
- */
 export function stripPersonFromTitle(title: string, person?: string): string {
   if (!title || !person) return title;
   if (title.startsWith(person)) {
@@ -73,9 +77,6 @@ export function stripPersonFromTitle(title: string, person?: string): string {
   return title;
 }
 
-/**
- * 根据任务状态和进度推断当前处理阶段
- */
 export function getProgressStage(task: DownloadTask, t: TranslateFunction): string {
   if (task.TaskType === "sniff") {
     if (task.Status === "scraping") return t("tasks.progressStageAnalyzing");
@@ -84,6 +85,8 @@ export function getProgressStage(task: DownloadTask, t: TranslateFunction): stri
     return t("tasks.progressStagePending");
   }
   if (task.Status === "scraping") return t("tasks.progressStageScraping");
+  if (task.Status === "scrape_pending") return t("tasks.progressStageScrapePending");
+  if (task.Status === "download_pending") return t("tasks.progressStageDownloadPending");
   if (task.Status === "completed") return t("tasks.progressStageCompleted");
   if (task.Status === "failed") return t("tasks.progressStageFailed");
   if (task.Status === "cancelled") return t("tasks.progressStageCancelled");

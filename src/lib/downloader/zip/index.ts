@@ -1,0 +1,463 @@
+﻿import fs from 'fs';
+import path from 'path';
+import prisma from '@/lib/db/prisma';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { ttlLock } from '@/lib/core/infra/ttl-lock';
+import { parallelDownload, downloadGalleryCover } from '@/lib/downloader';
+import {
+  generateEnglishZipName,
+  detectDownloadSource,
+  verifyExtractedContent,
+  parseTitleCount,
+} from '@/lib/downloader/gallery-content-verifier';
+import { sanitizeFilename, extractFilenameFromUrl, retry } from '@/lib/utils';
+import { ensureDir } from '@/lib/utils/file-system';
+
+import {
+  MAX_RETRIES,
+  PARALLEL_CHUNK_COUNT,
+  getZipRoot,
+} from './constants';
+import { resolveDirectDownloadUrl } from './url-resolver';
+import { extractArchive } from './archive-extractor';
+
+export interface ZipDownloadResult {
+  success: boolean;
+  status: string;
+  localPath: string;
+  extractedPath: string;
+  actualSize: number;
+  fileCount: number;
+  /** 下载来源 */
+  downloadSource?: string;
+  /** 英文 ZIP 文件名 */
+  zipFileName?: string;
+  /** 内容校验是否通过 */
+  contentVerified?: boolean;
+  /** 是否需要回退爬虫下载 */
+  needsFallbackScrape?: boolean;
+  /** 校验不匹配原因 */
+  verifyReason?: string;
+  error?: string;
+}
+
+/**
+ * 下载并解压图库的 ZIP 压缩包
+ *
+ * @param galleryId - 图库 ID
+ * @param manualUrl - 手动传入的下载 URL
+ */
+export async function downloadAndExtractZip(
+  galleryId: number,
+  manualUrl?: string,
+): Promise<ZipDownloadResult> {
+  const lockKey = `gallery:zip:${galleryId}`;
+  const lockHandle = await ttlLock.acquire(lockKey, {
+    ttl: 300000,
+    waitTimeout: 5000,
+  });
+
+  if (!lockHandle) {
+    throw new Error(`图库 #${galleryId} 的 ZIP 正在下载中`);
+  }
+
+  try {
+    const gallery = await prisma.gallery.findUnique({
+      where: { id: galleryId },
+      include: { downloadInfo: true },
+    });
+
+    if (!gallery) {
+      throw new Error(`图库 #${galleryId} 不存在`);
+    }
+
+    if (!gallery.downloadInfo) {
+      throw new Error(`图库 #${galleryId} 无 ZIP 下载信息`);
+    }
+
+    const downloadInfo = gallery.downloadInfo;
+    const downloadUrl = manualUrl || downloadInfo.downloadUrl;
+
+    if (!downloadUrl) {
+      throw new Error('无可用下载 URL，请手动提供');
+    }
+
+    const downloadSource = detectDownloadSource(downloadUrl);
+    const isOuoSource = downloadSource === 'ouo';
+
+    const ext = path.extname(downloadUrl.split('?')[0]) || '.zip';
+    const englishZipName = generateEnglishZipName(
+      gallery.protagonist,
+      gallery.description,
+      galleryId,
+      ext,
+    );
+
+    console.log(`[ZipDL] 下载来源: ${downloadSource}, 英文名: ${englishZipName}`);
+
+    const { expectedImages, expectedVideos } = parseTitleCount(gallery.title);
+
+    await prisma.galleryDownloadInfo.update({
+      where: { galleryId },
+      data: {
+        status: 'downloading',
+        downloadSource,
+        ouoUrl: isOuoSource ? downloadUrl : downloadInfo.ouoUrl,
+        zipFileName: englishZipName,
+      },
+    });
+
+    await prisma.gallery.update({
+      where: { id: galleryId },
+      data: {
+        expectedImageCount: expectedImages,
+        expectedVideoCount: expectedVideos,
+        downloadMethod: 'zip',
+      },
+    });
+
+    eventBus.emit('gallery:zipDownloadStarted', {
+      galleryId,
+      url: downloadUrl,
+    });
+
+    const zipDir = path.join(getZipRoot(), `gallery_${galleryId}`);
+    ensureDir(zipDir);
+
+    const existingArchive = fs.readdirSync(zipDir).find((f) => {
+      const lower = f.toLowerCase();
+      return lower.endsWith('.zip') || lower.endsWith('.rar') || lower.endsWith('.7z');
+    });
+
+    let actualZipPath = '';
+    let actualSize = BigInt(0);
+    let skipDownload = false;
+
+    if (existingArchive) {
+      const existingPath = path.join(zipDir, existingArchive);
+      const stat = fs.statSync(existingPath);
+      if (stat.size > 0) {
+        console.log(`[ZipDL] 发现已下载文件: ${existingArchive} (${stat.size} bytes)，跳过下载`);
+        actualZipPath = existingPath;
+        actualSize = BigInt(stat.size);
+        skipDownload = true;
+
+        await prisma.galleryDownloadInfo.update({
+          where: { galleryId },
+          data: { status: 'completed', localPath: actualZipPath, actualSize },
+        });
+      }
+    }
+
+    if (!skipDownload) {
+      let directUrl = downloadUrl;
+      let filename = `gallery_${galleryId}.zip`;
+      let refererUrl = downloadUrl;
+
+      const isDirectLink = /\.(zip|rar|7z)(\?|$)/i.test(downloadUrl);
+
+      if (!isDirectLink) {
+        console.log(`[ZipDL] 解析中转站: ${downloadUrl}`);
+
+        let resolved: { directUrl: string; filename: string; sourceUrl: string } | null = null;
+        let lastError: unknown = null;
+
+        try {
+          resolved = await retry(
+            () => resolveDirectDownloadUrl(downloadUrl),
+            {
+              maxRetries: MAX_RETRIES - 1,
+              backoff: 'exponential',
+              baseDelay: 2000,
+              maxDelay: 10000,
+              onRetry: (attempt, error) => {
+                console.warn(
+                  `[ZipDL] 中转站解析失败（第 ${attempt + 1} 次）:`,
+                  error instanceof Error ? error.message : error,
+                );
+              },
+            },
+          );
+        } catch (err) {
+          lastError = err;
+        }
+
+        if (!resolved) {
+          const errMsg =
+            lastError instanceof Error
+              ? `中转站解析失败: ${lastError.message}`
+              : '中转站解析失败';
+
+          await prisma.galleryDownloadInfo.update({
+            where: { galleryId },
+            data: { status: 'failed' },
+          });
+
+          eventBus.emit('gallery:zipDownloadFailed', {
+            galleryId,
+            error: errMsg,
+          });
+
+          return {
+            success: false,
+            status: 'failed',
+            localPath: '',
+            extractedPath: '',
+            actualSize: 0,
+            fileCount: 0,
+            error: errMsg,
+          };
+        }
+
+        directUrl = resolved.directUrl;
+        filename = resolved.filename || filename;
+        refererUrl = resolved.sourceUrl || directUrl;
+
+        await prisma.galleryDownloadInfo.update({
+          where: { galleryId },
+          data: { resolvedDirectUrl: directUrl },
+        });
+      } else {
+        filename = extractFilenameFromUrl(downloadUrl);
+      }
+
+      console.log(`[ZipDL] 直链: ${directUrl}`);
+      console.log(`[ZipDL] 文件名: ${filename}`);
+
+      const zipFilePath = path.join(zipDir, sanitizeFilename(filename));
+
+      let downloadResult = {
+        success: false,
+        fileSize: 0,
+        savedPath: '',
+        parallelism: 0,
+        avgSpeed: 0,
+      };
+
+      const parallelResult = await retry(
+        () => parallelDownload(directUrl, zipFilePath, {
+          chunkCount: PARALLEL_CHUNK_COUNT,
+          headers: { Referer: refererUrl },
+          onProgress: (downloaded, total) => {
+            if (total > 0) {
+              const pct = Math.round((downloaded / total) * 100);
+              eventBus.emit('gallery:zipDownloadProgress', {
+                galleryId,
+                downloaded,
+                total,
+                percent: pct,
+              });
+            }
+          },
+        }),
+        {
+          maxRetries: MAX_RETRIES - 1,
+          backoff: 'exponential',
+          baseDelay: 3000,
+          maxDelay: 15000,
+          isSuccess: (r) => r.success,
+          onRetry: (attempt) => {
+            console.warn(`[ZipDL] 下载重试（第 ${attempt + 1} 次）`);
+          },
+        },
+      );
+
+      downloadResult = {
+        success: parallelResult.success,
+        fileSize: parallelResult.fileSize,
+        savedPath: parallelResult.savedPath,
+        parallelism: parallelResult.parallelism,
+        avgSpeed: parallelResult.avgSpeed,
+      };
+
+      actualZipPath = downloadResult.savedPath || zipFilePath;
+
+      if (!downloadResult.success || !fs.existsSync(actualZipPath)) {
+        const errMsg = 'ZIP 文件下载失败';
+
+        await prisma.galleryDownloadInfo.update({
+          where: { galleryId },
+          data: { status: 'failed' },
+        });
+
+        eventBus.emit('gallery:zipDownloadFailed', { galleryId, error: errMsg });
+
+        return {
+          success: false,
+          status: 'failed',
+          localPath: '',
+          extractedPath: '',
+          actualSize: 0,
+          fileCount: 0,
+          error: errMsg,
+        };
+      }
+
+      actualSize = BigInt(fs.statSync(actualZipPath).size);
+
+      const englishZipPath = path.join(zipDir, englishZipName);
+      if (actualZipPath !== englishZipPath) {
+        try {
+          if (fs.existsSync(englishZipPath)) {
+            fs.unlinkSync(englishZipPath);
+          }
+          fs.renameSync(actualZipPath, englishZipPath);
+          actualZipPath = englishZipPath;
+          console.log(`[ZipDL] 压缩包重命名: → ${englishZipName}`);
+        } catch (err) {
+          console.warn(`[ZipDL] 重命名失败，保留原文件名:`, err instanceof Error ? err.message : err);
+        }
+      }
+
+      await prisma.galleryDownloadInfo.update({
+        where: { galleryId },
+        data: {
+          status: 'completed',
+          localPath: actualZipPath,
+          actualSize,
+          zipFileName: englishZipName,
+          parallelism: downloadResult.parallelism,
+          avgSpeed: downloadResult.avgSpeed,
+        },
+      });
+
+      eventBus.emit('gallery:zipDownloadCompleted', {
+        galleryId,
+        localPath: actualZipPath,
+        actualSize: Number(actualSize),
+      });
+
+      console.log(`[ZipDL] ZIP 下载完成: ${actualZipPath} (${actualSize} bytes)`);
+    }
+
+    const extractDir = path.join(
+      gallery.savePath || path.join(getZipRoot(), `gallery_${galleryId}`),
+      'zip_extracted',
+    );
+    ensureDir(extractDir);
+
+    console.log(`[ZipDL] 开始解压: ${actualZipPath} → ${extractDir} (密码: ${downloadInfo.password ? '有' : '无'})`);
+
+    const extractResult = await extractArchive(actualZipPath, extractDir, downloadInfo.password || undefined);
+
+    if (!extractResult.success) {
+      await prisma.galleryDownloadInfo.update({
+        where: { galleryId },
+        data: {
+          status: 'failed',
+          localPath: actualZipPath,
+          actualSize,
+        },
+      });
+
+      eventBus.emit('gallery:zipExtractFailed', {
+        galleryId,
+        error: '解压失败',
+      });
+
+      return {
+        success: false,
+        status: 'failed',
+        localPath: actualZipPath,
+        extractedPath: '',
+        actualSize: Number(actualSize),
+        fileCount: 0,
+        error: 'ZIP 解压失败（密码可能不正确）',
+      };
+    }
+
+    await prisma.galleryDownloadInfo.update({
+      where: { galleryId },
+      data: {
+        status: 'completed',
+        localPath: actualZipPath,
+        extractedPath: extractDir,
+        actualSize,
+        fileCount: extractResult.fileCount,
+      },
+    });
+
+    const verification = verifyExtractedContent(extractDir, expectedImages, expectedVideos);
+
+    await prisma.galleryDownloadInfo.update({
+      where: { galleryId },
+      data: {
+        verifiedCount: verification.totalCount,
+        countMatched: verification.matched,
+      },
+    });
+
+    await prisma.gallery.update({
+      where: { id: galleryId },
+      data: {
+        contentVerified: true,
+      },
+    });
+
+    if (!verification.matched) {
+      console.warn(`[ZipDL] 内容校验不通过: ${verification.reason}`);
+      eventBus.emit('gallery:zipVerifyFailed', {
+        galleryId,
+        reason: verification.reason ?? '',
+        expectedImages,
+        actualImages: verification.imageCount,
+        expectedVideos,
+        actualVideos: verification.videoCount,
+      });
+    } else {
+      console.log(`[ZipDL] 内容校验通过: 图片 ${verification.imageCount}, 视频 ${verification.videoCount}`);
+    }
+
+    eventBus.emit('gallery:zipExtractCompleted', {
+      galleryId,
+      extractedPath: extractDir,
+      fileCount: extractResult.fileCount,
+    });
+
+    console.log(
+      `[ZipDL] 解压完成: ${extractDir}（${extractResult.fileCount} 个文件）`,
+    );
+
+    if (gallery.coverUrl && !gallery.coverLocalPath) {
+      const galleryBasePath = gallery.savePath || path.join(getZipRoot(), `gallery_${galleryId}`);
+      await downloadGalleryCover(galleryId, gallery.coverUrl, gallery.sourceUrl, galleryBasePath);
+    }
+
+    return {
+      success: true,
+      status: 'completed',
+      localPath: actualZipPath,
+      extractedPath: extractDir,
+      actualSize: Number(actualSize),
+      fileCount: extractResult.fileCount,
+      downloadSource,
+      zipFileName: englishZipName,
+      contentVerified: verification.matched,
+      needsFallbackScrape: verification.needsFallbackScrape,
+      verifyReason: verification.reason,
+    };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+
+    await prisma.galleryDownloadInfo
+      .update({
+        where: { galleryId },
+        data: { status: 'failed' },
+      })
+      .catch(() => {});
+
+    eventBus.emit('gallery:zipDownloadFailed', { galleryId, error: errMsg });
+
+    return {
+      success: false,
+      status: 'failed',
+      localPath: '',
+      extractedPath: '',
+      actualSize: 0,
+      fileCount: 0,
+      error: errMsg,
+    };
+  } finally {
+    ttlLock.releaseHandle(lockHandle);
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "cloudflare": [
+    "cf-browser-verification",
+    "cf-challenge-running",
+    "cloudflare",
+    "Checking your browser before accessing",
+    "Just a moment",
+    "_cf_chl_opt",
+    "cf-mitigated",
+    "ray ID",
+    "cf-ray"
+  ],
+  "waf": [
+    "access denied",
+    "请求被拦截",
+    "您的请求被拦截",
+    "blocked by security",
+    "security check",
+    "安全检查",
+    " firewall",
+    "rate limit",
+    "too many requests",
+    "请求过于频繁",
+    "Access to this page has been denied",
+    "Incapsula incident",
+    "Sucuri WebSite Firewall",
+    "blocked by protection"
+  ],
+  "captcha": [
+    "captcha",
+    "recaptcha",
+    "hcaptcha",
+    "geetest",
+    "verify you are human",
+    "请完成验证",
+    "人机验证",
+    "g-recaptcha",
+    "h-captcha"
+  ],
+  "javascript_challenge": [
+    "请启用 JavaScript",
+    "enable javascript",
+    "requires javascript",
+    "noscript",
+    "javascript is disabled",
+    "needs javascript"
+  ]
+}

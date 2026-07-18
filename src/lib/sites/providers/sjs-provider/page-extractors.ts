@@ -13,7 +13,7 @@ export async function extractSearchResults(page: Page): Promise<SiteSearchResult
     const items = document.querySelectorAll("li.nexwateritems");
 
     items.forEach((item) => {
-      const link = item.querySelector('a[href*="mod=viewthread&tid="]') as HTMLAnchorElement;
+      const link = item.querySelector('a[href*="mod=viewthread&tid="]') as HTMLAnchorElement | null;
       if (!link) return;
 
       const tidMatch = link.href.match(/tid=(\d+)/);
@@ -197,8 +197,8 @@ export async function extractPostContent(
           }
         });
 
-      contentEl.querySelectorAll("a").forEach((a) => {
-        const href = (a as HTMLAnchorElement).href;
+contentEl.querySelectorAll<HTMLAnchorElement>("a").forEach((a) => {
+const href = a.href;
         if (href && (href.includes(".mp4") || href.includes(".m3u8"))) {
           videos.push(href);
         }
@@ -244,7 +244,7 @@ export async function getThreadTotalPages(page: Page): Promise<number> {
 
     const pageInput = document.querySelector(
       ".pg label input, .pgs label input",
-    ) as HTMLInputElement;
+    ) as HTMLInputElement | null;
     if (pageInput) {
       const title = pageInput.getAttribute("title") || "";
       const match = title.match(/(\d+)/);
@@ -273,7 +273,7 @@ export async function extractForumListResults(page: Page): Promise<SiteSearchRes
     );
 
     threadContainers.forEach((container) => {
-      const titleLink = container.querySelector("a.s.xst") as HTMLAnchorElement;
+      const titleLink = container.querySelector("a.s.xst") as HTMLAnchorElement | null;
       if (!titleLink) return;
 
       const href = titleLink.href;
@@ -303,18 +303,18 @@ export async function getNextPageUrl(
   baseUrl: string,
 ): Promise<string | null> {
   const nextLink = await page.evaluate((cp) => {
-    const pgLinks = document.querySelectorAll(".pg a, .pgs a");
+    const pgLinks = document.querySelectorAll<HTMLAnchorElement>(".pg a, .pgs a");
     for (const link of pgLinks) {
       const text = link.textContent?.trim() || "";
       if (text === "下一页" || text === "Next" || text === "›" || text === "»") {
-        return (link as HTMLAnchorElement).href;
+        return link.href;
       }
     }
     const nextNum = String(cp + 1);
     for (const link of pgLinks) {
       const text = link.textContent?.trim() || "";
       if (text === nextNum) {
-        return (link as HTMLAnchorElement).href;
+        return link.href;
       }
     }
     return null;

@@ -15,9 +15,9 @@ import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { mapTask, getDownloadManager } from '@/lib/api-helpers';
-import { eventBus } from '@/lib/core/event-bus';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
-import { deleteM3U8Candidates } from '@/lib/core/m3u8-candidate-store';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { deleteM3U8Candidates } from '@/lib/core/domain/m3u8-candidate-store';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -67,7 +67,6 @@ export async function POST(
     // 通知前端已选择
     eventBus.emit('task:scraped', { taskId, m3u8URL: m3u8Url, title: task.videoInfo?.title || '' });
 
-    // 启动下载
     const updatedTask = await prisma.downloadTask.findUnique({
       where: { id: taskId },
       include: { videoInfo: true },

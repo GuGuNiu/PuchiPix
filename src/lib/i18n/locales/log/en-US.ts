@@ -12,6 +12,8 @@ const enUS: TranslationDict = {
   "log.galleryHandler.domainRateLimited": "Domain {url} returned {status} (rate limited), fast switching",
   "log.galleryHandler.asyncScrapeError": "Gallery #{id} async scrape error",
   "log.galleryHandler.scrapeTiming": "{ms}ms — {msg}",
+  "log.galleryHandler.downloadFailed": "Download failed: {msg}",
+  "log.galleryHandler.downloadComplete": "Download complete: {success} succeeded, {failed} failed, {skipped} skipped",
 
   "log.sjs.noAccount": "No available account, accessing as guest (full content may not be visible)",
   "log.sjs.cookieInjected": "Account #{id} Cookie injected ({count} items)",
@@ -62,6 +64,19 @@ const enUS: TranslationDict = {
   "log.protagonist.personCacheInitFailed": "Person cache initialization failed",
 
   "log.search.batchComplete": "Batch scrape complete! {ok} succeeded, {fail} failed",
+  "log.search.terminated": "Search task terminated abnormally: {msg}",
+  "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
+
+  // Task Queue Manager
+  "log.taskCreator.downloadStartFailed": "Download task #{taskId} failed to start: {msg}",
+
+  // Parallel Downloader
+  "log.parallelDL.writeFailed": "[ParallelDL] Write failed: {msg}",
+  "log.parallelDL.requestFailed": "[ParallelDL] Request failed: {msg}",
+
+  // Download Manager
+  "log.downloadManager.segmentFailed": "  Segment #{idx}: {msg}",
+  "log.downloadManager.incomplete": "Download incomplete: {failedCount} segments failed (out of {totalSegments} total)\n{details}",
 
   // Task Queue Manager
   "log.taskQueue.slotAllocated": "Slot allocated: {key} (running: normal={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
@@ -79,6 +94,7 @@ const enUS: TranslationDict = {
   "log.taskQueue.configSeeded": "Default config seeded to database: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus terminal listeners registered",
   "log.taskQueue.resetWarn": "Counters force-reset",
+"log.taskQueue.startupRecovery": "Startup recovery: re-queued {count} task(s)",
   "log.taskQueue.configLoadFailed": "Failed to load config, using defaults: {error}",
 
   // Server Lifecycle
@@ -92,6 +108,9 @@ const enUS: TranslationDict = {
   "log.taskStateReset.cleanupSlots": "Cleaning stale slots: normal={normal}, sniff={sniff}, scraping={scraping}",
   "log.taskStateReset.completed": "Reset complete: video {videoTasks}, galleries {galleries}, images {galleryImages}, videos {galleryVideos}, sniff {sniffTasks}, ZIP info {galleryDownloadInfos}, total {total} tasks reset to pending",
   "log.taskStateReset.noop": "No running tasks found, nothing to reset",
+
+  // Preset Data Seed
+  "log.seed.presetDataSeeded": "Preset data seeded to database: {prefs} preferences, {blocklists} blocklist rules",
 };
 
 export default enUS;

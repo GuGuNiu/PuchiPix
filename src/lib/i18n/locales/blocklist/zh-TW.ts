@@ -38,6 +38,11 @@ const zhTW: TranslationDict = {
   "blocklist.confirmDelete": "確認刪除選中的規則？",
   "blocklist.noRules": "暫無規則",
   "blocklist.noMatchingRules": "沒有匹配的規則",
+  "blocklist.loadFailed": "載入屏蔽規則失敗",
+  "blocklist.addSuccess": "規則已新增",
+  "blocklist.toggleFailed": "更新失敗",
+  "blocklist.pleaseSelectRules": "請先選擇要刪除的規則",
+  "blocklist.confirmAdd": "確認新增",
 };
 
 export default zhTW;

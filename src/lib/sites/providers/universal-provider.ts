@@ -180,8 +180,8 @@ export class UniversalProvider extends BaseSiteProvider {
       }
 
       return parsed.hostname;
+    // URL 解析失败，截取前50字符
     } catch {
-      // URL 解析失败，截取前50字符
       return url.length > 50 ? `${url.substring(0, 50)}...` : url;
     }
   }
@@ -197,7 +197,6 @@ export class UniversalProvider extends BaseSiteProvider {
     const result: string[] = [];
 
     for (const url of urls) {
-      // 去除查询参数中的时间戳等可变参数进行去重
       const normalized = url.split('?')[0].split('#')[0];
       if (!seen.has(normalized)) {
         seen.add(normalized);
@@ -208,7 +207,6 @@ export class UniversalProvider extends BaseSiteProvider {
     return result;
   }
 
-  // 完整爬取流程（覆写基类）
   /**
    * 执行完整的视频页面爬取流程。
    *
@@ -254,8 +252,7 @@ export class UniversalProvider extends BaseSiteProvider {
           const iframeM3u8 = await frame.evaluate(() => {
             const urls: string[] = [];
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const playerData = (window as any).player_aaaa;
+              const playerData = window.player_aaaa;
               if (playerData && typeof playerData.url === 'string') {
                 const url = playerData.url.trim();
                 if (url.includes('.m3u8') || url.includes('.m3u')) {
@@ -289,7 +286,7 @@ export class UniversalProvider extends BaseSiteProvider {
       const videoSrcM3u8 = await page.evaluate(() => {
         const urls: string[] = [];
         document.querySelectorAll('video source[src*=".m3u8"], video[src*=".m3u8"]').forEach((el) => {
-          const src = (el as HTMLSourceElement).src || el.getAttribute('src') || '';
+          const src = el.getAttribute('src') || '';
           if (src) urls.push(src);
         });
         return urls;

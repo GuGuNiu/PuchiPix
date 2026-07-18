@@ -1,8 +1,8 @@
-import type { Page, BrowserContext } from "playwright";
+﻿import type { Page, BrowserContext } from "playwright";
 import { BaseSiteProvider } from "../base-provider";
 import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockCheckResult } from "../types";
 import type { GalleryScrapeResult, GalleryImageItem, ScrapeResult } from "@/types";
-import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/anti-crawler";
+import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/stealth/anti-crawler";
 import { logT } from "@/lib/i18n/server";
 import {
   BASE_E_URL,
@@ -19,23 +19,13 @@ import {
   isExhentaiListingPage,
 } from "./exhentai-provider/constants";
 import {
-  setupExhentaiBrowserContext,
+  setupExhentaiContext,
   extractSearchResults as doExtractSearchResults,
   extractExtendedMetadata as doExtractExtendedMetadata,
   extractGalleryInfo,
   collectImagePageLinks,
   fetchImageUrls,
 } from "./exhentai-provider/page-extractors";
-
-// Re-export for backward compatibility
-export { extractGalleryId, normalizeToEhentai, isExUrl, CATEGORY_LABELS, CATEGORY_NAMES };
-function isExUrl(url: string): boolean {
-  try {
-    return new URL(url).hostname === "exhentai.org";
-  } catch {
-    return false;
-  }
-}
 
 export class ExhentaiProvider extends BaseSiteProvider implements GallerySiteProvider {
   readonly id = "exhentai";
@@ -49,7 +39,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
   readonly domains: string[] = SITE_DOMAINS;
 
   async setupBrowserContext(context: BrowserContext): Promise<void> {
-    await setupExhentaiBrowserContext(context);
+    await setupExhentaiContext(context);
   }
 
   buildSearchUrl(keyword: string): string {
@@ -124,14 +114,17 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       metadata.actors[0],
     );
     if (blockCheck.blocked) {
-      throw new Error(`内容被屏蔽: ${blockCheck.reason}`);
+      throw new Error(`鍐呭琚睆钄? ${blockCheck.reason}`);
     }
 
     let gameCharacters: string[] | undefined;
     try {
-      const { getGameCharacterService } = await import("@/lib/game-characters/game-character-service");
-      const charService = getGameCharacterService();
-      const charMatches = await charService.identifyInTags(metadata.tags);
+      const { getCharacterDBService } = await import("@/lib/character-db");
+      const db = getCharacterDBService();
+      if (!db.isLoaded()) {
+        await db.load();
+      }
+      const charMatches = db.identifyInTags(metadata.tags).filter(m => m.character.category === 'game');
       gameCharacters = charMatches.length > 0 ? charMatches.map((m) => m.character.name) : undefined;
     } catch {}
 
@@ -215,7 +208,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       if (newCount === 0) break;
 
       const nextUrl = await page.evaluate(() => {
-        const nextLink = document.querySelector("a#dnext") as HTMLAnchorElement;
+        const nextLink = document.querySelector("a#dnext") as HTMLAnchorElement | null;
         return nextLink?.href || null;
       });
 

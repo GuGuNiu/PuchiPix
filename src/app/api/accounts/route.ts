@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getSiteAccountManager, type AccountStatus } from '@/lib/sites/site-account-manager';
-import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const siteId = searchParams.get('siteId');
@@ -32,7 +32,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
 
@@ -67,7 +67,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 export async function PATCH(request: Request): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
@@ -100,7 +100,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
 }
 
 export async function DELETE(request: Request): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');

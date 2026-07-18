@@ -1,7 +1,9 @@
 export const GALLERY_STATUS_LABEL: Record<string, string> = {
   scraping: "gallery.statusScraping",
+  scrape_pending: "gallery.statusScrapePending",
   completed: "gallery.statusCompleted",
   downloading: "gallery.statusDownloading",
+  download_pending: "gallery.statusDownloadPending",
   partial: "gallery.statusPartial",
   failed: "gallery.statusFailed",
   pending: "gallery.statusPending",
@@ -9,11 +11,18 @@ export const GALLERY_STATUS_LABEL: Record<string, string> = {
 
 export const GALLERY_STATUS_CLASS: Record<string, string> = {
   scraping: "badge-info",
+  scrape_pending: "badge-info",
   completed: "badge-success",
   downloading: "badge-info",
+  download_pending: "badge-info",
   partial: "badge-warning",
   failed: "badge-danger",
   pending: "badge-default",
+};
+
+export const STATUS_FILTER_GROUPS: Record<string, string[]> = {
+  scraping: ["scraping", "scrape_pending"],
+  downloading: ["downloading", "download_pending"],
 };
 
 export type StatusFilter = "all" | "scraping" | "downloading" | "completed" | "failed";

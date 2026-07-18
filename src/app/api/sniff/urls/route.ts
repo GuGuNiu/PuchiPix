@@ -1,6 +1,6 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
-import { getSniffer } from '@/lib/scraper/sniffer';
+import { getSniffer } from '@/lib/sites/sniffer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

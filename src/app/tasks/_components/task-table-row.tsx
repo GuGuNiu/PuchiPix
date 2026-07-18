@@ -48,10 +48,11 @@ export function TaskTableRow({
 
   const isGallery = task.TaskType === "gallery";
   const isSniff = task.TaskType === "sniff";
-  const isIdentifying = task.Status === "scraping";
+  const isIdentifying = task.Status === "scraping" || task.Status === "scrape_pending";
+  const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending";
   const canStart = !isGallery && !isSniff
     ? (task.Status === "pending" || task.Status === "paused")
-    : (task.Status === "pending");
+    : (task.Status === "pending" || task.Status === "scrape_pending" || task.Status === "download_pending");
   const canPause = !isGallery && !isSniff && task.Status === "downloading";
   const canCancel = !isGallery && !isSniff &&
     (task.Status === "downloading" ||
@@ -80,7 +81,7 @@ export function TaskTableRow({
       ? "completed"
       : task.Status === "failed" || task.Status === "cancelled"
         ? "failed"
-        : isIdentifying
+        : (isIdentifying || isWaitingSlot)
           ? ""
           : "";
 
@@ -222,12 +223,12 @@ export function TaskTableRow({
                 fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace",
               }}
             >
-              {isIdentifying ? stage : progressPct}
+              {(isIdentifying || isWaitingSlot) ? stage : progressPct}
             </span>
             <div className="progress-bar" style={{ width: "100%" }}>
               <div
-                className={`progress-bar-fill ${fillClass} ${isIdentifying ? "progress-bar-indeterminate" : ""}`}
-                style={isIdentifying ? {} : { width: `${progress}%` }}
+                className={`progress-bar-fill ${fillClass} ${(isIdentifying || isWaitingSlot) ? "progress-bar-indeterminate" : ""}`}
+                style={(isIdentifying || isWaitingSlot) ? {} : { width: `${progress}%` }}
               />
             </div>
           </div>
@@ -239,6 +240,8 @@ export function TaskTableRow({
             </span>
           ) : isIdentifying ? (
             <span style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: 12 }}>{t("tasks.identifying")}</span>
+          ) : isWaitingSlot ? (
+            <span style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: 12 }}>{stage}</span>
           ) : isGallery ? (
             <span className="dual-capsule" title={t("tasks.gallerySegmentTitle", { images: task.ImageCount ?? 0, videos: task.VideoCount ?? 0 })}>
               <span className="dual-capsule-left accent-green">{task.ImageCount || 0}P</span>

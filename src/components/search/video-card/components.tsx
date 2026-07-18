@@ -24,7 +24,7 @@ export function StatusBadge({
     return (
       <span className="badge badge-danger" style={{ fontSize: 11 }}>
         <XCircle size={11} style={{ display: "inline", marginRight: 3 }} />
-        失败
+        {t("common.failed")}
       </span>
     );
   }
@@ -36,7 +36,7 @@ export function StatusBadge({
           className="spinner spinner-sm"
           style={{ display: "inline", marginRight: 3 }}
         />
-        {t("search.scrape")}中
+        {t("search.statusScraping")}
       </span>
     );
   }
@@ -63,7 +63,7 @@ export function VideoInfoPopupContent({
   if (!hasAnyData) {
     return (
       <div className="video-info-popup-empty">
-        暂无详细数据，请先{t("search.scrape")}或下载
+        {t("search.noDetailData", { scrape: t("search.scrape") })}
       </div>
     );
   }

@@ -1,12 +1,12 @@
-import type { Page } from 'playwright';
+﻿﻿import type { Page } from 'playwright';
 import type {
   GalleryScrapeResult,
   GalleryImageItem,
   GalleryVideoItem,
 } from '@/types';
-import { MAX_GALLERY_PAGES, randomDelay, sleep } from '@/lib/core/anti-crawler';
+import { MAX_GALLERY_PAGES, randomDelay, sleep } from '@/lib/core/stealth/anti-crawler';
 import { logT } from '@/lib/i18n/server';
-import { getGameCharacterService } from '@/lib/game-characters/game-character-service';
+import { getCharacterDBService } from '@/lib/character-db';
 import {
   SITE_DOMAINS,
   domainHealthTracker,
@@ -15,7 +15,7 @@ import {
   type GalleryPageMetadata,
 } from './constants';
 import { extractGalleryPageData, extractZipDownloadInfo } from './page-evaluators';
-import type { ScrapeDeps } from './scrape-deps';
+import type { ScrapeDeps } from '../aimeizizi-provider';
 
 export async function scrapeGallery(
   page: Page,
@@ -23,11 +23,11 @@ export async function scrapeGallery(
   deps: ScrapeDeps,
 ): Promise<GalleryScrapeResult> {
   const sT0 = Date.now();
-  const sLog = (msg: string): void => console.log(`[ScrapeGalleryTiming] ${Date.now() - sT0}ms — ${msg}`);
-  sLog('开始');
+  const sLog = (msg: string): void => console.log(`[ScrapeGalleryTiming] ${Date.now() - sT0}ms 鈥?${msg}`);
+  sLog('寮€濮?);
 
   const firstPageData = await extractGalleryPageData(page, 0);
-  sLog(`第一页数据提取完成: ${firstPageData.images.length} 张图片, ${firstPageData.videos.length} 个视频, 总页数=${firstPageData.totalPages}`);
+  sLog(`绗竴椤垫暟鎹彁鍙栧畬鎴? ${firstPageData.images.length} 寮犲浘鐗? ${firstPageData.videos.length} 涓棰? 鎬婚〉鏁?${firstPageData.totalPages}`);
 
   const totalPages = Math.min(firstPageData.totalPages, MAX_GALLERY_PAGES);
 
@@ -51,10 +51,10 @@ export async function scrapeGallery(
       allVideos.push({ url: fullUrl });
     }
   }
-  sLog(`第一页图片/视频去重完成: 图片=${allImages.length}, 视频=${allVideos.length}`);
+  sLog(`绗竴椤靛浘鐗?瑙嗛鍘婚噸瀹屾垚: 鍥剧墖=${allImages.length}, 瑙嗛=${allVideos.length}`);
 
   const zipInfo = await extractZipDownloadInfo(page);
-  sLog(`ZIP 信息提取完成: ${zipInfo ? '有' : '无'}`);
+  sLog(`ZIP 淇℃伅鎻愬彇瀹屾垚: ${zipInfo ? '鏈? : '鏃?}`);
 
   const articleId = extractArticleId(pageUrl);
   let currentDomain = extractDomainFromUrl(pageUrl);
@@ -63,7 +63,7 @@ export async function scrapeGallery(
   const GALLERY_PAGE_DELAY_MAX = 600;
 
   for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
-    sLog(`开始翻页第 ${pageNum}/${totalPages} 页`);
+    sLog(`寮€濮嬬炕椤电 ${pageNum}/${totalPages} 椤礰);
     await sleep(randomDelay(GALLERY_PAGE_DELAY_MIN, GALLERY_PAGE_DELAY_MAX));
 
     let pageData: GalleryPageMetadata | null = null;
@@ -152,15 +152,15 @@ export async function scrapeGallery(
   }
 
   const title = deps.cleanTitle(firstPageData.h1Title || firstPageData.rawTitle);
-  sLog(`标题清洗完成: "${title.substring(0, 40)}"`);
+  sLog(`鏍囬娓呮礂瀹屾垚: "${title.substring(0, 40)}"`);
   const protagonist = await deps.extractProtagonist(title, firstPageData.tags);
-  sLog(`主角提取完成: "${protagonist}"`);
+  sLog(`涓昏鎻愬彇瀹屾垚: "${protagonist}"`);
   const description = deps.extractDescription(title, protagonist);
 
   const blockCheck = await deps.checkContentBlockedAsync(title, firstPageData.category, protagonist);
   if (blockCheck.blocked) {
     console.log(logT('log.aimeizizi.blockedGalleryScrape', { title: title.substring(0, 50), reason: blockCheck.reason ?? '' }));
-    throw new Error(`内容被屏蔽: ${blockCheck.reason}`);
+    throw new Error(`鍐呭琚睆钄? ${blockCheck.reason}`);
   }
 
   const metaKeywordsStr = await page.evaluate(() => {
@@ -168,18 +168,24 @@ export async function scrapeGallery(
     return meta?.getAttribute('content') || '';
   });
   const metaKeywords = metaKeywordsStr
-    .split(/[,，;；]/)
+    .split(/[,锛?锛沒/)
     .map((t: string) => t.trim())
     .filter((t: string) => t && t.length < 50);
 
   const allTags = [...new Set([...firstPageData.tags, ...metaKeywords])];
 
-  const gameCharMatches = await getGameCharacterService().identifyInTags(allTags);
+  const db = getCharacterDBService();
+  if (!db.isLoaded()) {
+    await db.load();
+  }
+  const gameCharMatches = db
+    .identifyInTags(allTags)
+    .filter(m => m.character.category === 'game');
   const gameCharacters = gameCharMatches.map((m) => m.character.name);
   if (gameCharacters.length > 0) {
     console.log(logT('log.aimeizizi.gameCharDetected', { chars: gameCharacters.join(', ') }));
   }
-  sLog(`后处理完成: tags=${allTags.length}, 游戏角色=${gameCharacters.length}`);
+  sLog(`鍚庡鐞嗗畬鎴? tags=${allTags.length}, 娓告垙瑙掕壊=${gameCharacters.length}`);
 
   let scrapedDomain = '';
   try {
@@ -187,7 +193,7 @@ export async function scrapeGallery(
     scrapedDomain = `${parsed.protocol}//${parsed.host}`;
   } catch {}
 
-  sLog(`scrapeGallery 全部完成: 图片=${allImages.length}, 视频=${allVideos.length}`);
+  sLog(`scrapeGallery 鍏ㄩ儴瀹屾垚: 鍥剧墖=${allImages.length}, 瑙嗛=${allVideos.length}`);
 
   return {
     sourceUrl: pageUrl,

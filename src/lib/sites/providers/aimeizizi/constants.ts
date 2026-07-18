@@ -1,22 +1,9 @@
-import { DomainHealthTracker, shuffleDomainList } from '@/lib/core/domain-health-tracker';
-import { parseFileSize, replaceDomain } from '@/lib/utils';
+﻿﻿import { DomainHealthTracker, shuffleDomainList } from '@/lib/core/domain/domain-health-tracker';
+import { parseFileSize, replaceDomain, extractDomain } from '@/lib/utils';
 
 export { parseFileSize };
 export { replaceDomain };
-
-/**
- * 从完整 URL 中提取域名（协议 + 主机名，含端口）
- *
- * 用于从文章 URL 提取域名，传给 DomainHealthTracker。
- */
-export function extractDomainFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return '';
-  }
-}
+export { extractDomain as extractDomainFromUrl } from '@/lib/utils/url-normalizer';
 
 export const SITE_DOMAINS = [
   'https://www.lovecutes.com',
@@ -24,13 +11,12 @@ export const SITE_DOMAINS = [
   'https://www.lovecutes.net',
 ];
 
-/** 占位图 URL 片段（懒加载时 src 中的占位 GIF） */
+/** 鍗犱綅鍥?URL 鐗囨 */
 export const PLACEHOLDER_FRAGMENT = '/static/zde/timg.gif';
 
-/** 站点后缀模式（用于标题清洗） */
-export const SITE_SUFFIX_PATTERN = /\s*[-—–]\s*[^-]+[-—–]\s*爱妹子\s*$/;
+/** 绔欑偣鍚庣紑妯″紡 */
+export const SITE_SUFFIX_PATTERN = /\s*[-鈥斺€揮\s*[^-]+[-鈥斺€揮\s*鐖卞瀛怽s*$/;
 
-// 从共享工具模块重新导出
 export { removePublisherPrefix } from '@/lib/utils/title-cleaner';
 
 export interface GalleryPageMetadata {
@@ -47,7 +33,7 @@ export interface GalleryPageMetadata {
 }
 
 /**
- * 从文章 URL 中提取文章 ID
+ * 浠庢枃绔?URL 涓彁鍙栨枃绔?ID
  */
 export function extractArticleId(url: string): string | null {
   const match = url.match(/\/article\/(\d+)/);
@@ -59,3 +45,23 @@ export const domainHealthTracker = new DomainHealthTracker();
 export function shuffleDomains(): string[] {
   return shuffleDomainList([...SITE_DOMAINS]);
 }
+
+export const BLOCKED_TITLE_KEYWORDS: readonly string[] = [
+  'AI Nudes',
+  'AI Porn',
+  'AI 生成',
+  'AI生成',
+  '人工智能生成',
+  'AI绘图',
+  'AI 绘图',
+];
+
+export const BLOCKED_CATEGORIES: readonly string[] = [
+  'AI美女',
+  'AI 美女',
+  'AI生成',
+];
+
+export const BLOCKED_PROTAGONISTS: readonly string[] = [];
+
+export const BLOCKED_PROTAGONISTS_ENABLED = false;

@@ -7,6 +7,14 @@ import zhCN from "./locales/zh-CN";
 import zhTW from "./locales/zh-TW";
 import enUS from "./locales/en-US";
 import jaJP from "./locales/ja-JP";
+import koKR from "./locales/ko-KR";
+import ruRU from "./locales/ru-RU";
+import deDE from "./locales/de-DE";
+import viVN from "./locales/vi-VN";
+import esES from "./locales/es-ES";
+import ptBR from "./locales/pt-BR";
+import frFR from "./locales/fr-FR";
+import idID from "./locales/id-ID";
 import type { TranslationDict } from "./types";
 import { usePreferenceStore } from "@/store/preference-store";
 
@@ -15,6 +23,14 @@ const LOCALE_MAP: Record<Locale, TranslationDict> = {
   "zh-TW": zhTW,
   "en-US": enUS,
   "ja-JP": jaJP,
+  "ko-KR": koKR,
+  "ru-RU": ruRU,
+  "de-DE": deDE,
+  "vi-VN": viVN,
+  "es-ES": esES,
+  "pt-BR": ptBR,
+  "fr-FR": frFR,
+  "id-ID": idID,
 };
 
 interface I18nContextValue {
@@ -43,6 +59,14 @@ function detectBrowserLocale(): Locale {
   }
   if (browserLang.startsWith("ja")) return "ja-JP";
   if (browserLang.startsWith("en")) return "en-US";
+  if (browserLang.startsWith("ko")) return "ko-KR";
+  if (browserLang.startsWith("ru")) return "ru-RU";
+  if (browserLang.startsWith("de")) return "de-DE";
+  if (browserLang.startsWith("vi")) return "vi-VN";
+  if (browserLang.startsWith("es")) return "es-ES";
+  if (browserLang.startsWith("pt")) return "pt-BR";
+  if (browserLang.startsWith("fr")) return "fr-FR";
+  if (browserLang.startsWith("id") || browserLang.startsWith("in")) return "id-ID";
   return DEFAULT_LOCALE;
 }
 

@@ -46,6 +46,11 @@ const zhCN: TranslationDict = {
   "api.gallery.alreadyScraping": "该图库正在被其他任务爬取，请稍后重试",
   "api.gallery.pageNotFound": "页面不存在 (404)",
   "api.gallery.pageNotFoundSkipped": "页面不存在 (404)，已跳过",
+  "api.gallery.identifying": "图库正在识别中，请等待识别完成后再开始下载",
+  "api.gallery.scrapeComplete": "图库爬取完成，下载已异步启动",
+  "api.gallery.batchMissingUrls": "urls 参数必须是非空数组",
+  "api.gallery.batchEmptyUrl": "空 URL",
+  "api.gallery.noProviderForRescrape": "无法匹配图库提供商，无法重新爬取",
 
   // 任务
   "api.tasks.noM3u8Extracted": "无法从页面提取 M3U8 链接",
@@ -54,6 +59,7 @@ const zhCN: TranslationDict = {
   "api.blocklist.addFailed": "添加失败",
 
   // 通用
+  "api.characterDb.syncRunning": "同步任务正在运行中",
   "api.common.internalError": "服务器内部错误",
   "api.common.missingParams": "缺少必需参数: {params}",
 };

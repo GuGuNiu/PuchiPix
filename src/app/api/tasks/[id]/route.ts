@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server';
 import path from 'path';
 import prisma from '@/lib/db/prisma';
 import { getDownloadManager, mapTask } from '@/lib/api-helpers';
-import { eventBus } from '@/lib/core/event-bus';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
 import { safeDeleteFile, safeDeleteDir, summarizeDeleteResults } from '@/lib/utils/safe-delete';
 
 export const dynamic = 'force-dynamic';

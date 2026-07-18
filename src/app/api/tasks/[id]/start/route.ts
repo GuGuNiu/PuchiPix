@@ -2,8 +2,8 @@ import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getDownloadManager, ensureM3U8URL, mapTask } from '@/lib/api-helpers';
-import { eventBus } from '@/lib/core/event-bus';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
 import type { DownloadTask } from '@/types';
 import { logT } from '@/lib/i18n/server';
 

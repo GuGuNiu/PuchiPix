@@ -1,6 +1,6 @@
 import prisma from '@/lib/db/prisma';
-import { getGameCharacterService } from '@/lib/game-characters/game-character-service';
-import type { ProtagonistParseResult, ProtagonistStats } from './types';
+import { getCharacterDBService } from '@/lib/character-db';
+import type { ProtagonistParseResult, ProtagonistStats } from './index';
 import { toStandardPinyin, calculateSimilarity, parseMixedName } from './utils';
 
 export interface PersonCacheEntry {
@@ -60,7 +60,7 @@ export async function learnPerson(
       if (existing) {
         let aliases: string[] = [];
         try {
-          aliases = JSON.parse(existing.aliases);
+          aliases = JSON.parse(existing.aliases) as string[];
         } catch {
           aliases = [];
         }
@@ -120,8 +120,13 @@ export async function importGameCharacters(
   toPinyin: (name: string) => string,
   refreshCache: () => Promise<void>,
 ): Promise<number> {
-  const service = getGameCharacterService();
-  const allChars = await service.getAllCharacters();
+  const db = getCharacterDBService();
+  if (!db.isLoaded()) {
+    await db.load();
+  }
+  const allChars = db
+    .getAllCharacters()
+    .filter(c => c.category === 'game');
   let imported = 0;
 
   for (const char of allChars) {
@@ -135,14 +140,14 @@ export async function importGameCharacters(
           pinyin: py,
           aliases: aliasesJson,
           source: 'game_character',
-          sourceGame: char.game,
+          sourceGame: char.gameId,
           galleryCount: 0,
           confirmed: true,
         },
         update: {
           pinyin: py,
           aliases: aliasesJson,
-          sourceGame: char.game,
+          sourceGame: char.gameId,
         },
       });
       imported++;
@@ -266,9 +271,6 @@ export async function getProtagonistStats(standardName: string): Promise<Protago
   };
 }
 
-/**
- * 获取所有主角列表（用于展示架）
- */
 export async function getAllProtagonists(): Promise<{ name: string; count: number; coverUrl: string }[]> {
   const result = await prisma.gallery.groupBy({
     by: ['protagonist'],

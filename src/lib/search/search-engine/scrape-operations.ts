@@ -1,17 +1,17 @@
-import type { Browser } from 'playwright';
+﻿import type { Browser } from 'playwright';
 import type { SearchJob, SearchItem, ScrapeResult } from '@/types';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
-import { ttlLock } from '@/lib/core/ttl-lock';
-import { eventBus } from '@/lib/core/event-bus';
+import { ttlLock } from '@/lib/core/infra/ttl-lock';
+import { eventBus } from '@/lib/core/infra/event-bus';
 import {
   sleep,
   gaussianDelay,
   applyStealthToPage,
   PAGE_DELAY_MIN,
   PAGE_DELAY_MAX,
-} from '@/lib/core/anti-crawler';
-import { createGalleryTask } from '@/lib/tasks/gallery-handler';
-import { createDownloadTaskFromScrape } from './task-creator';
+} from '@/lib/core/stealth/anti-crawler';
+import { createGalleryTask } from '@/lib/downloader/gallery-handler';
+import { createTaskFromScrape } from './task-creator';
 
 export interface ScrapeDeps {
   getBrowser(): Promise<Browser>;
@@ -23,7 +23,7 @@ export interface ScrapeDeps {
 }
 
 /**
- * 抓取单个视频页面
+ * 鎶撳彇鍗曚釜瑙嗛椤甸潰
  */
 export async function scrapeVideo(
   jobId: string,
@@ -47,14 +47,14 @@ export async function scrapeVideo(
 
   const itemKey = `${jobId}:${itemUrl}`;
   if (deps.scrapingItems.has(itemKey)) {
-    deps.log(job, `视频正在抓取中: ${targetItem.title}`, 'warn');
+    deps.log(job, `瑙嗛姝ｅ湪鎶撳彇涓? ${targetItem.title}`, 'warn');
     return targetItem;
   }
 
   const lockKey = `scrape:${itemUrl}`;
   const lockHandle = await ttlLock.acquire(lockKey, { ttl: 60000 });
   if (!lockHandle) {
-    deps.log(job, `视频正在被其他任务抓取: ${targetItem.title}`, 'warn');
+    deps.log(job, `瑙嗛姝ｅ湪琚叾浠栦换鍔℃姄鍙? ${targetItem.title}`, 'warn');
     return targetItem;
   }
 
@@ -63,7 +63,7 @@ export async function scrapeVideo(
   const provider = deps.getProvider(job.siteId);
 
   targetItem.status = 'scraping';
-  deps.log(job, `开始抓取: ${targetItem.title || targetItem.pageUrl}`);
+  deps.log(job, `寮€濮嬫姄鍙? ${targetItem.title || targetItem.pageUrl}`);
 
   try {
     const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
@@ -74,15 +74,15 @@ export async function scrapeVideo(
 
       if (galleryResult.duplicate) {
         targetItem.status = 'failed';
-        targetItem.error = `重复: ${galleryResult.existingStatus ?? '已存在'}`;
-        deps.log(job, `⚠️ 图库已存在: ${targetItem.title} → 状态: ${galleryResult.existingStatus ?? '未知'}`, 'warn');
+        targetItem.error = `閲嶅: ${galleryResult.existingStatus ?? '宸插瓨鍦?}`;
+        deps.log(job, `鈿狅笍 鍥惧簱宸插瓨鍦? ${targetItem.title} 鈫?鐘舵€? ${galleryResult.existingStatus ?? '鏈煡'}`, 'warn');
         job.totalFailed += 1;
         return { ...targetItem };
       }
 
       targetItem.taskId = galleryResult.galleryId;
       targetItem.status = 'downloaded';
-      deps.log(job, `✅ 创建图库任务 #${galleryResult.seq}: ${targetItem.title || targetItem.pageUrl}`);
+      deps.log(job, `鉁?鍒涘缓鍥惧簱浠诲姟 #${galleryResult.seq}: ${targetItem.title || targetItem.pageUrl}`);
 
       eventBus.emit('scrape:completed', {
         pageUrl: targetItem.pageUrl,
@@ -118,13 +118,13 @@ export async function scrapeVideo(
       );
       if (blockCheck.blocked) {
         targetItem.status = 'failed';
-        targetItem.error = `拦截: ${blockCheck.reason}`;
-        deps.log(job, `拦截视频: ${targetItem.title} → ${blockCheck.reason}`, 'warn');
+        targetItem.error = `鎷︽埅: ${blockCheck.reason}`;
+        deps.log(job, `鎷︽埅瑙嗛: ${targetItem.title} 鈫?${blockCheck.reason}`, 'warn');
         job.totalFailed += 1;
         return { ...targetItem };
       }
 
-      const taskId = await createDownloadTaskFromScrape({
+      const taskId = await createTaskFromScrape({
         pageUrl: targetItem.pageUrl,
         scrapeResult,
         fallbackTitle: targetItem.title,
@@ -135,13 +135,13 @@ export async function scrapeVideo(
       targetItem.taskId = taskId;
       job.totalDownloaded += 1;
     } else {
-      throw new Error('未找到 M3U8 URL');
+      throw new Error('鏈壘鍒?M3U8 URL');
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     targetItem.status = 'failed';
-    targetItem.error = `抓取失败: ${errMsg}`;
-    deps.log(job, `❌ 视频抓取失败: ${targetItem.title || targetItem.pageUrl} → ${errMsg}`, 'error');
+    targetItem.error = `鎶撳彇澶辫触: ${errMsg}`;
+    deps.log(job, `鉂?瑙嗛鎶撳彇澶辫触: ${targetItem.title || targetItem.pageUrl} 鈫?${errMsg}`, 'error');
     eventBus.emit('scrape:failed', { pageUrl: targetItem.pageUrl, error: errMsg });
     job.totalFailed += 1;
   } finally {
@@ -153,14 +153,14 @@ export async function scrapeVideo(
 }
 
 /**
- * 批量抓取所有 pending 视频
+ * 鎵归噺鎶撳彇鎵€鏈?pending 瑙嗛
  */
 export async function scrapeAll(
   jobId: string,
   job: SearchJob,
   deps: ScrapeDeps,
 ): Promise<void> {
-  deps.log(job, `开始批量抓取所有 ${job.totalFound} 个视频`);
+  deps.log(job, `寮€濮嬫壒閲忔姄鍙栨墍鏈?${job.totalFound} 涓棰慲);
   const browser = await deps.getBrowser();
   const provider = deps.getProvider(job.siteId);
 
@@ -175,14 +175,14 @@ export async function scrapeAll(
       const lockKey = `scrape:${item.pageUrl}`;
       const lockHandle = await ttlLock.acquire(lockKey, { ttl: 60000 });
       if (!lockHandle) {
-        deps.log(job, `视频正在被其他任务抓取: ${item.title}`, 'warn');
+        deps.log(job, `瑙嗛姝ｅ湪琚叾浠栦换鍔℃姄鍙? ${item.title}`, 'warn');
         continue;
       }
 
       deps.scrapingItems.add(itemKey);
 
       item.status = 'scraping';
-      deps.log(job, `抓取: ${item.title || item.pageUrl}`);
+      deps.log(job, `鎶撳彇: ${item.title || item.pageUrl}`);
       eventBus.emit('scrape:started', { pageUrl: item.pageUrl });
 
       try {
@@ -192,14 +192,14 @@ export async function scrapeAll(
 
           if (galleryResult.duplicate) {
             item.status = 'failed';
-            item.error = `重复: ${galleryResult.existingStatus ?? '已存在'}`;
+            item.error = `閲嶅: ${galleryResult.existingStatus ?? '宸插瓨鍦?}`;
             job.totalFailed += 1;
-            deps.log(job, `⚠️ 图库已存在: ${item.title} → 状态: ${galleryResult.existingStatus ?? '未知'}`, 'warn');
-            eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: '重复图库' });
+            deps.log(job, `鈿狅笍 鍥惧簱宸插瓨鍦? ${item.title} 鈫?鐘舵€? ${galleryResult.existingStatus ?? '鏈煡'}`, 'warn');
+            eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: '閲嶅鍥惧簱' });
           } else {
             item.taskId = galleryResult.galleryId;
             item.status = 'downloaded';
-            deps.log(job, `✅ 创建图库任务 #${galleryResult.seq}: ${item.title || item.pageUrl}`);
+            deps.log(job, `鉁?鍒涘缓鍥惧簱浠诲姟 #${galleryResult.seq}: ${item.title || item.pageUrl}`);
 
             eventBus.emit('scrape:completed', {
               pageUrl: item.pageUrl,
@@ -231,14 +231,14 @@ export async function scrapeAll(
             );
             if (blockCheck.blocked) {
               item.status = 'failed';
-              item.error = `拦截: ${blockCheck.reason}`;
+              item.error = `鎷︽埅: ${blockCheck.reason}`;
               job.totalFailed += 1;
-              deps.log(job, `拦截视频: ${item.title} → ${blockCheck.reason}`, 'warn');
-              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: blockCheck.reason || '未知原因' });
+              deps.log(job, `鎷︽埅瑙嗛: ${item.title} 鈫?${blockCheck.reason}`, 'warn');
+              eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: blockCheck.reason || '鏈煡鍘熷洜' });
               continue;
             }
 
-            const taskId = await createDownloadTaskFromScrape({
+            const taskId = await createTaskFromScrape({
               pageUrl: item.pageUrl,
               scrapeResult,
               fallbackTitle: item.title,
@@ -249,14 +249,14 @@ export async function scrapeAll(
             item.taskId = taskId;
             job.totalDownloaded += 1;
           } else {
-            throw new Error('未找到 M3U8 URL');
+            throw new Error('鏈壘鍒?M3U8 URL');
           }
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         item.status = 'failed';
-        item.error = `抓取失败: ${errMsg}`;
-        deps.log(job, `❌ 抓取失败: ${item.title || item.pageUrl} → ${errMsg}`, 'error');
+        item.error = `鎶撳彇澶辫触: ${errMsg}`;
+        deps.log(job, `鉂?鎶撳彇澶辫触: ${item.title || item.pageUrl} 鈫?${errMsg}`, 'error');
         eventBus.emit('scrape:failed', { pageUrl: item.pageUrl, error: errMsg });
         job.totalFailed += 1;
       } finally {
@@ -268,11 +268,11 @@ export async function scrapeAll(
     }
   }
 
-  deps.log(job, `🎉 批量抓取完成！成功 ${job.totalDownloaded}，失败 ${job.totalFailed}`);
+  deps.log(job, `馃帀 鎵归噺鎶撳彇瀹屾垚锛佹垚鍔?${job.totalDownloaded}锛屽け璐?${job.totalFailed}`);
 }
 
 /**
- * 抓取视频页面（通用方法）
+ * 鎶撳彇瑙嗛椤甸潰锛堥€氱敤鏂规硶锛?
  */
 export async function scrapeVideoPage(
   browser: Browser,

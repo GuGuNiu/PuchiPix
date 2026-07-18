@@ -1,3 +1,8 @@
+﻿/**
+ * Sijishe 绔欑偣鎻愪緵鑰?
+ *
+ * 鏀寔甯栧瓙鎼滅储銆佽棰戦〉闈㈢埇鍙栧拰涓嬭浇閾炬帴鎻愬彇锛岄渶鐧诲綍 Cookie銆?
+ */
 import type { Page } from "playwright";
 import { BaseSiteProvider } from "../base-provider";
 import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockCheckResult } from "../types";
@@ -7,11 +12,11 @@ import type {
   GalleryVideoItem,
   ScrapeResult,
 } from "@/types";
-import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/anti-crawler";
+import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/stealth/anti-crawler";
 import { getSiteAccountManager } from "../site-account-manager";
 import { logT } from "@/lib/i18n/server";
 import {
-  extractDownloadLinksFromPage,
+  extractDownloadLinks,
   isThreadPurchasable,
 } from "../sjs-actions";
 import { getProtagonistService } from "@/lib/protagonist/protagonist-service";
@@ -26,8 +31,6 @@ import {
   cleanSjsTitle,
 } from "./sjs-provider/constants";
 
-// Re-export utility functions for backward compatibility
-export { extractThreadId, extractForumId };
 import {
   getBestDomain,
   getAllDomainsOrdered,
@@ -46,7 +49,7 @@ import {
 
 export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider {
   readonly id = "sjs";
-  readonly name = "司机社";
+  readonly name = "鍙告満绀?;
   readonly baseUrl = PRIMARY_DOMAIN;
   readonly enabled = true;
 
@@ -100,7 +103,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
   async scrapeGallery(page: Page, pageUrl: string): Promise<GalleryScrapeResult> {
     const pageHtml = await page.content();
     const needsPurchase = isThreadPurchasable(pageHtml);
-    const downloadLinks = extractDownloadLinksFromPage(pageHtml);
+    const downloadLinks = extractDownloadLinks(pageHtml);
 
     if (needsPurchase) {
       console.log(logT("log.sjs.paidContent"));
@@ -186,9 +189,12 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
 
     let gameCharacters: string[] | undefined;
     try {
-      const { getGameCharacterService } = await import("@/lib/game-characters/game-character-service");
-      const charService = getGameCharacterService();
-      const charMatches = await charService.identifyInTags(metadata.tags);
+      const { getCharacterDBService } = await import("@/lib/character-db");
+      const db = getCharacterDBService();
+      if (!db.isLoaded()) {
+        await db.load();
+      }
+      const charMatches = db.identifyInTags(metadata.tags).filter(m => m.character.category === 'game');
       gameCharacters = charMatches.length > 0 ? charMatches.map((m) => m.character.name) : undefined;
     } catch {}
 

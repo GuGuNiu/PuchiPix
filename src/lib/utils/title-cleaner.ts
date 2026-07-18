@@ -46,9 +46,9 @@ export function removePublisherPrefix(title: string): string {
  * 通用标题清洗函数
  *
  * 整合多种清洗规则，按顺序执行：
- * 1. 去除首尾空白
- * 2. 去除 [xxx] 分类前缀
- * 3. 去除发布组/财团前缀（中文+冒号）
+ * - 去除首尾空白
+ * - 去除 [xxx] 分类前缀
+ * - 去除发布组/财团前缀（中文+冒号）
  *
  * @param title - 原始标题
  * @returns 清洗后的标题

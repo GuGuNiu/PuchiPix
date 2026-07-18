@@ -58,7 +58,6 @@ export default function GlassSelect({
     closeDropdown();
   };
 
-  // 点击外部关闭下拉框
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent): void => {
@@ -73,7 +72,6 @@ export default function GlassSelect({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open, closeDropdown]);
 
-  // 按 Escape 关闭
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent): void => {

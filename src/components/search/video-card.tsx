@@ -280,7 +280,7 @@ function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProp
             loading="lazy"
             referrerPolicy="no-referrer"
             className={`video-card-cover ${isPlaying ? "hidden" : ""}`}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
           <div className={`video-card-placeholder ${isPlaying ? "hidden" : ""}`}>
@@ -318,7 +318,7 @@ function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProp
           <span>#{index + 1}</span>
           {item.date && (<><span>·</span><span>{item.date}</span></>)}
           {item.status === "downloaded" && item.taskId && (
-            <><span>·</span><span style={{ display: "flex", alignItems: "center", gap: 3 }}><Download size={10} />任务 #{item.taskId}</span></>
+            <><span>·</span><span style={{ display: "flex", alignItems: "center", gap: 3 }}><Download size={10} />{t("search.taskId", { id: item.taskId })}</span></>
           )}
           <span
             className={`video-card-tag-btn ${showInfoPopup ? "active" : ""}`}
@@ -326,7 +326,7 @@ function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProp
             onMouseEnter={handlePopupMouseEnter}
             onMouseLeave={handlePopupMouseLeave}
           >
-            <Tag size={11} />标签
+            <Tag size={11} />{t("search.tags")}
           </span>
         </div>
 

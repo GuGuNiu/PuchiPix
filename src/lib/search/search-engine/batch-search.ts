@@ -1,18 +1,18 @@
-import type { Browser } from 'playwright';
+﻿import type { Browser } from 'playwright';
 import type { BatchSearchJob, SearchLogEntry, ScrapeResult } from '@/types';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
-import { eventBus } from '@/lib/core/event-bus';
+import { eventBus } from '@/lib/core/infra/event-bus';
 import {
   sleep,
   randomDelay,
-  backoffDelay,
   applyStealthToPage,
   PAGE_DELAY_MIN,
   PAGE_DELAY_MAX,
   MAX_RETRIES,
-} from '@/lib/core/anti-crawler';
-import { BatchScheduler } from '@/lib/core/batch-scheduler';
-import { createGalleryTask } from '@/lib/tasks/gallery-handler';
+} from '@/lib/core/stealth/anti-crawler';
+import { retry } from '@/lib/utils';
+import { BatchScheduler } from '@/lib/core/orchestrator/batch-scheduler';
+import { createGalleryTask } from '@/lib/downloader/gallery-handler';
 
 import {
   BATCH_MAX_PAGES,
@@ -20,7 +20,7 @@ import {
   titleSimilarity,
 } from './utils';
 import { goToNextPage } from './pagination';
-import { createDownloadTaskFromScrape } from './task-creator';
+import { createTaskFromScrape } from './task-creator';
 
 export interface BatchSearchDeps {
   getBrowser(): Promise<Browser>;
@@ -28,9 +28,6 @@ export interface BatchSearchDeps {
   scrapeVideoPage(browser: Browser, pageUrl: string, provider: SiteProvider): Promise<ScrapeResult>;
 }
 
-/**
- * 批量搜索日志记录
- */
 export function logBatch(job: BatchSearchJob, message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
   const entry: SearchLogEntry = {
     time: new Date().toISOString(),
@@ -41,21 +38,10 @@ export function logBatch(job: BatchSearchJob, message: string, level: 'info' | '
   if (job.logs.length > 500) {
     job.logs = job.logs.slice(-500);
   }
-  const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ️';
+  const prefix = level === 'error' ? '鉂? : level === 'warn' ? '鈿狅笍' : '鈩癸笍';
   console.log(`[BatchSearch ${job.id}] ${prefix} ${message}`);
 }
 
-/**
- * 执行批量搜索
- *
- * 对每个标题：
- * - 以标题为关键词进行搜索（最多翻 2 页）
- * - 用 provider.cleanTitle 清洗搜索结果
- * - 计算标题相似度，选取最佳匹配
- * - 高于 阈值 → 抓取视频页 → 创建下载任务
- * - 低于 阈值 → 标记 not_found
- * - 限速调度：连续完成任务后休眠 10-30s，高强度任务后休眠 20-40min
- */
 export async function executeBatchSearch(
   job: BatchSearchJob,
   provider: SiteProvider,
@@ -69,7 +55,7 @@ export async function executeBatchSearch(
 
   for (let ti = 0; ti < job.titles.length; ti++) {
     if (deps.isCancelled(job.id)) {
-      logBatch(job, '批量搜索任务已取消', 'warn');
+      logBatch(job, '鎵归噺鎼滅储浠诲姟宸插彇娑?, 'warn');
       job.status = 'cancelled';
       return;
     }
@@ -80,86 +66,96 @@ export async function executeBatchSearch(
     const result = job.results[ti];
     job.currentIndex = ti;
 
-    logBatch(job, `开始处理 [${ti + 1}/${job.titles.length}]: "${title}"`);
+    logBatch(job, `寮€濮嬪鐞?[${ti + 1}/${job.titles.length}]: "${title}"`);
     result.status = 'searching';
 
-    // 搜索阶段
+    // 鎼滅储闃舵
     const allItems: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
     const seenUrls = new Set<string>();
     let searchSuccess = false;
 
-    for (let retry = 0; retry < MAX_RETRIES; retry++) {
-      if (deps.isCancelled(job.id)) return;
+    if (deps.isCancelled(job.id)) return;
 
-      try {
-        result.retries = retry;
-        const searchPageUrl = provider.buildSearchUrl(title);
+    try {
+      await retry(
+        async (attempt: number) => {
+          if (deps.isCancelled(job.id)) throw new Error('Cancelled');
+          result.retries = attempt;
 
-        const page = await browser.newPage();
-        await applyStealthToPage(page);
+          const searchPageUrl = provider.buildSearchUrl(title);
 
-        const batchGalleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
-        if (batchGalleryProvider.setupBrowserContext) {
-          await batchGalleryProvider.setupBrowserContext(page.context());
-        }
+          const page = await browser.newPage();
+          await applyStealthToPage(page);
 
-        await page.goto(searchPageUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 30000,
-        });
-
-        await page.waitForSelector(
-          'article, .stui-vodlist__item, .vodlist_item, .module-search-item, .module-item, .searchlist_item, .list-item, .video-item, .movie-item, .itg, #gdt',
-          { timeout: 5000 }
-        ).catch(() => {});
-
-        for (let pageNum = 1; pageNum <= BATCH_MAX_PAGES; pageNum++) {
-          if (deps.isCancelled(job.id)) {
-            await page.close();
-            return;
+          const batchGalleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
+          if (batchGalleryProvider.setupBrowserContext) {
+            await batchGalleryProvider.setupBrowserContext(page.context());
           }
 
-          const pageResults = await provider.extractSearchResults(page);
-          let newCount = 0;
-          for (const item of pageResults) {
-            if (!seenUrls.has(item.url)) {
-              seenUrls.add(item.url);
-              allItems.push(item);
-              newCount++;
+          await page.goto(searchPageUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000,
+          });
+
+          await page.waitForSelector(
+            'article, .stui-vodlist__item, .vodlist_item, .module-search-item, .module-item, .searchlist_item, .list-item, .video-item, .movie-item, .itg, #gdt',
+            { timeout: 5000 }
+          ).catch(() => {});
+
+          for (let pageNum = 1; pageNum <= BATCH_MAX_PAGES; pageNum++) {
+            if (deps.isCancelled(job.id)) {
+              await page.close();
+              throw new Error('Cancelled');
             }
+
+            const pageResults = await provider.extractSearchResults(page);
+            let newCount = 0;
+            for (const item of pageResults) {
+              if (!seenUrls.has(item.url)) {
+                seenUrls.add(item.url);
+                allItems.push(item);
+                newCount++;
+              }
+            }
+
+            if (pageNum >= BATCH_MAX_PAGES || newCount === 0) break;
+
+            const hasNextPage = await goToNextPage(page, pageNum + 1);
+            if (!hasNextPage) break;
+
+            await sleep(randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX));
           }
 
-          if (pageNum >= BATCH_MAX_PAGES || newCount === 0) break;
-
-          const hasNextPage = await goToNextPage(page, pageNum + 1);
-          if (!hasNextPage) break;
-
-          await sleep(randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX));
-        }
-
-        await page.close();
-        searchSuccess = true;
-        break;
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        logBatch(job, `搜索"${title}"失败（第 ${retry + 1} 次）: ${errMsg}`, 'warn');
-        if (retry < MAX_RETRIES - 1) {
-          await sleep(backoffDelay(retry));
-        }
-      }
+          await page.close();
+        },
+        {
+          maxRetries: MAX_RETRIES - 1,
+          backoff: 'exponential',
+          baseDelay: 2000,
+          maxDelay: 16000,
+          shouldRetry: () => !deps.isCancelled(job.id),
+          onRetry: (attempt, error) => {
+            const errMsg = error instanceof Error ? error.message : String(error);
+            logBatch(job, `鎼滅储"${title}"澶辫触锛堢 ${attempt + 1} 娆★級: ${errMsg}`, 'warn');
+          },
+        },
+      );
+      searchSuccess = true;
+    } catch {
+      if (deps.isCancelled(job.id)) return;
     }
 
     if (!searchSuccess) {
       result.status = 'failed';
-      result.error = '搜索全部失败';
+      result.error = '鎼滅储鍏ㄩ儴澶辫触';
       job.totalFailed++;
       job.totalProcessed++;
-      logBatch(job, `❌ 标题"${title}"搜索全部失败`, 'error');
+      logBatch(job, `鉂?鏍囬"${title}"鎼滅储鍏ㄩ儴澶辫触`, 'error');
       scheduler.markCompleted();
       continue;
     }
 
-    // 模糊匹配阶段
+    // 妯＄硦鍖归厤闃舵
     const scored = allItems
       .map((item) => {
         const cleanedTitle = provider.cleanTitle(item.title || item.url);
@@ -186,7 +182,7 @@ export async function executeBatchSearch(
       result.matchScore = scored.length > 0 ? scored[0].score : 0;
       job.totalNotFound++;
       job.totalProcessed++;
-      logBatch(job, `🔍 标题"${title}"未找到匹配视频（最高分: ${result.matchScore?.toFixed(2)}）`, 'warn');
+      logBatch(job, `馃攳 鏍囬"${title}"鏈壘鍒板尮閰嶈棰戯紙鏈€楂樺垎: ${result.matchScore?.toFixed(2)}锛塦, 'warn');
       scheduler.markCompleted();
       continue;
     }
@@ -195,9 +191,9 @@ export async function executeBatchSearch(
     result.selectedItem = result.searchResults[0];
     result.matchScore = best.score;
     result.status = 'found';
-    logBatch(job, `✅ 匹配成功: "${title}" → "${best.cleanedTitle}"（分数: ${best.score.toFixed(2)}）`);
+    logBatch(job, `鉁?鍖归厤鎴愬姛: "${title}" 鈫?"${best.cleanedTitle}"锛堝垎鏁? ${best.score.toFixed(2)}锛塦);
 
-    // 抓取阶段
+    // 鎶撳彇闃舵
     result.status = 'scraping';
     try {
       const batchGalleryProvider2 = provider as SiteProvider & Partial<GallerySiteProvider>;
@@ -206,10 +202,10 @@ export async function executeBatchSearch(
 
         if (galleryResult.duplicate) {
           result.status = 'failed';
-          result.error = `重复: ${galleryResult.existingStatus ?? '已存在'}`;
+          result.error = `閲嶅: ${galleryResult.existingStatus ?? '宸插瓨鍦?}`;
           job.totalFailed++;
           job.totalProcessed++;
-          logBatch(job, `⚠️ 图库已存在: ${best.cleanedTitle} → 状态: ${galleryResult.existingStatus ?? '未知'}`, 'warn');
+          logBatch(job, `鈿狅笍 鍥惧簱宸插瓨鍦? ${best.cleanedTitle} 鈫?鐘舵€? ${galleryResult.existingStatus ?? '鏈煡'}`, 'warn');
           scheduler.markCompleted();
           continue;
         }
@@ -218,7 +214,7 @@ export async function executeBatchSearch(
         result.status = 'completed';
         job.totalDownloaded++;
         job.totalProcessed++;
-        logBatch(job, `✅ 创建图库任务 #${galleryResult.seq}: ${best.cleanedTitle}`);
+        logBatch(job, `鉁?鍒涘缓鍥惧簱浠诲姟 #${galleryResult.seq}: ${best.cleanedTitle}`);
         eventBus.emit('task:created', {
           taskId: galleryResult.galleryId,
           title: best.cleanedTitle,
@@ -231,7 +227,7 @@ export async function executeBatchSearch(
       const scrapeResult = await deps.scrapeVideoPage(browser, best.item.url, provider);
 
       if (!scrapeResult.m3u8_url) {
-        throw new Error('未找到 M3U8 URL');
+        throw new Error('鏈壘鍒?M3U8 URL');
       }
 
       if (scrapeResult.title && scrapeResult.title.length > 0) {
@@ -245,15 +241,15 @@ export async function executeBatchSearch(
       );
       if (blockCheck.blocked) {
         result.status = 'failed';
-        result.error = `拦截: ${blockCheck.reason}`;
+        result.error = `鎷︽埅: ${blockCheck.reason}`;
         job.totalFailed++;
         job.totalProcessed++;
-        logBatch(job, `⚠️ 视频内容拦截: ${best.cleanedTitle} → ${blockCheck.reason}`, 'warn');
+        logBatch(job, `鈿狅笍 瑙嗛鍐呭鎷︽埅: ${best.cleanedTitle} 鈫?${blockCheck.reason}`, 'warn');
         scheduler.markCompleted();
         continue;
       }
 
-      const taskId = await createDownloadTaskFromScrape({
+      const taskId = await createTaskFromScrape({
         pageUrl: best.item.url,
         scrapeResult,
         fallbackTitle: title,
@@ -267,9 +263,9 @@ export async function executeBatchSearch(
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       result.status = 'failed';
-      result.error = `抓取失败: ${errMsg}`;
+      result.error = `鎶撳彇澶辫触: ${errMsg}`;
       job.totalFailed++;
-      logBatch(job, `❌ 抓取失败: "${title}" → ${errMsg}`, 'error');
+      logBatch(job, `鉂?鎶撳彇澶辫触: "${title}" 鈫?${errMsg}`, 'error');
     }
 
     job.totalProcessed++;
@@ -280,6 +276,6 @@ export async function executeBatchSearch(
   job.completedAt = new Date().toISOString();
   logBatch(
     job,
-    `🎉 批量搜索完成！已处理 ${job.totalProcessed}，下载 ${job.totalDownloaded}，未找到 ${job.totalNotFound}，失败 ${job.totalFailed}`,
+    `鎵归噺鎼滅储瀹屾垚锛佸凡澶勭悊 ${job.totalProcessed}锛屼笅杞?${job.totalDownloaded}锛屾湭鎵惧埌 ${job.totalNotFound}锛屽け璐?${job.totalFailed}`,
   );
 }

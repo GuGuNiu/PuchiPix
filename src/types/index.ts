@@ -1,6 +1,8 @@
 export type TaskStatus =
   | 'pending'
+  | 'scrape_pending'
   | 'scraping'
+  | 'download_pending'
   | 'downloading'
   | 'paused'
   | 'completed'
@@ -174,6 +176,12 @@ export interface GalleryZipInfo {
   downloadSource?: string;
   /** 原始 ouo.io 短链接 */
   ouoUrl?: string;
+  /** 下载资格 API 所需的页面 ID（无直接下载链接时使用） */
+  _pageId?: string;
+  /** 下载资格 API 端点 URL */
+  _eligibilityUrl?: string;
+  /** 下载完成后的跳转 URL */
+  _nextUrl?: string;
   /** 临时调试字段 */
   _dbg?: unknown;
 }

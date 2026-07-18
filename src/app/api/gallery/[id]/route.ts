@@ -2,8 +2,8 @@ import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import path from 'path';
 import prisma from '@/lib/db/prisma';
-import { eventBus } from '@/lib/core/event-bus';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
 import { safeDeleteDir, safeDeleteFile, summarizeDeleteResults } from '@/lib/utils/safe-delete';
 import type { GalleryData } from '@/types';
 
@@ -85,14 +85,14 @@ function mapGalleryWithRelations(g: {
 }): GalleryData {
   let tags: string[] = [];
   try {
-    tags = g.tags ? JSON.parse(g.tags) : [];
+    tags = g.tags ? JSON.parse(g.tags) as string[] : [];
   } catch {
     tags = [];
   }
 
   let gameCharacters: string[] = [];
   try {
-    gameCharacters = g.gameCharacters ? JSON.parse(g.gameCharacters) : [];
+    gameCharacters = g.gameCharacters ? JSON.parse(g.gameCharacters) as string[] : [];
   } catch {
     gameCharacters = [];
   }
@@ -239,7 +239,7 @@ export async function PATCH(
         // 解析标签
         let tags: string[] = [];
         try {
-          tags = JSON.parse(gallery.tags);
+          tags = JSON.parse(gallery.tags) as string[];
         } catch {
           tags = [];
         }
@@ -303,7 +303,7 @@ taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
 
 // 取消正在进行的下载
     try {
-      const { getGalleryDownloader } = await import('@/lib/downloader/gallery-downloader');
+      const { getGalleryDownloader } = await import('@/lib/downloader/gallery');
       getGalleryDownloader().cancelDownload(galleryId);
     } catch {
     }

@@ -4,8 +4,6 @@ const _dynImport = new Function('p', 'return import(p)') as (
 
 export async function register(): Promise<void> {
   try {
-    // 注意：启动时任务状态重置已在 server.ts 的 lifecycle.onInit 中处理，
-    // 此处不再重复调用，避免 Next.js 编译后模块路径解析失败。
 
     const { lifecycle } = await _dynImport('./lib/core/lifecycle') as {
       lifecycle: {
@@ -19,7 +17,7 @@ export async function register(): Promise<void> {
       getDownloadManager: () => { stop: () => Promise<void> };
     };
     const { getGalleryDownloader } = await _dynImport(
-      './lib/downloader/gallery-downloader',
+      './lib/downloader/gallery',
     ) as {
       getGalleryDownloader: () => { stopAll: () => void };
     };
@@ -34,6 +32,16 @@ export async function register(): Promise<void> {
     const { eventBus } = await _dynImport('./lib/core/event-bus') as {
       eventBus: { clear: () => void; emit: (event: string, payload: unknown) => void; removeSocketBridge: () => void };
     };
+    const { dagSystem } = await _dynImport('./lib/core/dag-init') as {
+      dagSystem: { initialize: () => Promise<void>; shutdown: () => Promise<void> };
+    };
+
+    lifecycle.onInit({
+      name: 'dag-system',
+      fn: async () => {
+        await dagSystem.initialize();
+      },
+    });
 
     lifecycle.onInit({
       name: 'ouo-orchestrator',
@@ -77,6 +85,13 @@ export async function register(): Promise<void> {
         eventBus.emit('system:shutdown', { reason: 'graceful' });
         eventBus.removeSocketBridge();
         eventBus.clear();
+      },
+    });
+
+    lifecycle.onShutdown({
+      name: 'dag-system',
+      fn: async () => {
+        await dagSystem.shutdown();
       },
     });
 

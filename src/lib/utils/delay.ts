@@ -88,38 +88,124 @@ export function withTimeout<T>(
   });
 }
 
+export interface RetryOptions<T = unknown> {
+  /** 最大重试次数（默认 3，总尝试次数 = maxRetries + 1） */
+  maxRetries?: number;
+  /** 退避策略：固定延迟 or 指数退避含 ±20% 抖动（默认 'fixed'） */
+  backoff?: 'fixed' | 'exponential';
+  /** 基础延迟毫秒（默认 1000） */
+  baseDelay?: number;
+  /** 最大延迟毫秒，仅指数退避时生效（默认 30000） */
+  maxDelay?: number;
+  /** 判断结果是否为成功，返回 false 时触发重试（适用于 resolve(false) 模式） */
+  isSuccess?: (result: T) => boolean;
+  /** 每次重试前的回调 */
+  onRetry?: (attempt: number, error: unknown) => void;
+  /** 判断是否应该重试，返回 false 时立即抛出最后一次错误（默认总是重试） */
+  shouldRetry?: (error: unknown) => boolean;
+}
+
 /**
  * 异步重试函数
  *
- * 当异步操作失败时自动重试指定次数。
+ * 当异步操作失败时自动重试指定次数。支持固定延迟和指数退避两种策略。
+ *
+ * @param fn - 异步函数，接收当前尝试序号（从 0 开始）
+ * @param options - 重试配置
+ * @returns Promise，成功时 resolve 结果，失败时 reject 最后一次错误
+ *
+ * @example
+ * // 基本用法
+ * const result = await retry(() => fetchData(), { maxRetries: 3 });
+ *
+ * @example
+ * // 指数退避 + isSuccess 判断
+ * const result = await retry(
+ *   () => downloadFile(url, path),
+ *   { backoff: 'exponential', baseDelay: 1000, maxDelay: 8000, isSuccess: r => r.success }
+ * );
+ */
+export function retry<T>(
+  fn: (attempt: number) => Promise<T>,
+  options?: RetryOptions<T>,
+): Promise<T>;
+
+/**
+ * 异步重试函数（旧签名，向后兼容）
  *
  * @param fn - 异步函数
  * @param maxRetries - 最大重试次数（默认 3）
  * @param delayMs - 每次重试之间的延迟（毫秒，默认 1000）
  * @returns Promise，成功时 resolve 结果，失败时 reject 最后一次错误
- *
- * @example
- * const result = async () => {
- *   return await retry(() => fetchData(), 3, 1000);
- * };
  */
-export async function retry<T>(
+export function retry<T>(
   fn: () => Promise<T>,
-  maxRetries: number = 3,
-  delayMs: number = 1000
+  maxRetries?: number,
+  delayMs?: number,
+): Promise<T>;
+
+export function retry<T>(
+  fn: (attempt: number) => Promise<T>,
+  optionsOrMaxRetries?: RetryOptions<T> | number,
+  maybeDelayMs?: number,
 ): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
+  const isOptionsMode = typeof optionsOrMaxRetries !== 'number';
+  const opts = isOptionsMode
+    ? (optionsOrMaxRetries as RetryOptions<T> | undefined)
+    : undefined;
+
+  const maxRetries = opts?.maxRetries ?? (isOptionsMode ? 3 : (optionsOrMaxRetries as number | undefined) ?? 3);
+  const backoff = opts?.backoff ?? 'fixed';
+  const baseDelay = opts?.baseDelay ?? maybeDelayMs ?? 1000;
+  const maxDelay = opts?.maxDelay ?? 30000;
+  const isSuccess = opts?.isSuccess;
+  const onRetry = opts?.onRetry;
+  const shouldRetry = opts?.shouldRetry ?? (() => true);
+
+  return (async () => {
+    let lastError: unknown;
+    let lastResult: T | undefined;
+    let hasResult = false;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await fn(attempt);
+        lastResult = result;
+        hasResult = true;
+
+        if (!isSuccess || isSuccess(result)) {
+          return result;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+
       if (attempt < maxRetries) {
-        await sleep(delayMs);
+        if (lastError !== undefined && !shouldRetry(lastError)) {
+          break;
+        }
+
+        const raw = backoff === 'exponential'
+          ? Math.min(baseDelay * Math.pow(2, attempt), maxDelay)
+          : baseDelay;
+        const jitter = raw * 0.2 * (Math.random() * 2 - 1);
+        const delay = Math.max(0, Math.round(raw + jitter));
+
+        if (onRetry && lastError !== undefined) {
+          onRetry(attempt, lastError);
+        } else if (onRetry && hasResult && !isSuccess?.(lastResult as T)) {
+          onRetry(attempt, new Error('isSuccess check failed'));
+        }
+
+        await sleep(delay);
       }
     }
-  }
-  throw lastError;
+
+    if (hasResult) {
+      return lastResult as T;
+    }
+    throw lastError;
+  })();
 }
 
 /**

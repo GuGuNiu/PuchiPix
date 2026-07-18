@@ -12,6 +12,8 @@ const jaJP: TranslationDict = {
   "log.galleryHandler.domainRateLimited": "ドメイン {url} が {status} を返しました（レート制限）、高速切り替え",
   "log.galleryHandler.asyncScrapeError": "ギャラリー #{id} 非同期スクレイプエラー",
   "log.galleryHandler.scrapeTiming": "{ms}ms — {msg}",
+  "log.galleryHandler.downloadFailed": "ダウンロード失敗: {msg}",
+  "log.galleryHandler.downloadComplete": "ダウンロード完了: 成功 {success}, 失敗 {failed}, スキップ {skipped}",
 
   "log.sjs.noAccount": "利用可能なアカウントがありません、ゲストモードでアクセスします（全コンテンツが表示されない場合があります）",
   "log.sjs.cookieInjected": "アカウント #{id} Cookie を注入しました（{count} 個）",
@@ -62,6 +64,19 @@ const jaJP: TranslationDict = {
   "log.protagonist.personCacheInitFailed": "Person キャッシュの初期化に失敗しました",
 
   "log.search.batchComplete": "一括スクレイプ完了！成功 {ok}、失敗 {fail}",
+  "log.search.terminated": "検索タスクが異常終了しました: {msg}",
+  "log.search.batchTerminated": "一括検索タスクが異常終了しました: {msg}",
+
+  // タスクキューマネージャー
+  "log.taskCreator.downloadStartFailed": "ダウンロードタスク #{taskId} の開始に失敗: {msg}",
+
+  // 並行ダウンローダー
+  "log.parallelDL.writeFailed": "[ParallelDL] 書き込み失敗: {msg}",
+  "log.parallelDL.requestFailed": "[ParallelDL] リクエスト失敗: {msg}",
+
+  // ダウンロードマネージャー
+  "log.downloadManager.segmentFailed": "  セグメント #{idx}: {msg}",
+  "log.downloadManager.incomplete": "ダウンロード不完全: {failedCount} 個のセグメントが失敗（全 {totalSegments} 個中）\n{details}",
 
   // タスクキューマネージャー
   "log.taskQueue.slotAllocated": "スロット割り当て: {key} (実行中: 通常={normal}/{maxNormal}, スニッフ={sniff}/{maxSniff})",
@@ -79,6 +94,7 @@ const jaJP: TranslationDict = {
   "log.taskQueue.configSeeded": "デフォルト設定をデータベースに書き込みました: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus 末端リスナー登録済み",
   "log.taskQueue.resetWarn": "カウンター強制リセット",
+"log.taskQueue.startupRecovery": "起動リカバリ: {count} タスクを再キュー",
   "log.taskQueue.configLoadFailed": "設定の読み込みに失敗、デフォルトを使用: {error}",
 
   // サーバーライフサイクル
@@ -92,6 +108,9 @@ const jaJP: TranslationDict = {
   "log.taskStateReset.cleanupSlots": "残留スロットクリーンアップ: 通常={normal}, スニッフ={sniff}, 識別={scraping}",
   "log.taskStateReset.completed": "リセット完了: 動画 {videoTasks}, ギャラリー {galleries}, 画像 {galleryImages}, 動画 {galleryVideos}, スニッフ {sniffTasks}, ZIP情報 {galleryDownloadInfos}, 計 {total} タスクを保留中にリセット",
   "log.taskStateReset.noop": "実行中タスクなし、リセット不要",
+
+  // プリセットデータシード
+  "log.seed.presetDataSeeded": "プリセットデータをデータベースに書き込みました: ユーザー設定 {prefs} 件, ブロックリスト {blocklists} 件",
 };
 
 export default jaJP;

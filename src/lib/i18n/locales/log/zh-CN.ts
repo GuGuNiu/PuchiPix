@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// 日志消息模板 — 简体中文（基准）
 const zhCN: TranslationDict = {
   // 安全删除
   "log.safeDelete.fileFailed": "文件删除失败 ({retry}/{max}): {path} — {msg}",
@@ -14,6 +13,8 @@ const zhCN: TranslationDict = {
   "log.galleryHandler.domainRateLimited": "域名 {url} 返回 {status}（限流），快速切换",
   "log.galleryHandler.asyncScrapeError": "图库 #{id} 异步爬取异常",
   "log.galleryHandler.scrapeTiming": "{ms}ms — {msg}",
+  "log.galleryHandler.downloadFailed": "下载失败: {msg}",
+  "log.galleryHandler.downloadComplete": "下载完成: 成功 {success}, 失败 {failed}, 跳过 {skipped}",
 
   // SJS 站点
   "log.sjs.noAccount": "无可用账户，将以游客模式访问（可能无法看到完整内容）",
@@ -72,6 +73,19 @@ const zhCN: TranslationDict = {
 
   // 搜索引擎
   "log.search.batchComplete": "批量爬取完成！成功 {ok}，失败 {fail}",
+  "log.search.terminated": "搜索任务异常终止: {msg}",
+  "log.search.batchTerminated": "批量搜索任务异常终止: {msg}",
+
+  // 任务创建器
+  "log.taskCreator.downloadStartFailed": "下载任务 #{taskId} 启动失败: {msg}",
+
+  // 并行下载器
+  "log.parallelDL.writeFailed": "[ParallelDL] 写入失败: {msg}",
+  "log.parallelDL.requestFailed": "[ParallelDL] 请求失败: {msg}",
+
+  // 下载管理器
+  "log.downloadManager.segmentFailed": "  分片 #{idx}: {msg}",
+  "log.downloadManager.incomplete": "下载不完整：{failedCount} 个分片下载失败（共 {totalSegments} 个分片）\n{details}",
 
   // 任务队列管理器
   "log.taskQueue.slotAllocated": "槽位已分配: {key} (运行中: 普通={normal}/{maxNormal}, 嗅探={sniff}/{maxSniff})",
@@ -89,6 +103,7 @@ const zhCN: TranslationDict = {
   "log.taskQueue.configSeeded": "默认配置已预写入数据库: {keys}",
   "log.taskQueue.listenersRegistered": "EventBus 终态监听器已注册",
   "log.taskQueue.resetWarn": "计数器已强制重置",
+"log.taskQueue.startupRecovery": "启动恢复：已重新排队 {count} 个任务",
   "log.taskQueue.configLoadFailed": "加载配置失败，使用默认值: {error}",
 
   // 服务端生命周期
@@ -102,6 +117,9 @@ const zhCN: TranslationDict = {
   "log.taskStateReset.cleanupSlots": "清理残留槽位: 普通={normal}, 嗅探={sniff}, 识别={scraping}",
   "log.taskStateReset.completed": "重置完成：视频 {videoTasks}，图库 {galleries}，图片 {galleryImages}，视频 {galleryVideos}，嗅探 {sniffTasks}，ZIP信息 {galleryDownloadInfos}，共 {total} 个任务已重置为待处理状态",
   "log.taskStateReset.noop": "未发现运行中任务，无需重置",
+
+  // 预置数据种子
+  "log.seed.presetDataSeeded": "预置数据已写入数据库: 用户偏好 {prefs} 条, 屏蔽词 {blocklists} 条",
 };
 
 export default zhCN;

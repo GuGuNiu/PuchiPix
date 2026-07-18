@@ -111,7 +111,7 @@ export function parseGalleryPageHtml($: cheerio.CheerioAPI, pageIndex: number): 
   $('script[type="application/ld+json"]').each((_, script) => {
     if (result.publishTime) return;
     try {
-      const data = JSON.parse($(script).html() || '');
+      const data = JSON.parse($(script).html() || '') as { '@type'?: string; uploadDate?: string };
       if (data['@type'] === 'VideoObject' && data.uploadDate) {
         result.publishTime = String(data.uploadDate).substring(0, 10);
       }
@@ -212,9 +212,9 @@ export function parseZipInfoFromHtml($: cheerio.CheerioAPI, domain: string): Gal
   };
 
   if (!downloadUrl && pageId) {
-    (zipInfo as unknown as Record<string, unknown>)['_pageId'] = pageId;
-    (zipInfo as unknown as Record<string, unknown>)['_eligibilityUrl'] = eligibilityUrl;
-    (zipInfo as unknown as Record<string, unknown>)['_nextUrl'] = nextUrl;
+    zipInfo._pageId = pageId;
+    zipInfo._eligibilityUrl = eligibilityUrl;
+    zipInfo._nextUrl = nextUrl;
   }
 
   return zipInfo;

@@ -53,7 +53,7 @@ export function JobResults({
             }}
           >
             <span style={{ color: "var(--text-secondary)" }}>
-              进度：{job.totalProcessed} / {job.titles.length}
+              {t("batchSearch.progress")}{job.totalProcessed} / {job.titles.length}
             </span>
             <span style={{ color: "var(--text-muted)" }}>
               {progressPct.toFixed(0)}%
@@ -126,12 +126,12 @@ export function JobResults({
         <FilterPill
           active={filter === "all"}
           onClick={() => onFilterChange("all")}
-          label={`全部 (${job.results.length})`}
+          label={`${t("batchSearch.all")} (${job.results.length})`}
         />
         <FilterPill
           active={filter === "not_found"}
           onClick={() => onFilterChange("not_found")}
-          label={`未找到 (${job.totalNotFound})`}
+          label={`${t("batchSearch.notFound")} (${job.totalNotFound})`}
         />
         <FilterPill
           active={filter === "failed"}
@@ -234,7 +234,7 @@ export function JobResults({
                     {r.selectedItem?.title ||
                       r.error ||
                       (r.searchResults.length > 0
-                        ? `${r.searchResults.length} 个候选`
+                        ? t("batchSearch.candidates", { count: r.searchResults.length })
                         : "—")}
                   </td>
                   <td

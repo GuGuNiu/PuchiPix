@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { ensureDir } from '@/lib/utils/file-system';
 
 /**
  * 合并操作的返回结果。
@@ -52,10 +53,7 @@ export async function mergeSegments(
   }
 
   // 确保输出目录存在
-  const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
+  ensureDir(path.dirname(outputPath));
 
   const writeStream = fs.createWriteStream(outputPath);
   let totalSize = 0;

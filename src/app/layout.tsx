@@ -12,8 +12,7 @@ import "./styles/responsive.css";
 import Sidebar from "@/components/layout/sidebar";
 import SocketProvider from "@/components/providers/socket-provider";
 import ThemeProvider from "@/components/providers/theme-provider";
-import ThemedToaster from "@/components/providers/themed-toaster";
-import HlsScriptLoader from "@/components/providers/hls-script-loader";
+import { ThemedToaster, HlsScriptLoader } from "@/components/providers";
 import { I18nProvider } from "@/lib/i18n";
 
 const dancingScript = Dancing_Script({

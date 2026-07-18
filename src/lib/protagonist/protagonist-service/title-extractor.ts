@@ -49,7 +49,7 @@ export async function extractFromTitleSmart(
   // 策略 2：游戏角色库 identifyInText 子串匹配
   const gameChar = await deps.matchGameCharacterInText(cleanedTitle);
   if (gameChar) {
-    const cosplayerFromSeparator = extractCosplayerBeforeGameChar(cleanedTitle, gameChar, deps);
+    const cosplayerFromSeparator = extractCosplayerBeforeChar(cleanedTitle, gameChar, deps);
     if (cosplayerFromSeparator) return cosplayerFromSeparator;
     return '';
   }
@@ -129,7 +129,7 @@ async function extractPersonFromTags(
 /**
  * 从 "Cosplayer - 游戏角色" 模式标题中提取真正的 Cosplayer 名
  */
-function extractCosplayerBeforeGameChar(
+function extractCosplayerBeforeChar(
   title: string,
   gameCharName: string,
   deps: TitleExtractorDeps,

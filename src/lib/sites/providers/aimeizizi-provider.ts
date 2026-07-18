@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+﻿import type { Page } from 'playwright';
 import { BaseSiteProvider } from '../base-provider';
 import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockCheckResult } from '../types';
 import type {
@@ -6,7 +6,7 @@ import type {
   GalleryZipInfo,
   ScrapeResult,
 } from '@/types';
-import { PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from '@/lib/core/anti-crawler';
+import { PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from '@/lib/core/stealth/anti-crawler';
 import { logT } from '@/lib/i18n/server';
 import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
 import {
@@ -14,10 +14,21 @@ import {
   BLOCKED_CATEGORIES,
   BLOCKED_PROTAGONISTS,
   BLOCKED_PROTAGONISTS_ENABLED,
-} from '../config/aimeizizi-config';
+} from './constants';
 import { getBlocklistService } from '../blocklist-service';
 
-// 从提取的子模块导入
+export interface ScrapeDeps {
+  resolveUrl(url: string): string;
+  cleanTitle(rawTitle: string): string;
+  extractProtagonist(title: string, tags: string[]): Promise<string>;
+  extractDescription(title: string, protagonist: string): string;
+  checkContentBlockedAsync(
+    title: string,
+    category: string,
+    protagonist?: string,
+  ): Promise<BlockCheckResult>;
+}
+
 import {
   SITE_DOMAINS,
   SITE_SUFFIX_PATTERN,
@@ -31,18 +42,14 @@ import {
   extractGalleryPageData,
   extractZipDownloadInfo,
   extractSearchResultsRaw,
-  extractExtendedMetadataRaw,
+  extractExtMetadataRaw,
 } from './aimeizizi/page-evaluators';
 import { scrapeGallery as scrapeGalleryImpl } from './aimeizizi/scrape-gallery';
 import { scrapeGalleryHttp as scrapeGalleryHttpImpl } from './aimeizizi/scrape-gallery-http';
 
-// 重新导出以保持向后兼容
-export { extractDomainFromUrl };
-export { extractArticleId };
-
 export class AimeiziziProvider extends BaseSiteProvider implements GallerySiteProvider {
   readonly id = 'aimeizizi';
-  readonly name = '爱妹子';
+  readonly name = '鐖卞瀛?;
   readonly baseUrl = 'https://www.lovecutes.com';
   readonly enabled = true;
   readonly playButtonSelectors: string[] = [];
@@ -52,8 +59,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
   readonly blockedCategories: readonly string[] = BLOCKED_CATEGORIES;
   readonly blockedProtagonists: readonly string[] = BLOCKED_PROTAGONISTS;
   readonly blockedProtagonistsEnabled: boolean = BLOCKED_PROTAGONISTS_ENABLED;
-
-  // ─── 域名管理 ───
 
   markDomainRateLimited(domain: string): void {
     domainHealthTracker.markRateLimited(domain);
@@ -74,15 +79,13 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     return orderedDomains.map((d) => `${d}/?s=${encoded}`);
   }
 
-  // ─── 标题与元数据 ───
-
   cleanTitle(rawTitle: string): string {
     if (!rawTitle) return '';
     let title = rawTitle.trim();
     title = title.replace(/^\[.*?\]\s*/, '');
     title = removePublisherPrefix(title);
     title = title.replace(SITE_SUFFIX_PATTERN, '');
-    title = title.replace(/\s*[-—–]\s*爱妹子\s*$/i, '');
+    title = title.replace(/\s*[-鈥斺€揮\s*鐖卞瀛怽s*$/i, '');
     return title.trim();
   }
 
@@ -104,12 +107,10 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     if (!title) return '';
     if (!protagonist) return title;
 
-    let desc = title.replace(protagonist, '').replace(/^\s*[-—–]\s*/, '').trim();
+    let desc = title.replace(protagonist, '').replace(/^\s*[-鈥斺€揮\s*/, '').trim();
     desc = desc.replace(/\s*\d+P\d*V?\s*$/i, '').trim();
     return desc;
   }
-
-  // ─── 屏蔽检查 ───
 
   checkBlocked(
     title: string,
@@ -120,7 +121,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
       const titleLower = title.toLowerCase();
       for (const keyword of this.blockedTitleKeywords) {
         if (titleLower.includes(keyword.toLowerCase())) {
-          return { blocked: true, reason: `标题包含屏蔽关键词: "${keyword}"` };
+          return { blocked: true, reason: `鏍囬鍖呭惈灞忚斀鍏抽敭璇? "${keyword}"` };
         }
       }
     }
@@ -128,7 +129,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     if (category) {
       for (const keyword of this.blockedCategories) {
         if (category.includes(keyword)) {
-          return { blocked: true, reason: `分类包含屏蔽关键词: "${keyword}"` };
+          return { blocked: true, reason: `鍒嗙被鍖呭惈灞忚斀鍏抽敭璇? "${keyword}"` };
         }
       }
     }
@@ -136,7 +137,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     if (this.blockedProtagonistsEnabled && protagonist) {
       for (const blocked of this.blockedProtagonists) {
         if (protagonist === blocked || protagonist.includes(blocked)) {
-          return { blocked: true, reason: `主角名被屏蔽: "${blocked}"` };
+          return { blocked: true, reason: `涓昏鍚嶈灞忚斀: "${blocked}"` };
         }
       }
     }
@@ -167,7 +168,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     return this.checkBlocked(title, category, protagonist);
   }
 
-  // ─── URL 匹配 ───
 
   matchesUrl(url: string): boolean {
     try {
@@ -188,8 +188,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     }
   }
 
-  // ─── 搜索结果提取 ───
-
   async extractSearchResults(page: Page): Promise<SiteSearchResult[]> {
     const rawResults = await extractSearchResultsRaw(page);
 
@@ -206,13 +204,13 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
   }
 
   async extractExtendedMetadata(page: Page): Promise<ExtendedMetadata> {
-    const raw = await extractExtendedMetadataRaw(page);
+    const raw = await extractExtMetadataRaw(page);
 
     const title = this.cleanTitle(raw.h1Title || raw.documentTitle);
     const protagonist = await this.extractProtagonist(title, raw.tags);
 
     const metaKeywords = raw.keywordStr
-      .split(/[,，;；]/)
+      .split(/[,锛?锛沒/)
       .map((t) => t.trim())
       .filter((t) => t && t.length < 50 && !raw.tags.includes(t));
 
@@ -227,13 +225,9 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     };
   }
 
-  // ─── 图库完整爬取 ───
-
   async scrapeGallery(page: Page, pageUrl: string): Promise<GalleryScrapeResult> {
     return scrapeGalleryImpl(page, pageUrl, this);
   }
-
-  // ─── 单页爬取 ───
 
   async scrapePage(page: Page, pageUrl: string): Promise<ScrapeResult> {
     const metadata = await this.extractExtendedMetadata(page);
@@ -266,8 +260,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     };
   }
 
-  // ─── URL 工具 ───
-
   resolveUrl(url: string): string {
     if (!url) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -279,8 +271,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
   isListingPage(url: string): boolean {
     return !url.includes('/article/');
   }
-
-  // ─── 列表页爬取 ───
 
   async scrapeListingPage(page: Page, pageUrl: string, maxPages: number = 20): Promise<SiteSearchResult[]> {
     const MAX_LISTING_PAGES = maxPages;
@@ -364,7 +354,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
       );
       for (const link of navLinks) {
         const text = link.textContent?.trim() || '';
-        if (text.includes('下一页') || text.includes('Next') || text.includes('›') || text.includes('»')) {
+        if (text.includes('涓嬩竴椤?) || text.includes('Next') || text.includes('鈥?) || text.includes('禄')) {
           return true;
         }
       }
@@ -375,8 +365,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
       return pageNumbers.length >= 2;
     });
   }
-
-  // ─── 多域名自适应 URL ───
 
   getAdaptiveUrls(articleUrl: string): string[] {
     const articleId = extractArticleId(articleUrl);
@@ -389,8 +377,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
   normalizeUrl(url: string): string {
     return replaceDomain(url, this.baseUrl);
   }
-
-  // ─── HTTP 方式爬取 ───
 
   readonly supportsHttpScrape = true;
 

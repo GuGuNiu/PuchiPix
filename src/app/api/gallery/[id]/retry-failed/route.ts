@@ -1,11 +1,11 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { getGalleryDownloader } from '@/lib/downloader/gallery-downloader';
-import { getGalleryProvider, scrapeGalleryAsync } from '@/lib/tasks/gallery-handler';
-import { eventBus } from '@/lib/core/event-bus';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
-import { t, logT, setServerLocaleFromHeaders } from '@/lib/i18n/server';
+import { getGalleryDownloader } from '@/lib/downloader/gallery';
+import { getGalleryProvider, scrapeGalleryAsync } from '@/lib/downloader/gallery-handler';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { t, logT, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -14,7 +14,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { id } = await params;
     const galleryId = parseInt(id);
@@ -35,7 +35,6 @@ export async function POST(
     const hasNoImagesOrVideos = gallery.images.length === 0 && gallery.videos.length === 0;
 
     if (hasNoImagesOrVideos) {
-      // 爬取阶段失败：重新触发爬取流程
       const provider = getGalleryProvider(gallery.sourceUrl);
       if (!provider) {
         return NextResponse.json(
@@ -44,16 +43,13 @@ export async function POST(
         );
       }
 
-      // 重置Gallery状态为pending，准备重新爬取
       await prisma.gallery.update({
         where: { id: galleryId },
-        data: { status: 'pending', errorMsg: '', imageCount: 0, videoCount: 0 },
+        data: { status: 'scrape_pending', errorMsg: '', imageCount: 0, videoCount: 0 },
       });
 
-      // 立即通知前端状态已变更（scraping），避免用户感觉点击无反应
       eventBus.emit('gallery:scrapeStarted', { galleryId, url: gallery.sourceUrl });
 
-      // 异步触发重新爬取
       scrapeGalleryAsync(galleryId, gallery.sourceUrl, provider).catch((err) => {
         console.error(logT('log.galleryHandler.asyncScrapeError', { id: galleryId }), err);
         eventBus.emit('gallery:scrapeFailed', {
@@ -70,7 +66,6 @@ export async function POST(
       });
     }
 
-    // 有图片/视频记录：使用断点续传重试下载失败的文件
     taskQueueManager.acquireSlot('gallery', galleryId).then(async (acquired) => {
       if (!acquired) {
         console.log(logT('log.galleryHandler.cancelledInQueue', { id: galleryId }));

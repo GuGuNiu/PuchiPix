@@ -1,13 +1,13 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
-import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const name = searchParams.get('name');

@@ -1,6 +1,5 @@
 export type { SiteProvider, SiteConfig, SiteSearchResult, SiteInfo, GallerySiteProvider, ExtendedMetadata, SeriesItem, SiteType, BadgeTheme, BlockCheckResult } from './types';
 
-// 抽象基类
 export { BaseSiteProvider } from './base-provider';
 
 // 站点注册中心
@@ -12,18 +11,20 @@ export type { SiteModuleConfig } from './site-modules';
 
 // 站点提供者
 export { KanavProvider } from './providers/kanav-provider';
-export { AimeiziziProvider, extractDomainFromUrl } from './providers/aimeizizi-provider';
+export { AimeiziziProvider } from './providers/aimeizizi-provider';
+export { extractDomainFromUrl } from './providers/aimeizizi/constants';
 export { UniversalProvider } from './providers/universal-provider';
 export { ExhentaiProvider } from './providers/exhentai-provider';
-export { SjsProvider, extractThreadId, extractForumId } from './providers/sjs-provider';
+export { extractGalleryId, normalizeToEhentai, isExUrl, CATEGORY_LABELS, CATEGORY_NAMES } from './providers/exhentai-provider/constants';
+export { SjsProvider } from './providers/sjs-provider';
+export { extractThreadId, extractForumId } from './providers/sjs-provider/constants';
 
-// 司机社论坛操作工具（HTTP 登录、签到、购买帖子）
 export {
   httpLogin,
   performCheckin,
   checkinAllAccounts,
   buyThread,
-  extractDownloadLinksFromPage,
+  extractDownloadLinks,
   isThreadPurchasable,
   type CheckinResult,
   type BuyResult,

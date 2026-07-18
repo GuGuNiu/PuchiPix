@@ -5,6 +5,7 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 import prisma from '@/lib/db/prisma';
+import { ensureDir } from '@/lib/utils/file-system';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -24,12 +25,6 @@ const COVER_CACHE_DIR = './data/cover_cache';
 /** 内存级 ETag 缓存，避免同一图库短时间内重复查库 */
 const etagCache = new Map<number, { etag: string; ts: number }>();
 const ETAG_CACHE_TTL = 60_000;
-
-function ensureDir(dirPath: string): void {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
 
 function getCachePath(galleryId: number, url: string): string {
   const ext = (() => {

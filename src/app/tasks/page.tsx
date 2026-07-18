@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname } from "next/navigation";
@@ -24,7 +24,7 @@ import type { TaskStatus, DownloadTask } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import ResourceToolbar from "@/components/ui/resource-toolbar";
 import TaskSettingsPanel from "@/components/tasks/task-settings-panel";
-import { useRouteState } from "@/lib/core/route-state";
+import { useRouteState } from "@/lib/core/infra/route-state";
 import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
 import { useI18n } from "@/lib/i18n";
 import {

@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
 import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';

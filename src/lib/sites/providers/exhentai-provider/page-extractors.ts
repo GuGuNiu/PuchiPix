@@ -1,4 +1,4 @@
-import type { Page, BrowserContext } from "playwright";
+﻿import type { Page, BrowserContext } from "playwright";
 import type { ExtendedMetadata, SiteSearchResult } from "../../types";
 import {
   BASE_E_URL,
@@ -9,13 +9,13 @@ import {
   getExhentaiCookies,
   cleanExhentaiTitle,
 } from "./constants";
-import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/anti-crawler";
+import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/stealth/anti-crawler";
 import { logT } from "@/lib/i18n/server";
 
 /**
- * 设置浏览器上下文 Cookie。
+ * 璁剧疆娴忚鍣ㄤ笂涓嬫枃 Cookie銆?
  */
-export async function setupExhentaiBrowserContext(context: BrowserContext): Promise<void> {
+export async function setupExhentaiContext(context: BrowserContext): Promise<void> {
   const cookies = getExhentaiCookies();
   if (!cookies) return;
 
@@ -45,7 +45,7 @@ export async function setupExhentaiBrowserContext(context: BrowserContext): Prom
 }
 
 /**
- * 从搜索结果页面提取图库链接列表。
+ * 浠庢悳绱㈢粨鏋滈〉闈㈡彁鍙栧浘搴撻摼鎺ュ垪琛ㄣ€?
  */
 export async function extractSearchResults(page: Page): Promise<SiteSearchResult[]> {
   return page.evaluate(() => {
@@ -64,21 +64,21 @@ export async function extractSearchResults(page: Page): Promise<SiteSearchResult
 
     for (const row of allRows) {
       try {
-        const linkEl = row.querySelector("td.gl3c.glname a") as HTMLAnchorElement;
+        const linkEl = row.querySelector("td.gl3c.glname a") as HTMLAnchorElement | null;
         if (!linkEl) continue;
 
         const href = linkEl.href;
         if (!href || !href.includes("/g/") || seen.has(href)) continue;
         seen.add(href);
 
-        const titleEl = row.querySelector("td.gl3c.glname a div.glink") as HTMLElement;
+        const titleEl = row.querySelector("td.gl3c.glname a div.glink") as HTMLElement | null;
         const title = titleEl?.textContent?.trim() || linkEl.textContent?.trim() || "";
 
-        const coverImg = row.querySelector("td.gl2c img") as HTMLImageElement;
+        const coverImg = row.querySelector("td.gl2c img") as HTMLImageElement | null;
         const coverUrl =
           coverImg?.getAttribute("data-src") || coverImg?.getAttribute("src") || undefined;
 
-        const postedEl = row.querySelector('div[id^="posted_"]') as HTMLElement;
+        const postedEl = row.querySelector('div[id^="posted_"]') as HTMLElement | null;
         const dateText = postedEl?.textContent?.trim() || "";
         let date: string | undefined;
         if (dateText) {
@@ -97,14 +97,14 @@ export async function extractSearchResults(page: Page): Promise<SiteSearchResult
 }
 
 /**
- * 从图库详情页提取扩展元信息。
+ * 浠庡浘搴撹鎯呴〉鎻愬彇鎵╁睍鍏冧俊鎭€?
  */
 export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetadata> {
   const raw = await page.evaluate(() => {
-    const titleEl = document.querySelector("#gn") as HTMLElement;
+    const titleEl = document.querySelector("#gn") as HTMLElement | null;
     const h1Title = titleEl?.textContent?.trim() || document.title || "";
 
-    const uploaderEl = document.querySelector("#gdn a") as HTMLElement;
+    const uploaderEl = document.querySelector("#gdn a") as HTMLElement | null;
     const uploader = uploaderEl?.textContent?.trim() || "";
 
     const infoRows = document.querySelectorAll("#gdd table tbody > tr");
@@ -129,7 +129,7 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
       }
     });
 
-    const ratingEl = document.querySelector("#gdr #rating_label") as HTMLElement;
+    const ratingEl = document.querySelector("#gdr #rating_label") as HTMLElement | null;
     const ratingText = ratingEl?.textContent?.trim() || "";
     const ratingMatch = ratingText.match(/Average:\s*([\d.]+)/);
     const rating = ratingMatch ? parseFloat(ratingMatch[1]) : 0;
@@ -137,7 +137,7 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
     const tags: Record<string, string[]> = {};
     const tagRows = document.querySelectorAll("#taglist table tbody > tr");
     tagRows.forEach((row) => {
-      const keyEl = row.querySelector("td.tc") as HTMLElement;
+      const keyEl = row.querySelector("td.tc") as HTMLElement | null;
       const key = keyEl?.textContent?.trim().replace(/:$/, "") || "";
       const valueEls = row.querySelectorAll("td > div > a");
       const values: string[] = [];
@@ -150,13 +150,13 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
       }
     });
 
-    const coverEl = document.querySelector("#gd1 img, #gdc img") as HTMLImageElement;
+    const coverEl = document.querySelector("#gd1 img, #gdc img") as HTMLImageElement | null;
     const coverUrl =
       coverEl?.getAttribute("data-src") || coverEl?.getAttribute("src") || "";
 
     const categoryEl = document.querySelector(
       "#gdc .cs, .cs.ct1, .cs.ct2, .cs.ct3",
-    ) as HTMLElement;
+    ) as HTMLElement | null;
     const category = categoryEl?.textContent?.trim() || "";
 
     return {
@@ -199,7 +199,7 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
 }
 
 /**
- * 从图库详情页提取画廊基本信息。
+ * 浠庡浘搴撹鎯呴〉鎻愬彇鐢诲粖鍩烘湰淇℃伅銆?
  */
 export async function extractGalleryInfo(
   page: Page,
@@ -221,13 +221,13 @@ export async function extractGalleryInfo(
     const postedMatch = postedText.match(/(\d{4}-\d{2}-\d{2})/);
     const posted = postedMatch ? postedMatch[1] : "";
 
-    const coverEl = document.querySelector("#gd1 img, #gdc img") as HTMLImageElement;
+    const coverEl = document.querySelector("#gd1 img, #gdc img") as HTMLImageElement | null;
     const coverUrl = coverEl?.getAttribute("data-src") || coverEl?.getAttribute("src") || "";
 
-    const uploaderEl = document.querySelector("#gdn a") as HTMLElement;
+    const uploaderEl = document.querySelector("#gdn a") as HTMLElement | null;
     const uploader = uploaderEl?.textContent?.trim() || "";
 
-    const categoryEl = document.querySelector("#gdc .cs, .cs") as HTMLElement;
+    const categoryEl = document.querySelector("#gdc .cs, .cs") as HTMLElement | null;
     const category = categoryEl?.textContent?.trim() || "";
 
     return { pages, posted, coverUrl, uploader, category };
@@ -235,7 +235,7 @@ export async function extractGalleryInfo(
 }
 
 /**
- * 收集图库所有页面的图片页链接。
+ * 鏀堕泦鍥惧簱鎵€鏈夐〉闈㈢殑鍥剧墖椤甸摼鎺ャ€?
  */
 export async function collectImagePageLinks(
   page: Page,
@@ -267,8 +267,8 @@ export async function collectImagePageLinks(
     }
 
     const links = await page.evaluate(() => {
-      const anchors = document.querySelectorAll("#gdt a");
-      return Array.from(anchors).map((a) => (a as HTMLAnchorElement).href);
+      const anchors = document.querySelectorAll<HTMLAnchorElement>("#gdt a");
+      return Array.from(anchors).map((a) => a.href);
     });
 
     let newCount = 0;
@@ -291,7 +291,7 @@ export async function collectImagePageLinks(
 }
 
 /**
- * 批量从图片页提取实际图片 URL。
+ * 鎵归噺浠庡浘鐗囬〉鎻愬彇瀹為檯鍥剧墖 URL銆?
  */
 export async function fetchImageUrls(
   page: Page,
@@ -350,7 +350,7 @@ export async function fetchImageUrls(
 
     const successCount = results.filter(Boolean).length;
     console.log(
-      `[ExHentai] 图片 URL 获取进度: ${Math.min(i + IMAGE_BATCH_SIZE, imagePageUrls.length)}/${imagePageUrls.length}（成功 ${successCount}）`,
+      `[ExHentai] 鍥剧墖 URL 鑾峰彇杩涘害: ${Math.min(i + IMAGE_BATCH_SIZE, imagePageUrls.length)}/${imagePageUrls.length}锛堟垚鍔?${successCount}锛塦,
     );
   }
 

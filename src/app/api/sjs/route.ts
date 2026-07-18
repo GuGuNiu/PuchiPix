@@ -6,14 +6,14 @@ import {
   buyThread,
   httpLogin,
 } from '@/lib/sites/sjs-actions';
-import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /** POST — 执行司机社论坛操作 */
 export async function POST(request: Request): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { action, accountId, tid } = body;

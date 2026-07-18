@@ -14,7 +14,7 @@ import {
 import type { SearchJob, SearchItem } from "@/types";
 import VideoCard from "@/components/search/video-card";
 import { useI18n } from "@/lib/i18n";
-import { useRouteState } from "@/lib/core/route-state";
+import { useRouteState } from "@/lib/core/infra/route-state";
 import { useUrlState } from "@/hooks/use-url-state";
 import { ENABLED_SITE_MODULES, getSiteModule, getSiteModuleByUrl } from "@/lib/sites/site-modules";
 

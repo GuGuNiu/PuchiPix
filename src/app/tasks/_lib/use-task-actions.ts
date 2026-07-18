@@ -49,11 +49,37 @@ export function useTaskActions({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: u }),
         })
-          .then((res) => {
+          .then(async (res) => {
+            if (res.status === 409) {
+              const data = await res.json();
+              const matchTypeText: Record<string, string> = {
+                exact: t("createTask.exactMatch"),
+                mirror: t("createTask.mirrorMatch"),
+                path: t("createTask.pathMatch"),
+              };
+              const matchLabel = matchTypeText[data.matchType] || t("createTask.matchFallback");
+              const idLabel = data.type === 'gallery'
+                ? t("createTask.galleryLabel", { id: data.galleryId })
+                : t("createTask.taskLabel", { id: data.taskId });
+
+              toast.warning(
+                t("createTask.duplicateRecord", {
+                  matchLabel,
+                  idLabel,
+                  status: data.existingStatus || t("createTask.unknownStatus"),
+                  urlInfo: data.existingUrl ? t("createTask.existingUrl", { url: data.existingUrl }) : '',
+                }),
+                { duration: 8000 },
+              );
+              return null;
+            }
+
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             return res.json();
           })
           .then((data) => {
+            if (data === null) return;
+
             if (data?.type === "sniff") {
               const placeholder: DownloadTask = {
                 ID: data.sniffId,
@@ -103,8 +129,9 @@ export function useTaskActions({
               toast.success("tasks.videoTaskCreated", { id: data.DisplayID ?? data.ID });
             }
           })
-          .catch((err) => {
-            toast.error("tasks.addFailedShort", { error: err.message });
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error("tasks.addFailedShort", { error: msg });
           });
       }
     },
@@ -235,7 +262,6 @@ export function useTaskActions({
         return;
       }
 
-      // 非删除操作：并行处理 + 智能过滤
       const selectedTasks = keys
         .map((key) => tasks.find((t) => `${t.TaskType || "video"}-${t.ID}` === key))
         .filter((t): t is DownloadTask => !!t);

@@ -57,7 +57,7 @@ export default function BatchSearchPanel({
             onJobCompleted();
             if (data.status === "completed") {
               toast.success(
-                `批量搜索完成：下载 ${data.totalDownloaded}，未找到 ${data.totalNotFound}，失败 ${data.totalFailed}`,
+                t("batchSearch.complete", { downloaded: data.totalDownloaded, notFound: data.totalNotFound, failed: data.totalFailed }),
               );
             }
           }
@@ -115,7 +115,7 @@ export default function BatchSearchPanel({
       const data: BatchSearchJob = await res.json();
       setActiveJobId(data.id);
       setJob(data);
-      toast.success(`批量搜索已启动，共 ${titles.length} 个标题`);
+      toast.success(t("batchSearch.started", { count: titles.length }));
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err));
       setSubmitting(false);
@@ -143,7 +143,7 @@ export default function BatchSearchPanel({
     }
     navigator.clipboard.writeText(notFoundTitles.join("\n")).then(() => {
       setCopied(true);
-      toast.success(`已复制 ${notFoundTitles.length} 个标题到剪贴板`);
+      toast.success(t("batchSearch.copied", { count: notFoundTitles.length }));
       setTimeout(() => setCopied(false), 2000);
     });
   };
@@ -192,9 +192,7 @@ export default function BatchSearchPanel({
               <label>{t("batchSearch.titleLabel")}</label>
               <textarea
                 className="form-control"
-                placeholder={
-                  "粘贴视频标题，每行一个，例如：\n美丽女仆的秘密生活\n天使的诱惑\n调教日记"
-                }
+                placeholder={t("batchSearch.placeholder")}
                 rows={6}
                 value={titleInput}
                 onChange={(e) => setTitleInput(e.target.value)}
@@ -295,8 +293,7 @@ export default function BatchSearchPanel({
                   marginBottom: 8,
                 }}
               >
-                检测到 {titleCount} 个标题 · 将自动模糊搜索并下载匹配的视频 ·
-                每个标题间隔 3~5 秒防爬虫
+                {t("batchSearch.inputHint", { count: titleCount })}
               </div>
             )}
 
@@ -349,9 +346,7 @@ export default function BatchSearchPanel({
               <label>{t("batchSearch.titleLabel")}</label>
               <textarea
                 className="form-control"
-                placeholder={
-                  "粘贴视频标题，每行一个，例如：\n美丽女仆的秘密生活\n天使的诱惑\n调教日记"
-                }
+                placeholder={t("batchSearch.placeholder")}
                 rows={6}
                 value={titleInput}
                 onChange={(e) => setTitleInput(e.target.value)}
@@ -427,8 +422,7 @@ export default function BatchSearchPanel({
                 marginBottom: 8,
               }}
             >
-              检测到 {titleCount} 个标题 · 将自动模糊搜索并下载匹配的视频 ·
-              每个标题间隔 3~5 秒防爬虫
+              {t("batchSearch.inputHint", { count: titleCount })}
             </div>
           )}
 

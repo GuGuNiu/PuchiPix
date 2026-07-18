@@ -1,25 +1,14 @@
 import { exec, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ensureDir } from '@/lib/utils/file-system';
 
-/** FFmpeg 可执行文件路径，默认从 PATH 中查找 */
 let ffmpegPath = 'ffmpeg';
 
-/**
- * 设置 FFmpeg 可执行文件路径。
- * 在 Windows 上可指定如 "C:\\ffmpeg\\bin\\ffmpeg.exe"。
- *
- * @param p - FFmpeg 可执行文件路径
- */
 export function setFFmpegPath(p: string): void {
   ffmpegPath = p;
 }
 
-/**
- * 检查系统中是否安装了 FFmpeg。
- *
- * @returns true 如果 FFmpeg 可用
- */
 export function checkFFmpeg(): Promise<boolean> {
   return new Promise((resolve) => {
     exec(`"${ffmpegPath}" -version`, (error) => {
@@ -57,21 +46,26 @@ export async function transcodeTS(inputDir: string, outputPath: string): Promise
     .join('\n');
   fs.writeFileSync(concatPath, concatContent, 'utf-8');
 
-  const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
+  ensureDir(path.dirname(outputPath));
 
   const outputResolved = path.resolve(outputPath);
   const concatResolved = path.resolve(concatPath);
 
+  /**
+   * FFmpeg concat 参数说明：
+   * - `-f concat`：使用 concat demuxer
+   * - `-safe 0`：允许绝对路径（默认不允许，会报错）
+   * - `-c copy`：流拷贝（不重新编码，速度最快）
+   * - `-bsf:a aac_adtstoasc`：TS 的 ADTS 头转 MP4 需要
+   * - `-y`：覆盖输出文件
+   */
   const args = [
-    '-f', 'concat',         // 使用 concat demuxer
-    '-safe', '0',           // 允许绝对路径（默认不允许，会报错）
-    '-i', concatResolved,   // 输入文件列表
-    '-c', 'copy',           // 流拷贝（不重新编码，速度最快）
-    '-bsf:a', 'aac_adtstoasc', // 音频比特流过滤器（TS 的 ADTS 头转 MP4 需要）
-    '-y',                   // 覆盖输出文件
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', concatResolved,
+    '-c', 'copy',
+    '-bsf:a', 'aac_adtstoasc',
+    '-y',
     outputResolved,
   ];
 
@@ -104,7 +98,7 @@ export async function transcodeTS(inputDir: string, outputPath: string): Promise
         fs.unlinkSync(concatPath);
       } catch {
       }
-      reject(new Error(`Failed to spawn FFmpeg: ${err.message}`));
+      reject(new Error(`Failed to spawn FFmpeg: ${err instanceof Error ? err.message : String(err)}`));
     });
   });
 }
@@ -125,7 +119,6 @@ export function probeDuration(filePath: string): Promise<number> {
       { timeout: 15000 },
       (error, stdout, stderr) => {
         const output = stderr || stdout;
-        // 匹配 Duration: HH:MM:SS.xx
         const match = output.match(/Duration:\s*(\d+):(\d+):(\d+)\.(\d+)/);
         if (match) {
           const hours = parseInt(match[1], 10);
@@ -141,15 +134,6 @@ export function probeDuration(filePath: string): Promise<number> {
   });
 }
 
-/**
- * 探测视频文件的分辨率。
- *
- * 从 FFmpeg 输出中匹配 WxH 格式的分辨率字符串。
- * 格式: 1280x720
- *
- * @param filePath - 视频文件路径
- * @returns 分辨率字符串（如 "1280x720"），解析失败返回空字符串
- */
 export function probeResolution(filePath: string): Promise<string> {
   return new Promise((resolve) => {
     exec(
@@ -157,7 +141,6 @@ export function probeResolution(filePath: string): Promise<string> {
       { timeout: 15000 },
       (error, stdout, stderr) => {
         const output = stderr || stdout;
-        // 匹配 WxH 格式的分辨率（宽和高均为 2~4 位数字）
         const match = output.match(/(\d{2,4}x\d{2,4})/);
         if (match) {
           resolve(match[1]);

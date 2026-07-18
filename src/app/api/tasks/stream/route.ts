@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { eventBus } from '@/lib/core/event-bus';
+import { eventBus } from '@/lib/core/infra/event-bus';
 import { mapTask } from '@/lib/api-helpers';
 import type { DownloadTask, TaskStatus } from '@/types';
 

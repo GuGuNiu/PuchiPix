@@ -1,7 +1,8 @@
-import prisma from '@/lib/db/prisma';
-import { eventBus } from '@/lib/core/event-bus';
-import { allocateSeq } from '@/lib/core/seq-allocator';
-import { taskQueueManager } from '@/lib/core/task-queue-manager';
+﻿import prisma from '@/lib/db/prisma';
+import { eventBus } from '@/lib/core/infra/event-bus';
+import { allocateSeq } from '@/lib/core/orchestrator/seq-allocator';
+import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { logT } from '@/lib/i18n/server';
 import { getDownloadManager, mapTask } from '@/lib/api-helpers';
 import type { ScrapeResult } from '@/types';
 
@@ -14,17 +15,13 @@ export interface CreateTaskParams {
 }
 
 /**
- * 从抓取结果创建下载任务并启动下载
+ * 浠庢姄鍙栫粨鏋滃垱寤轰笅杞戒换鍔″苟鍚姩涓嬭浇
  *
- * 该函数封装了以下重复逻辑：
- * 1. 分配序号 (seq)
- * 2. 创建 prisma.downloadTask 记录（含 videoInfo）
- * 3. 发出 task:created 事件
- * 4. 通过 taskQueueManager 获取下载槽位并启动下载
+ * 灏佽搴忓彿鍒嗛厤銆乸risma 璁板綍鍒涘缓銆佷簨浠跺彂鍑哄拰涓嬭浇妲戒綅鑾峰彇鐨勯噸澶嶉€昏緫銆?
  *
- * @returns 创建的任务 ID
+ * @returns 鍒涘缓鐨勪换鍔?ID
  */
-export async function createDownloadTaskFromScrape(params: CreateTaskParams): Promise<number> {
+export async function createTaskFromScrape(params: CreateTaskParams): Promise<number> {
   const { pageUrl, scrapeResult, fallbackTitle, source, onLog } = params;
 
   const seq = await allocateSeq();
@@ -51,7 +48,7 @@ export async function createDownloadTaskFromScrape(params: CreateTaskParams): Pr
 
   const taskId = task.id;
   const displayTitle = scrapeResult.title || fallbackTitle;
-  onLog?.(`✅ 创建下载任务 #${taskId}: ${displayTitle}`);
+  onLog?.(`鉁?鍒涘缓涓嬭浇浠诲姟 #${taskId}: ${displayTitle}`);
 
   eventBus.emit('task:created', {
     taskId,
@@ -59,12 +56,11 @@ export async function createDownloadTaskFromScrape(params: CreateTaskParams): Pr
     source,
   });
 
-  // 启动下载
   const dm = getDownloadManager();
   const dlTask = mapTask(task);
   taskQueueManager.acquireSlot('video', taskId).then(async (acquired) => {
     if (!acquired) {
-      onLog?.(`下载任务 #${taskId} 已排队等待空闲槽位`, 'warn');
+      onLog?.(`涓嬭浇浠诲姟 #${taskId} 宸叉帓闃熺瓑寰呯┖闂叉Ы浣峘, 'warn');
       return;
     }
     const currentTask = await prisma.downloadTask.findUnique({ where: { id: taskId } });
@@ -72,9 +68,10 @@ export async function createDownloadTaskFromScrape(params: CreateTaskParams): Pr
       taskQueueManager.releaseSlot('video', taskId);
       return;
     }
-    dm.startDownload(dlTask).catch((err) => {
-      onLog?.(`下载任务 #${taskId} 启动失败: ${err.message}`, 'error');
-      eventBus.emit('task:failed', { taskId, error: err.message });
+      dm.startDownload(dlTask).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        onLog?.(logT('log.taskCreator.downloadStartFailed', { taskId, msg }), 'error');
+      eventBus.emit('task:failed', { taskId, error: msg });
     });
   });
 

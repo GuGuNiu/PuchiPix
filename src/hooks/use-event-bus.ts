@@ -6,7 +6,7 @@ import { useSocketStore } from '@/store/socket-store';
 export interface UseEventBusReturn<T = unknown> {
   /** 最近一条事件载荷 */
   lastEvent: T | null;
-  /** 事件计数（用于触发依赖更新） */
+  /** 事件计数 */
   count: number;
 }
 
@@ -16,7 +16,7 @@ export interface UseEventBusReturn<T = unknown> {
  * 自动在组件挂载时订阅 Socket.IO 事件，
  * 卸载时自动取消订阅。
  *
- * @param eventName - 事件名称（如 'task:progress'）
+ * @param eventName - 事件名称
  * @returns 最近事件数据
  */
 export function useEventBus<T = unknown>(eventName: string): UseEventBusReturn<T> {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getOuoOrchestrator } from '@/lib/core/ouo-orchestrator';
+import { getOuoOrchestrator } from '@/lib/core/orchestrator/ouo-orchestrator';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

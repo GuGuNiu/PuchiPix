@@ -42,11 +42,9 @@ export class BWikiCrawler {
   async crawlGame(game: GameIndexEntry): Promise<GameCharacterFile> {
     console.log(`[BWikiCrawler] 开始爬取: ${game.name}`);
 
-    // 1. 获取角色列表
     const characterNames = await this.fetchCharacterList(game);
     console.log(`[BWikiCrawler] ${game.name} 发现 ${characterNames.length} 个角色`);
 
-    // 2. 逐个获取角色详情
     const characters: CharacterEntry[] = [];
     for (const name of characterNames) {
       try {
@@ -146,7 +144,6 @@ export class BWikiCrawler {
         });
     }
 
-    // 去重并过滤
     return [...new Set(names)].filter(name => this.isValidCharacterName(name));
   }
 
@@ -241,7 +238,6 @@ export class BWikiCrawler {
       };
     } catch (err) {
       console.warn(`[BWikiCrawler] 获取角色详情失败: ${name}`, err);
-      // 返回基础信息
       return {
         id: `${game.id}-${name}`,
         name,
@@ -278,7 +274,6 @@ export class BWikiCrawler {
    * 验证角色名是否有效
    */
   private isValidCharacterName(name: string): boolean {
-    // 过滤掉明显的非角色名
     const invalidPatterns = [
       /^第[一二三四五六七八九十\d]+章/,
       /^攻略/,

@@ -110,7 +110,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             }
             return { tasks: filtered, loading: false };
           });
-        } catch {
+        } catch (err) {
+          console.warn('[TaskStore] SSE initial parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -128,7 +129,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             }
             return { tasks: [task, ...s.tasks] };
           });
-        } catch {
+        } catch (err) {
+          console.warn('[TaskStore] SSE upsert parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -145,7 +147,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
               taskKey(t) === key ? { ...t, ...changes } : t,
             ),
           }));
-        } catch {
+        } catch (err) {
+          console.warn('[TaskStore] SSE patch parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -160,7 +163,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           set((s) => ({
             tasks: s.tasks.filter((t) => taskKey(t) !== key),
           }));
-        } catch {
+        } catch (err) {
+          console.warn('[TaskStore] SSE delete parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -171,7 +175,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             sniffTaskEventId: s.sniffTaskEventId + 1,
             lastSniffTaskEvent: data,
           }));
-        } catch {
+        } catch (err) {
+          console.warn('[TaskStore] SSE sniffTask parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -198,7 +203,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
                 break;
             }
           });
-        } catch {
+        } catch (err) {
+          console.warn('[TaskStore] SSE notification parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
     };

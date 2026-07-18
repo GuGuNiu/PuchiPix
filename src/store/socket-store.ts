@@ -61,7 +61,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
     });
 
     socket.on('reconnect_error', (err) => {
-      console.error('[Socket] Reconnect error:', err.message);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Socket] Reconnect error:', msg);
       set({ reconnecting: true });
     });
 
@@ -71,7 +72,8 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
     });
 
     socket.on('connect_error', (err) => {
-      console.error('[Socket] Connect error:', err.message);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Socket] Connect error:', msg);
       set({ connected: false });
     });
 

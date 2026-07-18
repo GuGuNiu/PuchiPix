@@ -56,6 +56,8 @@ const jaJP: TranslationDict = {
   "tasks.progressStageProbing": "探索中",
   "tasks.progressStageTranscoding": "トランスコード中",
   "tasks.progressStageMerging": "結合中",
+"tasks.progressStageScrapePending": "識別待ち",
+"tasks.progressStageDownloadPending": "ダウンロード待ち",
   "tasks.actionStart": "開始",
   "tasks.actionPause": "一時停止",
   "tasks.actionResume": "再開",
@@ -155,7 +157,7 @@ const jaJP: TranslationDict = {
   "tasks.statInput": "入力",
   "tasks.statLines": "行",
   "tasks.statDetected": "識別済み",
-  "tasks.statItems": "件",
+  "tasks.statItems": "件", "tasks.firstPage": "最初のページ", "tasks.prevPage": "前のページ", "tasks.nextPage": "次のページ", "tasks.lastPage": "最後のページ", "tasks.recordCount": "{count} 件", "tasks.jumpToPage": "ページへ移動", "tasks.jumpToPagePlaceholder": "ページ番号",
 };
 
 export default jaJP;

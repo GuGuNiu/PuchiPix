@@ -152,7 +152,7 @@ export default function TaskSettingsPanel({
             }}
           >
             <Settings size={18} style={{ color: "var(--accent)" }} />
-            任务设置
+            {t("taskSettings.title")}
           </h2>
           <button
             className="btn-close"
@@ -228,7 +228,7 @@ export default function TaskSettingsPanel({
                 <SettingCard
                   icon={Radar}
                   iconColor="#6366f1"
-                  label={`嗅探最大${t("taskSettings.maxConcurrentTasks")}`}
+                  label={t("taskSettings.sniffMaxConcurrentTasks")}
                   description={t("taskSettings.maxSniffTasksDesc")}
                 >
                   <NumberStepper

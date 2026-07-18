@@ -1,16 +1,24 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma";
-import { setServerLocaleFromHeaders } from "@/lib/i18n/server";
+import { setLocaleFromHeaders } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category") || undefined;
+    const key = searchParams.get("key") || undefined;
+
+    if (key) {
+      const pref = await prisma.userPreference.findUnique({ where: { key } });
+      const result: Record<string, string> = {};
+      if (pref) result[pref.key] = pref.value;
+      return NextResponse.json(result);
+    }
 
     const where = category ? { category } : {};
     const prefs = await prisma.userPreference.findMany({ where });
@@ -28,7 +36,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const body: Record<string, { value: string; category?: string }> = await request.json();
     const operations = [];
@@ -53,7 +61,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get("key");

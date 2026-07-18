@@ -3,6 +3,7 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "@/lib/i18n/toast";
+import { useI18n } from "@/lib/i18n";
 import { FilePlus } from "lucide-react";
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function CreateTaskDialog({ onClose, onCreated }: Props): React.JSX.Element {
+  const { t } = useI18n();
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState("mp4");
   const [autoStart, setAutoStart] = useState(true);
@@ -27,7 +29,7 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
   const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     if (!url.trim()) {
-      toast.error("请填写链接");
+      toast.error(t("createTask.pleaseFillLink"));
       return;
     }
     setSubmitting(true);
@@ -39,20 +41,24 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
       });
 
       if (res.status === 409) {
-        // 重复记录：解析响应并提示用户
         const data = await res.json();
         const matchTypeText: Record<string, string> = {
-          exact: '精确匹配',
-          mirror: '镜像域名匹配',
-          path: '路径匹配',
+          exact: t("createTask.exactMatch"),
+          mirror: t("createTask.mirrorMatch"),
+          path: t("createTask.pathMatch"),
         };
-        const matchLabel = matchTypeText[data.matchType] || '匹配';
-        const idLabel = data.type === 'gallery' ? `图库 #${data.galleryId}` : `任务 #${data.taskId}`;
+        const matchLabel = matchTypeText[data.matchType] || t("createTask.matchFallback");
+        const idLabel = data.type === 'gallery'
+          ? t("createTask.galleryLabel", { id: data.galleryId })
+          : t("createTask.taskLabel", { id: data.taskId });
 
         toast.warning(
-          `⚠️ 数据库已存在此记录（${matchLabel}）\n` +
-          `${idLabel}，状态: ${data.existingStatus || '未知'}\n` +
-          `${data.existingUrl ? `已有 URL: ${data.existingUrl}` : ''}`,
+          t("createTask.duplicateRecord", {
+            matchLabel,
+            idLabel,
+            status: data.existingStatus || t("createTask.unknownStatus"),
+            urlInfo: data.existingUrl ? t("createTask.existingUrl", { url: data.existingUrl }) : '',
+          }),
           { duration: 8000 },
         );
         return;
@@ -60,9 +66,9 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || "创建任务失败");
+        throw new Error(text || t("createTask.createFailed"));
       }
-      toast.success("任务已创建");
+      toast.success(t("createTask.created"));
       onCreated();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -78,13 +84,13 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
         <div className="modal-header">
           <h2>
             <FilePlus size={18} style={{ marginRight: 8, verticalAlign: "-2px" }} />
-            创建下载任务
+            {t("createTask.title")}
           </h2>
           <button
             type="button"
             className="btn-close"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t("createTask.close")}
           >
             ×
           </button>
@@ -92,7 +98,7 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             <div className="form-group">
-              <label>视频链接</label>
+              <label>{t("createTask.videoLinkLabel")}</label>
               <input
                 className="form-control"
                 type="url"
@@ -111,11 +117,11 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
                   lineHeight: "16px",
                 }}
               >
-                支持 M3U8 直链或包含视频的网页地址
+                {t("createTask.linkHint")}
               </p>
             </div>
             <div className="form-group">
-              <label>输出格式</label>
+              <label>{t("createTask.outputFormatLabel")}</label>
               <div className="format-pills">
                 <button
                   type="button"
@@ -155,7 +161,7 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
                     lineHeight: "20px",
                   }}
                 >
-                  创建后自动开始下载
+                  {t("createTask.autoStart")}
                 </div>
                 <div
                   style={{
@@ -165,7 +171,7 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
                     lineHeight: "16px",
                   }}
                 >
-                  关闭后会进入等待中状态，可在任务列表中手动启动
+                  {t("createTask.autoStartHint")}
                 </div>
               </div>
               <label className="toggle">
@@ -185,14 +191,14 @@ export default function CreateTaskDialog({ onClose, onCreated }: Props): React.J
               onClick={onClose}
               disabled={submitting}
             >
-              取消
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
               className="btn btn-primary"
               disabled={submitting}
             >
-              {submitting ? "创建中..." : "创建任务"}
+              {submitting ? t("createTask.creating") : t("createTask.createTask")}
             </button>
           </div>
         </form>

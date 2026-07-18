@@ -90,6 +90,7 @@ function ImageCell({
   images: ImageItem[];
   columnCount: number;
 } & { ariaAttributes: { "aria-colindex": number; role: "gridcell" } }): React.JSX.Element | null {
+  const { t } = useI18n();
   const index = rowIndex * columnCount + columnIndex;
   const img = images[index];
   if (!img) return null;
@@ -112,7 +113,7 @@ function ImageCell({
           background: "var(--bg-inset)",
           border: "1px solid var(--border)",
         }}
-        title={`第${img.PageIndex + 1}页 #${img.OrderIndex + 1}`}
+        title={t("gallery.imagePage", { page: img.PageIndex + 1, order: img.OrderIndex + 1 })}
       >
         <img
           src={img.LocalPath ? `/api/proxy?path=${encodeURIComponent(img.LocalPath)}` : img.URL}
@@ -121,7 +122,7 @@ function ImageCell({
           loading="lazy"
           decoding="async"
           onError={(e) => {
-            (e.target as HTMLImageElement).style.opacity = "0.2";
+            e.currentTarget.style.opacity = "0.2";
           }}
         />
         <span
