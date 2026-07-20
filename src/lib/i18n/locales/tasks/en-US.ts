@@ -12,6 +12,7 @@ const enUS: TranslationDict = {
   "tasks.sortProgressAsc": "Progress ↑",
   "tasks.sortStatus": "By Status",
   "tasks.searchPlaceholder": "Search title, URL, or character...",
+  "tasks.search": "Search...",
   "tasks.pleaseSelectTasks": "Please select tasks first",
   "tasks.confirmBatchDelete": "Confirm batch delete {count} tasks?",
   "tasks.batchDeleteComplete": "Batch delete complete: {count} items",

@@ -6,10 +6,11 @@ import React from "react";
 
 import { useI18n } from "./index";
 import zhCN from "./locales/zh-CN";
+import type { TranslationKey } from "./locales/zh-CN";
 
 const baseDict = zhCN;
 
-function isI18nKey(s: unknown): s is string {
+function isI18nKey(s: unknown): s is TranslationKey {
   return typeof s === "string" && s in baseDict;
 }
 
@@ -17,7 +18,7 @@ function ToastMessage({
   k,
   params,
 }: {
-  k: string;
+  k: TranslationKey;
   params?: Record<string, string | number>;
 }): React.JSX.Element {
   const { t } = useI18n();

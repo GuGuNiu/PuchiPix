@@ -1,11 +1,12 @@
-﻿import { getOrCreateGlobal } from '../infra/global-singleton';
-import { slotPool } from './slot-pool';
+import { getOrCreateGlobal } from '../infra/global-singleton';
+import { slotPool } from './slot/pool';
 import { eventStore } from '../infra/event-store';
 import { stateReconciler, type DagNodeForVerification } from './state-reconciler';
-import { taskExecutorRegistry } from './task-executor';
+import { taskExecutorRegistry } from './task/executor';
 import { PriorityFairStrategy } from './scheduling-strategy';
 import type { SchedulingStrategy } from './scheduling-strategy';
 import { eventBus } from '../infra/event-bus';
+import { createLogger } from '../infra/logger';
 import {
   NodeState,
   TaskPriority,
@@ -14,100 +15,83 @@ import {
   type NodeProgress,
   type NodeExecutionResult,
 } from '@/types/dag';
-import type { TaskStateMachine } from './task-state-machine';
-
-/**
- * DagOrchestrator 鐨勬渶灏忔帴鍙ｇ害鏉?
- * 閬垮厤寰幆渚濊禆锛岄€氳繃鎺ュ彛娉ㄥ叆
- */
 export interface IDagOrchestrator {
   transitionNode(
+    dagId: string,
     nodeId: string,
     toState: NodeState,
     context: { reason: string; triggeredBy: 'system' | 'user' | 'scheduler' | 'executor'; error?: unknown },
   ): Promise<void>;
-  onNodeCompleted(nodeId: string, result: NodeExecutionResult): Promise<void>;
-  getNodeForVerification(nodeId: string): DagNodeForVerification | null;
+  onNodeCompleted(dagId: string, nodeId: string, result: NodeExecutionResult): Promise<void>;
+  getNodeForVerification(dagId: string, nodeId: string): DagNodeForVerification | null;
+  /**
+   * Reactivate READY nodes across all DAGs.
+   * Called by the scheduler scan timer and onSlotFreed to re-submit
+   * nodes that were previously rejected due to a full queue.
+   */
+  reactivateReadyNodes(): Promise<void>;
 }
 
 class SchedulerEngine {
   private strategy: SchedulingStrategy = new PriorityFairStrategy();
   private readyQueue = new Map<string, SchedulableNode>();
   private dagOrchestrator: IDagOrchestrator | null = null;
-  private scheduling = false; // 闃叉閲嶅叆
+  private scheduling = false;
   private scanTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly logger = createLogger('Scheduler');
 
-  /**
-   * 队列容量限制：与 SlotPool 槽位上限保持一致
-   *
-   * 原则：等待队列容量 = 运行槽位上限
-   * 从 SlotPool 动态同步，避免硬编码。
-   * 默认值仅作为 SlotPool 未初始化时的兜底。
-   */
   private readonly maxQueueSizePerSlotType: Record<string, number> = {
-    scraping: 5,   // 默认值，初始化时从 SlotPool 同步
+    scraping: 5,
     download: 5,
     sniff: 1,
   };
 
-  /**
-   * 从 SlotPool 同步队列容量限制
-   *
-   * 在 SlotPool 初始化完成后调用，确保队列容量与槽位上限一致。
-   * 原则：等待队列容量 = 运行槽位上限
-   */
   syncQueueCapacityFromSlotPool(): void {
     const snapshot = slotPool.getSnapshot();
     for (const [slotType, usage] of Object.entries(snapshot)) {
       this.maxQueueSizePerSlotType[slotType] = usage.max;
     }
-    console.log(
-      `[Scheduler] 队列容量已同步: ${Object.entries(this.maxQueueSizePerSlotType)
+    this.logger.info('Queue capacity synced', {
+      capacities: Object.entries(this.maxQueueSizePerSlotType)
         .map(([k, v]) => `${k}=${v}`)
-        .join(', ')}`,
-    );
+        .join(', '),
+    });
   }
 
-  /**
-   * 璁剧疆 DAG 缂栨帓鍣ㄥ紩鐢紙閬垮厤寰幆渚濊禆锛?
-   */
   setDagOrchestrator(orchestrator: IDagOrchestrator): void {
     this.dagOrchestrator = orchestrator;
   }
 
-  /**
-   * 鎻愪氦鑺傜偣鍒拌皟搴﹂槦鍒?
-   *
-   * 鑳屽帇鏈哄埗锛氬綋绛夊緟闃熷垪杈惧埌瀹归噺涓婇檺鏃讹紝鎷掔粷鍏ラ槦銆?
-   * 瀹归噺涓婇檺涓庡搴旀Ы浣嶇被鍨嬩笂闄愪繚鎸佷竴鑷淬€?
-   */
   submit(node: SchedulableNode): boolean {
-    // 妫€鏌ラ槦鍒楀閲忛檺鍒?
     for (const req of node.resourceRequirements) {
       const maxSize = this.maxQueueSizePerSlotType[req.slotType];
       if (maxSize !== undefined) {
-        // 璁＄畻褰撳墠浣跨敤璇ユЫ浣嶇被鍨嬬殑鎺掗槦鑺傜偣鏁?
         const queuedCount = this.getQueuedCountBySlotType(req.slotType);
         if (queuedCount >= maxSize) {
-          console.warn(
-            `[Scheduler] 闃熷垪宸叉弧 (${req.slotType}: ${queuedCount}/${maxSize})锛岃妭鐐?${node.nodeId} 琚嫆缁濆叆闃焋,
-          );
+        this.logger.warn('Queue full, node rejected', {
+          slotType: req.slotType,
+          queued: queuedCount,
+          max: maxSize,
+          nodeId: node.nodeId,
+          dagId: node.dagId,
+        });
           return false;
         }
       }
     }
 
-    this.readyQueue.set(node.nodeId, node);
-    console.log(
-      `[Scheduler] 鑺傜偣 ${node.nodeId} 鍔犲叆闃熷垪 (浼樺厛绾? ${TaskPriority[node.priority]}, 闃熷垪澶у皬: ${this.readyQueue.size})`,
-    );
+    const queueKey = `${node.dagId}:${node.nodeId}`;
+    this.readyQueue.set(queueKey, node);
+    this.logger.info('Node enqueued', {
+      nodeId: node.nodeId,
+      dagId: node.dagId,
+      priority: TaskPriority[node.priority],
+      queueSize: this.readyQueue.size,
+    });
     this.schedule();
     return true;
   }
 
-  /**
-   * 鑾峰彇鎸囧畾妲戒綅绫诲瀷鐨勬帓闃熻妭鐐规暟
-   */
   private getQueuedCountBySlotType(slotType: string): number {
     let count = 0;
     for (const node of this.readyQueue.values()) {
@@ -118,12 +102,6 @@ class SchedulerEngine {
     return count;
   }
 
-  /**
-   * 鎵ц璋冨害
-   *
-   * 浠庡氨缁槦鍒椾腑閫夋嫨鑺傜偣锛屽垎閰嶈祫婧愶紝椹卞姩鎵ц銆?
-   * 浣跨敤 scheduling 鏍囧織浣嶉槻姝㈤噸鍏ャ€?
-   */
   async schedule(): Promise<void> {
     if (this.scheduling) return;
     this.scheduling = true;
@@ -135,21 +113,29 @@ class SchedulerEngine {
         const readyNodes = Array.from(this.readyQueue.values());
 
         const selected = this.strategy.selectNext(readyNodes, snapshot);
-        if (!selected) break; // 鏃犲彲璋冨害鑺傜偣
+        if (!selected) break;
 
+        const holderId = `${selected.dagId}:${selected.nodeId}`;
         const acquired = slotPool.acquireBatch(
           selected.resourceRequirements,
-          selected.nodeId,
+          holderId,
         );
 
         if (!acquired) {
-          break;
+          continue;
         }
 
-        this.readyQueue.delete(selected.nodeId);
+        eventBus.emit('dag:resourceAllocated', {
+          dagId: selected.dagId,
+          nodeId: selected.nodeId,
+          resources: selected.resourceRequirements,
+        });
+
+        this.readyQueue.delete(`${selected.dagId}:${selected.nodeId}`);
 
         if (this.dagOrchestrator) {
           await this.dagOrchestrator.transitionNode(
+            selected.dagId,
             selected.nodeId,
             NodeState.ALLOCATED,
             { reason: 'resources allocated', triggeredBy: 'scheduler' },
@@ -175,14 +161,16 @@ class SchedulerEngine {
       this.scheduling = false;
     }
   }
+
   private async executeNode(node: SchedulableNode): Promise<void> {
     const executor = taskExecutorRegistry.get(node.executorKey) ||
       taskExecutorRegistry.getByPhase(node.phase, node.taskType);
 
     if (!executor) {
-      console.error(`[Scheduler] 鎵句笉鍒版墽琛屽櫒: ${node.executorKey}`);
+      this.logger.error('Executor not found', { executorKey: node.executorKey, nodeId: node.nodeId, dagId: node.dagId });
       if (this.dagOrchestrator) {
         await this.dagOrchestrator.transitionNode(
+          node.dagId,
           node.nodeId,
           NodeState.FAILED,
           {
@@ -190,69 +178,144 @@ class SchedulerEngine {
             triggeredBy: 'scheduler',
             error: {
               code: 'EXECUTOR_NOT_FOUND',
-              message: `鎵ц鍣ㄦ湭娉ㄥ唽: ${node.executorKey}`,
+              message: `Executor not found: ${node.executorKey}`,
               retryable: false,
             },
           },
         );
       }
-      slotPool.releaseAll(node.nodeId);
+      slotPool.releaseAll(`${node.dagId}:${node.nodeId}`);
       this.schedule();
       return;
     }
 
     try {
-      // 鐘舵€佽浆鎹細ALLOCATED 鈫?RUNNING
       if (this.dagOrchestrator) {
         await this.dagOrchestrator.transitionNode(
+          node.dagId,
           node.nodeId,
           NodeState.RUNNING,
           { reason: 'execution started', triggeredBy: 'scheduler' },
         );
       }
 
-      console.log(`[Scheduler] 鎵ц鑺傜偣 ${node.nodeId} (executor: ${executor.key})`);
+      this.logger.info('Node execution started', { nodeId: node.nodeId, executor: executor.key });
 
       const result = await executor.execute(node, {
         onProgress: (progress: NodeProgress) => {
-          this.onNodeProgress(node.nodeId, progress);
+          this.onNodeProgress(node.dagId, node.nodeId, progress);
         },
         onCancel: () => {
-          this.onNodeCancel(node.nodeId);
+          this.onNodeCancel(node.dagId, node.nodeId);
         },
       });
 
-      // 鐘舵€佽浆鎹細RUNNING 鈫?VERIFYING
+      // Check if node was paused during execution
+      const pausedCheck = this.dagOrchestrator?.getNodeForVerification(node.dagId, node.nodeId);
+      if (pausedCheck && pausedCheck.state === NodeState.PAUSED) {
+        this.logger.info('Node paused during execution, skipping state transition', { nodeId: node.nodeId, dagId: node.dagId });
+        slotPool.releaseAll(`${node.dagId}:${node.nodeId}`);
+        this.schedule();
+        return;
+      }
+
+      /*
+       * If execution failed with a non-retryable error, skip verification and
+       * transition directly to FAILED.  This prevents the verification loop from
+       * re-executing an executor that will always return the same non-retryable
+       * error (e.g., GALLERY_NOT_FOUND when the gallery status is 'completed').
+       */
+      if (!result.success && result.error && !result.error.retryable) {
+        this.logger.info('Execution failed (non-retryable), skipping verification', {
+          nodeId: node.nodeId,
+          dagId: node.dagId,
+          code: result.error.code,
+        });
+        if (this.dagOrchestrator) {
+          await this.dagOrchestrator.transitionNode(
+            node.dagId,
+            node.nodeId,
+            NodeState.FAILED,
+            {
+              reason: result.error.message,
+              triggeredBy: 'executor',
+              error: result.error,
+            },
+          );
+        }
+        slotPool.releaseAll(`${node.dagId}:${node.nodeId}`);
+        this.schedule();
+        if (this.dagOrchestrator) {
+          await this.dagOrchestrator.onNodeCompleted(node.dagId, node.nodeId, result);
+        }
+        return;
+      }
+
       if (this.dagOrchestrator) {
         await this.dagOrchestrator.transitionNode(
+          node.dagId,
           node.nodeId,
           NodeState.VERIFYING,
           { reason: 'execution completed, verifying', triggeredBy: 'executor' },
         );
       }
 
-      // 鏍￠獙浜у嚭鐗?
-      const verifyNode = this.dagOrchestrator?.getNodeForVerification(node.nodeId);
-      if (verifyNode) {
-        const verification = await stateReconciler.verifyNode(verifyNode);
+      const verifyNode = this.dagOrchestrator?.getNodeForVerification(node.dagId, node.nodeId);
+      if (verifyNode && verifyNode.state === NodeState.VERIFYING) {
+        /*
+         * Support needs_retry: re-execute the node when verification detects
+         * missing data (e.g., scrape was interrupted before saving to DB).
+         */
+        const MAX_VERIFY_RETRIES = 3;
+        let verifyRetries = 0;
+        let verification = await stateReconciler.verifyNode(verifyNode);
+
+        while (verification.status === 'needs_retry' && verifyRetries < MAX_VERIFY_RETRIES) {
+          verifyRetries++;
+          this.logger.info('Verification needs retry, re-executing node', {
+            nodeId: node.nodeId,
+            dagId: node.dagId,
+            attempt: `${verifyRetries}/${MAX_VERIFY_RETRIES}`,
+            reason: verification.reason,
+          });
+
+          // Re-execute the executor (node stays in VERIFYING state)
+          await executor.execute(node, {
+            onProgress: (progress: NodeProgress) => {
+              this.onNodeProgress(node.dagId, node.nodeId, progress);
+            },
+            onCancel: () => {
+              this.onNodeCancel(node.dagId, node.nodeId);
+            },
+          });
+
+          // Re-verify
+          const reverifyNode = this.dagOrchestrator?.getNodeForVerification(node.dagId, node.nodeId);
+          if (reverifyNode && reverifyNode.state === NodeState.VERIFYING) {
+            verification = await stateReconciler.verifyNode(reverifyNode);
+          } else {
+            break;
+          }
+        }
 
         if (verification.status === 'passed') {
-          // 鏍￠獙閫氳繃 鈫?COMPLETED
           if (this.dagOrchestrator) {
             await this.dagOrchestrator.transitionNode(
+              node.dagId,
               node.nodeId,
               NodeState.COMPLETED,
               { reason: `verification passed (${verification.reason})`, triggeredBy: 'system' },
             );
           }
         } else {
-          // 鏍￠獙澶辫触 鈫?FAILED
           if (this.dagOrchestrator) {
             await this.dagOrchestrator.transitionNode(
+              node.dagId,
               node.nodeId,
               NodeState.FAILED,
               {
-                reason: `verification failed: ${verification.reason}`,
+                reason: `verification failed: ${verification.reason}` +
+                  (verifyRetries > 0 ? ` (after ${verifyRetries} retries)` : ''),
                 triggeredBy: 'system',
                 error: {
                   code: 'VERIFICATION_FAILED',
@@ -263,35 +326,48 @@ class SchedulerEngine {
             );
           }
         }
-      } else {
-        // 鏃犻渶鏍￠獙锛岀洿鎺ュ畬鎴?
-        if (this.dagOrchestrator) {
-          await this.dagOrchestrator.transitionNode(
-            node.nodeId,
-            NodeState.COMPLETED,
-            { reason: 'execution completed', triggeredBy: 'executor' },
-          );
-        }
+      } else if (verifyNode && verifyNode.state === NodeState.COMPLETED) {
+        this.logger.info('Node skipped verification via transitionPolicy guard', { nodeId: node.nodeId, dagId: node.dagId });
+      } else if (this.dagOrchestrator) {
+        await this.dagOrchestrator.transitionNode(
+          node.dagId,
+          node.nodeId,
+          NodeState.COMPLETED,
+          { reason: 'execution completed', triggeredBy: 'executor' },
+        );
       }
 
-      // 閲婃斁璧勬簮
-      slotPool.releaseAll(node.nodeId);
+      const releasedSlotTypes = node.resourceRequirements.map((r) => r.slotType);
+      eventBus.emit('dag:resourceReleased', {
+        dagId: node.dagId,
+        nodeId: node.nodeId,
+        resources: releasedSlotTypes,
+      });
 
-      // 瑙﹀彂鍚庣画璋冨害
+      slotPool.releaseAll(`${node.dagId}:${node.nodeId}`);
+
       this.schedule();
 
-      // 閫氱煡 DAG 缂栨帓鍣ㄦ鏌ュ悗缁妭鐐?
       if (this.dagOrchestrator) {
-        await this.dagOrchestrator.onNodeCompleted(node.nodeId, result);
+        await this.dagOrchestrator.onNodeCompleted(node.dagId, node.nodeId, result);
       }
     } catch (err) {
-      console.error(`[Scheduler] 鑺傜偣 ${node.nodeId} 鎵ц寮傚父:`, err);
+      this.logger.error('Node execution failed', { nodeId: node.nodeId, dagId: node.dagId, error: err });
+
+      // Check if node was paused during execution
+      const pausedCheck = this.dagOrchestrator?.getNodeForVerification(node.dagId, node.nodeId);
+      if (pausedCheck && pausedCheck.state === NodeState.PAUSED) {
+        this.logger.info('Node paused during failed execution, skipping FAILED transition', { nodeId: node.nodeId, dagId: node.dagId });
+        slotPool.releaseAll(`${node.dagId}:${node.nodeId}`);
+        this.schedule();
+        return;
+      }
 
       const errMsg = err instanceof Error ? err.message : String(err);
 
-      // 鎵ц寮傚父 鈫?FAILED
       if (this.dagOrchestrator) {
         await this.dagOrchestrator.transitionNode(
+          node.dagId,
           node.nodeId,
           NodeState.FAILED,
           {
@@ -306,43 +382,58 @@ class SchedulerEngine {
         );
       }
 
-      // 閲婃斁璧勬簮
-      slotPool.releaseAll(node.nodeId);
+      slotPool.releaseAll(`${node.dagId}:${node.nodeId}`);
 
-      // 瑙﹀彂閲嶆柊璋冨害
       this.schedule();
     }
   }
 
-  /**
-   * 妲戒綅閲婃斁鏃剁殑鍥炶皟
-   */
-  onSlotFreed(_slotType: string): void {
-    console.log(`[Scheduler] 妲戒綅 ${_slotType} 閲婃斁锛岃Е鍙戦噸鏂拌皟搴);
+  onSlotFreed(slotType: string): void {
+    this.logger.debug('Slot freed', { slotType });
     this.schedule();
+    // Re-activate READY nodes that were previously rejected due to full queue
+    void this.dagOrchestrator?.reactivateReadyNodes();
   }
 
-  /**
-   * 璁剧疆璋冨害绛栫暐
-   */
   setStrategy(strategy: SchedulingStrategy): void {
     this.strategy = strategy;
-    console.log(`[Scheduler] 璋冨害绛栫暐鍒囨崲涓? ${strategy.name}`);
+    this.logger.info('Strategy switched', { strategy: strategy.name });
     this.schedule();
   }
 
   /**
-   * 鍙栨秷鑺傜偣璋冨害
+   * Check if a node is currently in the scheduler's ready queue.
+   * Used by the orchestrator to detect orphaned QUEUED nodes
+   * (nodes in QUEUED state but not actually in the scheduler queue).
    */
-  cancelNode(nodeId: string): void {
-    this.readyQueue.delete(nodeId);
-    slotPool.releaseAll(nodeId);
-    console.log(`[Scheduler] 鑺傜偣 ${nodeId} 宸插彇娑堣皟搴);
+  hasNode(dagId: string, nodeId: string): boolean {
+    return this.readyQueue.has(`${dagId}:${nodeId}`);
   }
 
   /**
-   * 鑾峰彇闃熷垪缁熻
+   * Get all node IDs currently in the ready queue.
+   * Used for diagnostics and orphan detection.
    */
+  getQueuedNodeIds(): Array<{ dagId: string; nodeId: string }> {
+    return Array.from(this.readyQueue.values()).map((n) => ({
+      dagId: n.dagId,
+      nodeId: n.nodeId,
+    }));
+  }
+
+  cancelNode(dagId: string, nodeId: string): void {
+    const holderId = `${dagId}:${nodeId}`;
+    this.readyQueue.delete(holderId);
+    // Also scan for any entries where nodeId matches (backward compat)
+    for (const [key, node] of this.readyQueue) {
+      if (node.nodeId === nodeId && node.dagId === dagId) {
+        this.readyQueue.delete(key);
+      }
+    }
+    slotPool.releaseAll(holderId);
+    this.logger.info('Node cancelled', { dagId, nodeId });
+  }
+
   getQueueStats(): SchedulerStats {
     const nodes = Array.from(this.readyQueue.values());
     return {
@@ -353,41 +444,41 @@ class SchedulerEngine {
     };
   }
 
-  /**
-   * 鍚姩瀹氭椂鎵弿锛堥槻姝㈣皟搴﹂仐婕忥級
-   */
   startScanTimer(intervalMs: number = 1000): void {
     if (this.scanTimer) return;
     this.scanTimer = setInterval(() => {
       if (this.readyQueue.size > 0) {
         this.schedule();
       }
+      // Re-activate READY nodes that were rolled back due to full queue
+      void this.dagOrchestrator?.reactivateReadyNodes();
     }, intervalMs);
-    console.log(`[Scheduler] 瀹氭椂鎵弿鍚姩: 姣?${intervalMs}ms`);
+    this.logger.info('Scan timer started', { intervalMs });
   }
 
-  /**
-   * 鍋滄瀹氭椂鎵弿
-   */
   stopScanTimer(): void {
     if (this.scanTimer) {
       clearInterval(this.scanTimer);
       this.scanTimer = null;
-      console.log('[Scheduler] 瀹氭椂鎵弿宸插仠姝?);
+      this.logger.info('Scan timer stopped');
     }
   }
 
-  // ===== 绉佹湁鏂规硶 =====
-
-  private onNodeProgress(nodeId: string, progress: NodeProgress): void {
-    eventBus.emit('notification:info', {
-      message: `[DAG] 鑺傜偣 ${nodeId} 杩涘害: ${progress.current}/${progress.total}`,
+  private onNodeProgress(dagId: string, nodeId: string, progress: NodeProgress): void {
+    eventBus.emit('dag:nodeProgress', {
+      dagId,
+      nodeId,
+      phase: progress.phase,
+      current: progress.current,
+      total: progress.total,
+      speed: progress.speed,
+      failed: progress.failed,
     });
   }
 
-  private onNodeCancel(nodeId: string): void {
-    console.log(`[Scheduler] 鑺傜偣 ${nodeId} 琚彇娑坄);
-    this.cancelNode(nodeId);
+  private onNodeCancel(dagId: string, nodeId: string): void {
+    this.logger.info('Node cancelled by executor', { nodeId, dagId });
+    this.cancelNode(dagId, nodeId);
   }
 
   private groupByPriority(nodes: SchedulableNode[]): Record<string, number> {

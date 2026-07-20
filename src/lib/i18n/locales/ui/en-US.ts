@@ -284,7 +284,7 @@ const enUS: TranslationDict = {
   "createTask.matchFallback": "Match",
   "createTask.galleryLabel": "Gallery #{id}",
   "createTask.taskLabel": "Task #{id}",
-  "createTask.duplicateRecord": "⚠️ This record already exists in the database ({matchLabel})\n{idLabel}, status: {status}\n{urlInfo}",
+  "createTask.duplicateRecord": "⚠ This record already exists in the database ({matchLabel})\n{idLabel}, status: {status}\n{urlInfo}",
   "createTask.unknownStatus": "Unknown",
   "createTask.existingUrl": "Existing URL: {url}",
   "createTask.createFailed": "Failed to create task",
@@ -382,6 +382,24 @@ const enUS: TranslationDict = {
   "taskSettings.save": "Save",
   "taskSettings.loadFailed": "Failed to load settings",
   "taskSettings.saveFailed": "Failed to save settings",
+
+  /* ─── Console Log ─── */
+  "console.noTaskLogs": "No task logs",
+  "console.fetchFailed": "Failed to fetch logs",
+
+  /* ─── DAG Node States ─── */
+  "dag.nodeState.pending": "Pending",
+  "dag.nodeState.ready": "Ready",
+  "dag.nodeState.queued": "Queued",
+  "dag.nodeState.allocated": "Allocated",
+  "dag.nodeState.running": "Running",
+  "dag.nodeState.paused": "Paused",
+  "dag.nodeState.verifying": "Verifying",
+  "dag.nodeState.resumeVerify": "Resume Verify",
+  "dag.nodeState.completed": "Completed",
+  "dag.nodeState.failed": "Failed",
+  "dag.nodeState.cancelled": "Cancelled",
+  "dag.nodeState.timeout": "Timeout",
 };
 
 export default enUS;

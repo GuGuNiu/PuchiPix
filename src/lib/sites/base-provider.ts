@@ -1,31 +1,27 @@
-/**
- * 站点提供者抽象基类
- *
- * 定义搜索、爬取、屏蔽检查等通用接口和默认实现，各站点 Provider 继承此类实现站点特定逻辑。
- */
-import type { Page } from 'playwright';
+﻿﻿import type { Page } from 'playwright';
+import { loggers } from '@/lib/core/infra/logger';
 import type { SiteProvider, SiteSearchResult, ExtendedMetadata } from './types';
 import type { ScrapeResult } from '@/types';
 import { logT } from '@/lib/i18n/server';
 
-/** 演员/主演正则匹配模式（中英文），所有站点通用 */
+
+const logger = loggers.baseProvider();
 const ACTOR_PATTERNS = [
-  { pattern: /主演[：:]\s*(.+)/, group: 1 },
-  { pattern: /演员[：:]\s*(.+)/, group: 1 },
-  { pattern: /艺人[：:]\s*(.+)/, group: 1 },
-  { pattern: /出演[：:]\s*(.+)/, group: 1 },
-  { pattern: /女优[：:]\s*(.+)/, group: 1 },
-  { pattern: /男优[：:]\s*(.+)/, group: 1 },
-  { pattern: /主役[：:]\s*(.+)/, group: 1 },
-  { pattern: /监督[：:]\s*(.+)/, group: 1 },
-  { pattern: /Starring[：:]\s*(.+)/i, group: 1 },
-  { pattern: /Actress[：:]\s*(.+)/i, group: 1 },
-  { pattern: /Actor[：:]\s*(.+)/i, group: 1 },
-  { pattern: /Cast[：:]\s*(.+)/i, group: 1 },
-  { pattern: /出演者[：:]\s*(.+)/, group: 1 },
+  { pattern: /主演[:]\s*(.+)/, group: 1 },
+  { pattern: /演员[:]\s*(.+)/, group: 1 },
+  { pattern: /艺人[:]\s*(.+)/, group: 1 },
+  { pattern: /出演[:]\s*(.+)/, group: 1 },
+  { pattern: /女优[:]\s*(.+)/, group: 1 },
+  { pattern: /男优[:]\s*(.+)/, group: 1 },
+  { pattern: /主役[:]\s*(.+)/, group: 1 },
+  { pattern: /监督[:]\s*(.+)/, group: 1 },
+  { pattern: /Starring[:]\s*(.+)/i, group: 1 },
+  { pattern: /Actress[:]\s*(.+)/i, group: 1 },
+  { pattern: /Actor[:]\s*(.+)/i, group: 1 },
+  { pattern: /Cast[:]\s*(.+)/i, group: 1 },
+  { pattern: /出演者[:]\s*(.+)/, group: 1 },
 ];
 
-/** 通用播放按钮选择器（所有站点共用） */
 const DEFAULT_PLAY_BUTTON_SELECTORS = [
   '.play-btn', '.player-play', '.video-play',
   '[onclick*="play"]', '.play-button', '.start-btn',
@@ -33,10 +29,8 @@ const DEFAULT_PLAY_BUTTON_SELECTORS = [
   '[class*="play"]', '[class*="player"]',
 ];
 
-/** 通用 M3U8 排除关键词 */
 const DEFAULT_M3U8_EXCLUDE_PATTERNS = ['ad', 'stat', 'analytics', 'tracker', 'beacon'];
 
-/** 通用搜索结果选择器（MacCMS / 常见 CMS 标准） */
 const DEFAULT_SEARCH_SELECTORS = [
   '.stui-vodlist__item a',
   '.stui-vodlist__box a',
@@ -56,7 +50,6 @@ const DEFAULT_SEARCH_SELECTORS = [
   '.module-item a',
 ];
 
-/** 通用搜索结果列表项中的日期选择器 */
 const DEFAULT_DATE_SELECTORS = [
   '.vodlist_item .text-muted',
   '.stui-vodlist__detail span',
@@ -70,10 +63,8 @@ const DEFAULT_DATE_SELECTORS = [
   '.stui-vodlist__meta span',
 ];
 
-/** 通用标签选择器 */
 const DEFAULT_TAG_SELECTORS = '.category a, .tag a, .tags a, [class*="tag"] a';
 
-/** 通用演员选择器 */
 const DEFAULT_ACTOR_SELECTORS = [
   '.actor a', '.actors a', '.star a', '.stars a',
   '.cast a', '.performer a', '.model a',
@@ -85,9 +76,7 @@ const DEFAULT_ACTOR_SELECTORS = [
 ];
 
 /**
- * 站点提供者抽象基类。
  *
- * 提供所有通用的爬取逻辑实现，子类只需覆写抽象方法和配置属性。
  */
 export abstract class BaseSiteProvider implements SiteProvider {
   abstract readonly id: string;
@@ -95,43 +84,30 @@ export abstract class BaseSiteProvider implements SiteProvider {
   abstract readonly baseUrl: string;
   abstract readonly enabled: boolean;
 
-  /** 搜索结果页 CSS 选择器列表，子类可覆写以添加站点特有选择器 */
   readonly searchResultSelectors: string[] = DEFAULT_SEARCH_SELECTORS;
 
-  /** 播放按钮选择器 */
   readonly playButtonSelectors: string[] = DEFAULT_PLAY_BUTTON_SELECTORS;
 
-  /** M3U8 排除关键词 */
   readonly m3u8ExcludePatterns: string[] = DEFAULT_M3U8_EXCLUDE_PATTERNS;
 
-  /** 标签 DOM 选择器 */
   readonly tagSelectors: string = DEFAULT_TAG_SELECTORS;
 
-  /** 演员 DOM 选择器 */
   readonly actorSelectors: string[] = DEFAULT_ACTOR_SELECTORS;
 
-  /** 搜索结果列表中日期元素的 CSS 选择器 */
   readonly dateSelectors?: string[] = DEFAULT_DATE_SELECTORS;
 
-  /** 构造搜索 URL（站点特有路由） */
   abstract buildSearchUrl(keyword: string): string;
 
-  /** 清洗标题（去除站点前缀/后缀） */
   abstract cleanTitle(rawTitle: string): string;
 
-  /** 判断 URL 是否属于该站点 */
   abstract matchesUrl(url: string): boolean;
 
   /**
-   * 从搜索结果页面提取视频链接列表（含发布日期）。
-   *
-   * 使用 searchResultSelectors 中的 CSS 选择器遍历 DOM，
-   * 过滤出视频详情页链接（包含 /vod/ 路径的链接），
-   * 并通过 dateSelectors 从列表项中提取发布日期。
-   *
-   * @param page - 已导航到搜索页的 Playwright Page
-   * @returns 视频链接数组（url + title + coverUrl + date）
-   */
+ / **
+ / **
+ / * / *  / 
+ / 
+ / */
   async extractSearchResults(page: Page): Promise<SiteSearchResult[]> {
     const selectors = this.searchResultSelectors;
     const dateSels = this.dateSelectors ?? [];
@@ -149,7 +125,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
             const text = el.textContent?.trim() || '';
             const titleAttr = el.getAttribute('title') || '';
 
-            // 只保留视频详情页链接
             if (href && href.includes('/vod') && !seen.has(href)) {
               if (
                 href.includes('/vod/detail/') ||
@@ -191,7 +166,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
                 let date: string | undefined;
                 const container = el.closest('li, div, .item, .module-item, .stui-vodlist__item, .vodlist_item, .searchlist_item');
                 if (container) {
-                  // 尝试从日期选择器匹配的元素中提取
                   for (const dSel of dSels) {
                     const dateEl = container.querySelector(dSel);
                     if (dateEl) {
@@ -204,7 +178,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
                     }
                   }
 
-                  // 兜底：从容器文本中匹配日期模式
                   if (!date) {
                     const containerText = container.textContent || '';
                     const m = containerText.match(dateRegex);
@@ -227,11 +200,10 @@ export abstract class BaseSiteProvider implements SiteProvider {
   }
 
   /**
-   * 从视频页面提取元信息（标题、标签、演员）。
-   *
-   * @param page - 已导航到视频页的 Playwright Page
-   * @returns 包含清洗后标题、标签数组、演员数组的对象
-   */
+ / **
+ / * / *  / 
+ / 
+ / */
   async extractMetadata(page: Page): Promise<{
     title: string;
     tags: string[];
@@ -257,7 +229,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
       return title.trim();
     });
 
-    // 使用站点特定的标题清洗逻辑
     const title = this.cleanTitle(rawTitle);
 
     const tags = await page.evaluate((tagSel: string) => {
@@ -269,7 +240,7 @@ export abstract class BaseSiteProvider implements SiteProvider {
         if (content) {
           tagList.push(
             ...content
-              .split(/[,;，；]/)
+              .split(/[,;]/)
               .map((t) => t.trim())
               .filter((t) => t && !t.includes(' - ') && t.length < 50)
           );
@@ -333,13 +304,12 @@ export abstract class BaseSiteProvider implements SiteProvider {
       return [...new Set(actorList)];
     }, this.actorSelectors);
 
-    // 从页面文本中通过正则匹配演员
     const pageText = await page.evaluate(() => document.body.innerText || '');
     for (const { pattern, group } of ACTOR_PATTERNS) {
       const match = pageText.match(pattern);
       if (match && match[group]) {
         const names = match[group]
-          .split(/[,，、/|&]/)
+          .split(/[,、/|&]/)
           .map((n) => n.trim())
           .filter((n) => n && n.length < 50);
         actors.push(...names);
@@ -354,14 +324,12 @@ export abstract class BaseSiteProvider implements SiteProvider {
   }
 
   /**
-   * 默认的扩展元信息提取实现。
-   *
-   * 基类提供默认实现，委托给 extractMetadata。
-   * 子类可覆写此方法以提供更丰富的元信息提取。
-   *
-   * @param page - 已导航到视频页的 Playwright Page
-   * @returns 扩展元信息对象
-   */
+ / **
+ / **
+ / ** @returns Extended metadata object
+ / * / *  / 
+ / 
+ / */
   async extractExtendedMetadata(page: Page): Promise<ExtendedMetadata> {
     const metadata = await this.extractMetadata(page);
     return {
@@ -373,13 +341,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
     };
   }
 
-  /**
-   * 自动点击播放按钮，触发 M3U8 请求。
-   *
-   * 遍历 playButtonSelectors 中的选择器，点击第一个可见的播放按钮。
-   *
-   * @param page - Playwright Page 实例
-   */
   async clickPlayButton(page: Page): Promise<void> {
     try {
       for (const sel of this.playButtonSelectors) {
@@ -392,17 +353,16 @@ export abstract class BaseSiteProvider implements SiteProvider {
         } catch {
         }
       }
-    // 自动点击是尽力而为
     } catch {
     }
   }
 
   /**
-   * 扫描页面 JS 中内嵌的 M3U8 URL。
-   *
-   * @param page - Playwright Page 实例
-   * @returns 找到的 M3U8 URL 数组
-   */
+ / **
+ / ** @param page - Playwright Page instance
+ / * / *  / 
+ / 
+ / */
   async scanJsForM3U8(page: Page): Promise<string[]> {
     try {
       return page.evaluate(() => {
@@ -469,11 +429,11 @@ export abstract class BaseSiteProvider implements SiteProvider {
   }
 
   /**
-   * 从捕获的 M3U8 URL 列表中选择最佳的一个。
-   *
-   * @param urls - 捕获到的 M3U8 URL 数组
-   * @returns 最佳 M3U8 URL，无匹配则返回空字符串
-   */
+ / **
+ / ** @param urls - Catchto  M3U8 URL Array
+ / * / *  / 
+ / 
+ / */
   selectBestM3U8(urls: string[]): string {
     const unique = [...new Set(urls)];
     if (unique.length === 0) return '';
@@ -490,14 +450,13 @@ export abstract class BaseSiteProvider implements SiteProvider {
   }
 
   /**
-   * 设置 M3U8 网络请求拦截器。
-   *
-   * 拦截所有网络请求，捕获包含 .m3u8 的 URL，
-   * 过滤掉广告/统计相关的 URL。
-   *
-   * @param page - Playwright Page 实例
-   * @param captured - 用于存储捕获结果的数组
-   */
+ / ** Set M3U8 NetworkRequestInterceptor。
+ / **
+ / **
+ / ** @param page - Playwright Page instance
+ / * / *  / 
+ / 
+ / */
   setupM3U8Interceptor(page: Page, captured: string[]): void {
     const excludePatterns = this.m3u8ExcludePatterns;
 
@@ -513,17 +472,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
     });
   }
 
-  /**
-   * 检查内容是否应被屏蔽（标准化接口默认实现）。
-   *
-   * 基类提供默认实现，始终返回 { blocked: false }。
-   * 子类（KanavProvider、AimeiziziProvider）应覆写此方法以实现站点特有的屏蔽规则。
-   *
-   * @param _title - 视频标题
-   * @param _category - 分类字符串
-   * @param _protagonist - 主角名
-   * @returns 屏蔽检查结果（默认不屏蔽）
-   */
   checkContentBlocked(
     _title: string,
     _category: string,
@@ -533,20 +481,18 @@ export abstract class BaseSiteProvider implements SiteProvider {
   }
 
   /**
-   * 执行完整的视频页面爬取流程。
-   *
-   * 流程：
-   - 设置 M3U8 请求拦截器
-   - 等待页面加载
-   - 提取标题、标签、演员
-   - 点击播放按钮触发 M3U8 请求
-   - 扫描 JS 中的内嵌 M3U8 URL
-   - 去重并选择最佳 M3U8 URL
-   *
-   * @param page - 已导航到视频页的 Playwright Page
-   * @param pageUrl - 视频页面 URL
-   * @returns 爬取结果
-   */
+ / **
+ / * - Set M3U8 RequestInterceptor
+ / * - AwaitpageLoad
+ / * - Extract title, tag, cast
+ / * - Click play button to trigger M3U8 request
+ / * - Scan inline M3U8 URLs in JS
+ / * - Deduplicate and select best M3U8 URL
+ / **
+ / ** @returns Scrape result
+ / * / *  / 
+ / 
+ / */
   async scrapePage(page: Page, pageUrl: string): Promise<ScrapeResult> {
     const capturedM3U8: string[] = [];
 
@@ -581,7 +527,6 @@ export abstract class BaseSiteProvider implements SiteProvider {
     const jsM3u8 = await this.scanJsForM3U8(page);
     capturedM3U8.push(...jsM3u8);
 
-    // 跨域 iframe 无法访问
     try {
       const frames = page.frames();
       for (const frame of frames) {
@@ -613,14 +558,13 @@ export abstract class BaseSiteProvider implements SiteProvider {
             return urls;
           });
           capturedM3U8.push(...iframeM3u8);
-        // 跨域 iframe 无法访问
         } catch {
         }
       }
     } catch {
     }
 
-    console.log(logT('log.scrape.capturedM3u8', { url: pageUrl, count: capturedM3U8.length, urls: capturedM3U8.join(', ') }));
+    logger.infoT('log.scrape.capturedM3u8', { url: pageUrl, count: capturedM3U8.length, urls: capturedM3U8.join(', ') });
 
     const m3u8Url = this.selectBestM3U8(capturedM3U8);
 

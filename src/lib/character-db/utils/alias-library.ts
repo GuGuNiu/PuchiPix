@@ -1,41 +1,32 @@
 /**
- * 别名库管理器
+ * Alias Library Manager
  *
- * 管理角色的别名、昵称、常见错误拼写
- * 支持动态添加和更新
+ * Manages character aliases, nicknames, and common misspellings.
+ * Supports dynamic addition and updates.
  */
 
 import type { CharacterEntry } from '../types';
 
 export interface AliasRule {
-  /** 规则ID */
   id: string;
-  /** 目标角色ID */
   targetId: string;
-  /** 别名/变体 */
   aliases: string[];
-  /** 别名类型 */
   type: 'nickname' | 'typo' | 'variant' | 'abbreviation' | 'translation';
-  /** 来源 */
   source?: string;
-  /** 置信度权重 */
   weight: number;
 }
 
 export interface AliasLibraryConfig {
-  /** 是否自动加载内置别名库 */
   loadBuiltIn: boolean;
-  /** 是否启用用户自定义别名 */
   enableCustom: boolean;
-  /** 自定义别名文件路径 */
   customPath?: string;
 }
 
 /**
- * 内置别名库 - 常见错误拼写和昵称
+ * Built-in alias rules - common misspellings and nicknames.
  */
 const BUILT_IN_ALIASES: AliasRule[] = [
-  // 原神 - 常见错误拼写
+  // Genshin Impact
   { id: 'genshin-raiden-1', targetId: 'genshin-raiden', aliases: ['雷电', '雷神', '雷电影', '巴尔', '雷大炮'], type: 'nickname', weight: 0.95 },
   { id: 'genshin-raiden-2', targetId: 'genshin-raiden', aliases: ['leidianjiangjun', 'ldjj', 'raiden'], type: 'typo', weight: 0.85 },
   { id: 'genshin-hutao-1', targetId: 'genshin-hutao', aliases: ['胡桃', '堂主', '胡堂主', '桃桃'], type: 'nickname', weight: 0.95 },
@@ -59,7 +50,7 @@ const BUILT_IN_ALIASES: AliasRule[] = [
   { id: 'genshin-mavuika-1', targetId: 'genshin-mavuika', aliases: ['玛薇卡', '火神', '火神大人'], type: 'nickname', weight: 0.95 },
   { id: 'genshin-mavuika-2', targetId: 'genshin-mavuika', aliases: ['mavuika', 'maweika', '玛薇卡'], type: 'typo', weight: 0.85 },
 
-  // 星穹铁道 - 常见错误拼写
+  // Honkai: Star Rail
   { id: 'starrail-kafka-1', targetId: 'starrail-kafka', aliases: ['卡芙卡', '卡妈', '妈妈'], type: 'nickname', weight: 0.95 },
   { id: 'starrail-kafka-2', targetId: 'starrail-kafka', aliases: ['kafka', 'kafuka', '卡芙卡'], type: 'typo', weight: 0.85 },
   { id: 'starrail-silverwolf-1', targetId: 'starrail-silverwolf', aliases: ['银狼', '骇客', '狼宝'], type: 'nickname', weight: 0.95 },
@@ -79,7 +70,7 @@ const BUILT_IN_ALIASES: AliasRule[] = [
   { id: 'starrail-castorice-1', targetId: 'starrail-castorice', aliases: ['遐蝶', '死龙', '冥河的女儿'], type: 'nickname', weight: 0.95 },
   { id: 'starrail-castorice-2', targetId: 'starrail-castorice', aliases: ['castorice', 'xiadie', '遐蝶'], type: 'typo', weight: 0.85 },
 
-  // 鸣潮 - 常见错误拼写
+  // Wuthering Waves
   { id: 'wuthering-jinhsi-1', targetId: 'wuthering-jinhsi', aliases: ['今汐', '今州令尹', '汐汐'], type: 'nickname', weight: 0.95 },
   { id: 'wuthering-jinhsi-2', targetId: 'wuthering-jinhsi', aliases: ['jinhsi', 'jinxi', '今汐'], type: 'typo', weight: 0.85 },
   { id: 'wuthering-changli-1', targetId: 'wuthering-changli', aliases: ['长离', '师傅', '今汐师傅'], type: 'nickname', weight: 0.95 },
@@ -91,7 +82,7 @@ const BUILT_IN_ALIASES: AliasRule[] = [
   { id: 'wuthering-yinlin-1', targetId: 'wuthering-yinlin', aliases: ['吟霖', '审判者', '吟霖姐'], type: 'nickname', weight: 0.95 },
   { id: 'wuthering-yinlin-2', targetId: 'wuthering-yinlin', aliases: ['yinlin', 'yinlin', '吟霖'], type: 'typo', weight: 0.85 },
 
-  // 碧蓝航线 - 常见错误拼写
+  // Azur Lane
   { id: 'azurlane-enterprise-1', targetId: 'azurlane-enterprise', aliases: ['企业', '大E', '灰色幽灵'], type: 'nickname', weight: 0.95 },
   { id: 'azurlane-enterprise-2', targetId: 'azurlane-enterprise', aliases: ['enterprise', 'qiye', '企业'], type: 'typo', weight: 0.85 },
   { id: 'azurlane-belfast-1', targetId: 'azurlane-belfast', aliases: ['贝尔法斯特', '女仆长', '贝法'], type: 'nickname', weight: 0.95 },
@@ -121,9 +112,6 @@ export class AliasLibrary {
     }
   }
 
-  /**
-   * 加载内置别名规则
-   */
   private loadBuiltInRules(): void {
     for (const rule of BUILT_IN_ALIASES) {
       this.addRule(rule);
@@ -131,22 +119,15 @@ export class AliasLibrary {
     console.log(`[AliasLibrary] 加载内置别名库: ${BUILT_IN_ALIASES.length} 条规则`);
   }
 
-  /**
-   * 添加别名规则
-   */
   addRule(rule: AliasRule): void {
     this.rules.set(rule.id, rule);
 
-    // 构建目标索引
     if (!this.targetIndex.has(rule.targetId)) {
       this.targetIndex.set(rule.targetId, new Set());
     }
     this.targetIndex.get(rule.targetId)!.add(rule.id);
   }
 
-  /**
-   * 移除别名规则
-   */
   removeRule(ruleId: string): boolean {
     const rule = this.rules.get(ruleId);
     if (!rule) return false;
@@ -156,9 +137,6 @@ export class AliasLibrary {
     return true;
   }
 
-  /**
-   * 查找匹配的别名规则
-   */
   findMatches(text: string): Array<{ rule: AliasRule; matchedAlias: string; score: number }> {
     const lowerText = text.toLowerCase();
     const matches: Array<{ rule: AliasRule; matchedAlias: string; score: number }> = [];
@@ -167,7 +145,6 @@ export class AliasLibrary {
       for (const alias of rule.aliases) {
         const lowerAlias = alias.toLowerCase();
 
-        // 精确匹配
         if (lowerText === lowerAlias) {
           matches.push({
             rule,
@@ -177,7 +154,6 @@ export class AliasLibrary {
           continue;
         }
 
-        // 包含匹配
         if (lowerText.includes(lowerAlias) || lowerAlias.includes(lowerText)) {
           const lengthRatio = Math.min(lowerText.length, lowerAlias.length) / Math.max(lowerText.length, lowerAlias.length);
           matches.push({
@@ -189,13 +165,9 @@ export class AliasLibrary {
       }
     }
 
-    // 按分数排序
     return matches.sort((a, b) => b.score - a.score);
   }
 
-  /**
-   * 获取角色的所有别名
-   */
   getAliasesForTarget(targetId: string): string[] {
     const ruleIds = this.targetIndex.get(targetId);
     if (!ruleIds) return [];
@@ -211,9 +183,6 @@ export class AliasLibrary {
     return [...new Set(aliases)];
   }
 
-  /**
-   * 批量添加别名（从数据文件）
-   */
   loadFromData(aliases: Record<string, string[]>): void {
     let count = 0;
     for (const [targetId, aliasList] of Object.entries(aliases)) {
@@ -231,22 +200,15 @@ export class AliasLibrary {
     console.log(`[AliasLibrary] 从数据加载别名: ${count} 条`);
   }
 
-  /**
-   * 导出所有规则
-   */
   exportRules(): AliasRule[] {
     return Array.from(this.rules.values());
   }
 
-  /**
-   * 获取规则数量
-   */
   getRuleCount(): number {
     return this.rules.size;
   }
 }
 
-// 导出单例
 let aliasLibrary: AliasLibrary | null = null;
 
 export function getAliasLibrary(config?: Partial<AliasLibraryConfig>): AliasLibrary {

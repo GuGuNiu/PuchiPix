@@ -4,20 +4,18 @@ import { mapTask, getDownloadManager } from '@/lib/api-helpers';
 import { eventBus } from '@/lib/core/infra/event-bus';
 import { setM3U8Candidates } from '@/lib/core/domain/m3u8-candidate-store';
 import { t } from '@/lib/i18n/server';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
-import { scrapeGalleryAsync } from '@/lib/downloader/gallery-handler';
+import { taskQueueManager } from '@/lib/core/orchestrator/task/queue-manager';
+import { createGalleryTask } from '@/lib/downloader/gallery-handler';
 import { getSharedBrowser } from '@/lib/core/stealth/browser-pool';
 import { createStealthPage, sleep, randomDelay } from '@/lib/core/stealth/anti-crawler';
 import { allocateSeq } from '@/lib/core/orchestrator/seq-allocator';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
 
-/**
- * 异步爬取视频页面提取 M3U8 和元数据，完成后自动启动下载
- */
+
 export async function scrapeVideoAsync(taskId: number, url: string): Promise<void> {
   const acquired = await taskQueueManager.acquireSlot('video', taskId);
   if (!acquired) {
-    console.log(`[Tasks] 视频 #${taskId} 在排队等待中被取消`);
+    console.log(`[Tasks] Video #${taskId} cancelled while queued`);
     return;
   }
 
@@ -30,7 +28,7 @@ export async function scrapeVideoAsync(taskId: number, url: string): Promise<voi
   if (!url.endsWith('.m3u8')) {
     const scrapingAcquired = await taskQueueManager.acquireScrapingSlot('video', taskId);
     if (!scrapingAcquired) {
-      console.log(`[Tasks] 视频 #${taskId} 在识别排队等待中被取消`);
+      console.log(`[Tasks] Video #${taskId} cancelled while in recognition queue`);
       taskQueueManager.releaseSlot('video', taskId);
       return;
     }
@@ -68,9 +66,9 @@ export async function scrapeVideoAsync(taskId: number, url: string): Promise<voi
       taskQueueManager.releaseScrapingSlot('video', taskId);
       await prisma.downloadTask.update({
         where: { id: taskId },
-        data: { status: 'failed', errorMsg: `爬取失败: ${errMsg}` },
+        data: { status: 'failed', errorMsg: `Scrape failed: ${errMsg}` },
       });
-      eventBus.emit('task:failed', { taskId, error: `爬取失败: ${errMsg}` });
+      eventBus.emit('task:failed', { taskId, error: `Scrape failed: ${errMsg}` });
       return;
     }
   }
@@ -87,7 +85,7 @@ export async function scrapeVideoAsync(taskId: number, url: string): Promise<voi
       data: {
         m3u8Url: m3u8URL || '',
         status: 'pending',
-        errorMsg: `检测到 ${m3u8Candidates.length} 个 M3U8 地址，请选择`,
+        errorMsg: t("api.tasks.multipleM3u8Detected", { count: m3u8Candidates.length }),
         videoInfo: {
           update: {
             title: title || '',
@@ -132,7 +130,7 @@ export async function scrapeVideoAsync(taskId: number, url: string): Promise<voi
     });
     if (updatedTask) {
       dm.startDownload(mapTask(updatedTask)).catch((err) => {
-        console.error(`[Tasks] 下载任务 #${taskId} 启动失败: ${err.message}`);
+        console.error(`[Tasks] Download task #${taskId} failed to start: ${err.message}`);
         eventBus.emit('task:failed', { taskId, error: err.message });
       });
     }
@@ -145,9 +143,7 @@ export async function scrapeVideoAsync(taskId: number, url: string): Promise<voi
   }
 }
 
-/**
- * 异步爬取列表页，为每个图包创建下载任务
- */
+
 export async function scrapeListingAndEnqueue(
   sniffId: number,
   listingUrl: string,
@@ -155,7 +151,7 @@ export async function scrapeListingAndEnqueue(
 ): Promise<void> {
   const acquired = await taskQueueManager.acquireSlot('sniff', sniffId);
   if (!acquired) {
-    console.log(`[Tasks] 嗅探任务 #${sniffId} 在排队等待中被取消`);
+    console.log(`[Tasks] Sniff task #${sniffId} cancelled while queued`);
     return;
   }
 
@@ -178,7 +174,7 @@ export async function scrapeListingAndEnqueue(
 
   try {
     if (!provider.scrapeListingPage) {
-      throw new Error('Provider 不支持列表页爬取');
+      throw new Error(t('api.tasks.unsupportedListScrape'));
     }
 
     await prisma.sniffTask.update({
@@ -223,11 +219,11 @@ export async function scrapeListingAndEnqueue(
         create: {
           sourceUrl: normalizedUrl,
           siteId: provider.id,
-          status: 'scraping',
+          status: 'scrape_pending',
           seq,
         },
         update: {
-          status: 'scraping',
+          status: 'scrape_pending',
         },
       });
 
@@ -250,8 +246,8 @@ export async function scrapeListingAndEnqueue(
 
       eventBus.emit('gallery:scrapeStarted', { galleryId: gallery.id, url: normalizedUrl });
 
-      scrapeGalleryAsync(gallery.id, normalizedUrl, provider).catch((err) => {
-        console.error(`[Tasks-Listing] 图库 #${gallery.id} 异步爬取异常:`, err);
+      createGalleryTask(normalizedUrl, provider).catch((err) => {
+        console.error(`[Tasks-Listing] Gallery #${gallery.id} async scrape error:`, err);
       });
 
       await sleep(randomDelay(500, 1500));

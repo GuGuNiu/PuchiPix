@@ -27,6 +27,7 @@ export default function ProtagonistsPage(): React.JSX.Element {
 
   useEffect(() => {
     if (!searchQuery.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFiltered(protagonists);
       return;
     }

@@ -12,6 +12,7 @@ const deDE: TranslationDict = {
   "tasks.sortProgressAsc": "Fortschritt ↑",
   "tasks.sortStatus": "Nach Status",
   "tasks.searchPlaceholder": "Titel, URL oder Charakter suchen...",
+  "tasks.search": "Suche...",
   "tasks.pleaseSelectTasks": "Bitte zuerst Aufgaben auswählen",
   "tasks.confirmBatchDelete": "{count} Aufgaben massenhaft löschen?",
   "tasks.batchDeleteComplete": "Massenlöschung abgeschlossen: {count} Einträge",

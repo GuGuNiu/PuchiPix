@@ -12,23 +12,17 @@ export const STATUS_KEYS: Record<string, string> = {
   failed: "common.failed",
 };
 
-/** 预览 URL 缓存 */
+/** Preview URL Cache */
 export const previewUrlCache = new Map<string, string>();
-/** 预览失败缓存（避免同一 URL 反复请求），值为过期时间戳 */
 export const previewFailCache = new Map<string, number>();
-/** 失败缓存 TTL（30 秒后允许重试） */
 export const FAIL_CACHE_TTL = 30_000;
 
-/** 悬浮预览目标倍速 */
 export const PREVIEW_PLAYBACK_RATE = 8;
-/** 鼠标悬浮防抖延迟（毫秒） */
 export const HOVER_DEBOUNCE_MS = 400;
-/** 预览请求超时（毫秒） */
 export const PREVIEW_TIMEOUT_MS = 8000;
-/** 倍速自适应监控间隔（毫秒） */
 export const SPEED_MONITOR_INTERVAL_MS = 500;
 
-/** HLS 预览配置 */
+/** HLS previewconfig */
 export const PREVIEW_HLS_CONFIG = {
   maxBufferLength: 30,
   maxMaxBufferLength: 60,
@@ -55,7 +49,7 @@ declare global {
 }
 
 /**
- * 等待 HLS.js 全局对象加载完成
+ * Await HLS.js globalobjectLoadComplete
  */
 export function waitForHls(): Promise<typeof window.Hls | null> {
   return new Promise((resolve) => {
@@ -77,17 +71,13 @@ export function waitForHls(): Promise<typeof window.Hls | null> {
   });
 }
 
-/**
- * 将 m3u8 URL 包装为代理 URL
- */
+
 export function toProxyUrl(m3u8Url: string, pageUrl: string): string {
   const referer = pageUrl || new URL(m3u8Url).origin + "/";
   return `/api/proxy?referer=${encodeURIComponent(referer)}&url=${encodeURIComponent(m3u8Url)}`;
 }
 
-/**
- * 解析 m3u8 播放列表，提取分片数量和总时长
- */
+
 export function parseM3U8(content: string): { count: number; totalDuration: number } {
   const lines = content.split("\n");
   let count = 0;

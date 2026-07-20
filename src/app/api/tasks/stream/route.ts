@@ -75,7 +75,6 @@ function mapGalleryToTask(g: {
     ? Math.min((downloadedFiles / totalFiles) * 100, 100)
     : 0;
 
-  // 人物：优先使用 protagonist，回退到 gameCharacters
   let person = g.protagonist || '';
   if (!person && g.gameCharacters) {
     try {
@@ -177,12 +176,11 @@ function mapSniffToTask(s: {
 }
 
 async function fetchAllTasks(): Promise<DownloadTask[]> {
-  // 优化：减少查询数量限制，提高响应速度
   const [tasks, galleries, sniffTasks] = await Promise.all([
     prisma.downloadTask.findMany({
       include: { videoInfo: true },
       orderBy: { createdAt: 'desc' },
-      take: 200, // 从 500 减少到 200
+      take: 200,
     }),
     prisma.gallery.findMany({
       orderBy: { createdAt: 'desc' },
@@ -195,11 +193,11 @@ async function fetchAllTasks(): Promise<DownloadTask[]> {
           },
         },
       },
-      take: 200, // 从 500 减少到 200
+      take: 200,
     }),
     prisma.sniffTask.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 50, // 从 100 减少到 50
+      take: 50,
     }),
   ]);
 
@@ -265,66 +263,50 @@ export async function GET(request: NextRequest): Promise<Response> {
         }
       };
 
-      // ─── 竞态条件防护：初始加载期间缓冲事件 ───
-      //
-      // 问题：send('initial', []) 立即发送空列表，然后异步 fetchAllTasks
-      // 期间 EventBus 事件可能触发 upsert/patch，这些增量事件到达客户端后
-      // 会被随后的第二次 initial（全量列表）覆盖，导致增量更新的数据丢失。
-      //
-      // 修复：在初始加载期间，将 upsert/patch 事件缓冲到队列中，
-      // 全量 initial 发送完毕后再按顺序 flush 缓冲的事件。
+      /*
+       * 
+       * 
+       */
       let initialLoaded = false;
       const eventBuffer: Array<() => void> = [];
 
       const bufferOrSend = (event: string, data: unknown): void => {
         if (!initialLoaded) {
-          // 缓冲：延迟到 initial 发送后再执行
           eventBuffer.push(() => send(event, data));
         } else {
           send(event, data);
         }
       };
 
-      // 立即发送空数组，让客户端快速结束 loading 状态
       send('initial', []);
 
-      // 异步加载全量数据并推送，然后 flush 缓冲的事件
       fetchAllTasks().then((tasks) => {
         send('initial', tasks);
-        // 标记初始加载完成，后续事件直接发送
         initialLoaded = true;
-        // flush 缓冲的增量事件
         for (const fn of eventBuffer) {
           fn();
         }
         eventBuffer.length = 0;
       }).catch((err) => {
-        console.error('[SSE] 异步加载任务列表失败:', err);
-        initialLoaded = true; // 即使失败也解除缓冲
+        console.error('[SSE] Failed to load task list asynchronously:', err);
+        initialLoaded = true; // Release buffer even on failure
         for (const fn of eventBuffer) {
           fn();
         }
         eventBuffer.length = 0;
       });
 
-      // 节流 patch：300ms 内的更新合并发送
       const pendingPatches = new Map<string, PatchMessage>();
       let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-      // ─── 竞态条件防护：upsert 期间抑制 patch ───
-      //
-      // 问题：upsert 从 DB 查询完整任务对象期间，新的 patch 事件可能被
-      // schedule → timer flush → 到达客户端，如果这个 patch 在 upsert 之后到达，
-      // 它的部分字段（如 99% 进度）会覆盖 upsert 的完整数据（100%）。
-      //
-      // 修复：upsert 开始时将任务 key 加入 pendingUpserts 集合，
-      // schedulePatch 检查该集合，跳过正在 upsert 的任务。
-      // upsert 完成后移除 key，后续 patch 正常调度。
+      /*
+       * 
+       * 
+       */
       const pendingUpserts = new Set<string>();
 
       const schedulePatch = (id: number, taskType: string, changes: Partial<DownloadTask>): void => {
         const key = `${taskType}-${id}`;
-        // 如果该任务正在 upsert（DB 查询中），跳过 patch 以防覆盖
         if (pendingUpserts.has(key)) return;
         const existing = pendingPatches.get(key);
         if (existing) {
@@ -343,7 +325,6 @@ export async function GET(request: NextRequest): Promise<Response> {
         }
       };
 
-      // 取消指定任务的积压 patch —— upsert 会发送完整对象
       const cancelPendingPatch = (id: number, taskType: string): void => {
         const key = `${taskType}-${id}`;
         pendingPatches.delete(key);
@@ -391,7 +372,6 @@ export async function GET(request: NextRequest): Promise<Response> {
 
       const subs: Array<{ unsubscribe: () => void }> = [];
 
-      // 视频任务事件
       subs.push(eventBus.on('task:created', (p) => { upsertVideo(p.taskId); }));
       subs.push(eventBus.on('task:scraping', (p) => {
         schedulePatch(p.taskId, 'video', { Status: 'scraping' as TaskStatus });
@@ -417,12 +397,11 @@ export async function GET(request: NextRequest): Promise<Response> {
       }));
       subs.push(eventBus.on('task:scraped', (p) => { upsertVideo(p.taskId); }));
 
-      // M3U8 候选项选择事件 — 推送通知给前端
       subs.push(eventBus.on('task:m3u8Select', (p) => {
         upsertVideo(p.taskId);
       }));
 
-      // 图库事件
+      // GraphlibraryEvent
       subs.push(eventBus.on('gallery:scrapeStarted', (p) => {
         schedulePatch(p.galleryId, 'gallery', { Status: 'scraping' as TaskStatus });
       }));
@@ -437,8 +416,6 @@ export async function GET(request: NextRequest): Promise<Response> {
         });
       }));
       subs.push(eventBus.on('gallery:downloadProgress', (p) => {
-        // 上限 99% —— 保留 100% 给最终完成状态，避免文件全部下完但
-        // 后续校验/DB 更新尚未完成时前端就显示 100%
         const rawProgress = p.total > 0 ? (p.completed / p.total) * 100 : 0;
         const progress = Math.min(rawProgress, 99);
         schedulePatch(p.galleryId, 'gallery', {
@@ -452,7 +429,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         schedulePatch(p.galleryId, 'gallery', { Status: 'failed' as TaskStatus, ErrorMsg: p.error });
       }));
 
-      // 图库 ZIP 事件
+      // Graphlibrary ZIP Event
       subs.push(eventBus.on('gallery:zipDownloadStarted', (p) => {
         schedulePatch(p.galleryId, 'gallery', {
           Status: 'downloading' as TaskStatus,
@@ -489,7 +466,6 @@ export async function GET(request: NextRequest): Promise<Response> {
         send('delete', { id: p.galleryId, taskType: 'gallery' });
       }));
 
-      // 嗅探任务事件
       subs.push(eventBus.on('sniffTask:started', (p) => {
         schedulePatch(p.sniffId, 'sniff', { Status: 'scraping' as TaskStatus });
       }));
@@ -529,8 +505,18 @@ export async function GET(request: NextRequest): Promise<Response> {
       subs.push(eventBus.on('notification:error', (p) => {
         bufferOrSend('notification', { type: 'error', message: p.message, id: p.id });
       }));
+      subs.push(eventBus.on('dag:nodeProgress', (p) => {
+        bufferOrSend('nodeProgress', {
+          dagId: p.dagId,
+          nodeId: p.nodeId,
+          phase: p.phase,
+          current: p.current,
+          total: p.total,
+          speed: p.speed,
+          failed: p.failed,
+        });
+      }));
 
-      // keepalive
       const keepalive = setInterval(() => {
         if (closed) return;
         try {
@@ -540,7 +526,6 @@ export async function GET(request: NextRequest): Promise<Response> {
         }
       }, 15000);
 
-      // 清理
       const cleanup = (): void => {
         if (closed) return;
         closed = true;

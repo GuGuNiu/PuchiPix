@@ -207,6 +207,44 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           console.warn('[TaskStore] SSE notification parse failed:', err instanceof Error ? err.message : String(err));
         }
       });
+
+      eventSource.addEventListener('nodeProgress', (e: MessageEvent) => {
+        try {
+          const { dagId, current, total, failed } = JSON.parse(e.data) as {
+            dagId: string;
+            nodeId: string;
+            phase: string;
+            current: number;
+            total: number;
+            speed?: string;
+            failed?: number;
+          };
+          const galleryId = dagId.startsWith('gallery-')
+            ? parseInt(dagId.replace('gallery-', ''), 10)
+            : NaN;
+          if (isNaN(galleryId)) return;
+          const key = `gallery-${galleryId}`;
+          const progress = total > 0 ? Math.min((current / total) * 100, 99) : 0;
+          set((s) => ({
+            tasks: s.tasks.map((t) =>
+              taskKey(t) === key
+                ? {
+                  ...t,
+                  Progress: progress,
+                  GalleryProgressInfo: {
+                    completed: current,
+                    total,
+                    failed: failed ?? 0,
+                  },
+                }
+                : t,
+            ),
+          }));
+        } catch (err) {
+          console.warn('[TaskStore] SSE nodeProgress parse failed:', err instanceof Error ? err.message : String(err));
+        }
+      });
+
     };
 
     connect();

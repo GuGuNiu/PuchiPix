@@ -1,11 +1,9 @@
 /**
- * 拼音服务模块
+ * Pinyinservicemodule
  *
- * 提供拼音转换、匹配和相似度计算的统一 API。
- * 支持多种相似度算法：Levenshtein、Jaro-Winkler、Bigram、Combined。
  */
 
-// 类型导出
+// TypeExport
 export type {
   PinyinConvertOptions,
   PinyinMatchOptions,
@@ -18,17 +16,16 @@ export type {
   SimilarityCalculator,
 } from './types';
 
-// 服务导出
+// ServiceExport
 export {
   PinyinService,
   getPinyinService,
   resetPinyinService,
 } from './pinyin-service';
 
-// 引擎适配器导出
+// EngineAdapterExport
 export { PinyinProAdapter } from './pinyin-pro-adapter';
 
-// 相似度计算器导出
 export {
   LevenshteinCalculator,
   JaroWinklerCalculator,

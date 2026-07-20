@@ -50,9 +50,27 @@ const enUS: TranslationDict = {
 
   "api.blocklist.addFailed": "Add failed",
 
+// Logs
+  "api.logs.systemReady": "System ready, waiting for tasks...",
+  "api.logs.taskNumber": "Task #{id}",
+  "api.logs.fetchFailed": "Failed to fetch logs",
+
+  // Gallery (supplement)
+  "api.gallery.unsupportedScrape": "Site {site} does not support gallery scraping",
+  "api.gallery.allDomainsFailed": "All domains failed to scrape",
+
+  // Tasks (supplement)
+  "api.tasks.multipleM3u8Detected": "Detected {count} M3U8 addresses, please select",
+  "api.tasks.unsupportedListScrape": "Provider does not support listing page scraping",
+
+  // Common
   "api.characterDb.syncRunning": "Sync task is already running",
   "api.common.internalError": "Internal server error",
   "api.common.missingParams": "Missing required parameters: {params}",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} not found",
+  "api.dag.invalidAction": "Invalid action: {action}",
 };
 
 export default enUS;

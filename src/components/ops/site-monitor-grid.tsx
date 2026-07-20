@@ -17,17 +17,12 @@ interface SiteMonitorInfo {
   uptime: string;
 }
 
-/**
- * 模拟获取站点监控数据
- *
- * 实际生产环境中应通过 API 获取真实的站点健康状态。
- * 这里使用模拟数据展示 Ops 面板风格。
- */
+
 function useSiteMonitorData(): SiteMonitorInfo[] {
   const [sites, setSites] = useState<SiteMonitorInfo[]>([]);
 
   useEffect(() => {
-    // 从 API 获取已注册站点
+    // From API GetregisteredSite
     fetch("/api/sites")
       .then((r) => r.json())
       .then((data: Array<{ id: string; name: string; baseUrl: string; enabled: boolean }>) => {
@@ -42,7 +37,7 @@ function useSiteMonitorData(): SiteMonitorInfo[] {
         setSites(monitorData);
       })
       .catch(() => {
-        // fallback 默认站点
+        // Fallback defaultsite
         setSites([
           {
             id: "kanav",
@@ -62,12 +57,7 @@ function useSiteMonitorData(): SiteMonitorInfo[] {
   return sites;
 }
 
-/**
- * 站点监控网格组件
- *
- * 展示所有已注册站点的实时健康状态、任务数、速度等关键指标。
- * 每个站点卡片包含：在线状态指示灯、任务数统计、速度、最后检查时间。
- */
+
 export function SiteMonitorGrid(): React.JSX.Element {
   const { t } = useI18n();
   const sites = useSiteMonitorData();

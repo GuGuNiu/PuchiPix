@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Grid, useGridRef } from "react-window";
 import { useI18n } from "@/lib/i18n";
-import type { ImageItem } from "../_lib/gallery-helpers";
+import type { ImageItem } from "../gallery-helpers";
 
 interface VirtualImageGridProps {
   images: ImageItem[];

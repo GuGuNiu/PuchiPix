@@ -1,20 +1,23 @@
-import type { NextRequest} from 'next/server';
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/db/prisma';
-import type { AppConfig } from '@/types';
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db/prisma";
+import { validateStringMap } from "@/lib/api/validation";
+import type { AppConfig } from "@/types";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-/** 默认配置 */
+/** Defaultconfig */
 const DEFAULT_CONFIG: Record<string, string> = {
-  max_concurrent: '5',
-  segment_retries: '5',
-  default_format: 'mp4',
-  download_path: './data/videos',
-  segments_path: './data/segments',
-  ffmpeg_path: 'ffmpeg',
+  max_concurrent: "5",
+  segment_retries: "5",
+  default_format: "mp4",
+  download_path: "./data/videos",
+  segments_path: "./data/segments",
+  ffmpeg_path: "ffmpeg",
 };
+
+const ALLOWED_CONFIG_KEYS: readonly string[] = Object.keys(DEFAULT_CONFIG);
 
 export async function GET(): Promise<NextResponse> {
   try {
@@ -27,29 +30,35 @@ export async function GET(): Promise<NextResponse> {
 
     return NextResponse.json(result);
   } catch {
-    return NextResponse.json({ error: 'Failed to read config' }, { status: 500 });
+    return NextResponse.json({ error: "Failed to read config" }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
   try {
-    const body: Record<string, string> = await request.json();
-    const operations = [];
-
-    for (const [key, value] of Object.entries(body)) {
-      operations.push(
-        prisma.appConfig.upsert({
-          where: { key },
-          create: { key, value: String(value) },
-          update: { value: String(value) },
-        })
-      );
+    const body: unknown = await request.json();
+    const parsed = validateStringMap(body, ALLOWED_CONFIG_KEYS);
+    if (!parsed.ok) {
+      return parsed.response;
     }
 
-    await Promise.all(operations);
+    const entries = Object.entries(parsed.value);
+    if (entries.length === 0) {
+      return NextResponse.json({ success: true });
+    }
+
+    await Promise.all(
+      entries.map(([key, value]) =>
+        prisma.appConfig.upsert({
+          where: { key },
+          create: { key, value },
+          update: { value },
+        }),
+      ),
+    );
 
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json({ error: 'Failed to update config' }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update config" }, { status: 500 });
   }
 }

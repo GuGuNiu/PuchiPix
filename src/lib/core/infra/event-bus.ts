@@ -1,8 +1,9 @@
 import { getOrCreateGlobal } from './global-singleton';
-import type { NodeState, NodeError, NodeExecutionResult, ResourceRequirement } from '@/types/dag';
+import { createLogger } from './logger';
+import type { NodeState, NodeError, NodeExecutionResult, ResourceRequirement, DagSnapshot, SchedulerStats, SlotPoolSnapshot, SlotUsage } from '@/types/dag';
 
 export interface EventMap {
-  // 下载任务事件
+  // DownloadtaskEvent
   'task:created': { taskId: number; title?: string; source?: string };
   'task:progress': { taskId: number; progress: number; status: string; speed?: string; segment?: number; total?: number };
   'task:completed': { taskId: number; title?: string };
@@ -13,22 +14,20 @@ export interface EventMap {
   'task:scraping': { taskId: number; url: string };
   'task:m3u8Select': { taskId: number; candidates: { url: string; title: string }[] };
 
-  // 搜索事件
+  // SearchEvent
   'search:started': { jobId: string; keywords: string[] };
   'search:completed': { jobId: string; totalFound: number; totalDownloaded: number };
   'search:failed': { jobId: string; error: string };
 
-  // 爬取事件
   'scrape:started': { pageUrl: string };
   'scrape:completed': { pageUrl: string; m3u8Url: string; title: string };
   'scrape:failed': { pageUrl: string; error: string };
 
-  // 嗅探事件
   'sniff:url': { url: string; type: string };
   'sniff:started': { targetUrl: string };
   'sniff:stopped': { captured: number };
 
-  // 图库事件
+  // GraphlibraryEvent
   'gallery:pending': { galleryId: number; url: string };
   'gallery:scrapePending': { galleryId: number; url: string };
   'gallery:scrapeStarted': { galleryId: number; url: string };
@@ -41,7 +40,7 @@ export interface EventMap {
   'gallery:downloadFailed': { galleryId: number; error: string };
   'gallery:deleted': { galleryId: number };
 
-  // 图库 ZIP 压缩包事件
+  // Graphlibrary ZIP CompresspackageEvent
   'gallery:zipDownloadStarted': { galleryId: number; url: string };
   'gallery:zipDownloadProgress': { galleryId: number; downloaded: number; total: number; percent: number };
   'gallery:zipDownloadCompleted': { galleryId: number; localPath: string; actualSize: number };
@@ -50,7 +49,7 @@ export interface EventMap {
   'gallery:zipExtractCompleted': { galleryId: number; extractedPath: string; fileCount: number };
   'gallery:zipVerifyFailed': { galleryId: number; reason: string; expectedImages: number; actualImages: number; expectedVideos: number; actualVideos: number };
 
-  // OUO 任务编排器事件
+  // OUO TaskorchestratorEvent
   'ouo:taskQueued': { galleryId: number; ouoUrl: string; queuePosition: number };
   'ouo:taskStarted': { galleryId: number; ouoUrl: string; processedCount: number };
   'ouo:taskCompleted': { galleryId: number; success: boolean; zipFileName?: string; contentVerified?: boolean };
@@ -60,27 +59,32 @@ export interface EventMap {
   'ouo:queueEmpty': { totalProcessed: number; totalSucceeded: number; totalFailed: number };
   'ouo:orchestratorStatus': { running: boolean; paused: boolean; queueLength: number; processedCount: number; rateLimited: boolean; rejectedEnqueueCount: number; maxQueueSize: number };
 
-  // 嗅探任务事件（列表页批量分析）
   'sniffTask:started': { sniffId: number; url: string };
   'sniffTask:galleryCreated': { sniffId: number; url: string; galleryId: number; seq?: string | null; title: string; totalCreated: number; totalSkipped: number };
   'sniffTask:completed': { sniffId: number; url: string; totalFound: number; totalCreated: number; totalSkipped: number };
   'sniffTask:failed': { sniffId: number; url: string; error: string };
   'sniffTask:deleted': { sniffId: number };
 
-  // 系统事件
+  'task:stateReset': { count: number };
+
+  // SystemEvent
   'system:health': { status: string; uptime: number };
   'system:shutdown': { reason: string };
 
-  // 通知事件
+  'worker:restarting': { restartCount: number; reason: string };
+  'worker:ready': { pid: number; uptime: number };
+
+  // NotifyEvent
   'notification:info': { message: string; id?: string };
   'notification:success': { message: string; id?: string };
   'notification:warning': { message: string; id?: string };
   'notification:error': { message: string; id?: string };
 
-  // DAG 编排事件
   'dag:created': { dagId: string; taskType: string };
   'dag:cancelled': { dagId: string };
   'dag:completed': { dagId: string };
+  'dag:paused': { dagId: string; pausedCount: number };
+  'dag:resumed': { dagId: string; resumedCount: number };
   'dag:nodeStateChanged': {
     dagId: string;
     nodeId: string;
@@ -114,32 +118,55 @@ export interface EventMap {
     nodeId: string;
     resources: string[];
   };
+  'dag:nodeProgress': {
+    dagId: string;
+    nodeId: string;
+    phase: string;
+    current: number;
+    total: number;
+    speed?: string;
+    failed?: number;
+  };
+  'dag:nodeRetrying': {
+    dagId: string;
+    nodeId: string;
+    retryCount: number;
+    error: { code: string; message: string };
+  };
+
+  'dag:snapshotSync': {
+    dags: DagSnapshot[];
+    dagStats: { totalDags: number; activeDags: number; totalNodes: number };
+    schedulerStats: SchedulerStats;
+    slotSnapshot: SlotPoolSnapshot;
+    slotStats: Record<string, SlotUsage>;
+    activeHolders: Record<string, string[]>;
+    downloadConcurrency: { tsSegmentConcurrent: number; galleryImageConcurrent: number };
+    currentSeq: number;
+    timestamp: string;
+  };
 }
 
 export type EventName = keyof EventMap;
 export type EventHandler<K extends EventName> = (payload: EventMap[K]) => void;
 
 export interface EventSubscription {
-  /** 取消订阅 */
+  /** Unsubscribe */
   unsubscribe: () => void;
 }
 
 class EventBus {
-  /** 精确事件订阅者 */
   private handlers: Map<string, Set<(payload: unknown) => void>> = new Map();
-  /** 通配符订阅者 */
   private wildcardHandlers: Set<(name: string, payload: unknown) => void> = new Set();
-  /** 最近事件缓存（每个事件类型保留最后一条） */
   private lastEvents: Map<string, { payload: unknown; timestamp: number }> = new Map();
-  /** Socket.IO 桥接函数 */
   private socketBridge: ((event: string, payload: unknown) => void) | null = null;
+  private ipcBridge: ((event: string, payload: unknown) => void) | null = null;
+  private readonly logger = createLogger('EventBus');
 
   /**
-   * 订阅事件。
+   * SubscribeEvent。
    *
-   * @param event - 事件名称，或 '*' 订阅所有事件
-   * @param handler - 事件处理函数
-   * @returns 订阅句柄，调用 unsubscribe() 取消
+   * @param handler - Event handlerfunction
    */
   on<K extends EventName>(event: K, handler: EventHandler<K>): EventSubscription;
   on(event: '*', handler: (name: EventName, payload: unknown) => void): EventSubscription;
@@ -173,9 +200,6 @@ class EventBus {
     };
   }
 
-  /**
-   * 订阅事件（仅触发一次）。
-   */
   once<K extends EventName>(event: K, handler: EventHandler<K>): EventSubscription {
     const sub = this.on(event, (payload: EventMap[K]) => {
       sub.unsubscribe();
@@ -185,86 +209,82 @@ class EventBus {
   }
 
   /**
-   * 发布事件。
+   * PublishEvent。
    *
-   * 同步通知所有订阅者，并桥接到 Socket.IO（如已设置）。
    *
-   * @param event - 事件名称
-   * @param payload - 事件载荷
+   * @param event - Eventname
    */
   emit<K extends EventName>(event: K, payload: EventMap[K]): void {
-    // 缓存最近事件
     this.lastEvents.set(event, { payload, timestamp: Date.now() });
 
-    // 通知精确订阅者
     const set = this.handlers.get(event);
     if (set) {
       for (const handler of set) {
         try {
           handler(payload);
         } catch (err) {
-          console.error(`[EventBus] handler error for "${event}":`, err);
+          this.logger.error('Handler execution error', { event, error: err });
         }
       }
     }
 
-    // 通知通配符订阅者
     for (const handler of this.wildcardHandlers) {
       try {
         handler(event, payload);
       } catch (err) {
-        console.error(`[EventBus] wildcard handler error for "${event}":`, err);
+        this.logger.error('Wildcard handler execution error', { event, error: err });
       }
     }
 
-    // 桥接到 Socket.IO
     if (this.socketBridge) {
       try {
         this.socketBridge(event, payload);
       } catch (err) {
-        console.error(`[EventBus] socket bridge error for "${event}":`, err);
+        this.logger.error('Socket bridge execution error', { event, error: err });
+      }
+    }
+
+    if (this.ipcBridge) {
+      try {
+        this.ipcBridge(event, payload);
+      } catch (err) {
+        this.logger.error('IPC bridge execution error', { event, error: err });
       }
     }
   }
 
-  /**
-   * 获取最近一条事件（迟到的订阅者可用来补全状态）。
-   */
   getLastEvent<K extends EventName>(event: K): { payload: EventMap[K]; timestamp: number } | null {
     const cached = this.lastEvents.get(event);
     if (!cached) return null;
     return { payload: cached.payload as EventMap[K], timestamp: cached.timestamp };
   }
 
-  /**
-   * 设置 Socket.IO 桥接。
-   *
-   * 设置后所有 emit 的事件会自动通过 Socket.IO 推送到前端。
-   */
   setSocketBridge(bridge: (event: string, payload: unknown) => void): void {
     this.socketBridge = bridge;
   }
 
-  /**
-   * 移除 Socket.IO 桥接。
-   */
   removeSocketBridge(): void {
     this.socketBridge = null;
   }
 
-  /**
-   * 清空所有订阅者和缓存（用于测试）。
-   */
+  
+  setIpcBridge(bridge: (event: string, payload: unknown) => void): void {
+    this.ipcBridge = bridge;
+  }
+
+  removeIpcBridge(): void {
+    this.ipcBridge = null;
+  }
+
   clear(): void {
     this.handlers.clear();
     this.wildcardHandlers.clear();
     this.lastEvents.clear();
     this.socketBridge = null;
+    this.ipcBridge = null;
   }
 
-  /**
-   * 获取事件统计信息。
-   */
+  
   getStats(): { eventTypes: number; totalHandlers: number; wildcardHandlers: number } {
     let total = 0;
     for (const set of this.handlers.values()) {

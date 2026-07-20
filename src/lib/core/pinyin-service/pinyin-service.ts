@@ -1,8 +1,6 @@
 /**
- * 拼音服务
+ * Pinyinservice
  *
- * 提供统一的拼音转换、匹配和相似度计算能力。
- * 基于 Pinyin-Pro 引擎，支持多种相似度算法（Levenshtein、Jaro-Winkler、Bigram、Combined）。
  */
 
 import type {
@@ -54,11 +52,9 @@ export class PinyinService {
   }
 
   /**
-   * 转换文本为拼音
    *
-   * @param text - 待转换文本
-   * @param options - 转换选项
-   * @returns 拼音字符串或数组
+   * @param options - Convertoption
+   * @returns Pinyin string or array
    */
   convert(text: string, options?: PinyinConvertOptions): string | string[] {
     const opts = { ...this.config.defaultConvertOptions, ...options };
@@ -66,10 +62,8 @@ export class PinyinService {
   }
 
   /**
-   * 获取文本的拼音变体（全拼、首字母等）
    *
-   * @param text - 输入文本
-   * @returns 拼音变体信息
+   * @returns Pinyin variant info
    */
   getVariants(text: string): PinyinVariants {
     if (!this.config.enableCache) {
@@ -87,22 +81,17 @@ export class PinyinService {
   }
 
   /**
-   * 批量获取拼音变体
    *
-   * @param texts - 文本数组
-   * @returns 拼音变体数组
+   * @returns Pinyin variant array
    */
   getVariantsBatch(texts: string[]): PinyinVariants[] {
     return texts.map(text => this.getVariants(text));
   }
 
   /**
-   * 匹配文本拼音是否包含指定拼音
    *
-   * @param text - 待匹配文本
-   * @param pinyin - 拼音模式
-   * @param options - 匹配选项
-   * @returns 是否匹配
+   * @param options - Matchoption
+   * @returns isnoMatch
    */
   match(text: string, pinyin: string, options?: PinyinMatchOptions): boolean {
     const opts = { ...this.config.defaultMatchOptions, ...options };
@@ -110,12 +99,8 @@ export class PinyinService {
   }
 
   /**
-   * 计算两个字符串的相似度
    *
-   * @param s1 - 第一个字符串
-   * @param s2 - 第二个字符串
-   * @param options - 相似度计算选项
-   * @returns 相似度分数 (0-1)
+   * @param options - similarityCalculateoption
    */
   calculateSimilarity(
     s1: string,
@@ -146,12 +131,9 @@ export class PinyinService {
   }
 
   /**
-   * 在候选列表中查找最佳匹配
    *
-   * @param text - 查询文本
-   * @param candidates - 候选文本列表
-   * @param options - 相似度选项
-   * @returns 最佳匹配结果
+   * @param options - similarityoption
+   * @returns Best match result
    */
   findBestMatch(
     text: string,
@@ -181,13 +163,8 @@ export class PinyinService {
   }
 
   /**
-   * 查找所有满足相似度阈值的匹配
    *
-   * @param text - 查询文本
-   * @param candidates - 候选文本列表
-   * @param threshold - 相似度阈值（默认使用配置值）
-   * @param options - 相似度选项
-   * @returns 匹配结果列表（按相似度降序）
+   * @param options - similarityoption
    */
   findMatches(
     text: string,
@@ -213,12 +190,9 @@ export class PinyinService {
   }
 
   /**
-   * 智能匹配：结合拼音和相似度算法
    *
-   * @param text - 查询文本
-   * @param candidates - 候选对象列表（需包含 name 字段）
-   * @param options - 匹配选项
-   * @returns 匹配结果列表
+   * @param options - Matchoption
+   * @returns MatchresultList
    */
   smartMatch<T extends { name: string; aliases?: string[] }>(
     text: string,
@@ -246,32 +220,27 @@ export class PinyinService {
       const key = `${item.name}`;
       if (seen.has(key)) continue;
 
-      // 精确匹配
       if (item.name === text) {
         seen.add(key);
         results.push({ item, matchType: 'exact', confidence: 1.0 });
         continue;
       }
 
-      // 别名匹配
       if (item.aliases?.includes(text)) {
         seen.add(key);
         results.push({ item, matchType: 'exact', confidence: 0.95 });
         continue;
       }
 
-      // 拼音匹配
       if (opts.usePinyin) {
         const itemVariants = this.getVariants(item.name);
 
-        // 全拼音匹配
         if (itemVariants.full === textVariants.full) {
           seen.add(key);
           results.push({ item, matchType: 'pinyin_full', confidence: 0.9 });
           continue;
         }
 
-        // 首字母匹配
         if (
           itemVariants.initials === textVariants.initials &&
           itemVariants.initials.length >= 2
@@ -282,7 +251,6 @@ export class PinyinService {
         }
       }
 
-      // 相似度匹配
       if (opts.useSimilarity) {
         const similarity = this.calculateSimilarity(
           text,
@@ -303,16 +271,12 @@ export class PinyinService {
     return results.sort((a, b) => b.confidence - a.confidence);
   }
 
-  /**
-   * 清空拼音变体缓存
-   */
+  
   clearCache(): void {
     this.cache.clear();
   }
 
-  /**
-   * 获取缓存统计
-   */
+  
   getCacheStats(): { size: number; enabled: boolean } {
     return {
       size: this.cache.size,
@@ -321,30 +285,27 @@ export class PinyinService {
   }
 
   /**
-   * 更新配置
+   * Updateconfig
    *
-   * @param config - 新配置项
    */
   updateConfig(config: Partial<PinyinServiceConfig>): void {
     this.config = { ...this.config, ...config };
   }
 
   /**
-   * 获取当前配置
+   * Get currentconfig
    */
   getConfig(): Readonly<Required<PinyinServiceConfig>> {
     return Object.freeze({ ...this.config });
   }
 }
 
-// 单例实例
 let pinyinService: PinyinService | null = null;
 
 /**
- * 获取拼音服务单例
+ * GetpinyinserviceSingleton
  *
- * @param config - 可选配置（首次调用时生效）
- * @returns PinyinService 实例
+ * @returns PinyinService instance
  */
 export function getPinyinService(config?: PinyinServiceConfig): PinyinService {
   if (!pinyinService) {
@@ -354,7 +315,7 @@ export function getPinyinService(config?: PinyinServiceConfig): PinyinService {
 }
 
 /**
- * 重置拼音服务单例（用于测试）
+ * ResetpinyinserviceSingleton。
  */
 export function resetPinyinService(): void {
   pinyinService = null;

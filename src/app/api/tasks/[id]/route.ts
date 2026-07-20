@@ -1,14 +1,32 @@
 import type { NextRequest} from 'next/server';
+import { loggers } from '@/lib/core/infra/logger';
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import path from 'path';
 import prisma from '@/lib/db/prisma';
-import { getDownloadManager, mapTask } from '@/lib/api-helpers';
 import { eventBus } from '@/lib/core/infra/event-bus';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { workerManager } from '@/lib/core/infra/worker-manager';
 import { safeDeleteFile, safeDeleteDir, summarizeDeleteResults } from '@/lib/utils/safe-delete';
+import { logT } from '@/lib/i18n/server';
 
+const logger = loggers.tasksAPI();
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+function parseTaskId(id: string): number | null {
+  const taskId = parseInt(id, 10);
+  return isNaN(taskId) ? null : taskId;
+}
+
+type TaskWithVideo = Prisma.DownloadTaskGetPayload<{ include: { videoInfo: true } }>;
+
+async function getTask(taskId: number): Promise<TaskWithVideo | null> {
+  return prisma.downloadTask.findUnique({
+    where: { id: taskId },
+    include: { videoInfo: true },
+  });
+}
+
 
 export async function GET(
   request: NextRequest,
@@ -16,26 +34,26 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const taskId = parseInt(id, 10);
+    const taskId = parseTaskId(id);
 
-    if (isNaN(taskId)) {
+    if (taskId === null) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
 
-    const task = await prisma.downloadTask.findUnique({
-      where: { id: taskId },
-      include: { videoInfo: true },
-    });
+    const task = await getTask(taskId);
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
+    const { mapTask } = await import('@/lib/api-helpers');
     return NextResponse.json(mapTask(task));
   } catch {
     return NextResponse.json({ error: 'Failed to get task' }, { status: 500 });
   }
 }
+
+// PUT /api/tasks/: id — Update task
 
 export async function PUT(
   request: NextRequest,
@@ -43,9 +61,9 @@ export async function PUT(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const taskId = parseInt(id, 10);
+    const taskId = parseTaskId(id);
 
-    if (isNaN(taskId)) {
+    if (taskId === null) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
 
@@ -62,40 +80,216 @@ export async function PUT(
       include: { videoInfo: true },
     });
 
+    const { mapTask } = await import('@/lib/api-helpers');
     return NextResponse.json(mapTask(task));
   } catch {
     return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
   }
 }
 
+// POST /api/tasks/:id — cancel / pause / resume / retry / select-m3u8 / start
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+    const taskId = parseTaskId(id);
+
+    if (taskId === null) {
+      return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { action, ...rest } = body;
+
+    switch (action) {
+      case 'cancel': {
+        const task = await prisma.downloadTask.findUnique({
+          where: { id: taskId },
+        });
+
+        if (!task) {
+          return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+        }
+
+        workerManager.send({
+          type: 'task:action',
+          payload: { taskId, action: 'cancel' },
+        });
+
+        return NextResponse.json({ message: 'Download cancelled', task_id: taskId });
+      }
+
+      case 'pause': {
+        const task = await prisma.downloadTask.findUnique({
+          where: { id: taskId },
+        });
+
+        if (!task) {
+          return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+        }
+
+        if (task.status === 'scraping') {
+          await prisma.downloadTask.update({
+            where: { id: taskId },
+            data: { status: 'paused' },
+          });
+
+          workerManager.send({
+            type: 'task:action',
+            payload: { taskId, action: 'pause' },
+          });
+
+          eventBus.emit('task:progress', {
+            taskId,
+            progress: 0,
+            status: 'paused',
+            segment: 0,
+            total: 0,
+          });
+
+          return NextResponse.json({ message: 'Scraping task paused', task_id: taskId });
+        }
+
+        workerManager.send({
+          type: 'task:action',
+          payload: { taskId, action: 'pause' },
+        });
+        return NextResponse.json({ message: 'Download paused', task_id: taskId });
+      }
+
+      case 'resume': {
+        const task = await prisma.downloadTask.findUnique({
+          where: { id: taskId },
+        });
+
+        if (!task) {
+          return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+        }
+
+        if (task.status !== 'paused') {
+          return NextResponse.json({ error: 'Task is not paused' }, { status: 400 });
+        }
+
+        workerManager.send({
+          type: 'task:action',
+          payload: { taskId, action: 'resume' },
+        });
+
+        return NextResponse.json({ message: 'Download resumed', task_id: taskId });
+      }
+
+      case 'retry': {
+        const task = await getTask(taskId);
+
+        if (!task) {
+          return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+        }
+
+        if (task.status !== 'failed' && task.status !== 'cancelled') {
+          return NextResponse.json({ error: 'Only failed or cancelled tasks can be retried' }, { status: 400 });
+        }
+
+        await prisma.downloadTask.update({
+          where: { id: taskId },
+          data: { status: 'pending', progress: 0, errorMsg: '' },
+        });
+
+        workerManager.send({
+          type: 'task:action',
+          payload: { taskId, action: 'retry' },
+        });
+
+        return NextResponse.json({ message: 'Task retried', task_id: taskId });
+      }
+
+      case 'select-m3u8': {
+        const { m3u8Url } = rest;
+
+        if (!m3u8Url || typeof m3u8Url !== 'string') {
+          return NextResponse.json({ error: 'm3u8Url is required' }, { status: 400 });
+        }
+
+        const task = await getTask(taskId);
+
+        if (!task) {
+          return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+        }
+
+        await prisma.downloadTask.update({
+          where: { id: taskId },
+          data: {
+            m3u8Url,
+            status: 'pending',
+            errorMsg: '',
+          },
+        });
+
+        eventBus.emit('task:scraped', { taskId, m3u8URL: m3u8Url, title: task.videoInfo?.title || '' });
+
+        workerManager.send({
+          type: 'task:select-m3u8',
+          payload: { taskId, m3u8Url },
+        });
+
+        return NextResponse.json({ success: true, m3u8Url });
+      }
+
+      case 'start': {
+        const task = await getTask(taskId);
+
+        if (!task) {
+          return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+        }
+
+        if (task.status === 'downloading') {
+          return NextResponse.json({ error: 'Task is already downloading' }, { status: 400 });
+        }
+
+        workerManager.send({
+          type: 'task:action',
+          payload: { taskId, action: 'start' },
+        });
+
+        return NextResponse.json({ message: 'Download started', task_id: taskId });
+      }
+
+      default:
+        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Task action failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// DELETE /api/tasks/: id — Delete task
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
-  const taskId = parseInt(id, 10);
+  const taskId = parseTaskId(id);
 
-  if (isNaN(taskId)) {
+  if (taskId === null) {
     return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
   }
 
   try {
-    // 如果任务正在下载，先取消
-    const dm = getDownloadManager();
-    if (dm.isDownloading(taskId)) {
-      dm.cancelDownload(taskId);
-    }
+    workerManager.send({
+      type: 'task:action',
+      payload: { taskId, action: 'cancel' },
+    });
 
-    taskQueueManager.cancelAcquire('video', taskId);
-
-    // 读取任务信息，用于后续本地文件清理
     const task = await prisma.downloadTask.findUnique({
       where: { id: taskId },
       select: { filePath: true },
     });
 
     if (!task) {
-      // 任务不存在，视为已删除
       eventBus.emit('task:deleted', { taskId });
       return NextResponse.json({ success: true });
     }
@@ -105,21 +299,17 @@ export async function DELETE(
 
     const pathsToDelete: string[] = [];
 
-    // 视频文件
     if (task.filePath) {
       pathsToDelete.push(path.resolve(task.filePath));
     }
 
-    // 分片目录
     pathsToDelete.push(path.join(resolvedSegmentsPath, `task_${taskId}`));
 
     const deleteFailures: string[] = [];
 
     for (const p of pathsToDelete) {
-      // 尝试作为文件删除
       const fileResult = await safeDeleteFile(p);
       if (!fileResult.success) {
-        // 如果文件删除失败，尝试作为目录删除
         const dirResult = await safeDeleteDir(p);
         if (!dirResult.success) {
           deleteFailures.push(p);
@@ -128,7 +318,7 @@ export async function DELETE(
     }
 
     if (deleteFailures.length > 0) {
-      console.warn(`[TaskDelete] 任务 #${taskId}: 部分文件删除失败 — ${deleteFailures.join(', ')}`);
+      console.warn(`[TaskDelete] Task #${taskId}: partial file deletion failed — ${deleteFailures.join(', ')}`);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -137,19 +327,11 @@ export async function DELETE(
       });
     });
 
-    // 通知前端 SSE 流
     eventBus.emit('task:deleted', { taskId });
-
-    console.log(`[TaskDelete] 任务 #${taskId} 删除完成 — ${summarizeDeleteResults([
-      ...(await Promise.all(pathsToDelete.map(async (p) => {
-        return { path: p, success: !deleteFailures.includes(p) };
-      }))),
-    ])}`);
 
     return NextResponse.json({ success: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete task';
-    console.error(`[TaskDelete] 任务 #${taskId} 删除失败:`, message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

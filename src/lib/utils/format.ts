@@ -1,17 +1,12 @@
 /**
- * 格式化工具模块
  *
- * 提供时长、时间、数字等格式化功能。
  *
  * @example
  * formatDuration(3661)   // → "1h 1m"
  * formatDuration(125)    // → "2m 5s"
  * formatTime('2024-01-01T12:00:00.000Z')  // → "20:00:00.000"
  *
- * @param seconds - 秒数
- * @param options - 可选配置
- * @param options.zeroText - 当秒数为 0 或负数时的显示文本（默认 '—'）
- * @returns 格式化后的时长字符串
+ * @param options - optionalconfig
  */
 export function formatDuration(
   seconds: number,
@@ -34,13 +29,8 @@ export function formatDuration(
 }
 
 /**
- * 格式化 ISO 时间字符串为本地时间
  *
- * @param iso - ISO 8601 时间字符串
- * @param options - 可选配置
- * @param options.locale - 地区（默认 'zh-CN'）
- * @param options.showMs - 是否显示毫秒（默认 true）
- * @returns 格式化后的时间字符串
+ * @param options - optionalconfig
  */
 export function formatTime(
   iso: string,
@@ -57,12 +47,7 @@ export function formatTime(
   });
 }
 
-/**
- * 格式化日期为 YYYY-MM-DD 格式
- *
- * @param date - 日期对象或 ISO 字符串
- * @returns 格式化后的日期字符串
- */
+
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   const year = d.getFullYear();
@@ -71,12 +56,7 @@ export function formatDate(date: Date | string): string {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * 格式化数字（添加千分位分隔符）
- *
- * @param num - 数字
- * @returns 格式化后的字符串
- */
+
 export function formatNumber(num: number): string {
   return num.toLocaleString('en-US');
 }

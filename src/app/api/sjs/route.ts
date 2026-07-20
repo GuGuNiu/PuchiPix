@@ -5,13 +5,15 @@ import {
   checkinAllAccounts,
   buyThread,
   httpLogin,
+  performCheckinWithRetry,
+  checkinAllAccountsEnhanced,
+  getAntiCrawlerReport,
 } from '@/lib/sites/sjs-actions';
 import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** POST — 执行司机社论坛操作 */
 export async function POST(request: Request): Promise<NextResponse> {
   setLocaleFromHeaders(request.headers);
   try {
@@ -36,7 +38,26 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         const result = await performCheckin(accountId);
 
-        // 更新账户使用时间
+        const manager = getSiteAccountManager();
+        await manager.markUsed(accountId).catch(() => {});
+
+        return NextResponse.json({ success: true, result });
+      }
+
+      case 'checkinEnhanced': {
+        if (!accountId) {
+          return NextResponse.json(
+            { error: t('api.sjs.signMissingAccountId') },
+            { status: 400 },
+          );
+        }
+
+        const { maxRetries, enableJitter } = body;
+        const result = await performCheckinWithRetry(accountId, {
+          maxRetries: maxRetries ?? 3,
+          enableJitter: enableJitter ?? true,
+        });
+
         const manager = getSiteAccountManager();
         await manager.markUsed(accountId).catch(() => {});
 
@@ -45,6 +66,15 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       case 'checkinAll': {
         const results = await checkinAllAccounts();
+        return NextResponse.json({ success: true, results });
+      }
+
+      case 'checkinAllEnhanced': {
+        const { maxRetries, enableJitter } = body;
+        const results = await checkinAllAccountsEnhanced({
+          maxRetries: maxRetries ?? 3,
+          enableJitter: enableJitter ?? true,
+        });
         return NextResponse.json({ success: true, results });
       }
 
@@ -64,7 +94,6 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         const result = await buyThread(accountId, String(tid));
 
-        // 更新账户使用时间
         const manager = getSiteAccountManager();
         await manager.markUsed(accountId).catch(() => {});
 
@@ -81,7 +110,6 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         const manager = getSiteAccountManager();
 
-        // 按 ID 获取完整账户信息（含密码）
         const account = await manager.getAccountById(accountId);
         if (!account) {
           return NextResponse.json(
@@ -92,7 +120,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         const result = await httpLogin(account.username, account.password);
 
-        // 登录成功后保存 Cookie
+        // LoginSuccessafterSave cookie
         if (result.success && result.cookies) {
           await manager.saveAuthCookies(
             accountId,
@@ -111,7 +139,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         );
     }
   } catch (err) {
-    console.error('[API/sjs] POST 失败:', err);
+    console.error('[API/sjs] POST failed:', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to execute SJS action' },
       { status: 500 },
@@ -119,9 +147,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-/** GET — 获取司机社操作状态信息 */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
   try {
+    const { searchParams } = new URL(request.url);
+    const report = searchParams.get('report');
+
+    if (report === 'antiCrawler') {
+      const antiCrawlerReport = getAntiCrawlerReport();
+      return NextResponse.json({
+        report: antiCrawlerReport,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const manager = getSiteAccountManager();
     const accounts = await manager.getAccountsBySiteId('sjs');
 
@@ -134,10 +172,18 @@ export async function GET(): Promise<NextResponse> {
         lastLoginAt: a.lastLoginAt,
         lastUsedAt: a.lastUsedAt,
       })),
-      supportedActions: ['checkin', 'checkinAll', 'buy', 'login'],
+      supportedActions: [
+        'checkin',
+        'checkinEnhanced',
+        'checkinAll',
+        'checkinAllEnhanced',
+        'buy',
+        'login',
+      ],
+      antiCrawlerReport: getAntiCrawlerReport(),
     });
   } catch (err) {
-    console.error('[API/sjs] GET 失败:', err);
+    console.error('[API/sjs] GET failed:', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to get SJS status' },
       { status: 500 },

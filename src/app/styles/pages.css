@@ -363,6 +363,132 @@ border-color: var(--accent);
 color: var(--text-inverse);
 }
 
+/* ===== Unified Filter Bar (合并筛选器) ===== */
+.unified-filter-bar {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  gap: 0;
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.unified-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.unified-filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 20px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.unified-filter-item:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.unified-filter-item.active {
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.unified-filter-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.75;
+}
+
+.unified-filter-item.active .unified-filter-icon {
+  opacity: 1;
+}
+
+.unified-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.unified-filter-item.active .unified-filter-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: var(--text-inverse);
+}
+
+.unified-filter-divider {
+  width: 1px;
+  height: 60%;
+  min-height: 16px;
+  background: var(--border-light);
+  margin: 0 6px;
+  flex-shrink: 0;
+  align-self: center;
+  opacity: 0.8;
+}
+
+.unified-filter-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  width: 200px;
+  max-width: 200px;
+  flex-shrink: 0;
+}
+
+.unified-filter-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.unified-filter-search-input {
+  width: 100%;
+  padding: 3px 6px 3px 0;
+  font-size: 12px;
+  height: 24px;
+  line-height: 24px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text-primary);
+  outline: none;
+  font-family: inherit;
+}
+
+.unified-filter-search-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
 /* ===== Segmented Capsule ===== */
 .seg-capsule {
   display: inline-flex;

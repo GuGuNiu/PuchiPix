@@ -4,10 +4,7 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/**
- * 从 HTML 文本中提取 m3u8 URL
- *
- */
+
 function extractM3U8FromHtml(html: string): string | null {
   const playerMatch = html.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})\s*[;<]/);
   if (playerMatch) {
@@ -50,15 +47,9 @@ function extractM3U8FromHtml(html: string): string | null {
   return null;
 }
 
-/**
- * 使用 Playwright 爬虫获取 m3u8 URL（回退方案）
- *
- * 当目标站点使用 Cloudflare 等防护导致 fetch 失败时，
- * 通过真实浏览器绕过 TLS 指纹检测。
- *
- */
+
 async function scrapeM3U8WithPlaywright(url: string): Promise<string | null> {
-  const { getScraper } = await import('@/lib/scraper/scraper');
+  const { getScraper } = await import('@/lib/sites/scraper');
   const scraper = getScraper();
   const result = await scraper.scrape(url, 20000);
   return result.m3u8_url || null;
@@ -100,7 +91,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch (err) {
       clearTimeout(timeout);
       const isAbort = err instanceof Error && err.name === 'AbortError';
-      console.log(`[Preview] fetch 失败${isAbort ? '（超时）' : ''}，回退到 Playwright: ${url}`);
+      console.log(`[Preview] Fetch failed${isAbort ? ' (timeout)' : ''}, falling back to Playwright: ${url}`);
     }
 
     try {
@@ -114,7 +105,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     } catch (scrapeErr) {
       const message = scrapeErr instanceof Error ? scrapeErr.message : 'Scrape failed';
-      console.error(`[Preview] Playwright 爬取也失败: ${url} — ${message}`);
+      console.error(`[Preview] Playwright scrape also failed: ${url} — ${message}`);
       return NextResponse.json({ error: message }, { status: 502 });
     }
   } catch (error) {

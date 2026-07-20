@@ -3,7 +3,6 @@ import type { TranslationDict } from "../../types";
 /**
  * 前端 UI 文本 — 日本語
  *
- * 対象：共通 UI、ナビゲーション、ダッシュボード、ギャラリー管理、検索、設定、スニッフ、キャラ一覧
  */
 const jaJP: TranslationDict = {
   /* ─── 共通 ─── */
@@ -77,7 +76,7 @@ const jaJP: TranslationDict = {
   "dashboard.taskManagementDesc": "ダウンロードタスクの表示と管理",
   "dashboard.galleryShelf": "ギャラリー棚",
   "dashboard.galleryShelfDesc": "ダウンロード済みギャラリーを閲覧",
-  "dashboard.inputPlaceholder": "M3U8 リンクまたはサイト URL を入力すると自動識別してダウンロードします...\n複数リンクの入力に対応（1行1リンク）",
+  "dashboard.inputPlaceholder": "M3U8 リンクまたはサイト URL を入力すると自動識別してダウンロードします...\n複数リンクの入力に対応1行1リンク",
   "dashboard.pleaseInputLink": "リンクを入力してください",
   "dashboard.pleaseInputValidLink": "有効な HTTP(S) リンクを入力してください",
   "dashboard.galleryCreated": "ギャラリー #{id} を作成しました",
@@ -121,13 +120,13 @@ const jaJP: TranslationDict = {
   "gallery.category": "カテゴリ",
   "gallery.publishTime": "公開日時",
   "gallery.savePath": "保存先",
-  "gallery.imageList": "画像リスト（{count}）",
-  "gallery.videoList": "動画リスト（{count}）",
+  "gallery.imageList": "画像リスト{count}",
+  "gallery.videoList": "動画リスト{count}",
   "gallery.images": "{count} 枚の画像",
   "gallery.videos": "{count} 個の動画",
   "gallery.pageCount": "{count} ページ",
   "gallery.imagePage": "{page}ページ目 #{order}",
-  "gallery.confirmDelete": "ギャラリー #{id} を削除しますか？",
+  "gallery.confirmDelete": "ギャラリー #{id} を削除しますか",
   "gallery.deleted": "ギャラリー #{id} を削除しました",
   "gallery.deleteFailed": "削除失敗",
   "gallery.retryStarted": "ギャラリー #{id} のダウンロードを再開しました",
@@ -156,13 +155,13 @@ const jaJP: TranslationDict = {
   "gallery.zipRequiresLogin": "⚠ ログインが必要",
   "gallery.zipLinkCopied": "リンクをコピーしました",
   "gallery.zipPathCopied": "パスをコピーしました",
-  "gallery.zipPathLabel": "ZIP：",
-  "gallery.zipExtractLabel": "解凍：",
+  "gallery.zipPathLabel": "ZIP",
+  "gallery.zipExtractLabel": "解凍",
   "gallery.clickToCopy": "クリックでコピー",
 
   /* ─── 検索 ─── */
-  "search.placeholderGallery": "キーワードまたは完全な URL を貼り付け（/article/ /tag/ ページなど）...",
-  "search.placeholderVideo": "検索キーワードを入力（カンマ・スペース区切り対応）...",
+  "search.placeholderGallery": "キーワードまたは完全な URL を貼り付け/article/ /tag/ ページなど...",
+  "search.placeholderVideo": "検索キーワードを入力カンマ・スペース区切り対応...",
   "search.searching": "検索中...",
   "search.startSearch": "検索",
   "search.pleaseInputKeyword": "検索キーワードを入力してください",
@@ -196,8 +195,8 @@ const jaJP: TranslationDict = {
   "search.colTime": "時間",
   "search.emptyGallery": "キーワードまたは URL を入力して検索を開始",
   "search.emptyVideo": "キーワードを入力して検索を開始",
-  "search.currentSiteGallery": "現在のサイト：{name} · {url}（/article/ /tag/ /category/ URL 対応）",
-  "search.currentSiteVideo": "現在のサイト：{name} · {url}",
+  "search.currentSiteGallery": "現在のサイト{name} · {url}/article/ /tag/ /category/ URL 対応",
+  "search.currentSiteVideo": "現在のサイト{name} · {url}",
   "search.resultsAsCards": "検索結果はカードで表示されます",
   "search.statusPending": "待機中",
   "search.statusRunning": "実行中",
@@ -231,7 +230,7 @@ const jaJP: TranslationDict = {
   "sniff.sniffStarted": "スニッフを開始しました",
   "sniff.sniffStopped": "スニッフを停止しました",
   "sniff.pleaseInputLink": "リンクを入力してください",
-  "sniff.sniffRunning": "スニッフ実行中... ターゲット：{url}",
+  "sniff.sniffRunning": "スニッフ実行中... ターゲット{url}",
   "sniff.snifferIdle": "スニッファー待機中",
   "sniff.capturedLinks": "キャプチャした M3U8 リンク",
   "sniff.foundStreams": "{count} 個の動画ストリームを発見",
@@ -284,7 +283,7 @@ const jaJP: TranslationDict = {
   "createTask.matchFallback": "一致",
   "createTask.galleryLabel": "ギャラリー #{id}",
   "createTask.taskLabel": "タスク #{id}",
-  "createTask.duplicateRecord": "⚠️ データベースにこのレコードが既に存在します（{matchLabel}）\n{idLabel}、ステータス: {status}\n{urlInfo}",
+  "createTask.duplicateRecord": "⚠ データベースにこのレコードが既に存在します{matchLabel}\n{idLabel}、ステータス: {status}\n{urlInfo}",
   "createTask.unknownStatus": "不明",
   "createTask.existingUrl": "既存 URL: {url}",
   "createTask.createFailed": "タスク作成失敗",
@@ -298,7 +297,6 @@ const jaJP: TranslationDict = {
   "createTask.creating": "作成中...",
   "createTask.createTask": "タスク作成",
 
-  /* ─── 検索（補足） ─── */
   "search.scrape": "スクレイプ",
   "search.scrapeThisVideo": "この動画をスクレイプ",
   "search.loadingData": "データを読み込み中...",
@@ -339,7 +337,7 @@ const jaJP: TranslationDict = {
   "batchSearch.total": "合計",
   "batchSearch.all": "すべて",
   "batchSearch.candidates": "{count} 件の候補",
-  "batchSearch.progress": "進捗：",
+  "batchSearch.progress": "進捗",
   "batchSearch.copyNotFound": "見つからないをコピー",
   "batchSearch.retryFailed": "失敗を再試行",
   "batchSearch.hideLogs": "ログを非表示",
@@ -349,10 +347,10 @@ const jaJP: TranslationDict = {
   "batchSearch.colScore": "スコア",
   "batchSearch.colStatus": "ステータス",
   "batchSearch.colTask": "タスク",
-  "batchSearch.complete": "一括検索完了：ダウンロード {downloaded}、見つからない {notFound}、失敗 {failed}",
+  "batchSearch.complete": "一括検索完了ダウンロード {downloaded}、見つからない {notFound}、失敗 {failed}",
   "batchSearch.started": "一括検索を開始しました。{count} 件のタイトル",
   "batchSearch.copied": "{count} 件のタイトルをクリップボードにコピーしました",
-  "batchSearch.placeholder": "動画タイトルを1行に1つずつ貼り付け、例：\n美しいメイドの秘密の生活\n天使の誘惑\n調教日記",
+  "batchSearch.placeholder": "動画タイトルを1行に1つずつ貼り付け、例\n美しいメイドの秘密の生活\n天使の誘惑\n調教日記",
   "batchSearch.pleaseInputTitle": "タイトルを入力してください",
   "batchSearch.noValidTitle": "有効なタイトルが見つかりません",
   "batchSearch.cancelled": "一括検索をキャンセルしました",
@@ -367,7 +365,7 @@ const jaJP: TranslationDict = {
   "taskSettings.maxConcurrentTasks": "最大同時タスク数",
   "taskSettings.maxConcurrentTasksDesc": "同時実行する動画/ギャラリーダウンロードタスクの上限",
   "taskSettings.maxScrapingTasks": "最大スクレイプタスク数",
-  "taskSettings.maxScrapingTasksDesc": "同時実行するスクレイプ（識別）タスクの上限",
+  "taskSettings.maxScrapingTasksDesc": "同時実行するスクレイプ識別タスクの上限",
   "taskSettings.sniffMaxConcurrentTasks": "スニッフ最大同時タスク数",
   "taskSettings.maxSniffTasksDesc": "同時実行するスニッフタスクの上限",
   "taskSettings.tsSegmentConcurrent": "TS セグメント同時数",
@@ -382,6 +380,24 @@ const jaJP: TranslationDict = {
   "taskSettings.save": "保存",
   "taskSettings.loadFailed": "設定の読み込みに失敗しました",
   "taskSettings.saveFailed": "設定の保存に失敗しました",
+
+  /* ─── コンソールログ ─── */
+  "console.noTaskLogs": "タスクログはありません",
+  "console.fetchFailed": "ログの取得に失敗しました",
+
+  /* ─── DAG ノード状態 ─── */
+  "dag.nodeState.pending": "待機中",
+  "dag.nodeState.ready": "準備完了",
+  "dag.nodeState.queued": "キュー待ち",
+  "dag.nodeState.allocated": "割り当て済み",
+  "dag.nodeState.running": "実行中",
+  "dag.nodeState.paused": "一時停止",
+  "dag.nodeState.verifying": "検証中",
+  "dag.nodeState.resumeVerify": "再開検証",
+  "dag.nodeState.completed": "完了",
+  "dag.nodeState.failed": "失敗",
+  "dag.nodeState.cancelled": "キャンセル済み",
+  "dag.nodeState.timeout": "タイムアウト",
 };
 
 export default jaJP;

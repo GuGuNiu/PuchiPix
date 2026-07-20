@@ -2,14 +2,14 @@ export type { SiteProvider, SiteConfig, SiteSearchResult, SiteInfo, GallerySiteP
 
 export { BaseSiteProvider } from './base-provider';
 
-// 站点注册中心
+// SiteRegistercenter
 export { getSiteRegistry } from './site-registry';
 
-// 站点模块配置
+// Sitemoduleconfig
 export { SITE_MODULES, ALL_SITE_MODULES, ENABLED_SITE_MODULES, getSiteModule } from './site-modules';
 export type { SiteModuleConfig } from './site-modules';
 
-// 站点提供者
+// SiteProvider
 export { KanavProvider } from './providers/kanav-provider';
 export { AimeiziziProvider } from './providers/aimeizizi-provider';
 export { extractDomainFromUrl } from './providers/aimeizizi/constants';
@@ -31,8 +31,6 @@ export {
   type LoginResult,
 } from './sjs-actions';
 
-// 账户管理
 export { getSiteAccountManager, type CookieData, type AccountInfo, type AccountStatus } from './site-account-manager';
 
-// 屏蔽词库
 export { getBlocklistService } from './blocklist-service';

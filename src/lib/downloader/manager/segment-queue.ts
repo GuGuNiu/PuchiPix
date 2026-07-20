@@ -4,9 +4,8 @@ import { downloadSegment, generateTSID } from '../segment-downloader';
 import type { ActiveDownload, QueueItem } from './index';
 
 export interface SegmentQueueDeps {
-  /** 获取最大并发数 */
   getMaxConcurrent: () => number;
-  /** 进度回调 */
+  /** ProgressCallback */
   onProgress: (
     taskId: number,
     progress: number,
@@ -28,17 +27,15 @@ export class SegmentQueue {
     private deps: SegmentQueueDeps,
   ) {}
 
-  /** 向队列添加分片 */
+  /** ToQueueAddsegment */
   push(item: QueueItem): void {
     this.queue.push(item);
   }
 
-  /** 从队列中移除指定任务的所有待处理分片 */
   removeByTask(taskId: number): void {
     this.queue = this.queue.filter((q) => q.taskId !== taskId);
   }
 
-  /** 检查队列中是否有指定任务的待处理项 */
   hasPending(taskId: number): boolean {
     return this.queue.some((q) => q.taskId === taskId);
   }
@@ -56,9 +53,7 @@ export class SegmentQueue {
     this.queue = [];
   }
 
-  /**
-   * 处理下载队列：从队列中取出分片，在并发限制内启动下载。
-   */
+  
   processQueue(): void {
     if (this.stopped) return;
 
@@ -75,9 +70,7 @@ export class SegmentQueue {
     }
   }
 
-  /**
-   * 下载单个分片
-   */
+  
   async downloadOneSegment(
     taskId: number,
     segment: M3U8Segment,
@@ -107,7 +100,7 @@ export class SegmentQueue {
         download.failedSegments.set(segment.index, result.error);
         console.error(
           `[Download] Task ${taskId}: 分片 #${segment.index} (${tsid}) 下载失败 ` +
-          `（尝试 ${result.attempts} 次）: ${result.error.message}`,
+          `尝试 ${result.attempts} 次: ${result.error.message}`,
         );
       } else {
         download.completedSegments.add(segment.index);
@@ -143,9 +136,7 @@ export class SegmentQueue {
     }
   }
 
-  /**
-   * 等待指定数量的分片完成。
-   */
+  
   async waitForSegments(taskId: number, count: number): Promise<void> {
     const download = this.activeDownloads.get(taskId);
     if (!download) return;
@@ -167,7 +158,7 @@ export class SegmentQueue {
   }
 
   /**
-   * 等待全部分片下载完成。
+   * AwaitallsegmentDownloadComplete。
    */
   async waitForAllSegments(taskId: number): Promise<void> {
     const download = this.activeDownloads.get(taskId);

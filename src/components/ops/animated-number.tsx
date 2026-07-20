@@ -2,15 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/**
- * 数字滚动动画组件
- *
- * 数字变化时平滑过渡到目标值，监控面板风格的数字显示。
- *
- * @param value - 目标数值
- * @param decimals - 小数位数
- * @param duration - 动画持续时间 (ms)
- */
+
 interface AnimatedNumberProps {
   value: number;
   decimals?: number;
@@ -32,7 +24,7 @@ export function AnimatedNumber({ value, decimals = 0, duration = 600 }: Animated
     const tick = (now: number): void => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      // ease-out cubic
+      // Ease-out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
       const current = start + diff * eased;
       setDisplay(current);
@@ -56,11 +48,7 @@ export function AnimatedNumber({ value, decimals = 0, duration = 600 }: Animated
   return <span style={{ display: "inline-block" }}>{formatted}</span>;
 }
 
-/**
- * 数字滚动入场动画包装器
- *
- * 结合卡片入场动画，先淡入再开始数字滚动。
- */
+
 type IconProps = { size?: number; strokeWidth?: number };
 
 export function AnimatedCounter({ value, label, icon: Icon, color, unit }: {

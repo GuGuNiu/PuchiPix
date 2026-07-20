@@ -2,11 +2,7 @@
 
 import { useState, useEffect } from "react";
 
-/**
- * 数据流指示器组件
- *
- * 可视化表示实时数据流状态，5 条竖线依次跳动动画。
- */
+
 export function DataStream(): React.JSX.Element {
   return (
     <div className="ops-data-stream">
@@ -17,11 +13,7 @@ export function DataStream(): React.JSX.Element {
   );
 }
 
-/**
- * 硬盘活动指示器组件
- *
- * 3 个圆点水平依次跳动，表示磁盘读写活动。
- */
+
 export function DiskActivity(): React.JSX.Element {
   return (
     <div className="ops-disk-activity">
@@ -32,11 +24,7 @@ export function DiskActivity(): React.JSX.Element {
   );
 }
 
-/**
- * 实时速度图表组件
- *
- * 使用 CSS 柱状图展示下载速度历史，渐变填充 + 交互。
- */
+
 export function SpeedGraph({ values }: { values: number[] }): React.JSX.Element {
   const max = Math.max(...values, 1);
   const latest = values[values.length - 1] ?? 0;
@@ -88,28 +76,21 @@ export function SpeedGraph({ values }: { values: number[] }): React.JSX.Element 
   );
 }
 
-/**
- * 站点状态指示器
- *
- * 圆形指示灯 + 环形扩散动画，表示站点在线/离线状态。
- */
+
 export function SiteIndicator({ online }: { online: boolean }): React.JSX.Element {
   return (
     <div className={`ops-site-indicator ${online ? "online" : "offline"}`} />
   );
 }
 
-/**
- * 实时速度历史 hook
- *
- * 生成最近 N 个数据点的速度数组用于图表展示。
- */
+
 export function useSpeedHistory(currentSpeed: number, maxPoints = 60): number[] {
   const [history, setHistory] = useState<number[]>(() =>
     Array.from({ length: maxPoints }, () => 0)
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistory((prev) => {
       const next = [...prev.slice(1), currentSpeed];
       return next;

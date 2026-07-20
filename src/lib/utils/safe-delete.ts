@@ -1,7 +1,10 @@
 import fs from 'fs';
+import { loggers } from '@/lib/core/infra/logger';
 import { logT } from '@/lib/i18n/server';
 import { retry } from './delay';
 
+
+const logger = loggers.safeDelete();
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 500;
 
@@ -30,7 +33,7 @@ export async function safeDeleteFile(filePath: string): Promise<DeleteResult> {
         baseDelay: BASE_DELAY_MS,
         onRetry: (attempt, error) => {
           const msg = error instanceof Error ? error.message : String(error);
-          console.warn(logT('log.safeDelete.fileFailed', { retry: attempt + 1, max: MAX_RETRIES, path: filePath, msg }));
+          logger.warnT('log.safeDelete.fileFailed', { retry: attempt + 1, max: MAX_RETRIES, path: filePath, msg });
         },
       },
     );
@@ -40,7 +43,7 @@ export async function safeDeleteFile(filePath: string): Promise<DeleteResult> {
       return { path: filePath, success: true };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(logT('log.safeDelete.fileFinalFailed', { path: filePath, msg }));
+    logger.errorT('log.safeDelete.fileFinalFailed', { path: filePath, msg });
     return { path: filePath, success: false, error: msg };
   }
 }
@@ -73,7 +76,7 @@ export async function safeDeleteDir(dirPath: string): Promise<DeleteResult> {
         baseDelay: BASE_DELAY_MS,
         onRetry: (attempt, error) => {
           const msg = error instanceof Error ? error.message : String(error);
-          console.warn(logT('log.safeDelete.dirFailed', { retry: attempt + 1, max: MAX_RETRIES, path: dirPath, msg }));
+          logger.warnT('log.safeDelete.dirFailed', { retry: attempt + 1, max: MAX_RETRIES, path: dirPath, msg });
         },
       },
     );
@@ -83,7 +86,7 @@ export async function safeDeleteDir(dirPath: string): Promise<DeleteResult> {
       return { path: dirPath, success: true };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(logT('log.safeDelete.dirFinalFailed', { path: dirPath, msg }));
+    logger.errorT('log.safeDelete.dirFinalFailed', { path: dirPath, msg });
     return { path: dirPath, success: false, error: msg };
   }
 }

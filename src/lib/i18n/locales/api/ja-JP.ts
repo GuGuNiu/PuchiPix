@@ -11,7 +11,7 @@ const jaJP: TranslationDict = {
   "api.sjs.missingAction": "action パラメータが不足しています",
   "api.sjs.signMissingAccountId": "サインインには accountId パラメータが必要です",
   "api.sjs.buyMissingAccountId": "投稿購入には accountId パラメータが必要です",
-  "api.sjs.buyMissingTid": "投稿購入には tid パラメータ（投稿 ID）が必要です",
+  "api.sjs.buyMissingTid": "投稿購入には tid パラメータ投稿 IDが必要です",
   "api.sjs.loginMissingAccountId": "ログインには accountId パラメータが必要です",
 
   "api.search.missingJobId": "jobId を指定してください",
@@ -50,9 +50,27 @@ const jaJP: TranslationDict = {
 
   "api.blocklist.addFailed": "追加失敗",
 
+// ログ
+  "api.logs.systemReady": "システム準備完了、タスク待機中...",
+  "api.logs.taskNumber": "タスク #{id}",
+  "api.logs.fetchFailed": "ログ取得失敗",
+
+  // ギャラリー（補足）
+  "api.gallery.unsupportedScrape": "サイト {site} はギャラリースクレイピングをサポートしていません",
+  "api.gallery.allDomainsFailed": "すべてのドメインでスクレイピングに失敗しました",
+
+  // タスク（補足）
+  "api.tasks.multipleM3u8Detected": "{count} 個の M3U8 アドレスを検出しました、選択してください",
+  "api.tasks.unsupportedListScrape": "プロバイダーはリストページのスクレイピングをサポートしていません",
+
+  // 共通
   "api.characterDb.syncRunning": "同期タスクが実行中です",
   "api.common.internalError": "サーバー内部エラー",
   "api.common.missingParams": "必須パラメータが不足しています: {params}",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} が見つかりません",
+  "api.dag.invalidAction": "無効な操作: {action}",
 };
 
 export default jaJP;

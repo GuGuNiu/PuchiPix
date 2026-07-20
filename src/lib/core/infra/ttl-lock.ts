@@ -1,34 +1,26 @@
 import { getOrCreateGlobal } from './global-singleton';
 
-/** 锁句柄 — 获取锁后返回，用于释放和续期 */
 export interface LockHandle {
   lockId: string;
   key: string;
   expiresAt: number;
-  /** 持有者标识，用于可重入判断 */
   owner?: string;
-  /** 当前重入深度（1 = 首次获取，2 = 一次重入，依此类推） */
   reentrancy?: number;
 }
 
-/** 获取锁的选项 */
+/** GetLock option */
 export interface AcquireOptions {
-  /** TTL 毫秒数，默认 30000（30s） */
   ttl?: number;
-  /** 等待超时毫秒数，0 表示不等待，默认 0 */
   waitTimeout?: number;
-  /** 持有者标识，相同 owner 的重复 acquire 视为重入 */
   owner?: string;
 }
 
-/** 锁统计信息 */
 export interface LockStats {
   activeLocks: number;
   totalWaiters: number;
   reentrantLocks: number;
 }
 
-/** withLock 获取失败时抛出 */
 export class LockAcquisitionError extends Error {
   readonly key: string;
   constructor(key: string) {
@@ -41,7 +33,6 @@ export class LockAcquisitionError extends Error {
 interface LockEntry {
   key: string;
   owner?: string;
-  /** 所有活跃的 lockId 集合，支持可重入引用计数 */
   lockIds: Set<string>;
   expiresAt: number;
   createdAt: number;
@@ -56,17 +47,13 @@ interface WaiterEntry {
 
 class TTLQueueLock {
   private locks: Map<string, LockEntry> = new Map();
-  /** 每个 key 的等待队列，FIFO 公平调度 */
   private waiters: Map<string, WaiterEntry[]> = new Map();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private readonly cleanupInterval = 5000;
 
   /**
-   * 尝试获取锁。
+   * TryGetLock。
    *
-   * - key 未被锁定（或锁已过期）：立即获取
-   * - key 已被锁定但 owner 相同：重入获取，引用计数 +1
-   * - key 已被锁定且 owner 不同：等待或返回 null
    */
   async acquire(key: string, options: AcquireOptions = {}): Promise<LockHandle | null> {
     const ttl = options.ttl ?? 30000;
@@ -82,10 +69,8 @@ class TTLQueueLock {
   }
 
   /**
-   * 释放锁。
+   * Release lock。
    *
-   * 重入锁需要多次 release 直到引用计数归零才会真正释放。
-   * 同一 lockId 重复 release 会被安全忽略。
    */
   release(key: string, lockId: string): boolean {
     const entry = this.locks.get(key);
@@ -108,9 +93,7 @@ class TTLQueueLock {
     return this.release(handle.key, handle.lockId);
   }
 
-  /**
-   * 续期锁（延长 TTL）。
-   */
+  
   refresh(key: string, lockId: string, ttl: number): boolean {
     const entry = this.locks.get(key);
     if (!entry || !entry.lockIds.has(lockId)) {
@@ -120,9 +103,7 @@ class TTLQueueLock {
     return true;
   }
 
-  /**
-   * 续期锁（通过 handle）。
-   */
+  
   refreshHandle(handle: LockHandle, ttl: number): boolean {
     return this.refresh(handle.key, handle.lockId, ttl);
   }
@@ -172,11 +153,7 @@ class TTLQueueLock {
     };
   }
 
-  /**
-   * RAII 风格：自动获取 → 执行 → 释放。
-   *
-   * 获取失败时抛出 LockAcquisitionError。
-   */
+  
   async withLock<T>(
     key: string,
     options: AcquireOptions,
@@ -193,9 +170,7 @@ class TTLQueueLock {
     }
   }
 
-  /**
-   * RAII 风格（静默版）：获取失败返回 null 而非抛出。
-   */
+  
   async tryWithLock<T>(
     key: string,
     options: AcquireOptions,
@@ -235,10 +210,8 @@ class TTLQueueLock {
   }
 
   /**
-   * 同步尝试获取锁（含重入判断）。
+   * TryGetLock internalImplementation。
    *
-   * 重入时续期 TTL 为 max(当前剩余, 新 ttl)，
-   * 避免重入操作因原 TTL 过期而丢失锁。
    */
   private tryAcquire(key: string, ttl: number, owner?: string): LockHandle | null {
     const now = Date.now();
@@ -279,11 +252,7 @@ class TTLQueueLock {
     return { lockId, key, owner, expiresAt, reentrancy: 1 };
   }
 
-  /**
-   * 加入等待队列，锁释放后通过 Promise 立即通知。
-   *
-   * 事件驱动方式在锁释放后 0ms 唤醒等待者。
-   */
+  
   private enqueueWaiter(
     key: string,
     ttl: number,
@@ -325,12 +294,7 @@ class TTLQueueLock {
     });
   }
 
-  /**
-   * 锁释放后唤醒队列首部的等待者。
-   *
-   * FIFO 公平调度：先排队的先获取锁。
-   * 跳过已超时的等待者。
-   */
+  
   private notifyWaiter(key: string): void {
     const queue = this.waiters.get(key);
     if (!queue || queue.length === 0) return;
@@ -350,8 +314,6 @@ class TTLQueueLock {
         return;
       }
 
-      // 极端情况：锁在释放和通知之间被其他同步调用获取
-      // 将等待者放回队列头部，等待下次通知
       queue.unshift(waiter);
       this.waiters.set(key, queue);
       return;
@@ -374,10 +336,8 @@ class TTLQueueLock {
 }
 
 /**
- * HMR 安全的全局单例导出。
+ * HMR security globalSingletonExport。
  *
- * 使用 globalThis 存储实例，确保 HMR 热重载时不会重新创建 TTLQueueLock，
- * 从而保留活跃锁、等待者队列和清理定时器。
  */
 export const ttlLock = getOrCreateGlobal('__puchipix_ttl_lock__', () => {
   const lock = new TTLQueueLock();

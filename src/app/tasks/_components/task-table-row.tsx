@@ -51,9 +51,10 @@ export function TaskTableRow({
   const isIdentifying = task.Status === "scraping" || task.Status === "scrape_pending";
   const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending";
   const canStart = !isGallery && !isSniff
-    ? (task.Status === "pending" || task.Status === "paused")
-    : (task.Status === "pending" || task.Status === "scrape_pending" || task.Status === "download_pending");
+    ? (task.Status === "pending" || task.Status === "paused" || task.Status === "failed" || task.Status === "cancelled")
+    : (task.Status === "pending" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "paused" || task.Status === "failed" || task.Status === "scraping");
   const canPause = !isGallery && !isSniff && task.Status === "downloading";
+  const canPauseGallery = isGallery && (task.Status === "scraping" || task.Status === "downloading" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "pending");
   const canCancel = !isGallery && !isSniff &&
     (task.Status === "downloading" ||
       task.Status === "paused" ||
@@ -284,7 +285,7 @@ export function TaskTableRow({
                 <Play size={14} />
               </button>
             )}
-            {canPause && (
+            {(canPause || canPauseGallery) && (
               <button
                 className="btn btn-warning btn-sm"
                 onClick={(e) => { e.stopPropagation(); onAction(task, "pause"); }}

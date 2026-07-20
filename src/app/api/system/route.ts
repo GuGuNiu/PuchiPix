@@ -1,18 +1,21 @@
 import { NextResponse } from 'next/server';
+import { dagSystem } from '@/lib/core/orchestrator/dag/init';
+import { dagConfig } from '@/lib/core/orchestrator/dag/config';
+import { dagOrchestrator } from '@/lib/core/orchestrator/dag/orchestrator';
+import { schedulerEngine } from '@/lib/core/orchestrator/scheduler-engine';
+import { slotPool } from '@/lib/core/orchestrator/slot/pool';
 
 export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
 
 export async function GET(): Promise<NextResponse> {
-  const mem = process.memoryUsage();
-
   return NextResponse.json({
-    memory: {
-      alloc_mb: Math.round(mem.heapUsed / (1024 * 1024)),
-      sys_mm: Math.round(mem.rss / (1024 * 1024)),
-      total_mb: Math.round(mem.heapTotal / (1024 * 1024)),
+    dag: {
+      initialized: dagSystem.initialized,
+      enabled: dagConfig.enabled,
+      taskTypes: Array.from(dagConfig.taskTypes),
     },
-    uptime: process.uptime(),
-    timestamp: Date.now(),
+    scheduler: schedulerEngine.getQueueStats(),
+    slotPool: slotPool.getSnapshot(),
+    dagStats: dagOrchestrator.getStats(),
   });
 }

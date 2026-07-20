@@ -1,10 +1,7 @@
-/**
- * 角色识别库入口
- *
- * 导出所有类型和服务
+/*
+ * Character DB Module Exports - v2
+ * TypeExport
  */
-
-// 类型导出
 export type {
   ContentCategory,
   DataSource,
@@ -22,29 +19,30 @@ export type {
 
 export { GAME_LABELS } from './types';
 
-// 服务导出
+// ServiceExport
 export {
   CharacterDBService,
   getCharacterDBService,
+  getCharacterDBServiceAsync,
   resetCharacterDBService,
 } from './character-db-service';
 export type { CharacterDBConfig } from './character-db-service';
 
-// 爬虫导出
+// Crawlerexport
 export {
   BWikiCrawler,
   getBWikiCrawler,
   type BWikiCrawlerConfig,
 } from './crawlers/bwiki-crawler';
 
-// 同步调度器导出
+// SyncschedulerExport
 export {
   CharacterDBScheduler,
   getCharacterDBScheduler,
   type SchedulerConfig,
-} from './sync/scheduler';
+} from './scheduler';
 
-// 拼音匹配器导出
+// Pinyin matcherexport
 export {
   PinyinMatcher,
   getPinyinMatcher,
@@ -52,7 +50,7 @@ export {
   type PinyinMatcherConfig,
 } from './utils/pinyin-matcher';
 
-// 别名库导出
+// Alias libraryexport
 export {
   AliasLibrary,
   getAliasLibrary,

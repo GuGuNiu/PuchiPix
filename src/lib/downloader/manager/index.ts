@@ -6,9 +6,9 @@ import { fetchM3U8Content, parseM3U8 } from '../m3u8-parser';
 import type { M3U8Segment, M3U8Playlist } from '../m3u8-parser';
 import { mergeSegments, verifySegments, cleanupSegments } from '../merger';
 import type { MergeResult } from '../merger';
-import { transcodeTS, probeDuration, probeResolution } from '@/lib/transcoder/ffmpeg';
+import { transcodeTS, probeDuration, probeResolution } from '@/lib/transcoder';
 import { eventBus } from '@/lib/core/infra/event-bus';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { taskQueueManager } from '@/lib/core/orchestrator/task/queue-manager';
 import { sanitizeFilename } from '@/lib/utils';
 
 export interface ActiveDownload {
@@ -134,7 +134,7 @@ export class DownloadManager {
     const referer = task.URL && !task.URL.endsWith('.m3u8') ? task.URL : '';
 
     try {
-      console.log(`[Download] Task ${task.ID}: 正在获取 M3U8 播放列表...`);
+      console.log(`[Download] Task ${task.ID}: Fetching M3U8 playlist...`);
       const m3u8Content = await fetchM3U8Content(m3u8URL, referer);
       const playlist = parseM3U8(m3u8Content, m3u8URL);
 
@@ -145,7 +145,7 @@ export class DownloadManager {
         if (!variantURL) {
           throw new Error('No valid variant found in master playlist');
         }
-        console.log(`[Download] Task ${task.ID}: 选择了变体 ${variantURL}`);
+        console.log(`[Download] Task ${task.ID}: Selected variant: ${variantURL}`);
         const variantContent = await fetchM3U8Content(variantURL, referer);
         const variantPlaylist = parseM3U8(variantContent, variantURL);
         segments = variantPlaylist.segments;
@@ -156,7 +156,7 @@ export class DownloadManager {
       if (segments.length === 0) {
         throw new Error('No segments found in M3U8 playlist');
       }
-      console.log(`[Download] Task ${task.ID}: 共 ${segments.length} 个分片需要下载`);
+      console.log(`[Download] Task ${task.ID}: ${segments.length} segments to download`);
 
       const download: ActiveDownload = {
         taskId: task.ID,
@@ -174,7 +174,6 @@ export class DownloadManager {
 
       this.activeDownloads.set(task.ID, download);
 
-      // 首屏优先：先下载前 10%（至少 2 个）分片
       const firstScreenCount = Math.max(2, Math.ceil(segments.length * 0.1));
       const firstScreen = segments.slice(0, firstScreenCount);
       const remaining = segments.slice(firstScreenCount);
@@ -196,58 +195,58 @@ export class DownloadManager {
       await this.segQueue.waitForAllSegments(task.ID);
 
       if (download.status === 'cancelled') {
-        console.log(`[Download] Task ${task.ID}: 下载已取消`);
+        console.log(`[Download] Task ${task.ID}: Download cancelled`);
         return;
       }
 
       const failedCount = download.failedSegments.size;
       const completedCount = download.completedSegments.size;
       console.log(
-        `[Download] Task ${task.ID}: 下载完成 — 成功 ${completedCount}/${download.totalSegments}` +
-        (failedCount > 0 ? `，失败 ${failedCount}` : ''),
+        `[Download] Task ${task.ID}: Download completed — success ${completedCount}/${download.totalSegments}` +
+        (failedCount > 0 ? `, failed ${failedCount}` : ''),
       );
 
       if (failedCount > 0) {
         const failedDetails = Array.from(download.failedSegments.entries())
-          .map(([idx, err]) => `  分片 #${idx}: ${err.message}`)
+          .map(([idx, err]) => `  Segment #${idx}: ${err.message}`)
           .join('\n');
         throw new Error(
-          `下载不完整：${failedCount} 个分片下载失败（共 ${download.totalSegments} 个分片）\n${failedDetails}`,
+          `Incomplete download, ${failedCount} segments failed out of ${download.totalSegments} total\n${failedDetails}`,
         );
       }
 
       const verification = verifySegments(segDir, download.totalSegments);
       if (!verification.valid) {
         const missingStr = verification.missing.length > 0
-          ? `缺失分片序号: ${verification.missing.join(', ')}`
+          ? `Missing segment indices: ${verification.missing.join(', ')}`
           : '';
         const emptyStr = verification.emptyFiles.length > 0
-          ? `空文件: ${verification.emptyFiles.join(', ')}`
+          ? `Empty files: ${verification.emptyFiles.join(', ')}`
           : '';
         throw new Error(
-          `分片校验失败 — 期望 ${download.totalSegments} 个，实际 ${verification.actualCount} 个` +
+          `Segment verification failed — expected ${download.totalSegments}, actual ${verification.actualCount}` +
           (missingStr ? `\n${missingStr}` : '') +
           (emptyStr ? `\n${emptyStr}` : ''),
         );
       }
 
       console.log(
-        `[Download] Task ${task.ID}: 分片校验通过 — ${verification.actualCount} 个分片，` +
-        `总大小 ${(verification.totalSize / 1024 / 1024).toFixed(2)} MB`,
+        `[Download] Task ${task.ID}: Segment verification passed — ${verification.actualCount} segments, ` +
+        `total size ${(verification.totalSize / 1024 / 1024).toFixed(2)} MB`,
       );
 
-      console.log(`[Download] Task ${task.ID}: 正在合并 TS 分片...`);
+      console.log(`[Download] Task ${task.ID}: Merging TS segments...`);
       this.emitProgress(task.ID, 95, completedCount, download.totalSegments, 'downloading');
       const mergeResult: MergeResult = await mergeSegments(segDir, tsOutputPath);
       console.log(
-        `[Download] Task ${task.ID}: 合并完成 — ${mergeResult.totalFiles} 个文件，` +
+        `[Download] Task ${task.ID}: Merge completed — ${mergeResult.totalFiles} files, ` +
         `${(mergeResult.totalSize / 1024 / 1024).toFixed(2)} MB`,
       );
 
-      console.log(`[Download] Task ${task.ID}: 正在转码为 MP4...`);
+      console.log(`[Download] Task ${task.ID}: Transcoding to MP4...`);
       this.emitProgress(task.ID, 97, completedCount, download.totalSegments, 'transcoding');
       await transcodeTS(segDir, mp4OutputPath);
-      console.log(`[Download] Task ${task.ID}: MP4 转码完成 — ${mp4OutputPath}`);
+      console.log(`[Download] Task ${task.ID}: MP4 transcoding completed — ${mp4OutputPath}`);
 
       try {
         if (fs.existsSync(tsOutputPath)) {
@@ -255,7 +254,7 @@ export class DownloadManager {
         }
       } catch {}
 
-      console.log(`[Download] Task ${task.ID}: 正在探测视频信息...`);
+      console.log(`[Download] Task ${task.ID}: Probing video info...`);
       this.emitProgress(task.ID, 99, completedCount, download.totalSegments, 'transcoding');
       const durationSeconds = await probeDuration(mp4OutputPath).catch(() => 0);
       const resolution = await probeResolution(mp4OutputPath).catch(() => '');
@@ -264,8 +263,8 @@ export class DownloadManager {
       const durationMinutes = Math.round((durationSeconds / 60) * 10) / 10;
 
       console.log(
-        `[Download] Task ${task.ID}: 视频信息 — 分辨率 ${resolution}, ` +
-        `时长 ${durationMinutes} 分钟, 大小 ${(fileSize / 1024 / 1024).toFixed(2)} MB`,
+        `[Download] Task ${task.ID}: Video info — resolution ${resolution}, ` +
+        `duration ${durationMinutes} min, size ${(fileSize / 1024 / 1024).toFixed(2)} MB`,
       );
 
       await prisma.videoInfo.upsert({
@@ -305,15 +304,15 @@ export class DownloadManager {
       });
 
       await cleanupSegments(segDir).catch(() => {
-        console.warn(`[Download] Task ${task.ID}: 清理临时文件失败（非致命）`);
+        console.warn(`[Download] Task ${task.ID}: Failed to clean up temp files (non-fatal)`);
       });
 
       this.emitProgress(task.ID, 100, download.totalSegments, download.totalSegments, 'completed');
       eventBus.emit('task:completed', { taskId: task.ID, title: task.VideoInfo?.Title });
-      console.log(`[Download] Task ${task.ID}: ✅ 下载任务全部完成`);
+      console.log(`[Download] Task ${task.ID}: Download task completed`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[Download] Task ${task.ID}: ❌ 下载失败 — ${errMsg}`);
+      console.error(`[Download] Task ${task.ID}: Download failed — ${errMsg}`);
 
       this.segQueue.removeByTask(task.ID);
 
@@ -321,7 +320,6 @@ export class DownloadManager {
       const maxRetries = DownloadManager.MAX_TASK_RETRIES;
       const canRetry =
         retryCount < maxRetries &&
-        !errMsg.includes('已取消') &&
         !errMsg.includes('cancelled');
 
       if (canRetry) {
@@ -331,7 +329,7 @@ export class DownloadManager {
         const totalSegs = dl?.totalSegments || 0;
 
         console.log(
-          `[Download] Task ${task.ID}: 将在 ${delayMs / 1000}s 后自动重试 ` +
+          `[Download] Task ${task.ID}: Auto-retry in ${delayMs / 1000}s ` +
           `(${retryCount + 1}/${maxRetries})...`,
         );
 
@@ -340,7 +338,7 @@ export class DownloadManager {
           data: {
             status: 'pending',
             progress: 0,
-            errorMsg: `自动重试中 (${retryCount + 1}/${maxRetries})...`,
+            errorMsg: `Auto-retrying (${retryCount + 1}/${maxRetries})...`,
           },
         });
 
@@ -359,14 +357,14 @@ export class DownloadManager {
               if (!t || t.status === 'cancelled' || t.status === 'paused') {
                 this.taskRetries.delete(task.ID);
                 console.log(
-                  `[Download] Task ${task.ID}: 重试前检测到状态为 ${t?.status || 'null'}，取消重试`,
+                  `[Download] Task ${task.ID}: Status detected as ${t?.status || 'null'} before retry, cancelling retry`,
                 );
                 return;
               }
-              console.log(`[Download] Task ${task.ID}: 开始自动重试...`);
+              console.log(`[Download] Task ${task.ID}: Starting auto-retry...`);
               this.taskRetries.delete(task.ID);
               this.startDownload(task).catch((e) => {
-                console.error(`[Download] Task ${task.ID}: 自动重试失败 —`, e);
+                console.error(`[Download] Task ${task.ID}: Auto-retry failed —`, e);
               });
             })
             .catch(() => {
@@ -506,7 +504,7 @@ export class DownloadManager {
         prisma.downloadTask
           .update({
             where: { id: download.taskId },
-            data: { status: 'cancelled', errorMsg: '服务关闭，任务已取消' },
+            data: { status: 'cancelled', errorMsg: 'Service shutdown, task cancelled' },
           })
           .catch(() => {}),
       );

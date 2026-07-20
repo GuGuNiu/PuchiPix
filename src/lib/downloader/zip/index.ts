@@ -1,8 +1,9 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import prisma from '@/lib/db/prisma';
 import { eventBus } from '@/lib/core/infra/event-bus';
 import { ttlLock } from '@/lib/core/infra/ttl-lock';
+import { ErrorCode, AppError } from '@/lib/core/error-codes';
 import { parallelDownload, downloadGalleryCover } from '@/lib/downloader';
 import {
   generateEnglishZipName,
@@ -12,6 +13,9 @@ import {
 } from '@/lib/downloader/gallery-content-verifier';
 import { sanitizeFilename, extractFilenameFromUrl, retry } from '@/lib/utils';
 import { ensureDir } from '@/lib/utils/file-system';
+import { loggers } from '@/lib/core/infra/logger';
+
+const logger = loggers.zipDownloader();
 
 import {
   MAX_RETRIES,
@@ -28,24 +32,17 @@ export interface ZipDownloadResult {
   extractedPath: string;
   actualSize: number;
   fileCount: number;
-  /** 下载来源 */
   downloadSource?: string;
-  /** 英文 ZIP 文件名 */
   zipFileName?: string;
-  /** 内容校验是否通过 */
   contentVerified?: boolean;
-  /** 是否需要回退爬虫下载 */
   needsFallbackScrape?: boolean;
-  /** 校验不匹配原因 */
   verifyReason?: string;
   error?: string;
 }
 
 /**
- * 下载并解压图库的 ZIP 压缩包
  *
- * @param galleryId - 图库 ID
- * @param manualUrl - 手动传入的下载 URL
+ * @param galleryId - Graphlibrary ID
  */
 export async function downloadAndExtractZip(
   galleryId: number,
@@ -58,7 +55,7 @@ export async function downloadAndExtractZip(
   });
 
   if (!lockHandle) {
-    throw new Error(`图库 #${galleryId} 的 ZIP 正在下载中`);
+    throw new AppError(ErrorCode.ERR_ALREADY_DOWNLOADING, `Gallery #${galleryId} ZIP is already downloading`);
   }
 
   try {
@@ -68,18 +65,18 @@ export async function downloadAndExtractZip(
     });
 
     if (!gallery) {
-      throw new Error(`图库 #${galleryId} 不存在`);
+      throw new Error(`Gallery #${galleryId} not found`);
     }
 
     if (!gallery.downloadInfo) {
-      throw new Error(`图库 #${galleryId} 无 ZIP 下载信息`);
+      throw new Error(`Gallery #${galleryId} has no ZIP download info`);
     }
 
     const downloadInfo = gallery.downloadInfo;
     const downloadUrl = manualUrl || downloadInfo.downloadUrl;
 
     if (!downloadUrl) {
-      throw new Error('无可用下载 URL，请手动提供');
+      throw new AppError(ErrorCode.ERR_NO_DOWNLOAD_URL, 'No download URL available, please provide manually');
     }
 
     const downloadSource = detectDownloadSource(downloadUrl);
@@ -93,7 +90,7 @@ export async function downloadAndExtractZip(
       ext,
     );
 
-    console.log(`[ZipDL] 下载来源: ${downloadSource}, 英文名: ${englishZipName}`);
+    logger.info(`Download source: ${downloadSource}, English name: ${englishZipName}`);
 
     const { expectedImages, expectedVideos } = parseTitleCount(gallery.title);
 
@@ -137,7 +134,7 @@ export async function downloadAndExtractZip(
       const existingPath = path.join(zipDir, existingArchive);
       const stat = fs.statSync(existingPath);
       if (stat.size > 0) {
-        console.log(`[ZipDL] 发现已下载文件: ${existingArchive} (${stat.size} bytes)，跳过下载`);
+        logger.info(`Existing file found: ${existingArchive} (${stat.size} bytes), skipping download`);
         actualZipPath = existingPath;
         actualSize = BigInt(stat.size);
         skipDownload = true;
@@ -157,7 +154,7 @@ export async function downloadAndExtractZip(
       const isDirectLink = /\.(zip|rar|7z)(\?|$)/i.test(downloadUrl);
 
       if (!isDirectLink) {
-        console.log(`[ZipDL] 解析中转站: ${downloadUrl}`);
+        logger.info(`Resolving relay: ${downloadUrl}`);
 
         let resolved: { directUrl: string; filename: string; sourceUrl: string } | null = null;
         let lastError: unknown = null;
@@ -171,9 +168,9 @@ export async function downloadAndExtractZip(
               baseDelay: 2000,
               maxDelay: 10000,
               onRetry: (attempt, error) => {
-                console.warn(
-                  `[ZipDL] 中转站解析失败（第 ${attempt + 1} 次）:`,
-                  error instanceof Error ? error.message : error,
+                logger.warn(
+                  `Relay resolution failed attempt ${attempt + 1}`,
+                  { error: error instanceof Error ? error.message : error },
                 );
               },
             },
@@ -185,8 +182,8 @@ export async function downloadAndExtractZip(
         if (!resolved) {
           const errMsg =
             lastError instanceof Error
-              ? `中转站解析失败: ${lastError.message}`
-              : '中转站解析失败';
+              ? `Relay resolution failed: ${lastError.message}`
+              : 'Relay resolution failed';
 
           await prisma.galleryDownloadInfo.update({
             where: { galleryId },
@@ -221,8 +218,8 @@ export async function downloadAndExtractZip(
         filename = extractFilenameFromUrl(downloadUrl);
       }
 
-      console.log(`[ZipDL] 直链: ${directUrl}`);
-      console.log(`[ZipDL] 文件名: ${filename}`);
+logger.info(`Direct URL: ${directUrl}`);
+logger.info(`Filename: ${filename}`);
 
       const zipFilePath = path.join(zipDir, sanitizeFilename(filename));
 
@@ -257,7 +254,7 @@ export async function downloadAndExtractZip(
           maxDelay: 15000,
           isSuccess: (r) => r.success,
           onRetry: (attempt) => {
-            console.warn(`[ZipDL] 下载重试（第 ${attempt + 1} 次）`);
+            logger.warn(`Download retry attempt ${attempt + 1}`);
           },
         },
       );
@@ -273,7 +270,7 @@ export async function downloadAndExtractZip(
       actualZipPath = downloadResult.savedPath || zipFilePath;
 
       if (!downloadResult.success || !fs.existsSync(actualZipPath)) {
-        const errMsg = 'ZIP 文件下载失败';
+        const errMsg = 'ZIP file download failed';
 
         await prisma.galleryDownloadInfo.update({
           where: { galleryId },
@@ -303,9 +300,9 @@ export async function downloadAndExtractZip(
           }
           fs.renameSync(actualZipPath, englishZipPath);
           actualZipPath = englishZipPath;
-          console.log(`[ZipDL] 压缩包重命名: → ${englishZipName}`);
+          logger.info(`Archive renamed: -> ${englishZipName}`);
         } catch (err) {
-          console.warn(`[ZipDL] 重命名失败，保留原文件名:`, err instanceof Error ? err.message : err);
+          logger.warn('Rename failed, keeping original filename', { error: err instanceof Error ? err.message : err });
         }
       }
 
@@ -327,7 +324,7 @@ export async function downloadAndExtractZip(
         actualSize: Number(actualSize),
       });
 
-      console.log(`[ZipDL] ZIP 下载完成: ${actualZipPath} (${actualSize} bytes)`);
+      logger.info(`ZIP download completed: ${actualZipPath} (${actualSize} bytes)`);
     }
 
     const extractDir = path.join(
@@ -336,7 +333,7 @@ export async function downloadAndExtractZip(
     );
     ensureDir(extractDir);
 
-    console.log(`[ZipDL] 开始解压: ${actualZipPath} → ${extractDir} (密码: ${downloadInfo.password ? '有' : '无'})`);
+    logger.info(`Extraction started: ${actualZipPath} -> ${extractDir} (password: ${downloadInfo.password ? 'yes' : 'no'})`);
 
     const extractResult = await extractArchive(actualZipPath, extractDir, downloadInfo.password || undefined);
 
@@ -352,7 +349,7 @@ export async function downloadAndExtractZip(
 
       eventBus.emit('gallery:zipExtractFailed', {
         galleryId,
-        error: '解压失败',
+        error: 'Extraction failed',
       });
 
       return {
@@ -362,7 +359,7 @@ export async function downloadAndExtractZip(
         extractedPath: '',
         actualSize: Number(actualSize),
         fileCount: 0,
-        error: 'ZIP 解压失败（密码可能不正确）',
+        error: 'ZIP extraction failed, password may be incorrect',
       };
     }
 
@@ -395,7 +392,7 @@ export async function downloadAndExtractZip(
     });
 
     if (!verification.matched) {
-      console.warn(`[ZipDL] 内容校验不通过: ${verification.reason}`);
+      logger.warn(`Content verification failed: ${verification.reason}`);
       eventBus.emit('gallery:zipVerifyFailed', {
         galleryId,
         reason: verification.reason ?? '',
@@ -405,7 +402,7 @@ export async function downloadAndExtractZip(
         actualVideos: verification.videoCount,
       });
     } else {
-      console.log(`[ZipDL] 内容校验通过: 图片 ${verification.imageCount}, 视频 ${verification.videoCount}`);
+      logger.info(`Content verification passed: images ${verification.imageCount}, videos ${verification.videoCount}`);
     }
 
     eventBus.emit('gallery:zipExtractCompleted', {
@@ -414,8 +411,8 @@ export async function downloadAndExtractZip(
       fileCount: extractResult.fileCount,
     });
 
-    console.log(
-      `[ZipDL] 解压完成: ${extractDir}（${extractResult.fileCount} 个文件）`,
+    logger.info(
+      `Extraction completed: ${extractDir} ${extractResult.fileCount} files`,
     );
 
     if (gallery.coverUrl && !gallery.coverLocalPath) {

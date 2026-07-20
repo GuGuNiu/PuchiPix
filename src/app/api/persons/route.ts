@@ -1,12 +1,11 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
+import { getProtagonistService } from '@/lib/protagonist';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET /api/persons — 查询人物列表 */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
@@ -71,7 +70,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-/** POST /api/persons — 添加新人物 */
+/** POST /api/persons — Addnewperson */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
@@ -100,7 +99,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
-    // 刷新缓存
+    // RefreshCache
     await getProtagonistService().refreshCache();
 
     return NextResponse.json({
@@ -120,7 +119,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-/** PATCH /api/persons — 更新人物（确认/取消确认/删除/导入游戏角色） */
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();

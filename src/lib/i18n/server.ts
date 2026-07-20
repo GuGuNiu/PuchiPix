@@ -1,6 +1,7 @@
 import type { Locale, TranslationDict } from "./types";
 import { DEFAULT_LOCALE } from "./types";
-import zhCN from "./locales/zh-CN";
+import { localeFromAcceptHeader, localeFromHeader } from "./detect";
+import zhCN, { type TranslationKey } from "./locales/zh-CN";
 import zhTW from "./locales/zh-TW";
 import enUS from "./locales/en-US";
 import jaJP from "./locales/ja-JP";
@@ -48,46 +49,14 @@ export function getServerLocale(): Locale {
   return serverLocale;
 }
 
-export function localeFromAcceptHeader(acceptLang: string | null): Locale {
-  if (!acceptLang) return DEFAULT_LOCALE;
 
-  const langs = acceptLang.split(",").map((s) => s.trim().split(";")[0]);
-
-  for (const lang of langs) {
-    if (lang.startsWith("zh")) {
-      if (lang.includes("TW") || lang.includes("HK") || lang.includes("Hant")) {
-        return "zh-TW";
-      }
-      return "zh-CN";
-    }
-    if (lang.startsWith("ja")) return "ja-JP";
-    if (lang.startsWith("en")) return "en-US";
-    if (lang.startsWith("ko")) return "ko-KR";
-    if (lang.startsWith("ru")) return "ru-RU";
-    if (lang.startsWith("de")) return "de-DE";
-    if (lang.startsWith("vi")) return "vi-VN";
-    if (lang.startsWith("es")) return "es-ES";
-    if (lang.startsWith("pt")) return "pt-BR";
-    if (lang.startsWith("fr")) return "fr-FR";
-    if (lang.startsWith("id") || lang.startsWith("in")) return "id-ID";
-  }
-
-  return DEFAULT_LOCALE;
-}
-
-export function localeFromHeader(headerValue: string | null): Locale | null {
-  if (!headerValue) return null;
-  if (headerValue in LOCALE_MAP) return headerValue as Locale;
-  return null;
-}
-
-export function t(key: string, params?: Record<string, string | number>): string {
+export function t(key: TranslationKey, params?: Record<string, string | number>): string {
   const dict = LOCALE_MAP[serverLocale] ?? LOCALE_MAP[DEFAULT_LOCALE];
   const template = dict[key] ?? LOCALE_MAP[DEFAULT_LOCALE][key] ?? key;
   return interpolate(template, params);
 }
 
-export function logT(key: string, params?: Record<string, string | number>): string {
+export function logT(key: TranslationKey, params?: Record<string, string | number>): string {
   return t(key, params);
 }
 
@@ -104,7 +73,9 @@ export function setLocaleFromHeaders(headers: {
   setServerLocale(localeFromAcceptHeader(acceptLang));
 }
 
-export default {
+export type { TranslationKey };
+
+const i18nServerApi = {
   t,
   logT,
   setServerLocale,
@@ -113,3 +84,5 @@ export default {
   localeFromAcceptHeader,
   localeFromHeader,
 };
+
+export default i18nServerApi;

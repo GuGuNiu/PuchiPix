@@ -20,7 +20,12 @@ export function useTaskActions({
   setSelectedIds,
   fetchTasks,
   t,
-}: UseTaskActionsParams) {
+}: UseTaskActionsParams): {
+  handleSubmit: (linkInput: string, setLinkInput: (v: string) => void, setShowAddModal: (v: boolean) => void) => void;
+  handleAction: (task: DownloadTask, action: string) => Promise<void>;
+  handleDelete: (task: DownloadTask) => Promise<void>;
+  handleBatchAction: (action: string) => Promise<void>;
+} {
   const handleSubmit = useCallback(
     (linkInput: string, setLinkInput: (v: string) => void, setShowAddModal: (v: boolean) => void): void => {
       const parsedUrls = linkInput
@@ -144,36 +149,42 @@ export function useTaskActions({
       const isSniff = task.TaskType === "sniff";
       const taskId = task.ID;
 
-      try {
-        let endpoint: string;
+      const resolveEndpoint = (): string | null => {
         if (isSniff) {
-          if (action === "delete") {
-            endpoint = `/api/tasks/sniff/${taskId}`;
-          } else {
-            toast.warning("tasks.sniffTaskNotSupported", { action: actionLabel(action, t) });
-            return;
-          }
-        } else if (isGallery) {
-          if (action === "start") {
-            endpoint = `/api/gallery/${taskId}/download`;
-          } else if (action === "retry") {
-            endpoint = `/api/gallery/${taskId}/retry-failed`;
-          } else if (action === "delete") {
-            endpoint = `/api/gallery/${taskId}`;
-          } else {
-            toast.warning("tasks.galleryTaskNotSupported", { action: actionLabel(action, t) });
-            return;
-          }
-        } else {
-          endpoint = `/api/tasks/${taskId}/${action}`;
+          return action === "delete" ? `/api/tasks/sniff?id=${taskId}` : null;
         }
+        if (isGallery) {
+          const galleryActions = ["start", "retry", "pause", "resume", "delete"];
+          if (galleryActions.includes(action)) return `/api/gallery/${taskId}`;
+          return null;
+        }
+        return `/api/tasks/${taskId}/${action}`;
+      };
 
+      const endpoint = resolveEndpoint();
+      if (!endpoint) {
+        const msgKey = isSniff ? "tasks.sniffTaskNotSupported" : "tasks.galleryTaskNotSupported";
+        toast.warning(msgKey, { action: actionLabel(action, t) });
+        return;
+      }
+
+      try {
         const method = action === "delete" ? "DELETE" : "POST";
-
         const label = isSniff ? t("tasks.taskTypeSniff") : isGallery ? t("tasks.taskTypeGallery") : t("tasks.taskTypeTask");
         toast.info("tasks.taskActionSubmitting", { type: label, id: task.DisplayID ?? taskId, action: actionLabel(action, t) });
 
-        const res = await fetch(endpoint, { method });
+        const fetchOpts: RequestInit = { method };
+        if (isGallery && action !== "delete") {
+          const galleryActionMap: Record<string, string> = {
+            start: task.Status === "failed" ? "retry-failed" : "resume",
+            retry: "retry-failed",
+            pause: "pause",
+            resume: "resume",
+          };
+          fetchOpts.headers = { "Content-Type": "application/json" };
+          fetchOpts.body = JSON.stringify({ action: galleryActionMap[action] });
+        }
+        const res = await fetch(endpoint, fetchOpts);
         if (!res.ok) throw new Error(await res.text());
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -195,7 +206,7 @@ export function useTaskActions({
       useTaskStore.getState().removeTask(taskId, taskType);
 
       try {
-        const endpoint = isSniff ? `/api/tasks/sniff/${taskId}` : isGallery ? `/api/gallery/${taskId}` : `/api/tasks/${taskId}`;
+        const endpoint = isSniff ? `/api/tasks/sniff?id=${taskId}` : isGallery ? `/api/gallery/${taskId}` : `/api/tasks/${taskId}`;
         const res = await fetch(endpoint, { method: "DELETE" });
         if (!res.ok) throw new Error(await res.text());
         toast.success("tasks.deleted", { type: label, id: task.DisplayID ?? taskId });
@@ -235,7 +246,7 @@ export function useTaskActions({
             const isGallery = task.TaskType === "gallery";
             const isSniff = task.TaskType === "sniff";
             const endpoint = isSniff
-              ? `/api/tasks/sniff/${task.ID}`
+              ? `/api/tasks/sniff?id=${task.ID}`
               : isGallery
                 ? `/api/gallery/${task.ID}`
                 : `/api/tasks/${task.ID}`;
@@ -279,8 +290,32 @@ export function useTaskActions({
         }
 
         if (isGallery) {
-          if (action === "start" || action === "retry") {
-            applicable.push(task);
+          if (action === "start") {
+            const startableStatuses = ["pending", "scrape_pending", "download_pending", "paused", "failed", "scraping"];
+            if (!startableStatuses.includes(task.Status || "")) {
+              skipped++;
+            } else {
+              applicable.push(task);
+            }
+          } else if (action === "retry") {
+            if (!["failed", "partial"].includes(task.Status || "")) {
+              skipped++;
+            } else {
+              applicable.push(task);
+            }
+          } else if (action === "pause") {
+            const pauseableStatuses = ["scraping", "downloading", "scrape_pending", "download_pending", "pending"];
+            if (!pauseableStatuses.includes(task.Status || "")) {
+              skipped++;
+            } else {
+              applicable.push(task);
+            }
+          } else if (action === "resume") {
+            if (task.Status !== "paused") {
+              skipped++;
+            } else {
+              applicable.push(task);
+            }
           } else {
             skipped++;
           }
@@ -311,17 +346,38 @@ export function useTaskActions({
           const isGallery = task.TaskType === "gallery";
           const id = task.ID;
           if (isGallery) {
-            if (action === "start") {
-              return fetch(`/api/gallery/${id}/download`, { method: "POST" });
-            }
-            if (action === "retry") {
-              return fetch(`/api/gallery/${id}/retry-failed`, { method: "POST" });
+            const galleryAction =
+              action === "start"
+                ? task.Status === "failed"
+                  ? "retry-failed"
+                  : "resume"
+                : action === "retry"
+                  ? "retry-failed"
+                  : action === "pause"
+                    ? "pause"
+                    : action === "resume"
+                      ? "resume"
+                      : null;
+            if (galleryAction) {
+              return fetch(`/api/gallery/${id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: galleryAction }),
+              });
             }
           }
           if (action === "start" && ["failed", "cancelled"].includes(task.Status || "")) {
-            return fetch(`/api/tasks/${id}/retry`, { method: "POST" });
+            return fetch(`/api/tasks/${id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "retry" }),
+            });
           }
-          return fetch(`/api/tasks/${id}/${action}`, { method: "POST" });
+          return fetch(`/api/tasks/${id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          });
         })
       );
 

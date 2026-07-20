@@ -1,7 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
-import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
+import { taskQueueManager } from '@/lib/core/orchestrator/task/queue-manager';
+import { workerManager } from '@/lib/core/infra/worker-manager';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,7 +30,7 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
     const { maxConcurrentTasks, maxConcurrentSniffTasks, maxScrapingTasks, tsSegmentConcurrent, galleryImageConcurrent } = body;
@@ -104,6 +105,27 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         : stats.galleryImageConcurrent;
 
     await taskQueueManager.updateSettings(newMax, newSniffMax, newTsSegment, newGalleryImage, newMaxScraping);
+
+    const configUpdates: Array<{ key: string; value: string }> = [];
+    if (maxConcurrentTasks !== undefined) {
+      configUpdates.push({ key: 'maxConcurrentTasks', value: String(newMax) });
+    }
+    if (maxConcurrentSniffTasks !== undefined) {
+      configUpdates.push({ key: 'maxConcurrentSniffTasks', value: String(newSniffMax) });
+    }
+    if (maxScrapingTasks !== undefined) {
+      configUpdates.push({ key: 'maxScrapingTasks', value: String(newMaxScraping) });
+    }
+    if (tsSegmentConcurrent !== undefined) {
+      configUpdates.push({ key: 'tsSegmentConcurrent', value: String(newTsSegment) });
+    }
+    if (galleryImageConcurrent !== undefined) {
+      configUpdates.push({ key: 'galleryImageConcurrent', value: String(newGalleryImage) });
+    }
+
+    for (const { key, value } of configUpdates) {
+      workerManager.send({ type: 'config:update', payload: { key, value } });
+    }
 
     const updated = taskQueueManager.getStats();
     return NextResponse.json({

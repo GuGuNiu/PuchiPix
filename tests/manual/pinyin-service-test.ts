@@ -6,7 +6,7 @@
 
 import { getPinyinService, createSimilarityCalculator } from '@/lib/core/pinyin-service';
 
-async function test() {
+async function test(): Promise<void> {
   console.log('=== 拼音服务测试 ===\n');
 
   const service = getPinyinService();

@@ -1,9 +1,9 @@
 import { getOrCreateGlobal } from './global-singleton';
 import { eventBus } from './event-bus';
 
-const SAMPLE_WINDOW_MS = 3000; // 3 秒滑动窗口
-const MAX_SAMPLES = 60; // 最多保留 60 个采样点
-const IDLE_TIMEOUT_MS = 5000; // 5 秒无进度 → 认为下载停止
+const SAMPLE_WINDOW_MS = 3000;
+const MAX_SAMPLES = 60;
+const IDLE_TIMEOUT_MS = 5000;
 
 interface SpeedSample {
   timestamp: number;
@@ -16,11 +16,8 @@ interface DownloadState {
 }
 
 class NetworkMonitor {
-  /** 每个下载任务的进度状态（galleryId → state） */
   private activeDownloads: Map<number, DownloadState> = new Map();
-  /** 速度采样历史 */
   private samples: SpeedSample[] = [];
-  /** 订阅句柄 */
   private subscription: { unsubscribe: () => void } | null = null;
 
   constructor() {
@@ -28,7 +25,7 @@ class NetworkMonitor {
   }
 
   /**
-   * 订阅 EventBus 下载进度事件
+   * Subscribe EventBus DownloadProgressEvent
    */
   private subscribe(): void {
     this.subscription = eventBus.on('gallery:zipDownloadProgress', (payload) => {
@@ -51,27 +48,22 @@ class NetworkMonitor {
     });
   }
 
-  /**
-   * 添加速度采样
-   */
   private addSample(bytesPerSec: number): void {
     const now = Date.now();
     this.samples.push({ timestamp: now, bytesPerSec });
 
-    // 移除过期的采样
     const cutoff = now - SAMPLE_WINDOW_MS;
     while (this.samples.length > 0 && this.samples[0].timestamp < cutoff) {
       this.samples.shift();
     }
 
-    // 限制最大采样数
     while (this.samples.length > MAX_SAMPLES) {
       this.samples.shift();
     }
   }
 
   /**
-   * 清理超时的下载状态
+   * Clean upTimeout DownloadState
    */
   private pruneOldDownloads(now: number): void {
     for (const [id, state] of this.activeDownloads) {
@@ -81,11 +73,6 @@ class NetworkMonitor {
     }
   }
 
-  /**
-   * 获取当前网络速度（字节/秒）
-   *
-   * 使用滑动窗口内所有采样的平均值。
-   */
   getCurrentSpeed(): number {
     this.pruneOldDownloads(Date.now());
 
@@ -97,25 +84,17 @@ class NetworkMonitor {
     return Math.round(total / this.samples.length);
   }
 
-  /**
-   * 获取当前硬盘写入速度（字节/秒）
-   *
-   * 假设下载后即时写入硬盘，写入速度 = 网络速度。
-   */
   getDiskWriteSpeed(): number {
     return this.getCurrentSpeed();
   }
 
-  /**
-   * 获取活跃下载任务数
-   */
   getActiveDownloadCount(): number {
     this.pruneOldDownloads(Date.now());
     return this.activeDownloads.size;
   }
 
   /**
-   * 销毁订阅
+   * DestroySubscribe
    */
   destroy(): void {
     if (this.subscription) {

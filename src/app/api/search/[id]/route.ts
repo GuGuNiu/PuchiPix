@@ -1,13 +1,7 @@
-/**
- * 单个搜索任务状态 API
- *
- * GET    /api/search/:id — 获取搜索任务状态
- * DELETE /api/search/:id — 取消搜索任务
- */
 
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
-import { getSearchEngine } from '@/lib/search/search-engine';
+import { getSearchEngine } from '@/lib/search';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -18,13 +12,22 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
     const engine = getSearchEngine();
-    const job = engine.getJob(id);
 
+    if (type === 'batch') {
+      const job = engine.getBatchJob(id);
+      if (!job) {
+        return NextResponse.json({ error: 'Batch search job not found' }, { status: 404 });
+      }
+      return NextResponse.json(job);
+    }
+
+    const job = engine.getJob(id) ?? engine.getBatchJob(id);
     if (!job) {
       return NextResponse.json({ error: 'Search job not found' }, { status: 404 });
     }
-
     return NextResponse.json(job);
   } catch {
     return NextResponse.json({ error: 'Failed to get search job' }, { status: 500 });
@@ -37,9 +40,18 @@ export async function DELETE(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
     const engine = getSearchEngine();
 
-    if (engine.cancelJob(id)) {
+    if (type === 'batch') {
+      if (engine.cancelBatchJob(id)) {
+        return NextResponse.json({ message: 'Batch search job cancelled', id });
+      }
+      return NextResponse.json({ error: 'Batch search job not found' }, { status: 404 });
+    }
+
+    if (engine.cancelJob(id) || engine.cancelBatchJob(id)) {
       return NextResponse.json({ message: 'Search job cancelled', id });
     }
     return NextResponse.json({ error: 'Search job not found' }, { status: 404 });

@@ -11,53 +11,43 @@ import type {
   LegacyGameType,
   GAME_LABELS,
 } from './types';
-import { PinyinMatcher, getPinyinMatcher } from './utils/pinyin-matcher';
-import { AliasLibrary, getAliasLibrary } from './utils/alias-library';
+import type { PinyinMatcher } from './utils/pinyin-matcher';
+import type { AliasLibrary } from './utils/alias-library';
+import { getPinyinMatcher } from './utils/pinyin-matcher';
+import { getAliasLibrary } from './utils/alias-library';
 
 export type { CharacterEntry, CharacterMatch, ContentCategory, GameIndexEntry };
 
 export interface CharacterDBConfig {
-  /** 拼音匹配相似度阈值 */
   pinyinSimilarityThreshold: number;
-  /** 是否启用模糊匹配 */
   enableFuzzyMatch: boolean;
-  /** 是否启用别名库 */
   enableAliasLibrary: boolean;
-  /** 最小匹配置信度 */
   minConfidence: number;
 }
 
 export class CharacterDBService {
-  /** 精确名称索引（name → entry） */
   private exactIndex = new Map<string, CharacterEntry>();
-  /** 别名索引（alias → entry） */
   private aliasIndex = new Map<string, CharacterEntry>();
-  /** 拼音索引（pinyin → entry） */
   private pinyinIndex = new Map<string, CharacterEntry>();
-  /** 游戏索引（gameId → entries） */
   private gameIndex = new Map<string, CharacterEntry[]>();
-  /** 分类索引（category → entries） */
   private categoryIndex = new Map<ContentCategory, CharacterEntry[]>();
-  /** 所有角色列表 */
+  /** AllroleList */
   private allCharacters: CharacterEntry[] = [];
-  /** 索引数据 */
+  /** Indexdata */
   private index: CharacterDBIndex | null = null;
-  /** 基础路径 */
+  /** BasePath */
   private basePath: string;
-  /** 是否已加载 */
+  /** IsnoLoad */
   private loaded = false;
-  /** 配置 */
+  /** Config */
   private config: CharacterDBConfig;
-  /** 拼音匹配器 */
   private pinyinMatcher: PinyinMatcher;
-  /** 别名库 */
   private aliasLibrary: AliasLibrary;
 
   constructor(config: Partial<CharacterDBConfig> = {}) {
-    // 基于当前文件位置计算基础路径
     this.basePath = path.join(process.cwd(), 'src', 'lib', 'character-db');
 
-    // 初始化配置
+    // Initializeconfig
     this.config = {
       pinyinSimilarityThreshold: 0.6,
       enableFuzzyMatch: true,
@@ -66,21 +56,20 @@ export class CharacterDBService {
       ...config,
     };
 
-    // 初始化拼音匹配器
+    // Initializepinyin matcher
     this.pinyinMatcher = getPinyinMatcher({
       similarityThreshold: this.config.pinyinSimilarityThreshold,
       enableFuzzy: this.config.enableFuzzyMatch,
     });
 
-    // 初始化别名库
+    // Initializealias library
     this.aliasLibrary = getAliasLibrary({
       loadBuiltIn: this.config.enableAliasLibrary,
     });
   }
 
   /**
-   * 加载角色数据库
-   * 读取 index.json 和所有游戏角色文件，构建内存索引
+   * Loadroledatalibrary
    */
   async load(): Promise<void> {
     try {
@@ -88,88 +77,79 @@ export class CharacterDBService {
       const indexContent = await fs.promises.readFile(indexPath, 'utf-8');
       this.index = JSON.parse(indexContent) as CharacterDBIndex;
 
-      // 清空现有数据
       this.clearIndexes();
 
-      // 加载每个启用的游戏角色文件
       for (const game of this.index.games.filter(g => g.enabled)) {
         await this.loadGameFile(game);
       }
 
       this.loaded = true;
 
-      // 构建拼音匹配器索引
+      // Buildpinyin matcherIndex
       this.pinyinMatcher.buildIndex(this.allCharacters);
 
       console.log(
-        `[CharacterDBService] 加载完成: ${this.allCharacters.length} 个角色, ${this.index.games.filter(g => g.enabled).length} 个游戏/作品, 别名库: ${this.aliasLibrary.getRuleCount()} 条规则`
+        `[CharacterDBService] Loaded: ${this.allCharacters.length} characters, ${this.index.games.filter(g => g.enabled).length} games/works, alias library: ${this.aliasLibrary.getRuleCount()} rules`
       );
     } catch (err) {
-      console.error('[CharacterDBService] 加载失败:', err);
+      console.error('[CharacterDBService] Load failed:', err);
       throw err;
     }
   }
 
   /**
-   * 重新加载数据库
+   * HeavynewLoaddatalibrary
    */
   async reload(): Promise<void> {
     this.loaded = false;
     await this.load();
   }
 
-  /**
-   * 加载单个游戏角色文件
-   */
+  
   private async loadGameFile(game: GameIndexEntry): Promise<void> {
     try {
       const filePath = path.join(this.basePath, game.file);
 
-      // 检查文件是否存在
       if (!fs.existsSync(filePath)) {
-        console.warn(`[CharacterDBService] 游戏文件不存在: ${filePath}`);
+        console.warn(`[CharacterDBService] Game file not found: ${filePath}`);
         return;
       }
 
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const gameFile = JSON.parse(content) as GameCharacterFile;
 
-      // 添加到游戏索引
       this.gameIndex.set(game.id, gameFile.characters);
 
-      // 添加到分类索引
+      // Add tocategoryIndex
       const categoryList = this.categoryIndex.get(game.category) || [];
       categoryList.push(...gameFile.characters);
       this.categoryIndex.set(game.category, categoryList);
 
-      // 构建角色索引
+      // BuildroleIndex
       for (const char of gameFile.characters) {
         this.allCharacters.push(char);
 
-        // 精确名称索引（小写）
         this.exactIndex.set(char.name.toLowerCase(), char);
 
-        // 别名索引
         for (const alias of char.aliases) {
           this.aliasIndex.set(alias.toLowerCase(), char);
         }
 
-        // 拼音索引
+        // PinyinIndex
         const py = this.toPinyin(char.name);
         if (py && py !== char.name.toLowerCase()) {
           this.pinyinIndex.set(py, char);
         }
       }
 
-      // 更新索引中的角色数
       game.characterCount = gameFile.characters.length;
     } catch (err) {
-      console.warn(`[CharacterDBService] 加载游戏文件失败: ${game.id}`, err);
+      console.warn(`[CharacterDBService] Failed to load game file: ${game.id}`, err);
     }
   }
 
   /**
-   * 清空所有索引
+   * EmptyallIndex
    */
   private clearIndexes(): void {
     this.exactIndex.clear();
@@ -181,7 +161,7 @@ export class CharacterDBService {
   }
 
   /**
-   * 转换为拼音
+   * Convert topinyin
    */
   private toPinyin(text: string): string {
     const py = getPinyinService().convert(text, { type: 'array' });
@@ -192,18 +172,15 @@ export class CharacterDBService {
   }
 
   /**
-   * 确保数据库已加载
+   * EnsuredatalibraryLoad
    */
   private ensureLoaded(): void {
     if (!this.loaded) {
-      throw new Error('[CharacterDBService] 数据库未加载，请先调用 load()');
+      throw new Error('[CharacterDBService] Database not loaded, call load() first');
     }
   }
 
-  /**
-   * 在文本中识别角色
-   * 使用拼音匹配器和别名库进行智能识别
-   */
+  
   identifyInText(text: string): CharacterMatch[] {
     this.ensureLoaded();
     if (!text) return [];
@@ -211,9 +188,7 @@ export class CharacterDBService {
     const results: CharacterMatch[] = [];
     const seen = new Set<string>();
 
-    // 1. 精确匹配和基础别名匹配
     for (const char of this.allCharacters) {
-      // 精确匹配
       if (text.includes(char.name)) {
         const key = `${char.gameId}:${char.name}:exact`;
         if (!seen.has(key)) {
@@ -228,7 +203,6 @@ export class CharacterDBService {
         continue;
       }
 
-      // 基础别名匹配
       for (const alias of char.aliases) {
         if (alias.length >= 2 && text.toLowerCase().includes(alias.toLowerCase())) {
           const key = `${char.gameId}:${char.name}:alias`;
@@ -246,7 +220,6 @@ export class CharacterDBService {
       }
     }
 
-    // 2. 使用拼音匹配器进行智能匹配
     if (this.config.enableFuzzyMatch) {
       const pinyinMatches = this.pinyinMatcher.findMatches(text, this.allCharacters);
       for (const match of pinyinMatches) {
@@ -265,7 +238,6 @@ export class CharacterDBService {
       }
     }
 
-    // 3. 使用别名库匹配
     if (this.config.enableAliasLibrary) {
       const aliasMatches = this.aliasLibrary.findMatches(text);
       for (const match of aliasMatches) {
@@ -285,25 +257,19 @@ export class CharacterDBService {
       }
     }
 
-    // 按置信度排序
     return results.sort((a, b) => b.confidence - a.confidence);
   }
 
-  /**
-   * 在 TAG 列表中识别角色
-   * 使用拼音匹配器和别名库进行智能识别
-   */
+  
   identifyInTags(tags: string[]): CharacterMatch[] {
     this.ensureLoaded();
     const results: CharacterMatch[] = [];
     const seen = new Set<string>();
 
-    // 1. 基础匹配（精确、别名、拼音）
     for (const tag of tags) {
       const normalized = tag.trim().toLowerCase();
       if (!normalized || normalized.length < 1) continue;
 
-      // 精确匹配
       const exact = this.exactIndex.get(normalized);
       if (exact) {
         const key = `${exact.gameId}:${exact.name}:exact`;
@@ -319,7 +285,6 @@ export class CharacterDBService {
         continue;
       }
 
-      // 别名匹配
       const alias = this.aliasIndex.get(normalized);
       if (alias) {
         const key = `${alias.gameId}:${alias.name}:alias`;
@@ -335,7 +300,7 @@ export class CharacterDBService {
         continue;
       }
 
-      // 基础拼音匹配
+      // BasepinyinMatch
       const tagPinyin = this.toPinyin(tag.trim());
       const pinyinMatch = this.pinyinIndex.get(tagPinyin);
       if (pinyinMatch) {
@@ -352,7 +317,6 @@ export class CharacterDBService {
       }
     }
 
-    // 2. 使用拼音匹配器进行智能匹配
     if (this.config.enableFuzzyMatch) {
       const pinyinMatches = this.pinyinMatcher.matchTags(tags, this.allCharacters);
       for (const match of pinyinMatches) {
@@ -371,7 +335,6 @@ export class CharacterDBService {
       }
     }
 
-    // 3. 使用别名库匹配
     if (this.config.enableAliasLibrary) {
       for (const tag of tags) {
         const aliasMatches = this.aliasLibrary.findMatches(tag);
@@ -393,54 +356,43 @@ export class CharacterDBService {
       }
     }
 
-    // 按置信度排序
     return results.sort((a, b) => b.confidence - a.confidence);
   }
 
-  /**
-   * 按名称精确查找角色
-   */
+  
   getCharacter(name: string): CharacterEntry | null {
     this.ensureLoaded();
     const normalized = name.trim().toLowerCase();
     return this.exactIndex.get(normalized) || this.aliasIndex.get(normalized) || null;
   }
 
-  /**
-   * 获取指定游戏/作品的全部角色
-   */
+  
   getCharactersByGame(gameId: string): CharacterEntry[] {
     this.ensureLoaded();
     return this.gameIndex.get(gameId) || [];
   }
 
-  /**
-   * 获取指定分类的全部角色
-   */
+  
   getCharactersByCategory(category: ContentCategory): CharacterEntry[] {
     this.ensureLoaded();
     return this.categoryIndex.get(category) || [];
   }
 
   /**
-   * 获取全部角色
+   * Getallrole
    */
   getAllCharacters(): CharacterEntry[] {
     this.ensureLoaded();
     return [...this.allCharacters];
   }
 
-  /**
-   * 获取全部游戏/作品索引
-   */
+  
   getAllGames(): GameIndexEntry[] {
     this.ensureLoaded();
     return this.index?.games || [];
   }
 
-  /**
-   * 获取统计信息
-   */
+  
   getStats(): Record<string, number> {
     this.ensureLoaded();
     const stats: Record<string, number> = {};
@@ -452,9 +404,7 @@ export class CharacterDBService {
     return stats;
   }
 
-  /**
-   * 获取游戏标签（向后兼容）
-   */
+  
   getGameLabel(gameId: string): string {
     const labels: Record<string, string> = {
       genshin: '原神',
@@ -468,27 +418,45 @@ export class CharacterDBService {
     return labels[gameId] || gameId;
   }
 
-  /**
-   * 检查是否为已知角色
-   */
+  
   isCharacter(name: string): boolean {
     return this.getCharacter(name) !== null;
   }
 
   /**
-   * 获取加载状态
+   * GetLoadState
    */
   isLoaded(): boolean {
     return this.loaded;
   }
 }
 
-// 单例实例
+// Singletoninstance
 let characterDBService: CharacterDBService | null = null;
+let characterDBServicePromise: Promise<CharacterDBService> | null = null;
 
-/**
- * 获取 CharacterDBService 单例
- */
+export async function getCharacterDBServiceAsync(): Promise<CharacterDBService> {
+  if (characterDBServicePromise) {
+    return characterDBServicePromise;
+  }
+
+  characterDBServicePromise = (async () => {
+    if (!characterDBService) {
+      characterDBService = new CharacterDBService();
+    }
+    if (!characterDBService.isLoaded()) {
+      try {
+        await characterDBService.load();
+      } catch (err) {
+        console.error('[CharacterDBService] Async load failed:', err);
+      }
+    }
+    return characterDBService;
+  })();
+
+  return characterDBServicePromise;
+}
+
 export function getCharacterDBService(): CharacterDBService {
   if (!characterDBService) {
     characterDBService = new CharacterDBService();
@@ -496,9 +464,7 @@ export function getCharacterDBService(): CharacterDBService {
   return characterDBService;
 }
 
-/**
- * 重置单例（用于测试）
- */
 export function resetCharacterDBService(): void {
   characterDBService = null;
+  characterDBServicePromise = null;
 }

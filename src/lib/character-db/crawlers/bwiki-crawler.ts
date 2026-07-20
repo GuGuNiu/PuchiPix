@@ -1,25 +1,10 @@
-/**
- * Bilibili游戏Wiki (BWiki) 爬虫
- *
- * 用于从BWiki获取游戏角色数据，支持：
- * - 原神 (ys)
- * - 崩坏：星穹铁道 (hsr)
- * - 鸣潮 (ww)
- * - 碧蓝航线 (blhx)
- * - 蔚蓝档案 (bluearchive)
- * - 明日方舟 (arknights)
- * - 绝区零 (zzz)
- */
-
 import * as cheerio from 'cheerio';
 import type { CharacterEntry, GameCharacterFile, GameIndexEntry } from '../types';
 
 export interface BWikiCrawlerConfig {
-  /** 请求间隔(ms)，防止请求过快 */
   requestInterval: number;
-  /** 页面加载超时(ms) */
+  /** PageLoadTimeout(ms) */
   pageTimeout: number;
-  /** 是否使用缓存 */
   useCache: boolean;
 }
 
@@ -36,14 +21,11 @@ export class BWikiCrawler {
     };
   }
 
-  /**
-   * 爬取指定游戏的所有角色
-   */
   async crawlGame(game: GameIndexEntry): Promise<GameCharacterFile> {
-    console.log(`[BWikiCrawler] 开始爬取: ${game.name}`);
+    console.log(`[BWikiCrawler] Started crawling: ${game.name}`);
 
     const characterNames = await this.fetchCharacterList(game);
-    console.log(`[BWikiCrawler] ${game.name} 发现 ${characterNames.length} 个角色`);
+    console.log(`[BWikiCrawler] ${game.name}: found ${characterNames.length} characters`);
 
     const characters: CharacterEntry[] = [];
     for (const name of characterNames) {
@@ -54,11 +36,11 @@ export class BWikiCrawler {
           characters.push(char);
         }
       } catch (err) {
-        console.warn(`[BWikiCrawler] 获取角色详情失败: ${name}`, err);
+        console.warn(`[BWikiCrawler] Failed to fetch character details: ${name}`, err);
       }
     }
 
-    console.log(`[BWikiCrawler] ${game.name} 成功获取 ${characters.length} 个角色详情`);
+    console.log(`[BWikiCrawler] ${game.name}: successfully fetched ${characters.length} character details`);
 
     return {
       gameId: game.id,
@@ -69,11 +51,8 @@ export class BWikiCrawler {
     };
   }
 
-  /**
-   * 从角色筛选页获取角色名称列表
-   */
+  
   private async fetchCharacterList(game: GameIndexEntry): Promise<string[]> {
-    // 不同游戏的角色列表页路径
     const listPaths: Record<string, string> = {
       genshin: '/ys/角色筛选',
       starrail: '/hsr/角色筛选',
@@ -86,7 +65,7 @@ export class BWikiCrawler {
 
     const path = listPaths[game.id];
     if (!path) {
-      throw new Error(`[BWikiCrawler] 未知的游戏ID: ${game.id}`);
+      throw new Error(`[BWikiCrawler] Unknown game ID: ${game.id}`);
     }
 
     const url = `${this.baseUrl}${path}`;
@@ -95,10 +74,8 @@ export class BWikiCrawler {
 
     const names: string[] = [];
 
-    // 根据游戏解析不同的页面结构
     switch (game.id) {
       case 'genshin':
-        // 原神：从角色卡片中提取名称
         $('.character-card a, .card-title, .character-name').each((_, el) => {
           const name = $(el).text().trim();
           if (name && name.length >= 2 && name.length <= 10) {
@@ -108,7 +85,6 @@ export class BWikiCrawler {
         break;
 
       case 'starrail':
-        // 星穹铁道
         $('.character-item .name, .character-card a').each((_, el) => {
           const name = $(el).text().trim();
           if (name && name.length >= 2 && name.length <= 10) {
@@ -118,7 +94,6 @@ export class BWikiCrawler {
         break;
 
       case 'azurlane':
-        // 碧蓝航线：从表格或列表中提取
         $('table.wikitable td:first-child, .ship-name, .character-list a').each((_, el) => {
           const name = $(el).text().trim();
           if (name && name.length >= 2 && name.length <= 15) {
@@ -128,10 +103,8 @@ export class BWikiCrawler {
         break;
 
       default:
-        // 通用策略：查找页面中所有可能是角色名的链接
         $('a').each((_, el) => {
           const name = $(el).text().trim();
-          // 过滤条件：2-10个字符，主要是中文
           if (
             name &&
             name.length >= 2 &&
@@ -147,9 +120,7 @@ export class BWikiCrawler {
     return [...new Set(names)].filter(name => this.isValidCharacterName(name));
   }
 
-  /**
-   * 获取单个角色的详情
-   */
+  
   private async fetchCharacterDetail(
     name: string,
     game: GameIndexEntry
@@ -173,19 +144,16 @@ export class BWikiCrawler {
       const html = await this.fetchPage(url);
       const $ = cheerio.load(html);
 
-      // 提取别名（从页面信息框中）
       const aliases: string[] = [];
 
-      // 查找信息框中的别名/昵称字段
       $('.infobox th:contains("别名"), .infobox th:contains("昵称"), .infobox th:contains("英文名")').each((_, el) => {
         const aliasText = $(el).next('td').text().trim();
         if (aliasText) {
-          const parts = aliasText.split(/[,，、\/]/).map(s => s.trim()).filter(Boolean);
+          const parts = aliasText.split(/[,、\/]/).map(s => s.trim()).filter(Boolean);
           aliases.push(...parts);
         }
       });
 
-      // 提取稀有度（如果有）
       let rarity: number | undefined;
       const rarityText = $('.infobox th:contains("稀有度"), .infobox th:contains("星级")').next('td').text();
       if (rarityText) {
@@ -193,28 +161,24 @@ export class BWikiCrawler {
         if (match) rarity = parseInt(match[1]);
       }
 
-      // 提取元素/属性
       let element: string | undefined;
       const elementText = $('.infobox th:contains("元素"), .infobox th:contains("属性"), .infobox th:contains("命途")').next('td').text();
       if (elementText) {
         element = elementText.trim();
       }
 
-      // 提取武器类型
       let weapon: string | undefined;
       const weaponText = $('.infobox th:contains("武器"), .infobox th:contains("兵种")').next('td').text();
       if (weaponText) {
         weapon = weaponText.trim();
       }
 
-      // 提取阵营
       let faction: string | undefined;
       const factionText = $('.infobox th:contains("阵营"), .infobox th:contains("势力")').next('td').text();
       if (factionText) {
         faction = factionText.trim();
       }
 
-      // 提取声优
       let cv: string | undefined;
       const cvText = $('.infobox th:contains("CV"), .infobox th:contains("声优")').next('td').text();
       if (cvText) {
@@ -237,7 +201,7 @@ export class BWikiCrawler {
         metadata: {},
       };
     } catch (err) {
-      console.warn(`[BWikiCrawler] 获取角色详情失败: ${name}`, err);
+      console.warn(`[BWikiCrawler] Failed to fetch character details: ${name}`, err);
       return {
         id: `${game.id}-${name}`,
         name,
@@ -252,7 +216,7 @@ export class BWikiCrawler {
   }
 
   /**
-   * 获取页面内容
+   * Getpagecontent
    */
   private async fetchPage(url: string): Promise<string> {
     const response = await fetch(url, {
@@ -270,9 +234,7 @@ export class BWikiCrawler {
     return response.text();
   }
 
-  /**
-   * 验证角色名是否有效
-   */
+  
   private isValidCharacterName(name: string): boolean {
     const invalidPatterns = [
       /^第[一二三四五六七八九十\d]+章/,
@@ -292,24 +254,22 @@ export class BWikiCrawler {
       if (pattern.test(name)) return false;
     }
 
-    // 长度检查
+    // LengthCheck
     if (name.length < 2 || name.length > 15) return false;
 
-    // 至少包含一个中文字符
     if (!/[\u4e00-\u9fff]/.test(name)) return false;
 
     return true;
   }
 
   /**
-   * 延迟
+   * Delay
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
-// 导出单例
 let bwikiCrawler: BWikiCrawler | null = null;
 
 export function getBWikiCrawler(config?: Partial<BWikiCrawlerConfig>): BWikiCrawler {

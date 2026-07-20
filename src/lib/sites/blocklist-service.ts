@@ -62,14 +62,10 @@ class BlocklistService {
   }
 
   /**
-   * 用数据库中的用户自定义规则检查内容是否应被屏蔽。
    *
-   * 仅检查用户自定义规则，不包含默认配置关键词。
-   * 默认配置的检查仍由各 Provider 的 checkBlocked 方法完成。
    *
-   * @param siteId - 当前站点 ID
-   * @param fields - 待检查的字段值
-   * @returns 屏蔽检查结果
+   * @param siteId - currentsite ID
+   * @returns blockCheckresult
    */
   async checkUserRules(
     siteId: string,
@@ -102,7 +98,7 @@ class BlocklistService {
       if (this.matches(value, rule.keyword, rule.matchMode)) {
         return {
           blocked: true,
-          reason: `${rule.fieldType} 命中用户自定义屏蔽规则: "${rule.keyword}"`,
+          reason: `${rule.fieldType} matches blocklist rule: "${rule.keyword}"`,
         };
       }
     }

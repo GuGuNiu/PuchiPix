@@ -1,4 +1,4 @@
-﻿﻿import { DomainHealthTracker, shuffleDomainList } from '@/lib/core/domain/domain-health-tracker';
+import { DomainHealthTracker, shuffleDomainList } from '@/lib/core/domain/domain-health-tracker';
 import { parseFileSize, replaceDomain, extractDomain } from '@/lib/utils';
 
 export { parseFileSize };
@@ -11,11 +11,11 @@ export const SITE_DOMAINS = [
   'https://www.lovecutes.net',
 ];
 
-/** 鍗犱綅鍥?URL 鐗囨 */
 export const PLACEHOLDER_FRAGMENT = '/static/zde/timg.gif';
 
-/** 绔欑偣鍚庣紑妯″紡 */
-export const SITE_SUFFIX_PATTERN = /\s*[-鈥斺€揮\s*[^-]+[-鈥斺€揮\s*鐖卞瀛怽s*$/;
+export const SITE_SUFFIX_PATTERNS: RegExp[] = [
+  /\s*[|\-]\s*(爱妹子|爱妹子网|Aimeizizi|LoveCutes)\s*$/i,
+];
 
 export { removePublisherPrefix } from '@/lib/utils/title-cleaner';
 
@@ -32,9 +32,6 @@ export interface GalleryPageMetadata {
   videos: string[];
 }
 
-/**
- * 浠庢枃绔?URL 涓彁鍙栨枃绔?ID
- */
 export function extractArticleId(url: string): string | null {
   const match = url.match(/\/article\/(\d+)/);
   return match ? match[1] : null;
@@ -49,17 +46,11 @@ export function shuffleDomains(): string[] {
 export const BLOCKED_TITLE_KEYWORDS: readonly string[] = [
   'AI Nudes',
   'AI Porn',
-  'AI 生成',
-  'AI生成',
-  '人工智能生成',
-  'AI绘图',
-  'AI 绘图',
+  'AI',
 ];
 
 export const BLOCKED_CATEGORIES: readonly string[] = [
-  'AI美女',
-  'AI 美女',
-  'AI生成',
+  'AI',
 ];
 
 export const BLOCKED_PROTAGONISTS: readonly string[] = [];

@@ -35,7 +35,6 @@ export function useSidebarCollapsed(): boolean {
     };
   }, [setCollapsed]);
 
-  // hover-expand 为 true 时，侧边栏实际处于展开状态，collapsed 视为 false
   return hoverExpand ? false : collapsed;
 }
 

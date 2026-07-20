@@ -23,7 +23,6 @@ export function formatFileSize(bytes: number, unit?: 'B' | 'KB' | 'MB' | 'GB'): 
   const absBytes = Math.abs(bytes);
   if (absBytes === 0) return '0 B';
 
-  // 如果指定了最小单位，从该单位开始格式化
   if (unit) {
     const unitMultipliers: Record<string, number> = {
       B: 1,
@@ -35,20 +34,13 @@ export function formatFileSize(bytes: number, unit?: 'B' | 'KB' | 'MB' | 'GB'): 
     return `${(bytes / multiplier).toFixed(1)} ${unit}`;
   }
 
-  // 自动选择合适的单位
   if (absBytes < 1024) return `${bytes} B`;
   if (absBytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (absBytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-/**
- * 将字节数格式化为指定精度的可读字符串
- *
- * @param bytes - 字节数
- * @param decimals - 小数位数（默认 1）
- * @returns 格式化后的字符串
- */
+
 export function formatFileSizePrecise(bytes: number, decimals: number = 1): string {
   if (bytes == null || isNaN(bytes)) return '—';
   if (bytes === 0) return '0 B';
@@ -69,10 +61,7 @@ export function formatFileSizePrecise(bytes: number, decimals: number = 1): stri
 }
 
 /**
- * 比较两个文件大小字符串的大小
  *
- * @param sizeA - 文件大小字符串 A
- * @param sizeB - 文件大小字符串 B
  * @returns -1: A<B, 0: A=B, 1: A>B
  */
 export function compareFileSizes(sizeA: string, sizeB: string): number {

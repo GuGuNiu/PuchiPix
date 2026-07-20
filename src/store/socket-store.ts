@@ -44,7 +44,6 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
     socket.on('disconnect', (reason) => {
       console.log('[Socket] Disconnected:', reason);
       set({ connected: false });
-      // 服务器主动断开时重连
       if (reason === 'io server disconnect') {
         setTimeout(() => socket.connect(), 2000);
       }

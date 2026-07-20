@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * 获取最新系统日志
- *
- * 查询最近一条任务状态变更或系统事件日志，
- * 用于翻页栏控制台实时显示。
- */
-export async function GET(): Promise<NextResponse> {
+
+export async function GET(request: Request): Promise<NextResponse> {
+  setLocaleFromHeaders(request.headers);
   try {
-    // 查询最近更新的任务，提取其状态作为日志来源
     const latestTask = await prisma.downloadTask.findFirst({
       orderBy: { updatedAt: 'desc' },
       select: {
@@ -28,12 +24,12 @@ export async function GET(): Promise<NextResponse> {
     });
 
     if (!latestTask) {
-      return NextResponse.json({ log: '系统就绪，等待任务...' });
+      return NextResponse.json({ log: t('api.logs.systemReady') });
     }
 
-    // 格式化日志消息
+    // Formatlogmessage
     const id = latestTask.seq ?? String(latestTask.id);
-    const title = latestTask.videoInfo?.title ?? `任务 #${id}`;
+    const title = latestTask.videoInfo?.title ?? t('api.logs.taskNumber', { id });
     const status = latestTask.status;
     const time = new Date(latestTask.updatedAt).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -42,19 +38,19 @@ export async function GET(): Promise<NextResponse> {
     });
 
     const statusMap: Record<string, string> = {
-      pending: '等待中',
-      scraping: '识别中',
-      downloading: '下载中',
-      paused: '已暂停',
-      completed: '已完成',
-      failed: '失败',
-      cancelled: '已取消',
+      pending: t('common.pending'),
+      scraping: t('common.scraping'),
+      downloading: t('common.downloading'),
+      paused: t('common.paused'),
+      completed: t('common.completed'),
+      failed: t('common.failed'),
+      cancelled: t('common.cancelled'),
     };
 
     const log = `[${time}] ${title.slice(0, 20)}${title.length > 20 ? '...' : ''} - ${statusMap[status] ?? status}`;
 
     return NextResponse.json({ log });
   } catch {
-    return NextResponse.json({ log: '日志获取失败' }, { status: 500 });
+    return NextResponse.json({ log: t('api.logs.fetchFailed') }, { status: 500 });
   }
 }

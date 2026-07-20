@@ -18,7 +18,7 @@ import {
   Folder,
 } from "lucide-react";
 import type { GalleryDownloadInfoData } from "@/types";
-import type { ZipStatus } from "../_lib/gallery-helpers";
+import type { ZipStatus } from "../gallery-helpers";
 
 interface GalleryZipInfoPanelProps {
   zipInfo: GalleryDownloadInfoData;
@@ -146,37 +146,37 @@ export function GalleryZipInfoPanel({
       >
         {zipInfo.Title && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipTitle")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipTitle")}</span>
             <span style={{ color: "var(--text-primary)" }}>{zipInfo.Title}</span>
           </div>
         )}
         {zipInfo.FileCount > 0 && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipFileCount")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipFileCount")}</span>
             <span style={{ color: "var(--text-primary)" }}>{zipInfo.FileCount}</span>
           </div>
         )}
         {zipInfo.FileSizeText && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipFileSize")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipFileSize")}</span>
             <span style={{ color: "var(--text-primary)" }}>{zipInfo.FileSizeText}</span>
           </div>
         )}
         {zipInfo.ActualSize > 0 && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipActualSize")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipActualSize")}</span>
             <span style={{ color: "var(--text-primary)" }}>{formatFileSize(zipInfo.ActualSize)}</span>
           </div>
         )}
         {zipInfo.ImageDimensions && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipDimensions")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipDimensions")}</span>
             <span style={{ color: "var(--text-primary)" }}>{zipInfo.ImageDimensions}</span>
           </div>
         )}
         {zipInfo.Password && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipPassword")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipPassword")}</span>
             <span
               style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono), ui-monospace, monospace", cursor: "pointer" }}
               onClick={() => {
@@ -191,7 +191,7 @@ export function GalleryZipInfoPanel({
         )}
         {zipInfo.Provider && (
           <div>
-            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipSource")}：</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("gallery.zipSource")}</span>
             <span style={{ color: "var(--text-primary)" }}>{zipInfo.Provider}</span>
           </div>
         )}

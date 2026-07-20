@@ -26,7 +26,7 @@ import {
   type StatusFilter,
   type SortBy,
   type ZipStatus,
-} from "./_lib/gallery-helpers";
+} from "./gallery-helpers";
 import { GalleryDetailPanel } from "./_components/gallery-detail-panel";
 
 export default function GalleryPage(): React.JSX.Element {
@@ -141,6 +141,7 @@ export default function GalleryPage(): React.JSX.Element {
 
   useEffect(() => {
     if (expandedId === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailLoading(true);
     fetchGalleryDetail(expandedId).finally(() => setDetailLoading(false));
   }, [expandedId, fetchGalleryDetail]);
@@ -304,7 +305,7 @@ export default function GalleryPage(): React.JSX.Element {
                       >
                         {gallery.CoverURL ? (
                           <img
-                            src={`/api/gallery/${gallery.ID}/cover`}
+                            src={`/api/gallery/${gallery.ID}?type=cover`}
                             alt={gallery.Title}
                             loading="lazy"
                             decoding="async"
@@ -367,7 +368,7 @@ export default function GalleryPage(): React.JSX.Element {
                               marginBottom: 8,
                             }}
                           >
-                            {t("gallery.model")}：{gallery.Protagonist}
+                            {t("gallery.model")}{gallery.Protagonist}
                           </div>
                         )}
                         <div style={{ display: "flex", gap: 4, marginBottom: 4, flexWrap: "wrap" }}>

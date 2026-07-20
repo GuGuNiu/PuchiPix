@@ -58,10 +58,27 @@ const esES: TranslationDict = {
   // Lista negra
   "api.blocklist.addFailed": "Error al añadir",
 
+  // Registros
+  "api.logs.systemReady": "Sistema listo, esperando tareas...",
+  "api.logs.taskNumber": "Tarea #{id}",
+  "api.logs.fetchFailed": "Error al obtener registros",
+
+  // Galería (suplemento)
+  "api.gallery.unsupportedScrape": "El sitio {site} no admite el raspado de galerías",
+  "api.gallery.allDomainsFailed": "Todos los dominios fallaron al raspar",
+
+  // Tareas (suplemento)
+  "api.tasks.multipleM3u8Detected": "Se detectaron {count} direcciones M3U8, seleccione",
+  "api.tasks.unsupportedListScrape": "El proveedor no admite el raspado de páginas de lista",
+
   // Común
   "api.characterDb.syncRunning": "La tarea de sincronización ya está en ejecución",
   "api.common.internalError": "Error interno del servidor",
   "api.common.missingParams": "Faltan parámetros obligatorios: {params}",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} no encontrado",
+  "api.dag.invalidAction": "Acción no válida: {action}",
 };
 
 export default esES;

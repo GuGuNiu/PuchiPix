@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -136,10 +136,6 @@ function RealtimeTicker({ stats, sseConnected }: { stats: Stats; sseConnected: b
     </div>
   );
 }
-
-/* ================================================================
-   最近任务活动流
-   ================================================================ */
 
 function RecentTasks({ tasks, loading }: { tasks: DownloadTask[]; loading: boolean }): React.JSX.Element {
   const { t } = useI18n();

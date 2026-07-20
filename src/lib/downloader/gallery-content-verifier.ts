@@ -3,22 +3,14 @@ import path from 'path';
 import { getPinyinService } from '@/lib/core/pinyin-service';
 
 /**
- * 从标题中解析预期的图片和视频数量
  *
- * 爱妹子等站点标题格式：
- * - "主角名 - 描述 11P2V" → 11 张图片，2 个视频
- * - "主角名 - 描述 50P" → 50 张图片，0 个视频
- * - "主角名 - 描述 11P2V1G" → 11 图 2 视频 1 GIF（G 归入图片）
- * - "主角名 - 描述" → 0, 0（标题未声明数量）
  *
- * @param title - 完整标题（H1 文本）
  * @returns { expectedImages, expectedVideos }
  *
  */
 export function parseTitleCount(title: string): { expectedImages: number; expectedVideos: number } {
   if (!title) return { expectedImages: 0, expectedVideos: 0 };
 
-  // 匹配标题尾部的 "11P2V" 或 "50P" 或 "11P2V1G" 格式
   const match = title.match(/(\d+)P\s*(?:(\d+)V)?\s*(?:(\d+)G)?\s*$/i);
 
   if (!match) return { expectedImages: 0, expectedVideos: 0 };
@@ -27,20 +19,13 @@ export function parseTitleCount(title: string): { expectedImages: number; expect
   const videos = parseInt(match[2] || '0', 10) || 0;
   const gifs = parseInt(match[3] || '0', 10) || 0;
 
-  // GIF 归入图片类
   return {
     expectedImages: images + gifs,
     expectedVideos: videos,
   };
 }
 
-/**
- * 中文/日文字符到拼音/罗马音的简易映射（回退表）
- *
- * 当 pinyin-pro 库无法转换某字符时，使用此映射表作为回退。
- * 仅覆盖常见的图库主角名字符。
- *
- */
+
 const CJK_ROMAN_MAP: Record<string, string> = {
   '可': 'ke', '小': 'xiao', '白': 'bai', '兔': 'tu',
   '美': 'mei', '女': 'nv', '妹': 'mei', '子': 'zi',
@@ -66,13 +51,7 @@ const CJK_ROMAN_MAP: Record<string, string> = {
   '九': 'jiu', '十': 'shi',
 };
 
-/**
- * 将 CJK 字符串转换为罗马音/拼音表示
- *
- * 优先使用 pinyin-pro 库转换，转换失败时回退到简易映射表。
- * 结果用下划线连接，保证文件名为纯 ASCII。
- *
- */
+
 function cjkToRoman(text: string): string {
   if (!text) return '';
 
@@ -83,7 +62,6 @@ function cjkToRoman(text: string): string {
     return result.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
   }
 
-  // pinyin-pro 无法转换时，逐字符查表回退
   let fallback = '';
   for (const char of text) {
     if (CJK_ROMAN_MAP[char]) {
@@ -98,23 +76,11 @@ function cjkToRoman(text: string): string {
 }
 
 /**
- * 根据图库元信息生成英文 ZIP 文件名
  *
- * 命名规则：{主角罗马音}_{描述罗马音}_{文章ID}.zip
- * 如果主角名为英文则直接使用，否则用 CJK 罗马音映射转换。
- * 保证文件名为纯 ASCII，不含特殊字符。
  *
- * 示例：
- * - 主角 "可可小白兔", 描述 "電車上の女高中生", ID 27571
  *   → "keke_xiaobaitu_27571.zip"
- * - 主角 "Alice", 描述 "Cosplay Set", ID 123
  *   → "alice_cosplay_set_123.zip"
  *
- * @param protagonist - 主角名
- * @param description - 描述
- * @param galleryId - 图库 ID（用于唯一标识）
- * @param ext - 文件扩展名（默认 .zip）
- * @returns 纯 ASCII 英文文件名
  *
  */
 export function generateEnglishZipName(
@@ -131,7 +97,6 @@ export function generateEnglishZipName(
   }
 
   if (description) {
-    // 去除描述尾部的数量标记（如 "21P1V"）
     const cleanDesc = description.replace(/\s*\d+P\d*V?\s*$/i, '').trim();
     if (cleanDesc) {
       const roman = cjkToRoman(cleanDesc);
@@ -139,35 +104,25 @@ export function generateEnglishZipName(
     }
   }
 
-  // 确保至少有 galleryId 作为文件名
   parts.push(String(galleryId));
 
   const baseName = parts.join('_').toLowerCase().replace(/_+/g, '_');
 
-  // 确保扩展名以点开头
   const normalizedExt = ext.startsWith('.') ? ext : `.${ext}`;
 
   return `${baseName}${normalizedExt}`;
 }
 
 export interface ContentVerificationResult {
-  /** 实际图片文件数 */
   imageCount: number;
-  /** 实际视频文件数 */
   videoCount: number;
-  /** 实际其他文件数 */
   otherCount: number;
-  /** 总文件数 */
   totalCount: number;
-  /** 预期图片数（从标题解析） */
   expectedImages: number;
-  /** 预期视频数（从标题解析） */
   expectedVideos: number;
-  /** 数量是否匹配 */
+  /** AmountisnoMatch */
   matched: boolean;
-  /** 是否需要回退爬虫下载 */
   needsFallbackScrape: boolean;
-  /** 不匹配原因 */
   reason?: string;
 }
 
@@ -175,12 +130,9 @@ const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ti
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m4v'];
 
 /**
- * 统计解压目录中的文件数量
  *
- * 递归遍历目录，按扩展名分类统计图片和视频文件。
- * 忽略隐藏文件和 macOS 元数据文件（.DS_Store、__MACOSX）。
  *
- * @param extractPath - 解压目录路径
+ * @param extractPath - DecompressdirectoryPath
  * @returns { imageCount, videoCount, otherCount, totalCount }
  *
  */
@@ -201,7 +153,6 @@ export function countExtractedFiles(extractPath: string): {
   function walk(dir: string): void {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
-      // 跳过 macOS 元数据
       if (entry.name === '.DS_Store' || entry.name === '__MACOSX') continue;
       if (entry.name.startsWith('.')) continue;
 
@@ -233,18 +184,10 @@ export function countExtractedFiles(extractPath: string): {
 }
 
 /**
- * 校验解压后的内容数量是否与标题声明一致
  *
- * 对比规则：
- * - 如果标题声明了预期数量（expectedImages > 0），则实际图片数应 >= 预期
- * - 如果标题声明了预期视频数（expectedVideos > 0），则实际视频数应 >= 预期
- * - 允许实际数量略多于预期（可能包含封面图、预览图等附加内容）
- * - 如果实际数量明显少于预期（差值 > 2），标记需要回退爬虫下载
  *
- * @param extractPath - 解压目录路径
- * @param expectedImages - 标题声明的预期图片数
- * @param expectedVideos - 标题声明的预期视频数
- * @returns 校验结果
+ * @param extractPath - DecompressdirectoryPath
+ * @returns Verification result
  *
  */
 export function verifyExtractedContent(
@@ -254,7 +197,6 @@ export function verifyExtractedContent(
 ): ContentVerificationResult {
   const counts = countExtractedFiles(extractPath);
 
-  // 如果标题未声明数量，跳过校验
   if (expectedImages === 0 && expectedVideos === 0) {
     return {
       ...counts,
@@ -268,7 +210,6 @@ export function verifyExtractedContent(
   const imageDiff = expectedImages - counts.imageCount;
   const videoDiff = expectedVideos - counts.videoCount;
 
-  // 允许实际数量比预期多（附加内容），但不应少于预期超过 2 个
   const imageMatched = expectedImages === 0 || imageDiff <= 2;
   const videoMatched = expectedVideos === 0 || videoDiff <= 2;
 
@@ -279,12 +220,12 @@ export function verifyExtractedContent(
   if (!matched) {
     const parts: string[] = [];
     if (!imageMatched) {
-      parts.push(`图片不足: 预期 ${expectedImages}，实际 ${counts.imageCount}（差 ${imageDiff}）`);
+      parts.push(`图片不足: 预期 ${expectedImages}实际 ${counts.imageCount}差 ${imageDiff}`);
     }
     if (!videoMatched) {
-      parts.push(`视频不足: 预期 ${expectedVideos}，实际 ${counts.videoCount}（差 ${videoDiff}）`);
+      parts.push(`视频不足: 预期 ${expectedVideos}实际 ${counts.videoCount}差 ${videoDiff}`);
     }
-    reason = parts.join('；');
+    reason = parts.join('');
   }
 
   return {
@@ -298,13 +239,8 @@ export function verifyExtractedContent(
 }
 
 /**
- * 检测下载 URL 的来源类型
  *
- * 根据 URL 域名判断下载来源：
- * - ouo.io / ouo.press → ouo 中转站
- * - mediafire.com → MediaFire 直链
- * - 以 .zip/.rar/.7z 结尾 → 直链
- * - 其他 → unknown
+ * - other → unknown
  *
  */
 export function detectDownloadSource(url: string): 'ouo' | 'mediafire' | 'direct' | 'unknown' {

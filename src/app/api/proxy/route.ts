@@ -12,7 +12,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const filePath = request.nextUrl.searchParams.get('path');
   const referer = request.nextUrl.searchParams.get('referer') || '';
 
-  // 优先处理本地文件路径
   if (filePath) {
     try {
       const resolvedPath = path.resolve(filePath);
@@ -29,7 +28,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       const fileBuffer = await readFile(resolvedPath);
       
-      // 根据文件扩展名设置 Content-Type
       const ext = path.extname(resolvedPath).toLowerCase();
       const contentTypeMap: Record<string, string> = {
         '.jpg': 'image/jpeg',
@@ -71,7 +69,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Only .m3u8 and .ts URLs are allowed' }, { status: 400 });
     }
 
-    // 优先使用传入的 referer，否则回退到 CDN 域名
     const finalReferer = referer || `${parsed.protocol}//${parsed.host}/`;
 
     const res = await fetch(url, {

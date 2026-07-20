@@ -17,7 +17,7 @@ export const useSniffStore = create<SniffStore>((set) => ({
   loading: false,
   fetchStatus: async () => {
     try {
-      const res = await fetch('/api/sniff/status');
+      const res = await fetch('/api/sniff');
       set({ status: await res.json() });
     } catch (err) {
       console.warn('[SniffStore] fetchStatus failed:', err instanceof Error ? err.message : String(err));
@@ -25,8 +25,7 @@ export const useSniffStore = create<SniffStore>((set) => ({
   },
   fetchURLs: async (type?: string) => {
     try {
-      const url = type ? `/api/sniff/urls?type=${type}` : '/api/sniff/urls';
-      const res = await fetch(url);
+      const res = await fetch(`/api/sniff?type=${type || 'urls'}`);
       set({ urls: await res.json() });
     } catch (err) {
       console.warn('[SniffStore] fetchURLs failed:', err instanceof Error ? err.message : String(err));
@@ -34,15 +33,19 @@ export const useSniffStore = create<SniffStore>((set) => ({
   },
   startSniff: async (url) => {
     set({ loading: true });
-    const res = await fetch('/api/sniff/start', {
+    const res = await fetch('/api/sniff', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ action: 'start', url }),
     });
     set({ loading: false });
     if (!res.ok) throw new Error('Failed to start sniffing');
   },
   stopSniff: async () => {
-    await fetch('/api/sniff/stop', { method: 'POST' });
+    await fetch('/api/sniff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop' }),
+    });
   },
 }));

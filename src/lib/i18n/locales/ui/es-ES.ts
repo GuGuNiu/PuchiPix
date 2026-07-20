@@ -1,10 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-/**
- * Textos de interfaz — Español
- *
- * Cobertura: UI común, Navegación, Panel, Galería, Búsqueda, Ajustes, Sniffing, Personajes
- */
 const esES: TranslationDict = {
   /* ─── Común ─── */
   "common.refresh": "Actualizar",
@@ -258,10 +253,45 @@ const esES: TranslationDict = {
   "protagonists.statAliases": "{count} alias",
 
   /* ─── Panel Ops ─── */ "ops.online": "En línea", "ops.offline": "Desconectado", "ops.todayTasks": "Tareas de hoy", "ops.avgSpeed": "Velocidad media", "ops.uptime": "Disponibilidad", "ops.lastChecked": "Última comprobación", "ops.loadingSites": "Cargando datos de monitoreo de sitios...", "ops.systemConsole": "Consola del sistema", "ops.realtimeConnected": "En vivo", "ops.disconnected": "Desconectado", "ops.all": "Todos", "ops.resume": "Reanudar", "ops.pause": "Pausar", "ops.clear": "Limpiar", "ops.noLogs": "Sin logs", "ops.pausedBuffer": "En pausa — {count} logs nuevos en búfer",
-  /* ─── Crear tarea ─── */ "createTask.title": "Crear tarea de descarga", "createTask.pleaseFillLink": "Introduce un enlace", "createTask.exactMatch": "Coincidencia exacta", "createTask.mirrorMatch": "Coincidencia de dominio espejo", "createTask.pathMatch": "Coincidencia de ruta", "createTask.matchFallback": "Coincidencia", "createTask.galleryLabel": "Galería #{id}", "createTask.taskLabel": "Tarea #{id}", "createTask.duplicateRecord": "⚠️ Este registro ya existe en la base de datos ({matchLabel})\n{idLabel}, estado: {status}\n{urlInfo}", "createTask.unknownStatus": "Desconocido", "createTask.existingUrl": "URL existente: {url}", "createTask.createFailed": "Error al crear tarea", "createTask.created": "Tarea creada", "createTask.close": "Cerrar", "createTask.videoLinkLabel": "Enlace de video", "createTask.linkHint": "Admite enlaces directos M3U8 o páginas web con videos", "createTask.outputFormatLabel": "Formato de salida", "createTask.autoStart": "Iniciar descarga automáticamente tras crear", "createTask.autoStartHint": "Si se desactiva, la tarea quedará pendiente y se podrá iniciar manualmente", "createTask.creating": "Creando...", "createTask.createTask": "Crear tarea",
-  /* ─── Búsqueda (complementos) ─── */ "search.scrape": "Rastrear", "search.scrapeThisVideo": "Rastrear este video", "search.loadingData": "Cargando datos...", "search.statusDownloaded": "Descargado", "search.taskId": "Tarea #{id}", "search.tags": "Etiquetas", "search.noDetailData": "Sin datos detallados. {scrape} o descarga primero.", "search.videoData": "Datos de video", "search.fieldTitle": "Título", "search.fieldDate": "Fecha", "search.fieldResolution": "Resolución", "search.fieldDuration": "Duración", "search.fieldStatus": "Estado", "search.categories": "Categorías", "search.actors": "Actores", "search.director": "Director", "search.segmentData": "Datos de segmentos", "search.segmentCount": "N.º de segmentos", "search.totalDuration": "Duración total", "search.avgSegmentDuration": "Duración media de segmento", "search.sizeData": "Datos de tamaño", "search.fieldFileSize": "Tamaño de archivo", "search.estimatedSize": "Tamaño estimado", "search.estimatedSizeValue": "Estimando", "search.bitrate": "Tasa de bits",
+  /* ─── Búsqueda (complementos) ─── */   "createTask.title": "Crear tarea de descarga",
+  "createTask.pleaseFillLink": "Por favor, introduce un enlace",
+  "createTask.exactMatch": "Coincidencia exacta",
+  "createTask.mirrorMatch": "Coincidencia de dominio espejo",
+  "createTask.pathMatch": "Coincidencia de ruta",
+  "createTask.matchFallback": "Coincidencia",
+  "createTask.galleryLabel": "Galería #{id}",
+  "createTask.taskLabel": "Tarea #{id}",
+  "createTask.duplicateRecord": "⚠ Este registro ya existe en la base de datos ({matchLabel})\n{idLabel}, estado: {status}\n{urlInfo}",
+  "createTask.unknownStatus": "Desconocido",
+  "createTask.existingUrl": "URL existente: {url}",
+  "createTask.createFailed": "Error al crear la tarea",
+  "createTask.created": "Tarea creada",
+  "createTask.close": "Cerrar",
+  "createTask.videoLinkLabel": "URL del video",
+  "createTask.linkHint": "Admite enlaces directos M3U8 o páginas web con videos",
+  "createTask.outputFormatLabel": "Formato de salida",
+  "createTask.autoStart": "Iniciar descarga automáticamente tras crear",
+  "createTask.autoStartHint": "Si se desactiva, la tarea quedará pendiente y se podrá iniciar manualmente",
+  "createTask.creating": "Creando...",
+  "createTask.createTask": "Crear tarea",
+
+  "search.scrape": "Rastrear", "search.scrapeThisVideo": "Rastrear este video", "search.loadingData": "Cargando datos...", "search.statusDownloaded": "Descargado", "search.taskId": "Tarea #{id}", "search.tags": "Etiquetas", "search.noDetailData": "Sin datos detallados. {scrape} o descarga primero.", "search.videoData": "Datos de video", "search.fieldTitle": "Título", "search.fieldDate": "Fecha", "search.fieldResolution": "Resolución", "search.fieldDuration": "Duración", "search.fieldStatus": "Estado", "search.categories": "Categorías", "search.actors": "Actores", "search.director": "Director", "search.segmentData": "Datos de segmentos", "search.segmentCount": "N.º de segmentos", "search.totalDuration": "Duración total", "search.avgSegmentDuration": "Duración media de segmento", "search.sizeData": "Datos de tamaño", "search.fieldFileSize": "Tamaño de archivo", "search.estimatedSize": "Tamaño estimado", "search.estimatedSizeValue": "Estimando", "search.bitrate": "Tasa de bits",
   /* ─── Búsqueda por lotes ─── */ "batchSearch.title": "Búsqueda por lotes", "batchSearch.titleLabel": "Título", "batchSearch.siteLabel": "Sitio", "batchSearch.startSearch": "Iniciar búsqueda", "batchSearch.searching": "Buscando...", "batchSearch.collapse": "Contraer", "batchSearch.expand": "Expandir", "batchSearch.downloaded": "Descargados", "batchSearch.notFound": "No encontrados", "batchSearch.failed": "Fallidos", "batchSearch.total": "Total", "batchSearch.all": "Todos", "batchSearch.candidates": "{count} candidatos", "batchSearch.progress": "Progreso: ", "batchSearch.copyNotFound": "Copiar no encontrados", "batchSearch.retryFailed": "Reintentar fallidos", "batchSearch.hideLogs": "Ocultar logs", "batchSearch.showLogs": "Mostrar logs", "batchSearch.colInputTitle": "Título de entrada", "batchSearch.colMatchResult": "Resultado", "batchSearch.colScore": "Puntuación", "batchSearch.colStatus": "Estado", "batchSearch.colTask": "Tarea", "batchSearch.complete": "Búsqueda por lotes completada: descargados {downloaded}, no encontrados {notFound}, fallidos {failed}", "batchSearch.started": "Búsqueda por lotes iniciada, {count} títulos", "batchSearch.copied": "Copiados {count} títulos al portapapeles", "batchSearch.placeholder": "Pega títulos de video, uno por línea, ej.:\nVida secreta de una criada hermosa\nTentación de un ángel\nDiario de entrenamiento", "batchSearch.pleaseInputTitle": "Introduce un título", "batchSearch.noValidTitle": "No se encontraron títulos válidos", "batchSearch.cancelled": "Búsqueda por lotes cancelada", "batchSearch.cancelFailed": "Error al cancelar", "batchSearch.noNotFound": "No hay títulos no encontrados", "batchSearch.noRetry": "No hay títulos para reintentar", "batchSearch.refilled": "Títulos fallidos rellenados en el campo de entrada", "batchSearch.inputHint": "Detectados {count} títulos · Búsqueda difusa automática y descarga de videos coincidentes · Intervalo de 3-5s entre títulos para evitar bloqueos",
-  /* ─── Ajustes de tareas ─── */ "taskSettings.title": "Ajustes de tareas", "taskSettings.maxConcurrentTasks": "Máx. tareas simultáneas", "taskSettings.maxConcurrentTasksDesc": "Límite de tareas simultáneas de descarga de video/galería", "taskSettings.maxScrapingTasks": "Máx. tareas de rastreo", "taskSettings.maxScrapingTasksDesc": "Límite de tareas simultáneas de rastreo (identificación)", "taskSettings.sniffMaxConcurrentTasks": "Máx. tareas simultáneas de sniffing", "taskSettings.maxSniffTasksDesc": "Límite de tareas simultáneas de sniffing", "taskSettings.tsSegmentConcurrent": "Concurrencia de segmentos TS", "taskSettings.tsSegmentConcurrentDesc": "Solicitudes paralelas de segmentos TS por descarga de video", "taskSettings.galleryImageConcurrent": "Concurrencia de imágenes de galería", "taskSettings.galleryImageConcurrentDesc": "Solicitudes paralelas de imágenes durante descarga de galería", "taskSettings.unitTasks": "tareas", "taskSettings.unitSegments": "segs.", "taskSettings.unitFiles": "arch.", "taskSettings.note": "Los cambios surten efecto inmediatamente, no requiere reinicio", "taskSettings.refresh": "Actualizar", "taskSettings.save": "Guardar", "taskSettings.loadFailed": "Error al cargar ajustes", "taskSettings.saveFailed": "Error al guardar ajustes",
+  /* ─── Ajustes de tareas ─── */ "taskSettings.title": "Ajustes de tareas", "taskSettings.maxConcurrentTasks": "Máx. tareas simultáneas", "taskSettings.maxConcurrentTasksDesc": "Límite de tareas simultáneas de descarga de video/galería", "taskSettings.maxScrapingTasks": "Máx. tareas de rastreo", "taskSettings.maxScrapingTasksDesc": "Límite de tareas simultáneas de rastreo (identificación)", "taskSettings.sniffMaxConcurrentTasks": "Máx. tareas simultáneas de sniffing", "taskSettings.maxSniffTasksDesc": "Límite de tareas simultáneas de sniffing", "taskSettings.tsSegmentConcurrent": "Concurrencia de segmentos TS", "taskSettings.tsSegmentConcurrentDesc": "Solicitudes paralelas de segmentos TS por descarga de video", "taskSettings.galleryImageConcurrent": "Concurrencia de imágenes de galería", "taskSettings.galleryImageConcurrentDesc": "Solicitudes paralelas de imágenes durante descarga de galería", "taskSettings.unitTasks": "tareas", "taskSettings.unitSegments": "segs.", "taskSettings.unitFiles": "arch.", "taskSettings.note": "Los cambios surten efecto inmediatamente, no requiere reinicio", "taskSettings.refresh": "Actualizar", "taskSettings.save": "Guardar", "taskSettings.loadFailed": "Error al cargar ajustes", "taskSettings.saveFailed": "Error al guardar ajustes", "console.noTaskLogs": "Sin registros de tareas", "console.fetchFailed": "Error al obtener registros",
+
+  /* ─── DAG Node States ─── */
+  "dag.nodeState.pending": "Pendiente",
+  "dag.nodeState.ready": "Listo",
+  "dag.nodeState.queued": "En cola",
+  "dag.nodeState.allocated": "Asignado",
+  "dag.nodeState.running": "Ejecutando",
+  "dag.nodeState.paused": "Pausado",
+  "dag.nodeState.verifying": "Verificando",
+  "dag.nodeState.resumeVerify": "Reanudar verificación",
+  "dag.nodeState.completed": "Completado",
+  "dag.nodeState.failed": "Fallido",
+  "dag.nodeState.cancelled": "Cancelado",
+  "dag.nodeState.timeout": "Tiempo agotado",
 };
 
 export default esES;

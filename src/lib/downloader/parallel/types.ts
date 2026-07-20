@@ -14,9 +14,8 @@ export interface ChunkInfo {
 export interface ParallelDownloadOptions {
   chunkCount?: number;
   headers?: Record<string, string>;
-  /** 进度回调 */
+  /** ProgressCallback */
   onProgress?: (downloaded: number, total: number) => void;
-  /** 下载超时（毫秒） */
   timeout?: number;
 }
 
@@ -24,11 +23,8 @@ export interface DownloadResult {
   success: boolean;
   fileSize: number;
   savedPath: string;
-  /** 实际使用的并行数 */
   parallelism: number;
-  /** 是否使用了多线程 */
   ranged: boolean;
-  /** 平均速度（字节/秒） */
   avgSpeed: number;
 }
 

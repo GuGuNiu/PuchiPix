@@ -3,7 +3,7 @@ import type { TranslationDict } from "../../types";
 // 屏蔽詞庫頁面文本 — 繁體中文
 const zhTW: TranslationDict = {
   "blocklist.title": "屏蔽詞庫",
-  "blocklist.subtitle": "管理站點內容的屏蔽規則，支援按標題/分類/主角/導演過濾",
+  "blocklist.subtitle": "管理站點內容的屏蔽規則支援按標題/分類/主角/導演過濾",
   "blocklist.scopeAll": "全域",
   "blocklist.scopeAimeizizi": "愛妹子",
   "blocklist.scopeKanav": "KanAV",
@@ -35,7 +35,7 @@ const zhTW: TranslationDict = {
   "blocklist.invalidRegex": "正規表示式無效",
   "blocklist.placeholderKeyword": "輸入屏蔽關鍵字...",
   "blocklist.placeholderRegex": "輸入正規表示式...",
-  "blocklist.confirmDelete": "確認刪除選中的規則？",
+  "blocklist.confirmDelete": "確認刪除選中的規則",
   "blocklist.noRules": "暫無規則",
   "blocklist.noMatchingRules": "沒有匹配的規則",
   "blocklist.loadFailed": "載入屏蔽規則失敗",

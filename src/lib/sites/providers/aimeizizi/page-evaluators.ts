@@ -2,129 +2,13 @@ import type { Page } from 'playwright';
 import type { ExtendedMetadata } from '../../types';
 import type { GalleryZipInfo } from '@/types';
 import { PLACEHOLDER_FRAGMENT, type GalleryPageMetadata } from './constants';
+import * as cheerio from 'cheerio';
+import { parseGalleryPageHtml, parseExtMetadata, parseSearchResults } from './html-parser';
 
 export async function extractGalleryPageData(page: Page, pageIndex: number): Promise<GalleryPageMetadata> {
-  return page.evaluate(
-    ({ pageIndex, placeholderFragment }) => {
-      const result: GalleryPageMetadata = {
-        h1Title: '',
-        rawTitle: '',
-        tags: [],
-        category: '',
-        coverUrl: '',
-        publishTime: '',
-        currentPage: 1,
-        totalPages: 1,
-        images: [],
-        videos: [],
-      };
-
-      const h1 = document.querySelector('h1');
-      result.h1Title = h1?.textContent?.trim() || '';
-      result.rawTitle = document.title;
-
-      const breadcrumb = document.querySelector('nav[aria-label="Breadcrumb"]');
-      if (breadcrumb) {
-        const links = breadcrumb.querySelectorAll('a');
-        if (links.length >= 2) {
-          result.category = links[links.length - 1].textContent?.trim() || '';
-        }
-      }
-
-      document.querySelectorAll('a[href*="/tag/"]').forEach((a) => {
-        const text = a.textContent?.trim();
-        if (text && text !== '标签' && text.length < 30 && !result.tags.includes(text)) {
-          result.tags.push(text);
-        }
-      });
-
-      const navs = document.querySelectorAll('nav');
-      navs.forEach((nav) => {
-        const text = nav.textContent || '';
-        const match = text.match(/第\s*(\d+)\s*[頁页].*?共\s*(\d+)\s*[頁页]/);
-        if (match) {
-          result.currentPage = parseInt(match[1]);
-          result.totalPages = parseInt(match[2]);
-        }
-      });
-
-      const article = document.querySelector('article');
-      if (article) {
-        const imgs = article.querySelectorAll('img');
-        imgs.forEach((img) => {
-          const src = img.getAttribute('src') || '';
-          const dataSrc = img.getAttribute('data-src') || '';
-          const url = dataSrc || src;
-
-          if (
-            url &&
-            !url.includes(placeholderFragment) &&
-            !url.includes('/static/images/Loading') &&
-            !url.includes('data:image/')
-          ) {
-            result.images.push({ url, pageIndex });
-          }
-        });
-      }
-
-      document.querySelectorAll('video source[src*=".m3u8"]').forEach((source) => {
-        const src = source.getAttribute('src') || '';
-        if (src) result.videos.push(src);
-      });
-
-      document.querySelectorAll('video source[src*=".mp4"]').forEach((source) => {
-        const src = source.getAttribute('src') || '';
-        if (src && !result.videos.includes(src)) {
-          result.videos.push(src);
-        }
-      });
-
-      document.querySelectorAll('script').forEach((script) => {
-        const content = script.textContent || '';
-        const matches = content.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/gi);
-        if (matches) {
-          matches.forEach((url) => {
-            if (!result.videos.includes(url)) {
-              result.videos.push(url);
-            }
-          });
-        }
-      });
-
-      if (article) {
-        const imgs = article.querySelectorAll('img');
-        for (const img of imgs) {
-          const src = img.getAttribute('src') || '';
-          const dataSrc = img.getAttribute('data-src') || '';
-          const url = dataSrc || src;
-          if (url && !url.includes(placeholderFragment) && !url.includes('/static/images/Loading')) {
-            result.coverUrl = url;
-            break;
-          }
-        }
-      }
-
-      document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
-        if (result.publishTime) return;
-        try {
-          const data = JSON.parse(script.textContent || '') as { '@type'?: string; uploadDate?: string };
-          if (data['@type'] === 'VideoObject' && data.uploadDate) {
-            result.publishTime = String(data.uploadDate).substring(0, 10);
-          }
-        } catch {}
-      });
-
-      if (!result.publishTime && result.coverUrl) {
-        const match = result.coverUrl.match(/\/(\d{4})\/(\d{2})\/(\d{2})\//);
-        if (match) {
-          result.publishTime = `${match[1]}-${match[2]}-${match[3]}`;
-        }
-      }
-
-      return result;
-    },
-    { pageIndex, placeholderFragment: PLACEHOLDER_FRAGMENT },
-  );
+  const html = await page.content();
+  const $ = cheerio.load(html);
+  return parseGalleryPageHtml($, pageIndex);
 }
 
 export async function extractZipDownloadInfo(page: Page): Promise<GalleryZipInfo | undefined> {
@@ -137,7 +21,7 @@ export async function extractZipDownloadInfo(page: Page): Promise<GalleryZipInfo
     page.$('.btn-download'),
   ]);
   if (!boxEl && !btnEl) {
-    zLog('无下载信息元素，跳过提取');
+    zLog('无下载信息元素跳过提取');
     return undefined;
   }
   zLog(`元素检测: box=${!!boxEl}, btn=${!!btnEl}`);
@@ -286,52 +170,9 @@ export async function extractZipDownloadInfo(page: Page): Promise<GalleryZipInfo
 }
 
 export async function extractSearchResultsRaw(page: Page): Promise<{ url: string; title: string; coverUrl?: string; date?: string }[]> {
-  return page.evaluate(() => {
-    const results: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
-    const seen = new Set<string>();
-    const PLACEHOLDER = '/static/zde/timg.gif';
-
-    const resolveUrl = (raw: string | null | undefined): string | undefined => {
-      if (!raw) return undefined;
-      if (raw.includes(PLACEHOLDER) || raw.includes('/static/images/Loading')) return undefined;
-      if (raw.startsWith('data:')) return undefined;
-      try {
-        return new URL(raw, window.location.href).href;
-      } catch {
-        return undefined;
-      }
-    };
-
-    document.querySelectorAll('article').forEach((article) => {
-      const link = article.querySelector('a[href*="/article/"]') as HTMLAnchorElement | null;
-      if (!link) return;
-      const href = link.href;
-      if (href && !seen.has(href)) {
-        seen.add(href);
-
-        const img = article.querySelector('img');
-        const coverUrl =
-          resolveUrl(img?.getAttribute('data-original-src')) ||
-          resolveUrl(img?.getAttribute('data-src')) ||
-          resolveUrl(img?.getAttribute('data-original')) ||
-          resolveUrl(img?.getAttribute('src'));
-
-        const titleEl = article.querySelector('h2 a') || link;
-        const title =
-          titleEl?.getAttribute('title') ||
-          titleEl?.textContent?.trim() ||
-          link.getAttribute('title') ||
-          '';
-
-        const timeEl = article.querySelector('footer time');
-        const date = timeEl?.textContent?.trim() || undefined;
-
-        results.push({ url: href, title, coverUrl, date });
-      }
-    });
-
-    return results.slice(0, 30);
-  });
+  const html = await page.content();
+  const $ = cheerio.load(html);
+  return parseSearchResults($, page.url());
 }
 
 export async function extractExtMetadataRaw(page: Page): Promise<{
@@ -342,45 +183,7 @@ export async function extractExtMetadataRaw(page: Page): Promise<{
   coverUrl: string;
   documentTitle: string;
 }> {
-  return page.evaluate(() => {
-    const h1 = document.querySelector('h1');
-    const h1Title = h1?.textContent?.trim() || '';
-
-    const breadcrumb = document.querySelector('nav[aria-label="Breadcrumb"]');
-    let category = '';
-    if (breadcrumb) {
-      const links = breadcrumb.querySelectorAll('a');
-      if (links.length >= 2) {
-        category = links[links.length - 1].textContent?.trim() || '';
-      }
-    }
-
-    const tags: string[] = [];
-    document.querySelectorAll('a[href*="/tag/"]').forEach((a) => {
-      const text = a.textContent?.trim();
-      if (text && text !== '标签' && text.length < 30 && !tags.includes(text)) {
-        tags.push(text);
-      }
-    });
-
-    const metaKeywords = document.querySelector('meta[name="keywords"]');
-    const keywordStr = metaKeywords?.getAttribute('content') || '';
-
-    let coverUrl = '';
-    const article = document.querySelector('article');
-    if (article) {
-      const imgs = article.querySelectorAll('img');
-      for (const img of imgs) {
-        const src = img.getAttribute('src') || '';
-        const dataSrc = img.getAttribute('data-src') || '';
-        const url = dataSrc || src;
-        if (url && !url.includes('/static/zde/timg.gif') && !url.includes('/static/images/Loading')) {
-          coverUrl = url;
-          break;
-        }
-      }
-    }
-
-    return { h1Title, category, tags, keywordStr, coverUrl, documentTitle: document.title };
-  });
+  const html = await page.content();
+  const $ = cheerio.load(html);
+  return parseExtMetadata($);
 }

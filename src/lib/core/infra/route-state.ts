@@ -75,7 +75,6 @@ function saveToServer(routeKey: string, entry: RouteStateEntry): void {
           }),
         });
       } catch {
-        // Best-effort; silently ignore failures.
       }
     }, SAVE_DEBOUNCE_MS),
   );
@@ -112,7 +111,10 @@ export function useRouteState(
 
   const scrollRef = useRef<number>(0);
   const routeKeyRef = useRef(routeKey);
-  routeKeyRef.current = routeKey;
+
+  useEffect(() => {
+    routeKeyRef.current = routeKey;
+  }, [routeKey]);
 
   // Async load from the server (on initial page entry).
   useEffect(() => {
@@ -121,6 +123,7 @@ export function useRouteState(
     // Skip the network request on an in-memory cache hit.
     const cached = memCache.get(routeKey);
     if (cached && Date.now() - cached.savedAt <= ttl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSavedData(cached.data);
       return;
     }

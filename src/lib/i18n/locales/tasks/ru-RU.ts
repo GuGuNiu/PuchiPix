@@ -12,6 +12,7 @@ const ruRU: TranslationDict = {
   "tasks.sortProgressAsc": "Прогресс ↑",
   "tasks.sortStatus": "По статусу",
   "tasks.searchPlaceholder": "Поиск по названию, URL или персонажу...",
+  "tasks.search": "Поиск...",
   "tasks.pleaseSelectTasks": "Сначала выберите задачи",
   "tasks.confirmBatchDelete": "Подтвердить массовое удаление {count} задач?",
   "tasks.batchDeleteComplete": "Массовое удаление завершено: {count} шт.",

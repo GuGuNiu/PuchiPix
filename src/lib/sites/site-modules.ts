@@ -23,18 +23,14 @@ export const ENABLED_SITE_MODULES: readonly SiteModuleConfig[] = ALL_SITE_MODULE
 );
 
 /**
- * 根据 ID 获取站点模块配置。
- * @param id - 站点 ID
- * @returns 站点模块配置，不存在则返回 undefined
+ * @param id - site ID
  */
 export function getSiteModule(id: string): SiteModuleConfig | undefined {
   return SITE_MODULES[id as keyof typeof SITE_MODULES];
 }
 
 /**
- * 获取站点本地化名称
- * @param module - 站点模块配置
- * @returns 本地化的站点名称
+ * @param module - sitemoduleconfig
  */
 export function getSiteModuleName(
   module: SiteModuleConfig,

@@ -1,5 +1,8 @@
 import prisma from "@/lib/db/prisma";
 import { logT } from "@/lib/i18n/server";
+import { loggers } from "./logger";
+
+const logger = loggers.seedData();
 
 interface PrefDefault {
   key: string;
@@ -40,16 +43,11 @@ const BLOCKLIST_PRESETS: BlocklistPreset[] = [
   { siteId: "all", fieldType: "title", keyword: "出售资源", matchMode: "includes", remark: "广告内容过滤" },
 ];
 
-/**
- * 执行预置数据种子写入。
- *
- * 幂等：仅插入缺失的记录，不修改已有数据。
- */
+
 export async function seedPresetData(): Promise<void> {
   let prefSeeded = 0;
   let blSeeded = 0;
 
-  // ─── 1. 用户偏好默认值 ───
   try {
     const existingPrefs = await prisma.userPreference.findMany({
       where: { key: { in: PREF_DEFAULTS.map((p) => p.key) } },
@@ -71,10 +69,9 @@ export async function seedPresetData(): Promise<void> {
       prefSeeded = missing.length;
     }
   } catch (err) {
-    console.error("[Seed] 用户偏好预置数据写入失败:", err instanceof Error ? err.message : String(err));
+    logger.error('User preference seed failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
-  // ─── 2. 屏蔽词预置规则 ───
   try {
     const existingRules = await prisma.blocklistRule.findMany({
       where: {
@@ -108,12 +105,10 @@ export async function seedPresetData(): Promise<void> {
       blSeeded = missingRules.length;
     }
   } catch (err) {
-    console.error("[Seed] 屏蔽词预置数据写入失败:", err instanceof Error ? err.message : String(err));
+    logger.error('Blocklist seed failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
   if (prefSeeded > 0 || blSeeded > 0) {
-    console.log(
-      logT("log.seed.presetDataSeeded", { prefs: prefSeeded, blocklists: blSeeded }),
-    );
+    logger.infoT("log.seed.presetDataSeeded", { prefs: prefSeeded, blocklists: blSeeded });
   }
 }

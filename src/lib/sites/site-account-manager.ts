@@ -1,11 +1,12 @@
 import { prisma } from '@/lib/db/prisma';
+import { loggers } from '@/lib/core/infra/logger';
 import type { SiteAccount } from '@prisma/client';
 import { logT } from '@/lib/i18n/server';
 
-/** 账户状态 */
+
+const logger = loggers.siteAccountManager();
 export type AccountStatus = 'active' | 'disabled' | 'cooldown' | 'expired' | 'banned';
 
-/** Cookie 对象（Playwright 格式） */
 export interface CookieData {
   name: string;
   value: string;
@@ -17,7 +18,6 @@ export interface CookieData {
   expires?: number;
 }
 
-/** 账户信息（脱敏后，不包含密码） */
 export interface AccountInfo {
   id: number;
   siteId: string;
@@ -32,15 +32,12 @@ export interface AccountInfo {
   hasCookies: boolean;
 }
 
-/** 登录失败自动禁用阈值 */
 const MAX_FAIL_COUNT = 5;
 
 class SiteAccountManager {
   /**
-   * 获取指定站点的可用账户（active 状态，最久未使用优先）。
    *
-   * @param siteId - 站点 ID
-   * @returns 账户记录（含密码，供登录使用），无可用账户返回 null
+   * @param siteId - site ID
    */
   async getAvailableAccount(siteId: string): Promise<SiteAccount | null> {
     const accounts = await prisma.siteAccount.findMany({
@@ -58,12 +55,7 @@ class SiteAccountManager {
     return accounts[0] || null;
   }
 
-  /**
-   * 按 ID 获取单个账户（含密码，供登录使用）。
-   *
-   * @param accountId - 账户 ID
-   * @returns 账户记录，不存在返回 null
-   */
+  
   async getAccountById(accountId: number): Promise<SiteAccount | null> {
     return prisma.siteAccount.findUnique({
       where: { id: accountId },
@@ -71,10 +63,9 @@ class SiteAccountManager {
   }
 
   /**
-   * 获取指定站点的所有账户信息（脱敏，不含密码）。
    *
-   * @param siteId - 站点 ID
-   * @returns 账户信息数组
+   * @param siteId - site ID
+   * @returns Account info array
    */
   async getAccountsBySiteId(siteId: string): Promise<AccountInfo[]> {
     const accounts = await prisma.siteAccount.findMany({
@@ -85,12 +76,7 @@ class SiteAccountManager {
     return accounts.map((a: typeof accounts[number]) => this.toAccountInfo(a));
   }
 
-  /**
-   * 获取指定域名的账户。
-   *
-   * @param domain - 域名（如 https://sjs66.com）
-   * @returns 账户记录（含密码），无匹配返回 null
-   */
+  
   async getAccountByDomain(domain: string): Promise<SiteAccount | null> {
     return prisma.siteAccount.findFirst({
       where: {
@@ -104,15 +90,7 @@ class SiteAccountManager {
     });
   }
 
-  /**
-   * 获取账户的认证 Cookie（用于登录态保持）。
-   *
-   * 如果数据库中存储了 Cookie 且未过期，直接返回；
-   * 否则返回 null，调用方需执行登录流程。
-   *
-   * @param accountId - 账户 ID
-   * @returns Cookie 数组，无有效 Cookie 返回 null
-   */
+  
   async getAuthCookies(accountId: number): Promise<CookieData[] | null> {
     const account = await prisma.siteAccount.findUnique({
       where: { id: accountId },
@@ -140,11 +118,8 @@ class SiteAccountManager {
   }
 
   /**
-   * 保存认证 Cookie 到数据库（登录成功后调用）。
    *
-   * @param accountId - 账户 ID
-   * @param cookies - Cookie 数组
-   * @param cookiePrefix - Cookie 前缀（如 "SgL6_2132_"）
+   * @param cookies - cookie Array
    */
   async saveAuthCookies(
     accountId: number,
@@ -164,14 +139,10 @@ class SiteAccountManager {
       },
     });
 
-    console.log(logT('log.siteAccountManager.cookieSaved', { id: accountId, count: cookies.length }));
+    logger.infoT('log.siteAccountManager.cookieSaved', { id: accountId, count: cookies.length });
   }
 
-  /**
-   * 标记账户已使用（每次爬取时调用，用于轮转调度）。
-   *
-   * @param accountId - 账户 ID
-   */
+  
   async markUsed(accountId: number): Promise<void> {
     await prisma.siteAccount.update({
       where: { id: accountId },
@@ -180,10 +151,8 @@ class SiteAccountManager {
   }
 
   /**
-   * 记录登录失败（连续失败达到阈值自动禁用）。
    *
-   * @param accountId - 账户 ID
-   * @param reason - 失败原因
+   * @param reason - Failreason
    */
   async markLoginFailed(accountId: number, reason?: string): Promise<void> {
     const account = await prisma.siteAccount.findUnique({
@@ -201,24 +170,21 @@ class SiteAccountManager {
         failCount: newFailCount,
         status: shouldDisable ? 'disabled' : account.status,
         remark: shouldDisable
-          ? `连续登录失败 ${newFailCount} 次，已自动禁用${reason ? ': ' + reason : ''}`
+          ? `连续登录失败 ${newFailCount} 次已自动禁用${reason ? ': ' + reason : ''}`
           : account.remark,
       },
     });
 
     if (shouldDisable) {
       console.warn(
-        `[SiteAccountManager] 账户 #${accountId} 连续登录失败 ${newFailCount} 次，已自动禁用`,
+        `[SiteAccountManager] Account #${accountId} auto-disabled after ${newFailCount} consecutive login failures`,
       );
     }
   }
 
   /**
-   * 更新账户状态。
    *
-   * @param accountId - 账户 ID
-   * @param status - 新状态
-   * @param remark - 备注（可选）
+   * @param status - newState
    */
   async updateStatus(
     accountId: number,
@@ -235,14 +201,11 @@ class SiteAccountManager {
   }
 
   /**
-   * 创建新账户。
    *
-   * @param siteId - 站点 ID
-   * @param username - 登录账号
-   * @param password - 登录密码
-   * @param domain - 关联域名
-   * @param cookiePrefix - Cookie 前缀
-   * @returns 创建的账户信息
+   * @param siteId - site ID
+   * @param username - loginaccount
+   * @param password - loginpassword
+   * @param domain - Associationdomain
    */
   async createAccount(
     siteId: string,
@@ -267,20 +230,14 @@ class SiteAccountManager {
     return this.toAccountInfo(account);
   }
 
-  /**
-   * 删除账户。
-   *
-   * @param accountId - 账户 ID
-   */
+  
   async deleteAccount(accountId: number): Promise<void> {
     await prisma.siteAccount.delete({
       where: { id: accountId },
     });
   }
 
-  /**
-   * 将数据库记录转换为脱敏的 AccountInfo（不包含密码和 Cookie）。
-   */
+  
   private toAccountInfo(account: {
     id: number;
     siteId: string;
@@ -310,7 +267,6 @@ class SiteAccountManager {
   }
 }
 
-// 单例
 const GLOBAL_KEY = '__siteAccountManagerInstance__';
 
 export function getSiteAccountManager(): SiteAccountManager {

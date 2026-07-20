@@ -16,7 +16,7 @@ export function downloadChunk(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (redirects > MAX_REDIRECTS) {
-      reject(new Error(`分块 ${chunk.index}: 重定向次数超限`));
+      reject(new Error(`Chunk ${chunk.index}: too many redirects`));
       return;
     }
 
@@ -65,7 +65,7 @@ export function downloadChunk(
           fs.closeSync(fd);
           reject(
             new Error(
-              `分块 ${chunk.index}: HTTP ${response.statusCode}`,
+              `Chunk ${chunk.index}: HTTP ${response.statusCode}`,
             ),
           );
           return;
@@ -75,7 +75,7 @@ export function downloadChunk(
         if (isFullResponse && chunk.index !== 0) {
           response.resume();
           fs.closeSync(fd);
-          reject(new Error(`分块 ${chunk.index}: 服务器不支持 Range 请求`));
+          reject(new Error(`Chunk ${chunk.index}: server does not support Range requests`));
           return;
         }
 
@@ -108,14 +108,11 @@ export function downloadChunk(
     req.on('timeout', () => {
       req.destroy();
       try { fs.closeSync(fd); } catch {}
-      reject(new Error(`分块 ${chunk.index}: 下载超时`));
+      reject(new Error(`Chunk ${chunk.index}: download timeout`));
     });
   });
 }
 
-/**
- * 单线程下载（降级方案）
- */
 export async function singleThreadDownload(
   url: string,
   filePath: string,
@@ -168,7 +165,7 @@ export async function singleThreadDownload(
         }
 
         total = parseInt(response.headers['content-length'] || '0', 10);
-        console.log(`[ParallelDL] 单线程下载开始: ${actualPath} (${total} bytes)`);
+        console.log(`[ParallelDL] Single-thread download started: ${actualPath} (${total} bytes)`);
 
         const cdFilename = extractFilenameFromHeaders(response.headers);
         if (cdFilename) {
@@ -187,7 +184,7 @@ export async function singleThreadDownload(
           if (total > 0 && downloaded - lastLog >= 5 * 1024 * 1024) {
             const pct = Math.round((downloaded / total) * 100);
             console.log(
-              `[ParallelDL] 进度: ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB / ${(total / 1024 / 1024).toFixed(1)} MB)`,
+              `[ParallelDL] Progress: ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB / ${(total / 1024 / 1024).toFixed(1)} MB)`,
             );
             lastLog = downloaded;
           }
@@ -196,12 +193,12 @@ export async function singleThreadDownload(
         response.on('end', () => writeStream!.end());
 
         writeStream.on('finish', () => {
-          console.log(`[ParallelDL] 下载完成: ${actualPath} (${downloaded} bytes)`);
+          console.log(`[ParallelDL] Download completed: ${actualPath} (${downloaded} bytes)`);
           finish({ success: true, fileSize: downloaded, savedPath: actualPath });
         });
 
         writeStream.on('error', (err) => {
-          console.error(`[ParallelDL] 写入失败: ${err.message}`);
+          console.error(`[ParallelDL] Write failed: ${err.message}`);
           fs.unlink(actualPath, () => {});
           finish({ success: false, fileSize: 0, savedPath: '' });
         });
@@ -209,7 +206,7 @@ export async function singleThreadDownload(
     );
 
     req.on('error', (err) => {
-      console.error(`[ParallelDL] 请求失败: ${err.message}`);
+      console.error(`[ParallelDL] Request failed: ${err.message}`);
       finish({ success: false, fileSize: 0, savedPath: '' });
     });
 
@@ -218,7 +215,7 @@ export async function singleThreadDownload(
       if (writeStream) {
         writeStream.destroy();
       }
-      console.error('[ParallelDL] 下载超时');
+      console.error('[ParallelDL] Download timeout');
       finish({ success: false, fileSize: 0, savedPath: '' });
     });
   });

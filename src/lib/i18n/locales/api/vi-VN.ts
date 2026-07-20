@@ -58,10 +58,27 @@ const viVN: TranslationDict = {
   // Danh sách chặn
   "api.blocklist.addFailed": "Thêm thất bại",
 
+  // Nhật ký
+  "api.logs.systemReady": "Hệ thống sẵn sàng, đang chờ tác vụ...",
+  "api.logs.taskNumber": "Tác vụ #{id}",
+  "api.logs.fetchFailed": "Tải nhật ký thất bại",
+
+  // Thư viện (bổ sung)
+  "api.gallery.unsupportedScrape": "Trang {site} không hỗ trợ cào thư viện",
+  "api.gallery.allDomainsFailed": "Tất cả tên miền đều cào thất bại",
+
+  // Tác vụ (bổ sung)
+  "api.tasks.multipleM3u8Detected": "Đã phát hiện {count} địa chỉ M3U8, vui lòng chọn",
+  "api.tasks.unsupportedListScrape": "Provider không hỗ trợ cào trang danh sách",
+
   // Chung
   "api.characterDb.syncRunning": "Tác vụ đồng bộ đang chạy",
   "api.common.internalError": "Lỗi máy chủ nội bộ",
   "api.common.missingParams": "Thiếu tham số bắt buộc: {params}",
+
+  // DAG
+  "api.dag.notFound": "Không tìm thấy DAG {dagId}",
+  "api.dag.invalidAction": "Thao tác không hợp lệ: {action}",
 };
 
 export default viVN;

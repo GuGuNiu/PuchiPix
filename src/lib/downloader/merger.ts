@@ -3,22 +3,17 @@ import * as path from 'path';
 import { ensureDir } from '@/lib/utils/file-system';
 
 /**
- * 合并操作的返回结果。
+ * Mergeoperation Return result。
  */
 export interface MergeResult {
-  /** 实际合并的分片文件数 */
   totalFiles: number;
-  /** 合并后文件的总大小（字节） */
   totalSize: number;
 }
 
 /**
- * 将 TS 分片合并为单个文件。
  *
- * @param segDir     - 分片文件所在目录
- * @param outputPath - 合并后输出文件路径
- * @returns MergeResult 包含文件数和总大小
- * @throws 如果目录不存在、无分片文件、或存在空文件
+ * @param outputPath - MergeafterOutputFile path
+ * @throws ifdirectorynot exist、no Segment file、orexistemptyfile
  */
 export async function mergeSegments(
   segDir: string,
@@ -52,7 +47,7 @@ export async function mergeSegments(
     }
   }
 
-  // 确保输出目录存在
+  // EnsureOutput directoryexist
   ensureDir(path.dirname(outputPath));
 
   const writeStream = fs.createWriteStream(outputPath);
@@ -77,11 +72,9 @@ export async function mergeSegments(
 }
 
 /**
- * 验证所有分片文件是否齐全且有效。
  *
- * @param segDir        - 分片文件目录
- * @param expectedCount - 期望的分片数量（来自 M3U8 解析）
- * @returns 校验结果对象
+ * @param segDir - Segment filedirectory
+ * @returns Verification result object
  */
 export function verifySegments(
   segDir: string,
@@ -89,7 +82,7 @@ export function verifySegments(
 ): { valid: boolean; missing: number[]; emptyFiles: string[]; totalSize: number; actualCount: number } {
   const dirPath = path.resolve(segDir);
 
-  // 目录不存在
+  // Directorynot exist
   if (!fs.existsSync(dirPath)) {
     return {
       valid: false,
@@ -122,7 +115,6 @@ export function verifySegments(
     }
   }
 
-  // 查找缺失的序号
   const missing: number[] = [];
   for (let i = 0; i < expectedCount; i++) {
     if (!foundIndices.has(i)) {
@@ -140,9 +132,8 @@ export function verifySegments(
 }
 
 /**
- * 递归清理分片目录及其所有内容。
+ * RecursionClean upsegmentdirectoryanditsallcontent。
  *
- * @param segDir - 要清理的目录路径
  */
 export async function cleanupSegments(segDir: string): Promise<void> {
   if (!fs.existsSync(segDir)) return;

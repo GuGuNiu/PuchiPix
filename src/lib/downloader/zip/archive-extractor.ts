@@ -5,12 +5,9 @@ import { createExtractorFromData } from 'node-unrar-js';
 import { ensureDir } from '@/lib/utils/file-system';
 
 /**
- * 解压压缩文件到指定目录
  *
- * 根据文件扩展名自动选择解压器：
  * - .zip → adm-zip
  * - .rar → node-unrar-js (WASM)
- * - .7z → 暂不支持
  */
 export async function extractArchive(
   archivePath: string,
@@ -27,7 +24,7 @@ export async function extractArchive(
 }
 
 /**
- * 检查解压路径是否安全（防止路径遍历攻击）
+ * CheckDecompressPathisnosecurity（PreventPathIterateattack）
  */
 function isSafeExtractPath(destPath: string, extractBase: string): boolean {
   const resolvedDest = path.resolve(destPath);
@@ -35,9 +32,7 @@ function isSafeExtractPath(destPath: string, extractBase: string): boolean {
   return resolvedDest === resolvedBase || resolvedDest.startsWith(resolvedBase + path.sep);
 }
 
-/**
- * 解压 RAR 内的单个文件到目标路径，带路径遍历防护
- */
+
 function writeRarFile(
   file: { fileHeader: { name: string; flags: { directory: boolean } }; extraction?: Uint8Array },
   extractPath: string,
@@ -49,7 +44,7 @@ function writeRarFile(
   const destPath = path.join(extractPath, fileName);
 
   if (!isSafeExtractPath(destPath, extractPath)) {
-    console.warn(`[ZipDL] 跳过可疑路径: ${fileName}`);
+    console.warn(`[ZipDL] Skipped suspicious path: ${fileName}`);
     return false;
   }
 
@@ -81,7 +76,7 @@ async function extractRar(
       writeRarFile(file, extractPath, files);
     }
 
-    console.log(`[ZipDL] RAR 解压成功: ${files.length} 个文件`);
+    console.log(`[ZipDL] RAR extraction succeeded: ${files.length} files`);
     return { success: true, fileCount: files.length, files };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -96,13 +91,13 @@ async function extractRar(
         for (const file of extracted.files) {
           writeRarFile(file, extractPath, files);
         }
-        console.log(`[ZipDL] RAR 无密码解压成功: ${files.length} 个文件`);
+        console.log(`[ZipDL] RAR extraction (no password) succeeded: ${files.length} files`);
         return { success: true, fileCount: files.length, files };
       } catch {
       }
     }
 
-    console.error(`[ZipDL] RAR 解压失败: ${msg}`);
+    console.error(`[ZipDL] RAR extraction failed: ${msg}`);
     return { success: false, fileCount: 0, files: [] };
   }
 }
@@ -144,7 +139,7 @@ function extractZipFile(
       }
     }
 
-    console.error(`[ZipDL] ZIP 解压失败: ${msg}`);
+    console.error(`[ZipDL] ZIP extraction failed: ${msg}`);
     return { success: false, fileCount: 0, files: [] };
   }
 }

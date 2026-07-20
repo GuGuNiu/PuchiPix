@@ -1,7 +1,6 @@
 /**
- * Pinyin-Pro 引擎适配器
+ * Pinyin-Pro engineAdapter
  *
- * 将 pinyin-pro 库适配为拼音服务引擎接口。
  */
 
 import { pinyin as pinyinPro, match as pinyinMatch } from 'pinyin-pro';
@@ -14,11 +13,9 @@ import type {
 
 export class PinyinProAdapter implements PinyinEngine {
   /**
-   * 转换文本为拼音
    *
-   * @param text - 待转换文本
-   * @param options - 转换选项
-   * @returns 拼音字符串或数组
+   * @param options - Convertoption
+   * @returns Pinyin string or array
    */
   convert(text: string, options?: PinyinConvertOptions): string | string[] {
     const { type = 'string', ...rest } = options ?? {};
@@ -39,12 +36,9 @@ export class PinyinProAdapter implements PinyinEngine {
   }
 
   /**
-   * 匹配文本拼音是否包含指定拼音
    *
-   * @param text - 待匹配文本
-   * @param pinyin - 拼音模式
-   * @param options - 匹配选项
-   * @returns 是否匹配
+   * @param options - Matchoption
+   * @returns isnoMatch
    */
   match(text: string, pinyin: string, options?: PinyinMatchOptions): boolean {
     const opts = {
@@ -61,21 +55,17 @@ export class PinyinProAdapter implements PinyinEngine {
   }
 
   /**
-   * 获取文本的拼音变体
    *
-   * @param text - 输入文本
-   * @returns 拼音变体信息
+   * @returns Pinyin variant info
    */
   getVariants(text: string): PinyinVariants {
     try {
-      // 全拼音（无音调）
       const full = pinyinPro(text, {
         toneType: 'none',
         type: 'string',
         nonZh: 'consecutive',
       }).toLowerCase().replace(/\s/g, '');
 
-      // 首字母
       const initials = pinyinPro(text, {
         pattern: 'first',
         toneType: 'none',
@@ -83,14 +73,13 @@ export class PinyinProAdapter implements PinyinEngine {
         nonZh: 'consecutive',
       }).toLowerCase().replace(/\s/g, '');
 
-      // 带音调
       const withTone = pinyinPro(text, {
         toneType: 'symbol',
         type: 'string',
         nonZh: 'consecutive',
       });
 
-      // 拼音数组
+      // PinyinArray
       const array = pinyinPro(text, {
         toneType: 'none',
         type: 'array',
@@ -105,7 +94,6 @@ export class PinyinProAdapter implements PinyinEngine {
         array,
       };
     } catch {
-      // 转换失败时返回原文本
       const lower = text.toLowerCase();
       return {
         original: text,

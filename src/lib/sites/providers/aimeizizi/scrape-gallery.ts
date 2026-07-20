@@ -1,12 +1,14 @@
-﻿﻿import type { Page } from 'playwright';
+import type { Page } from 'playwright';
+import { loggers } from '@/lib/core/infra/logger';
 import type {
+
   GalleryScrapeResult,
   GalleryImageItem,
   GalleryVideoItem,
 } from '@/types';
 import { MAX_GALLERY_PAGES, randomDelay, sleep } from '@/lib/core/stealth/anti-crawler';
 import { logT } from '@/lib/i18n/server';
-import { getCharacterDBService } from '@/lib/character-db';
+import { getCharacterDBServiceAsync } from '@/lib/character-db';
 import {
   SITE_DOMAINS,
   domainHealthTracker,
@@ -17,17 +19,18 @@ import {
 import { extractGalleryPageData, extractZipDownloadInfo } from './page-evaluators';
 import type { ScrapeDeps } from '../aimeizizi-provider';
 
+const logger = loggers.scrapeGallery();
 export async function scrapeGallery(
   page: Page,
   pageUrl: string,
   deps: ScrapeDeps,
 ): Promise<GalleryScrapeResult> {
   const sT0 = Date.now();
-  const sLog = (msg: string): void => console.log(`[ScrapeGalleryTiming] ${Date.now() - sT0}ms 鈥?${msg}`);
-  sLog('寮€濮?);
+  const sLog = (msg: string): void => console.log(`[ScrapeGalleryTiming] ${Date.now() - sT0}ms ${msg}`);
+  sLog('start');
 
   const firstPageData = await extractGalleryPageData(page, 0);
-  sLog(`绗竴椤垫暟鎹彁鍙栧畬鎴? ${firstPageData.images.length} 寮犲浘鐗? ${firstPageData.videos.length} 涓棰? 鎬婚〉鏁?${firstPageData.totalPages}`);
+  sLog(`page1: ${firstPageData.images.length} images, ${firstPageData.videos.length} videos, ${firstPageData.totalPages} pages`);
 
   const totalPages = Math.min(firstPageData.totalPages, MAX_GALLERY_PAGES);
 
@@ -37,33 +40,33 @@ export async function scrapeGallery(
   const imageUrlSet = new Set<string>();
 
   let orderIndex = 0;
+  let currentDomain = extractDomainFromUrl(pageUrl);
   for (const img of firstPageData.images) {
-    const fullUrl = deps.resolveUrl(img.url);
+    const fullUrl = deps.resolveUrl(img.url, currentDomain);
     if (fullUrl && !imageUrlSet.has(fullUrl)) {
       imageUrlSet.add(fullUrl);
       allImages.push({ url: fullUrl, pageIndex: img.pageIndex, orderIndex: orderIndex++ });
     }
   }
   for (const videoUrl of firstPageData.videos) {
-    const fullUrl = deps.resolveUrl(videoUrl);
+    const fullUrl = deps.resolveUrl(videoUrl, currentDomain);
     if (fullUrl && !videoUrlSet.has(fullUrl)) {
       videoUrlSet.add(fullUrl);
       allVideos.push({ url: fullUrl });
     }
   }
-  sLog(`绗竴椤靛浘鐗?瑙嗛鍘婚噸瀹屾垚: 鍥剧墖=${allImages.length}, 瑙嗛=${allVideos.length}`);
+  sLog(`page1 done: images=${allImages.length}, videos=${allVideos.length}`);
 
   const zipInfo = await extractZipDownloadInfo(page);
-  sLog(`ZIP 淇℃伅鎻愬彇瀹屾垚: ${zipInfo ? '鏈? : '鏃?}`);
+  sLog(`ZIP: ${zipInfo ? 'yes' : 'no'}`);
 
   const articleId = extractArticleId(pageUrl);
-  let currentDomain = extractDomainFromUrl(pageUrl);
 
   const GALLERY_PAGE_DELAY_MIN = 300;
   const GALLERY_PAGE_DELAY_MAX = 600;
 
   for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
-    sLog(`寮€濮嬬炕椤电 ${pageNum}/${totalPages} 椤礰);
+    sLog(`page ${pageNum}/${totalPages}`);
     await sleep(randomDelay(GALLERY_PAGE_DELAY_MIN, GALLERY_PAGE_DELAY_MAX));
 
     let pageData: GalleryPageMetadata | null = null;
@@ -78,7 +81,7 @@ export async function scrapeGallery(
       const httpStatus = response?.status();
       if (httpStatus === 403 || httpStatus === 429) {
         domainHealthTracker.markRateLimited(currentDomain);
-        console.warn(logT('log.aimeizizi.domainRateLimited', { page: pageNum, status: httpStatus, domain: currentDomain }));
+        logger.warnT('log.aimeizizi.domainRateLimited', { page: pageNum, status: httpStatus, domain: currentDomain });
 
         if (articleId) {
           const fallbackDomains = domainHealthTracker.getAllDomainsOrdered(SITE_DOMAINS);
@@ -99,10 +102,10 @@ export async function scrapeGallery(
               pageData = await extractGalleryPageData(page, pageNum - 1);
               currentDomain = fbDomain;
               domainHealthTracker.markHealthy(fbDomain);
-              console.log(logT('log.aimeizizi.domainSwitchSuccess', { page: pageNum, domain: fbDomain }));
+              logger.infoT('log.aimeizizi.domainSwitchSuccess', { page: pageNum, domain: fbDomain });
               break;
             } catch (fbErr) {
-              console.warn(logT('log.aimeizizi.domainSwitchFailed', { page: pageNum, domain: fbDomain, msg: fbErr instanceof Error ? fbErr.message : String(fbErr) }));
+              logger.warnT('log.aimeizizi.domainSwitchFailed', { page: pageNum, domain: fbDomain, msg: fbErr instanceof Error ? fbErr.message : String(fbErr) });
               continue;
             }
           }
@@ -112,7 +115,7 @@ export async function scrapeGallery(
         pageData = await extractGalleryPageData(page, pageNum - 1);
       }
     } catch (err) {
-      console.error(logT('log.aimeizizi.scrapePageFailed', { page: pageNum, domain: currentDomain }), err);
+      logger.errorT('log.aimeizizi.scrapePageFailed', { page: pageNum, domain: currentDomain }, err);
 
       if (articleId) {
         const fallbackDomains = domainHealthTracker.getAllDomainsOrdered(SITE_DOMAINS);
@@ -124,7 +127,7 @@ export async function scrapeGallery(
             await page.waitForSelector('article', { timeout: 3000 }).catch(() => {});
             pageData = await extractGalleryPageData(page, pageNum - 1);
             currentDomain = fbDomain;
-            console.log(logT('log.aimeizizi.domainSwitchSuccess', { page: pageNum, domain: fbDomain }));
+            logger.infoT('log.aimeizizi.domainSwitchSuccess', { page: pageNum, domain: fbDomain });
             break;
           } catch {
             continue;
@@ -135,14 +138,14 @@ export async function scrapeGallery(
 
     if (pageData) {
       for (const img of pageData.images) {
-        const fullUrl = deps.resolveUrl(img.url);
+        const fullUrl = deps.resolveUrl(img.url, currentDomain);
         if (fullUrl && !imageUrlSet.has(fullUrl)) {
           imageUrlSet.add(fullUrl);
           allImages.push({ url: fullUrl, pageIndex: img.pageIndex, orderIndex: orderIndex++ });
         }
       }
       for (const videoUrl of pageData.videos) {
-        const fullUrl = deps.resolveUrl(videoUrl);
+        const fullUrl = deps.resolveUrl(videoUrl, currentDomain);
         if (fullUrl && !videoUrlSet.has(fullUrl)) {
           videoUrlSet.add(fullUrl);
           allVideos.push({ url: fullUrl });
@@ -152,15 +155,15 @@ export async function scrapeGallery(
   }
 
   const title = deps.cleanTitle(firstPageData.h1Title || firstPageData.rawTitle);
-  sLog(`鏍囬娓呮礂瀹屾垚: "${title.substring(0, 40)}"`);
+  sLog(`title: "${title.substring(0, 40)}"`);
   const protagonist = await deps.extractProtagonist(title, firstPageData.tags);
-  sLog(`涓昏鎻愬彇瀹屾垚: "${protagonist}"`);
+  sLog(`protagonist: "${protagonist}"`);
   const description = deps.extractDescription(title, protagonist);
 
   const blockCheck = await deps.checkContentBlockedAsync(title, firstPageData.category, protagonist);
   if (blockCheck.blocked) {
-    console.log(logT('log.aimeizizi.blockedGalleryScrape', { title: title.substring(0, 50), reason: blockCheck.reason ?? '' }));
-    throw new Error(`鍐呭琚睆钄? ${blockCheck.reason}`);
+    logger.infoT('log.aimeizizi.blockedGalleryScrape', { title: title.substring(0, 50), reason: blockCheck.reason ?? '' });
+    throw new Error(`Content blocked: ${blockCheck.reason || 'unknown reason'}`);
   }
 
   const metaKeywordsStr = await page.evaluate(() => {
@@ -168,32 +171,29 @@ export async function scrapeGallery(
     return meta?.getAttribute('content') || '';
   });
   const metaKeywords = metaKeywordsStr
-    .split(/[,锛?锛沒/)
+    .split(/[,]/)
     .map((t: string) => t.trim())
     .filter((t: string) => t && t.length < 50);
 
   const allTags = [...new Set([...firstPageData.tags, ...metaKeywords])];
 
-  const db = getCharacterDBService();
-  if (!db.isLoaded()) {
-    await db.load();
-  }
+  const db = await getCharacterDBServiceAsync();
   const gameCharMatches = db
     .identifyInTags(allTags)
     .filter(m => m.character.category === 'game');
   const gameCharacters = gameCharMatches.map((m) => m.character.name);
   if (gameCharacters.length > 0) {
-    console.log(logT('log.aimeizizi.gameCharDetected', { chars: gameCharacters.join(', ') }));
+    logger.infoT('log.aimeizizi.gameCharDetected', { chars: gameCharacters.join(', ') });
   }
-  sLog(`鍚庡鐞嗗畬鎴? tags=${allTags.length}, 娓告垙瑙掕壊=${gameCharacters.length}`);
+  sLog(`tags=${allTags.length}, gameChars=${gameCharacters.length}`);
 
   let scrapedDomain = '';
   try {
     const parsed = new URL(pageUrl);
-    scrapedDomain = `${parsed.protocol}//${parsed.host}`;
+    scrapedDomain = `${parsed.protocol}`
   } catch {}
 
-  sLog(`scrapeGallery 鍏ㄩ儴瀹屾垚: 鍥剧墖=${allImages.length}, 瑙嗛=${allVideos.length}`);
+  sLog(`scrapeGallery done: images=${allImages.length}, videos=${allVideos.length}`);
 
   return {
     sourceUrl: pageUrl,
@@ -202,7 +202,7 @@ export async function scrapeGallery(
     description,
     category: firstPageData.category,
     tags: allTags,
-    coverUrl: deps.resolveUrl(firstPageData.coverUrl),
+    coverUrl: deps.resolveUrl(firstPageData.coverUrl, currentDomain),
     publishTime: firstPageData.publishTime || undefined,
     images: allImages,
     videos: allVideos,

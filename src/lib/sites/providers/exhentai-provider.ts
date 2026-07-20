@@ -1,10 +1,12 @@
-﻿import type { Page, BrowserContext } from "playwright";
+import type { Page, BrowserContext } from "playwright";
+import { loggers } from '@/lib/core/infra/logger';
 import { BaseSiteProvider } from "../base-provider";
 import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockCheckResult } from "../types";
 import type { GalleryScrapeResult, GalleryImageItem, ScrapeResult } from "@/types";
 import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/stealth/anti-crawler";
 import { logT } from "@/lib/i18n/server";
 import {
+
   BASE_E_URL,
   BASE_EX_URL,
   SITE_DOMAINS,
@@ -27,6 +29,7 @@ import {
   fetchImageUrls,
 } from "./exhentai-provider/page-extractors";
 
+const logger = loggers.exhentaiProvider();
 export class ExhentaiProvider extends BaseSiteProvider implements GallerySiteProvider {
   readonly id = "exhentai";
   readonly name = "E-Hentai";
@@ -114,16 +117,13 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       metadata.actors[0],
     );
     if (blockCheck.blocked) {
-      throw new Error(`鍐呭琚睆钄? ${blockCheck.reason}`);
+      throw new Error(`Content blocked: ${blockCheck.reason || 'unknown reason'}`);
     }
 
     let gameCharacters: string[] | undefined;
     try {
-      const { getCharacterDBService } = await import("@/lib/character-db");
-      const db = getCharacterDBService();
-      if (!db.isLoaded()) {
-        await db.load();
-      }
+      const { getCharacterDBServiceAsync } = await import("@/lib/character-db");
+      const db = await getCharacterDBServiceAsync();
       const charMatches = db.identifyInTags(metadata.tags).filter(m => m.character.category === 'game');
       gameCharacters = charMatches.length > 0 ? charMatches.map((m) => m.character.name) : undefined;
     } catch {}
@@ -187,7 +187,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       const results = await this.extractSearchResults(page);
 
       if (results.length === 0) {
-        console.log(logT("log.exhentai.listPageNoResults", { page: pageNum }));
+        logger.infoT("log.exhentai.listPageNoResults", { page: pageNum });
         break;
       }
 
@@ -213,7 +213,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
       });
 
       if (!nextUrl) {
-        console.log(logT("log.exhentai.listPageNoNext"));
+        logger.infoT("log.exhentai.listPageNoNext");
         break;
       }
 
@@ -223,7 +223,7 @@ export class ExhentaiProvider extends BaseSiteProvider implements GallerySitePro
           timeout: 30000,
         });
       } catch (err) {
-        console.error(logT("log.exhentai.navNextFailed"), err);
+        logger.errorT("log.exhentai.navNextFailed", undefined, { error: err });
         break;
       }
     }

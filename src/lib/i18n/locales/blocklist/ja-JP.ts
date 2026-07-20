@@ -35,7 +35,7 @@ const jaJP: TranslationDict = {
   "blocklist.invalidRegex": "無効な正規表現",
   "blocklist.placeholderKeyword": "ブロックキーワードを入力...",
   "blocklist.placeholderRegex": "正規表現を入力...",
-  "blocklist.confirmDelete": "選択したルールを削除しますか？",
+  "blocklist.confirmDelete": "選択したルールを削除しますか",
   "blocklist.noRules": "ルールなし — \"ルール追加\"をクリックして作成",
   "blocklist.noMatchingRules": "一致するルールなし",
   "blocklist.loadFailed": "ブロックルールの読み込みに失敗しました",

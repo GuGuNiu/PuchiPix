@@ -1,13 +1,14 @@
-import { chromium, type Browser } from 'playwright';
+﻿﻿﻿﻿import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { getOrCreateGlobal } from '../infra/global-singleton';
+import { randomProfile, getStealthScripts, buildPageHeaders, DEFAULT_ACCEPT_LANGUAGE } from './anti-crawler';
+import type { BrowserProfile } from './browser-profiles';
+import { loggers } from '../infra/logger';
+
+const logger = loggers.browserPool();
 
 const BROWSER_KEY = '__sharedBrowserInstance__';
 
-/**
- * Chrome 反检测启动参数
- *
- * 这些参数在 headless 和非 headless 模式下都能有效降低自动化检测概率。
- * 参考 puppeteer-extra-stealth 和 undetected-chrome 的实现。
- */
+
 const STEALTH_ARGS: string[] = [
   '--disable-blink-features=AutomationControlled',
   '--disable-features=IsolateOrigins,site-per-process',
@@ -27,16 +28,6 @@ const STEALTH_ARGS: string[] = [
   '--webrtc-ip-handling-policy=disable_non_proxied_udp',
 ];
 
-/**
- * 获取共享浏览器实例
- *
- * 如果浏览器未启动或已断线，自动启动新实例。
- * 调用方只需创建 newPage()，无需关心浏览器生命周期。
- *
- * headless 模式由环境变量 STEALTH_HEADLESS 控制：
- * - "false" 或 "0"：使用非 headless 模式（最强反检测，需要桌面环境）
- * - 默认：true（headless 模式，Playwright 1.60+ 已使用新版 headless）
- */
 export async function getSharedBrowser(): Promise<Browser> {
   const g = globalThis as Record<string, unknown>;
   let browser = g[BROWSER_KEY] as Browser | null;
@@ -57,9 +48,6 @@ export async function getSharedBrowser(): Promise<Browser> {
   return browser;
 }
 
-/**
- * 关闭共享浏览器实例（用于应用优雅退出）
- */
 export async function closeSharedBrowser(): Promise<void> {
   const g = globalThis as Record<string, unknown>;
   const browser = g[BROWSER_KEY] as Browser | null;
@@ -68,3 +56,199 @@ export async function closeSharedBrowser(): Promise<void> {
     g[BROWSER_KEY] = null;
   }
 }
+
+
+interface PooledContext {
+  context: BrowserContext;
+  createdAt: number;
+  lastUsedAt: number;
+  useCount: number;
+}
+
+interface PendingAcquire {
+  resolve: (result: { page: Page; context: BrowserContext; profile: BrowserProfile }) => void;
+  reject: (err: Error) => void;
+}
+
+class BrowserContextPool {
+  private static readonly MAX_CONTEXTS = 2;
+  private static readonly IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+  private static readonly MAX_REUSE_COUNT = 20;
+
+  private idlePool: PooledContext[] = [];
+  private activeCount = 0;
+  private pendingQueue: PendingAcquire[] = [];
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    this.cleanupTimer = setInterval(() => this.cleanupIdle(), 60_000);
+    if (this.cleanupTimer && 'unref' in this.cleanupTimer) {
+      (this.cleanupTimer as ReturnType<typeof setInterval>).unref?.();
+    }
+  }
+
+  /** / ** / * / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  / 
+ / 
+ / */
+  async acquire(
+    browser: Browser,
+    profile?: BrowserProfile,
+    referer?: string,
+  ): Promise<{ page: Page; context: BrowserContext; profile: BrowserProfile }> {
+    const p = profile ?? randomProfile();
+
+    while (this.idlePool.length > 0) {
+      const pooled = this.idlePool.pop()!;
+      try {
+        const page = await pooled.context.newPage();
+        pooled.lastUsedAt = Date.now();
+        pooled.useCount++;
+        this.activeCount++;
+        return { page, context: pooled.context, profile: p };
+      } catch {
+        await pooled.context.close().catch(() => {});
+      }
+    }
+
+    if (this.activeCount < BrowserContextPool.MAX_CONTEXTS) {
+      const context = await this.createContext(browser, p, referer);
+      const page = await context.newPage();
+      this.activeCount++;
+      return { page, context, profile: p };
+    }
+
+    logger.info(`Context pool full (${this.activeCount}/${BrowserContextPool.MAX_CONTEXTS}), queuing...`);
+    return new Promise<{ page: Page; context: BrowserContext; profile: BrowserProfile }>((resolve, reject) => {
+      this.pendingQueue.push({ resolve, reject });
+    });
+  }
+
+  /** / ** / * / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  / 
+ / 
+ / */
+  async release(context: BrowserContext, page: Page): Promise<void> {
+    // Closecurrent Page
+    await page.close().catch(() => {});
+
+    this.activeCount = Math.max(0, this.activeCount - 1);
+
+    try {
+      // SimpleVerify Context yesnoavailable
+      const contexts = context.browser()?.contexts();
+      if (!contexts || !contexts.includes(context)) {
+        await context.close().catch(() => {});
+        this.wakeNext();
+        return;
+      }
+
+      this.idlePool.push({
+        context,
+        createdAt: Date.now(),
+        lastUsedAt: Date.now(),
+        useCount: 0,
+      });
+    } catch {
+      await context.close().catch(() => {});
+    }
+
+    this.wakeNext();
+  }
+
+  /** / * / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  /  / *  / 
+ / 
+ / */
+  private async wakeNext(): Promise<void> {
+    if (this.pendingQueue.length === 0) return;
+    if (this.activeCount >= BrowserContextPool.MAX_CONTEXTS) return;
+
+    const pending = this.pendingQueue.shift()!;
+    const browser = await this.getBrowser();
+    if (!browser) {
+      pending.reject(new Error('Browser instance unavailable'));
+      return;
+    }
+
+    try {
+      const result = await this.acquire(browser);
+      pending.resolve(result);
+    } catch (err) {
+      pending.reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  private async createContext(
+    browser: Browser,
+    profile: BrowserProfile,
+    referer?: string,
+  ): Promise<BrowserContext> {
+    const context = await browser.newContext({
+      userAgent: profile.ua,
+      viewport: profile.viewport,
+      extraHTTPHeaders: buildPageHeaders(profile, referer),
+      locale: 'zh-CN',
+    });
+    return context;
+  }
+
+  private async cleanupIdle(): Promise<void> {
+    const now = Date.now();
+    const cutoff = now - BrowserContextPool.IDLE_TIMEOUT_MS;
+
+    const toRemove: BrowserContext[] = [];
+    this.idlePool = this.idlePool.filter((pooled) => {
+      if (pooled.lastUsedAt < cutoff) {
+        toRemove.push(pooled.context);
+        return false;
+      }
+      return true;
+    });
+
+    for (const ctx of toRemove) {
+      await ctx.close().catch(() => {});
+    }
+
+    if (toRemove.length > 0) {
+      logger.info(`Cleaned ${toRemove.length} idle contexts`);
+    }
+  }
+
+  private async getBrowser(): Promise<Browser | null> {
+    const g = globalThis as Record<string, unknown>;
+    const browser = g[BROWSER_KEY] as Browser | null;
+    if (!browser || !browser.isConnected()) return null;
+    return browser;
+  }
+
+  getStats(): { active: number; idle: number; pending: number; max: number } {
+    return {
+      active: this.activeCount,
+      idle: this.idlePool.length,
+      pending: this.pendingQueue.length,
+      max: BrowserContextPool.MAX_CONTEXTS,
+    };
+  }
+
+  async closeAll(): Promise<void> {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+
+    for (const pending of this.pendingQueue) {
+      pending.reject(new Error('Context pool closed'));
+    }
+    this.pendingQueue = [];
+
+    // CloseallIdle Context
+    for (const pooled of this.idlePool) {
+      await pooled.context.close().catch(() => {});
+    }
+    this.idlePool = [];
+    this.activeCount = 0;
+  }
+}
+
+export const browserContextPool = getOrCreateGlobal(
+  '__puchipix_browser_context_pool__',
+  () => new BrowserContextPool(),
+);

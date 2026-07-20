@@ -42,7 +42,7 @@ export default function BatchSearchPanel({
   const pollJob = useCallback(
     async (id: string) => {
       try {
-        const res = await fetch(`/api/search/batch/${id}`);
+        const res = await fetch(`/api/search/${id}?type=batch`);
         if (!res.ok) return false;
         const data: BatchSearchJob = await res.json();
         setJob(data);
@@ -106,10 +106,10 @@ export default function BatchSearchPanel({
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/search/batch", {
+      const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ titles: raw, siteId: selectedSiteId }),
+        body: JSON.stringify({ action: "batch", titles: raw, siteId: selectedSiteId }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data: BatchSearchJob = await res.json();
@@ -125,7 +125,7 @@ export default function BatchSearchPanel({
   const handleCancel = async (): Promise<void> => {
     if (!activeJobId) return;
     try {
-      await fetch(`/api/search/batch/${activeJobId}`, { method: "DELETE" });
+      await fetch(`/api/search/${activeJobId}?type=batch`, { method: "DELETE" });
       toast.success("batchSearch.cancelled");
     } catch {
       toast.error("batchSearch.cancelFailed");

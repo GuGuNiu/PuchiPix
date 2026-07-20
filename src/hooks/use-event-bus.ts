@@ -4,20 +4,17 @@ import { useEffect, useState } from 'react';
 import { useSocketStore } from '@/store/socket-store';
 
 export interface UseEventBusReturn<T = unknown> {
-  /** 最近一条事件载荷 */
   lastEvent: T | null;
-  /** 事件计数 */
+  /** EventCount */
   count: number;
 }
 
 /**
- * 订阅 EventBus 事件的 React Hook。
+ * Subscribe EventBus Event React Hook。
  *
- * 自动在组件挂载时订阅 Socket.IO 事件，
- * 卸载时自动取消订阅。
  *
- * @param eventName - 事件名称
- * @returns 最近事件数据
+ * @param eventName - Eventname
+ * @returns Latest event data
  */
 export function useEventBus<T = unknown>(eventName: string): UseEventBusReturn<T> {
   const { socket } = useSocketStore();

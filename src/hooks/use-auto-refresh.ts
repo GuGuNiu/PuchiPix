@@ -1,31 +1,16 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface UseAutoRefreshOptions {
-  /** 轮询间隔（毫秒），默认 5000 */
   interval?: number;
-  /** 立即执行一次，默认 true */
   immediate?: boolean;
-  /** 页面不可见时是否暂停，默认 true */
   pauseOnHidden?: boolean;
-  /** 最大重试次数，默认 3 */
   maxRetries?: number;
-  /** 重试延迟（毫秒），默认 1000 */
   retryDelay?: number;
 }
 
-export interface UseAutoRefreshResult<T> {
-  /** 当前数据 */
-  data: T | null;
-  /** 是否正在加载 */
-  isLoading: boolean;
-  /** 错误信息 */
-  error: Error | null;
-  /** 手动触发刷新 */
-  refresh: () => Promise<void>;
-  /** 上次更新时间 */
-  lastUpdated: Date | null;
+export interface UseAutoRefreshResult<T> {  data: T | null;  isLoading: boolean;  error: Error | null;  refresh: () => Promise<void>;  lastUpdated: Date | null;
 }
 
 export function useAutoRefresh<T>(
@@ -79,7 +64,6 @@ export function useAutoRefresh<T>(
     } catch (err) {
       if (isMounted.current) {
         setError(err instanceof Error ? err : new Error(String(err)));
-        // 自动重试
         if (retryCount.current < currentMaxRetries) {
           retryCount.current++;
           setTimeout(() => {
@@ -96,7 +80,6 @@ export function useAutoRefresh<T>(
     }
   }, []);
 
-  // 通过 useEffect 同步 ref，避免在 render 中赋值
   useEffect(() => {
     executeFetchRef.current = executeFetch;
   }, [executeFetch]);
@@ -106,7 +89,6 @@ export function useAutoRefresh<T>(
     return executeFetch();
   }, [executeFetch]);
 
-  // 初始加载和轮询
   useEffect(() => {
     isMounted.current = true;
 
@@ -114,7 +96,6 @@ export function useAutoRefresh<T>(
       executeFetch();
     }
 
-    // 设置轮询
     if (interval > 0) {
       intervalRef.current = setInterval(executeFetch, interval);
     }
@@ -128,15 +109,12 @@ export function useAutoRefresh<T>(
     };
   }, [executeFetch, immediate, interval]);
 
-  // 页面可见性控制
   useEffect(() => {
     if (!pauseOnHidden) return;
 
     const handleVisibilityChange = (): void => {
       if (document.visibilityState === 'visible') {
-        // 页面重新可见时立即刷新
         executeFetch();
-        // 恢复轮询
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
         }
@@ -144,7 +122,6 @@ export function useAutoRefresh<T>(
           intervalRef.current = setInterval(executeFetch, interval);
         }
       } else {
-        // 页面不可见时暂停轮询
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
@@ -161,9 +138,6 @@ export function useAutoRefresh<T>(
   return { data, isLoading, error, refresh, lastUpdated };
 }
 
-/**
- * 简单的轮询 Hook（只返回数据）
- */
 export function usePolling<T>(
   fetchFn: () => Promise<T>,
   interval = 5000

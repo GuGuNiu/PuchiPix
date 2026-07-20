@@ -17,7 +17,7 @@ import {
   Globe,
 } from "lucide-react";
 import type { GalleryData } from "@/types";
-import type { ZipStatus } from "../_lib/gallery-helpers";
+import type { ZipStatus } from "../gallery-helpers";
 import { VirtualImageGrid } from "./virtual-image-grid";
 import { GalleryZipInfoPanel } from "./gallery-zip-info";
 

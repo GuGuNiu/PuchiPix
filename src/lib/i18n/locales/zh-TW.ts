@@ -1,4 +1,4 @@
-﻿﻿import type { TranslationDict } from "../types";
+import type { TranslationDict } from "../types";
 
 import ui from "./ui/zh-TW";
 import tasks from "./tasks/zh-TW";

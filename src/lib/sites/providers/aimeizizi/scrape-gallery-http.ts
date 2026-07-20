@@ -1,4 +1,4 @@
-﻿﻿import type {
+import type {
   GalleryScrapeResult,
   GalleryImageItem,
   GalleryVideoItem,
@@ -6,7 +6,7 @@
 import { MAX_GALLERY_PAGES, randomDelay, sleep, buildStealthHeaders, randomProfile } from '@/lib/core/stealth/anti-crawler';
 import { logT } from '@/lib/i18n/server';
 import { detectWaf } from '@/lib/core/stealth/waf-detector';
-import { getCharacterDBService } from '@/lib/character-db';
+import { getCharacterDBServiceAsync } from '@/lib/character-db';
 import * as cheerio from 'cheerio';
 import {
   SITE_DOMAINS,
@@ -15,7 +15,8 @@ import {
   extractDomainFromUrl,
   type GalleryPageMetadata,
 } from './constants';
-import { parseGalleryPageHtml, parseZipInfoFromHtml } from './html-parser';
+import { parseGalleryPageHtml, parseZipInfoFromHtml, parseArticlePageConfig } from './html-parser';
+import { requestWithRetry } from '@/lib/core/infra/http-client';
 import type { ScrapeDeps } from '../aimeizizi-provider';
 
 export async function scrapeGalleryHttp(
@@ -23,8 +24,8 @@ export async function scrapeGalleryHttp(
   deps: ScrapeDeps,
 ): Promise<GalleryScrapeResult> {
   const hT0 = Date.now();
-  const hLog = (msg: string): void => console.log(`[HttpScrapeTiming] ${Date.now() - hT0}ms 鈥?${msg}`);
-  hLog(`寮€濮?HTTP 鐖彇: ${pageUrl}`);
+  const hLog = (msg: string): void => console.log(`[HttpScrapeTiming] ${Date.now() - hT0}ms ${msg}`);
+  hLog(`HTTP start: ${pageUrl}`);
 
   const articleId = extractArticleId(pageUrl);
   const urlDomain = extractDomainFromUrl(pageUrl);
@@ -43,7 +44,7 @@ export async function scrapeGalleryHttp(
       ? `${domain}/article/${articleId}/`
       : pageUrl;
     try {
-      hLog(`HTTP 璇锋眰绗竴椤? ${tryUrl}`);
+      hLog(`HTTP try: ${tryUrl}`);
       const resp = await fetch(tryUrl, {
         headers: buildStealthHeaders(randomProfile(), domain),
         redirect: 'follow',
@@ -52,15 +53,15 @@ export async function scrapeGalleryHttp(
 
       if (resp.status === 403 || resp.status === 429) {
         domainHealthTracker.markRateLimited(domain);
-        hLog(`鍩熷悕 ${domain} 杩斿洖 ${resp.status}锛圵AF 闄愭祦锛夛紝鍒囨崲`);
+        hLog(` ${domain} ${resp.status} blocked`);
         continue;
       }
       if (resp.status === 404) {
-        hLog(`鍩熷悕 ${domain} 杩斿洖 404`);
+        hLog(` ${domain}  404`);
         continue;
       }
       if (!resp.ok) {
-        hLog(`鍩熷悕 ${domain} 杩斿洖 ${resp.status}`);
+        hLog(` ${domain}  ${resp.status}`);
         continue;
       }
 
@@ -70,7 +71,7 @@ export async function scrapeGalleryHttp(
       const wafResult = detectWaf(resp.status, html, try$);
       if (wafResult.blocked) {
         domainHealthTracker.markRateLimited(domain);
-        hLog(`鍩熷悕 ${domain} 琚?WAF 鎷︽埅: ${wafResult.detail}锛屽垏鎹);
+        hLog(` ${domain} WAF: ${wafResult.detail}`);
         continue;
       }
 
@@ -78,7 +79,7 @@ export async function scrapeGalleryHttp(
       const h1Text = try$('h1').first().text().trim();
       const titleText = try$('title').text().trim();
       if (articleEl.length === 0 && !h1Text && !titleText) {
-        hLog(`鍩熷悕 ${domain} HTML 鏃犳湁鏁堝唴瀹?(article=${articleEl.length}, h1="${h1Text.substring(0, 20)}")锛屽皾璇曚笅涓€涓煙鍚峘);
+        hLog(` ${domain} HTML empty (article=${articleEl.length}, h1="${h1Text.substring(0, 20)}")`);
         continue;
       }
 
@@ -86,22 +87,25 @@ export async function scrapeGalleryHttp(
       usedDomain = domain;
       usedUrl = tryUrl;
       domainHealthTracker.markHealthy(domain);
-      hLog(`绗竴椤佃幏鍙栨垚鍔?(${html.length} bytes)`);
+      hLog(`(${html.length} bytes)`);
       break;
     } catch (err) {
-      hLog(`鍩熷悕 ${domain} 璇锋眰澶辫触: ${err instanceof Error ? err.message : err}`);
+      hLog(` ${domain} error: ${err instanceof Error ? err.message : err}`);
       continue;
     }
   }
 
   if (!$) {
-    throw new Error('鎵€鏈夊煙鍚?HTTP 璇锋眰鍧囧け璐?);
+    throw new Error('All HTTP domains failed to fetch page');
   }
 
   const firstPageData = parseGalleryPageHtml($, 0);
-  hLog(`绗竴椤佃В鏋愬畬鎴? ${firstPageData.images.length} 鍥剧墖, ${firstPageData.videos.length} 瑙嗛, 鎬婚〉鏁?${firstPageData.totalPages}`);
+  const pageConfig = parseArticlePageConfig($);
+  const configPageId = pageConfig?.pageId ?? null;
+  const configTotalPages = pageConfig?.pagination?.total_pages ?? null;
+  hLog(`page1: ${firstPageData.images.length} images, ${firstPageData.videos.length} videos, configPages=${configTotalPages ?? 'n/a'} htmlPages=${firstPageData.totalPages}`);
 
-  const totalPages = Math.min(firstPageData.totalPages, MAX_GALLERY_PAGES);
+  const totalPages = Math.min(configTotalPages ?? firstPageData.totalPages, MAX_GALLERY_PAGES);
 
   const allImages: GalleryImageItem[] = [];
   const allVideos: GalleryVideoItem[] = [];
@@ -110,28 +114,28 @@ export async function scrapeGalleryHttp(
 
   let orderIndex = 0;
   for (const img of firstPageData.images) {
-    const fullUrl = deps.resolveUrl(img.url);
+    const fullUrl = deps.resolveUrl(img.url, usedDomain);
     if (fullUrl && !imageUrlSet.has(fullUrl)) {
       imageUrlSet.add(fullUrl);
       allImages.push({ url: fullUrl, pageIndex: img.pageIndex, orderIndex: orderIndex++ });
     }
   }
   for (const videoUrl of firstPageData.videos) {
-    const fullUrl = deps.resolveUrl(videoUrl);
+    const fullUrl = deps.resolveUrl(videoUrl, usedDomain);
     if (fullUrl && !videoUrlSet.has(fullUrl)) {
       videoUrlSet.add(fullUrl);
       allVideos.push({ url: fullUrl });
     }
   }
 
-  const zipInfo = parseZipInfoFromHtml($, usedDomain);
-  hLog(`ZIP 淇℃伅鎻愬彇: ${zipInfo ? '鏈? : '鏃?}`);
+  let zipInfo = parseZipInfoFromHtml($, usedDomain);
+  hLog(`ZIP: ${zipInfo ? 'yes' : 'no'}`);
 
   const GALLERY_HTTP_DELAY_MIN = 200;
   const GALLERY_HTTP_DELAY_MAX = 400;
 
   for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
-    hLog(`HTTP 璇锋眰绗?${pageNum}/${totalPages} 椤礰);
+    hLog(`HTTP page ${pageNum}/${totalPages}`);
     await sleep(randomDelay(GALLERY_HTTP_DELAY_MIN, GALLERY_HTTP_DELAY_MAX));
 
     let pageData: GalleryPageMetadata | null = null;
@@ -162,7 +166,7 @@ export async function scrapeGalleryHttp(
             pageData = parseGalleryPageHtml(fb$, pageNum - 1);
             usedDomain = fbDomain;
             domainHealthTracker.markHealthy(fbDomain);
-            hLog(`绗?${pageNum} 椤靛垏鎹㈠埌鍩熷悕 ${fbDomain} 鎴愬姛`);
+            hLog(`page ${pageNum} fallback ${fbDomain}`);
             break;
           } catch {
             continue;
@@ -174,7 +178,7 @@ export async function scrapeGalleryHttp(
         pageData = parseGalleryPageHtml(page$, pageNum - 1);
       }
     } catch (err) {
-      hLog(`绗?${pageNum} 椤佃姹傚け璐? ${err instanceof Error ? err.message : err}`);
+      hLog(`page ${pageNum} error: ${err instanceof Error ? err.message : err}`);
       const fallbackDomains = domainHealthTracker.getAllDomainsOrdered(SITE_DOMAINS);
       for (const fbDomain of fallbackDomains) {
         if (fbDomain === usedDomain) continue;
@@ -190,7 +194,7 @@ export async function scrapeGalleryHttp(
           const fb$ = cheerio.load(fbHtml);
           pageData = parseGalleryPageHtml(fb$, pageNum - 1);
           usedDomain = fbDomain;
-          hLog(`绗?${pageNum} 椤靛垏鎹㈠埌鍩熷悕 ${fbDomain} 鎴愬姛`);
+          hLog(`page ${pageNum} fallback ${fbDomain}`);
           break;
         } catch {
           continue;
@@ -200,14 +204,14 @@ export async function scrapeGalleryHttp(
 
     if (pageData) {
       for (const img of pageData.images) {
-        const fullUrl = deps.resolveUrl(img.url);
+        const fullUrl = deps.resolveUrl(img.url, usedDomain);
         if (fullUrl && !imageUrlSet.has(fullUrl)) {
           imageUrlSet.add(fullUrl);
           allImages.push({ url: fullUrl, pageIndex: img.pageIndex, orderIndex: orderIndex++ });
         }
       }
       for (const videoUrl of pageData.videos) {
-        const fullUrl = deps.resolveUrl(videoUrl);
+        const fullUrl = deps.resolveUrl(videoUrl, usedDomain);
         if (fullUrl && !videoUrlSet.has(fullUrl)) {
           videoUrlSet.add(fullUrl);
           allVideos.push({ url: fullUrl });
@@ -215,65 +219,85 @@ export async function scrapeGalleryHttp(
       }
     }
   }
-  hLog(`缈婚〉瀹屾垚: 鍥剧墖=${allImages.length}, 瑙嗛=${allVideos.length}`);
+  hLog(`page1 done: images=${allImages.length}, videos=${allVideos.length}`);
 
   const title = deps.cleanTitle(firstPageData.h1Title || firstPageData.rawTitle);
-  hLog(`鏍囬娓呮礂: "${title.substring(0, 40)}"`);
+  hLog(`title: "${title.substring(0, 40)}"`);
   const protagonist = await deps.extractProtagonist(title, firstPageData.tags);
-  hLog(`涓昏鎻愬彇: "${protagonist}"`);
+  hLog(`protagonist: "${protagonist}"`);
   const description = deps.extractDescription(title, protagonist);
 
   const blockCheck = await deps.checkContentBlockedAsync(title, firstPageData.category, protagonist);
   if (blockCheck.blocked) {
-    throw new Error(`鍐呭琚睆钄? ${blockCheck.reason}`);
+    throw new Error(`Content blocked: ${blockCheck.reason || 'unknown reason'}`);
   }
 
   const metaKeywordsStr = $('meta[name="keywords"]').attr('content') || '';
   const metaKeywords = metaKeywordsStr
-    .split(/[,锛?锛沒/)
+    .split(/[,]/)
     .map((t) => t.trim())
     .filter((t) => t && t.length < 50);
 
   const allTags = [...new Set([...firstPageData.tags, ...metaKeywords])];
 
-  const db = getCharacterDBService();
-  if (!db.isLoaded()) {
-    await db.load();
-  }
+  const db = await getCharacterDBServiceAsync();
   const gameCharMatches = db
     .identifyInTags(allTags)
     .filter(m => m.character.category === 'game');
   const gameCharacters = gameCharMatches.map((m) => m.character.name);
 
-  if (zipInfo && zipInfo.downloadUrl === '' && articleId) {
-    try {
-      hLog('璋冪敤 eligibility API');
-      const apiUrl = `${usedDomain}/api/download/eligibility?page_id=${articleId}&next=${encodeURIComponent(`/article/${articleId}/`)}`;
-      const eligResp = await fetch(apiUrl, {
-        headers: buildStealthHeaders(randomProfile(), usedDomain),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (eligResp.ok) {
-        const eligResult = await eligResp.json() as Record<string, unknown>;
-        const resolvedLinks = eligResult['resolved_links'];
-        if (Array.isArray(resolvedLinks) && resolvedLinks.length > 0) {
-          zipInfo.downloadUrl = resolvedLinks[0] as string;
-          zipInfo.requiresLogin = false;
+  const eligibilityPageId = configPageId ?? articleId;
+  if (eligibilityPageId) {
+    hLog(`eligibility API (pageId=${eligibilityPageId})`);
+    const apiUrl = `${usedDomain}/api/download/eligibility?page_id=${eligibilityPageId}&next=${encodeURIComponent(`/article/${eligibilityPageId}/`)}`;
+    const eligResult = await requestWithRetry(apiUrl, {
+      headers: buildStealthHeaders(randomProfile(), usedDomain),
+      fatal: false,
+      retries: 2,
+      timeout: 10000,
+    });
+    if (eligResult.ok && eligResult.body) {
+      try {
+        const eligData = JSON.parse(eligResult.body) as Record<string, unknown>;
+        const resolvedLinks = eligData['resolved_links'];
+        const hasResolvedLink = Array.isArray(resolvedLinks) && resolvedLinks.length > 0;
+        if (hasResolvedLink || !zipInfo) {
+          if (!zipInfo) {
+            zipInfo = {
+              title: pageConfig?.title?.baseTitle || firstPageData.h1Title || '',
+              fileCount: 0,
+              fileSizeText: '',
+              imageDimensions: '',
+              password: '',
+              downloadUrl: '',
+              provider: '',
+              requiresLogin: false,
+              requiresEmail: false,
+            };
+          }
+          if (hasResolvedLink) {
+            zipInfo.downloadUrl = resolvedLinks[0] as string;
+            zipInfo.requiresLogin = false;
+          }
         }
-        if (eligResult['requires_registration']) {
-          zipInfo.requiresLogin = true;
+        if (zipInfo) {
+          if (eligData['requires_registration']) {
+            zipInfo.requiresLogin = true;
+          }
+          if (eligData['requires_email_verification']) {
+            zipInfo.requiresEmail = true;
+          }
         }
-        if (eligResult['requires_email_verification']) {
-          zipInfo.requiresEmail = true;
-        }
+        hLog('eligibility API ok');
+      } catch {
+        hLog('eligibility API JSON parse failed');
       }
-      hLog('eligibility API 瀹屾垚');
-    } catch {
-      hLog('eligibility API 澶辫触');
+    } else {
+      hLog(`eligibility API failed (status=${eligResult.status})`);
     }
   }
 
-  hLog(`HTTP 鐖彇鍏ㄩ儴瀹屾垚: 鍥剧墖=${allImages.length}, 瑙嗛=${allVideos.length}`);
+  hLog(`HTTP scrape done: images=${allImages.length}, videos=${allVideos.length}`);
 
   return {
     sourceUrl: pageUrl,
@@ -282,7 +306,7 @@ export async function scrapeGalleryHttp(
     description,
     category: firstPageData.category,
     tags: allTags,
-    coverUrl: deps.resolveUrl(firstPageData.coverUrl),
+    coverUrl: deps.resolveUrl(firstPageData.coverUrl, usedDomain),
     publishTime: firstPageData.publishTime || undefined,
     images: allImages,
     videos: allVideos,

@@ -1,27 +1,17 @@
-import { decodeHtmlEntities } from "@/lib/utils";
+﻿import { decodeHtmlEntities } from "@/lib/utils";
 
-/** 表站基础 URL */
 export const BASE_E_URL = "https://e-hentai.org";
-/** 里站基础 URL */
 export const BASE_EX_URL = "https://exhentai.org";
 
-/** 站点域名列表 */
 export const SITE_DOMAINS = [BASE_E_URL, BASE_EX_URL];
 
-/** 每批图片页请求数（防止 IP 限速） */
 export const IMAGE_BATCH_SIZE = 4;
 
-/** 图片页请求超时（毫秒） */
 export const IMAGE_FETCH_TIMEOUT = 15000;
 
-/** 每页缩略图数量（E-Hentai 默认 Compact 模式 40 个） */
 export const THUMBS_PER_PAGE = 40;
 
-/**
- * E-Hentai 分类标签位掩码映射。
- *
- * f_cats 参数为"禁用分类"的位掩码：1023 - sum(启用分类的标签值)。
- */
+
 export const CATEGORY_LABELS: Record<string, number> = {
   Doujinshi: 2,
   Manga: 4,
@@ -35,7 +25,6 @@ export const CATEGORY_LABELS: Record<string, number> = {
   Misc: 1,
 };
 
-/** 分类 ID → 名称映射 */
 export const CATEGORY_NAMES: Record<number, string> = {
   1: "Doujinshi",
   2: "Manga",
@@ -50,7 +39,7 @@ export const CATEGORY_NAMES: Record<number, string> = {
 };
 
 /**
- * 从环境变量获取 exhentai Cookie。
+ * FromenvironmentvariableGet exhentai cookie。
  */
 export function getExhentaiCookies(): Record<string, string> | null {
   const ipbMemberId = process.env.EXHENTAI_IPB_MEMBER_ID;
@@ -73,9 +62,6 @@ export function getExhentaiCookies(): Record<string, string> | null {
   return cookies;
 }
 
-/**
- * 判断 URL 是否为里站（exhentai.org）。
- */
 export function isExUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -86,7 +72,6 @@ export function isExUrl(url: string): boolean {
 }
 
 /**
- * 从图库 URL 中提取图库 ID。
  *
  * https://e-hentai.org/g/12345/abcdef/ → "12345"
  */
@@ -96,17 +81,14 @@ export function extractGalleryId(url: string): string | null {
 }
 
 /**
- * 将任意域名 URL 归一化为表站 URL。
  *
- * exhentai.org → e-hentai.org
+ * Exhentai.org → e-hentai.org
  */
 export function normalizeToEhentai(url: string): string {
   return url.replace(/https?:\/\/exhentai\.org/, BASE_E_URL);
 }
 
-/**
- * 判断 URL 是否属于 E-Hentai / ExHentai。
- */
+
 export function matchesExhentaiUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -122,9 +104,7 @@ export function matchesExhentaiUrl(url: string): boolean {
   }
 }
 
-/**
- * 清洗原始标题。
- */
+
 export function cleanExhentaiTitle(rawTitle: string): string {
   if (!rawTitle) return "";
   let title = rawTitle.trim();
@@ -132,9 +112,7 @@ export function cleanExhentaiTitle(rawTitle: string): string {
   return title.trim();
 }
 
-/**
- * 判断 URL 是否为列表页。
- */
+
 export function isExhentaiListingPage(url: string): boolean {
   try {
     const parsed = new URL(url);

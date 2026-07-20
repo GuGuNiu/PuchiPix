@@ -26,7 +26,6 @@ const SITES = ENABLED_SITE_MODULES
     gallery: m.type === 'photo',
   }));
 
-/** 检测输入是否为 URL */
 function isUrl(text: string): boolean {
   return /^https?:\/\//i.test(text.trim());
 }
@@ -53,8 +52,8 @@ export default function SearchPage(): React.JSX.Element {
   const [recentJobs, setRecentJobs] = useState<SearchJob[]>([]);
   const [scrapingAll, setScrapingAll] = useState(false);
 
-  // URL 变化时同步 keywords 到本地（处理浏览器前进/后退）
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setKeywords(urlValues.q);
   }, [urlValues.q]);
 
@@ -104,7 +103,8 @@ export default function SearchPage(): React.JSX.Element {
     fetch("/api/search")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data)) setRecentJobs(data.slice(0, 5));
+        const jobs = data?.jobs ?? data;
+        if (Array.isArray(jobs)) setRecentJobs(jobs.slice(0, 5));
       })
       .catch(() => {});
   }, []);
@@ -164,10 +164,10 @@ export default function SearchPage(): React.JSX.Element {
     setScrapingAll(true);
     toast.success(t("search.startBatchScrape", { count: pendingCount }));
     try {
-      const res = await fetch("/api/search/scrape", {
+      const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: activeJobId, all: true }),
+        body: JSON.stringify({ action: "scrape", jobId: activeJobId, all: true }),
       });
       if (!res.ok) throw new Error(await res.text());
     } catch (err: unknown) {
@@ -181,10 +181,10 @@ export default function SearchPage(): React.JSX.Element {
       if (!activeJobId) return;
       toast.info(t("search.startScrapeOne", { title: item.title || item.pageUrl }));
       try {
-        const res = await fetch("/api/search/scrape", {
+        const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: activeJobId, pageUrl: item.pageUrl }),
+          body: JSON.stringify({ action: "scrape", jobId: activeJobId, pageUrl: item.pageUrl }),
         });
         if (!res.ok) throw new Error(await res.text());
         const updated: SearchItem = await res.json();
@@ -209,10 +209,7 @@ export default function SearchPage(): React.JSX.Element {
       ? (job.currentIndex / job.keywords.length) * 100
       : 0;
 
-  const allItems: SearchItem[] = useMemo(
-    () => (job ? job.results.flatMap((kw) => kw.items) : []),
-    [job]
-  );
+  const allItems: SearchItem[] = job ? job.results.flatMap((kw) => kw.items) : [];
 
   const pendingCount = allItems.filter((i) => i.status === "pending").length;
   const scrapingCount = allItems.filter((i) => i.status === "scraping").length;

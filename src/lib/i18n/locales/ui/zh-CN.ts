@@ -1,10 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-/**
- * 前端 UI 文本 — 简体中文（基准）
- *
- * 覆盖范围：通用 UI、导航、仪表盘、图包管理、搜索、配置、嗅探、主角展示架
- */
+
 const zhCN: TranslationDict = {
   /* ─── 通用 ─── */
   "common.refresh": "刷新",
@@ -77,7 +73,7 @@ const zhCN: TranslationDict = {
   "dashboard.taskManagementDesc": "查看和管理下载任务",
   "dashboard.galleryShelf": "图包架",
   "dashboard.galleryShelfDesc": "浏览已下载的图包",
-  "dashboard.inputPlaceholder": "输入 M3U8 链接或网站地址，自动识别并下载...\n支持多行输入多个链接",
+  "dashboard.inputPlaceholder": "输入 M3U8 链接或网站地址自动识别并下载...\n支持多行输入多个链接",
   "dashboard.pleaseInputLink": "请输入链接",
   "dashboard.pleaseInputValidLink": "请输入有效的 HTTP(S) 链接",
   "dashboard.galleryCreated": "图库 #{id} 已创建",
@@ -121,13 +117,13 @@ const zhCN: TranslationDict = {
   "gallery.category": "分类",
   "gallery.publishTime": "发布时间",
   "gallery.savePath": "保存路径",
-  "gallery.imageList": "图片列表（{count}）",
-  "gallery.videoList": "视频列表（{count}）",
+  "gallery.imageList": "图片列表{count}",
+  "gallery.videoList": "视频列表{count}",
   "gallery.images": "{count} 张图片",
   "gallery.videos": "{count} 个视频",
   "gallery.pageCount": "{count} 页",
   "gallery.imagePage": "第{page}页 #{order}",
-  "gallery.confirmDelete": "确认删除图包 #{id}？",
+  "gallery.confirmDelete": "确认删除图包 #{id}",
   "gallery.deleted": "已删除图包 #{id}",
   "gallery.deleteFailed": "删除失败",
   "gallery.retryStarted": "图包 #{id} 下载已重新启动",
@@ -156,18 +152,18 @@ const zhCN: TranslationDict = {
   "gallery.zipRequiresLogin": "⚠ 需要登录",
   "gallery.zipLinkCopied": "链接已复制",
   "gallery.zipPathCopied": "路径已复制",
-  "gallery.zipPathLabel": "ZIP：",
-  "gallery.zipExtractLabel": "解压：",
+  "gallery.zipPathLabel": "ZIP",
+  "gallery.zipExtractLabel": "解压",
   "gallery.clickToCopy": "点击复制",
 
   /* ─── 搜索 ─── */
-  "search.placeholderGallery": "输入关键词或粘贴完整URL链接（如 /article/ /tag/ 页面）...",
-  "search.placeholderVideo": "输入搜索关键词，支持逗号、空格分隔...",
+  "search.placeholderGallery": "输入关键词或粘贴完整URL链接如 /article/ /tag/ 页面...",
+  "search.placeholderVideo": "输入搜索关键词支持逗号、空格分隔...",
   "search.searching": "搜索中...",
   "search.startSearch": "搜索",
   "search.pleaseInputKeyword": "请输入搜索关键词",
   "search.parsingUrl": "正在解析 URL 并加载资源...",
-  "search.searchStarted": "搜索已启动，共 {count} 个关键词",
+  "search.searchStarted": "搜索已启动共 {count} 个关键词",
   "search.searchCancelled": "搜索已取消",
   "search.cancelFailed": "取消失败",
   "search.site": "站点",
@@ -196,8 +192,8 @@ const zhCN: TranslationDict = {
   "search.colTime": "时间",
   "search.emptyGallery": "输入关键词或粘贴 URL 开始搜索",
   "search.emptyVideo": "输入关键词开始搜索",
-  "search.currentSiteGallery": "当前站点：{name} · {url}（支持文章页/标签页/分类页 URL）",
-  "search.currentSiteVideo": "当前站点：{name} · {url}",
+  "search.currentSiteGallery": "当前站点{name} · {url}支持文章页/标签页/分类页 URL",
+  "search.currentSiteVideo": "当前站点{name} · {url}",
   "search.resultsAsCards": "搜索结果将显示为卡片",
   "search.statusPending": "等待中",
   "search.statusRunning": "搜索中",
@@ -231,7 +227,7 @@ const zhCN: TranslationDict = {
   "sniff.sniffStarted": "嗅探已启动",
   "sniff.sniffStopped": "嗅探已停止",
   "sniff.pleaseInputLink": "请输入链接",
-  "sniff.sniffRunning": "嗅探运行中... 目标：{url}",
+  "sniff.sniffRunning": "嗅探运行中... 目标{url}",
   "sniff.snifferIdle": "嗅探器空闲",
   "sniff.capturedLinks": "已捕获的 M3U8 链接",
   "sniff.foundStreams": "共发现 {count} 个视频流",
@@ -243,7 +239,7 @@ const zhCN: TranslationDict = {
 
   /* ─── 主角展示架 ─── */
   "protagonists.title": "主角展示架",
-  "protagonists.subtitle": "已归一化的主角列表，点击可查看该主角的所有图库",
+  "protagonists.subtitle": "已归一化的主角列表点击可查看该主角的所有图库",
   "protagonists.searchPlaceholder": "搜索主角名字...",
   "protagonists.totalCount": "共 {count} 位主角",
   "protagonists.totalGalleries": "总计 {count} 个图库",
@@ -284,7 +280,7 @@ const zhCN: TranslationDict = {
   "createTask.matchFallback": "匹配",
   "createTask.galleryLabel": "图库 #{id}",
   "createTask.taskLabel": "任务 #{id}",
-  "createTask.duplicateRecord": "⚠️ 数据库已存在此记录（{matchLabel}）\n{idLabel}，状态: {status}\n{urlInfo}",
+  "createTask.duplicateRecord": "⚠ 数据库已存在此记录{matchLabel}\n{idLabel}状态: {status}\n{urlInfo}",
   "createTask.unknownStatus": "未知",
   "createTask.existingUrl": "已有 URL: {url}",
   "createTask.createFailed": "创建任务失败",
@@ -294,18 +290,17 @@ const zhCN: TranslationDict = {
   "createTask.linkHint": "支持 M3U8 直链或包含视频的网页地址",
   "createTask.outputFormatLabel": "输出格式",
   "createTask.autoStart": "创建后自动开始下载",
-  "createTask.autoStartHint": "关闭后会进入等待中状态，可在任务列表中手动启动",
+  "createTask.autoStartHint": "关闭后会进入等待中状态可在任务列表中手动启动",
   "createTask.creating": "创建中...",
   "createTask.createTask": "创建任务",
 
-  /* ─── 搜索（补充） ─── */
   "search.scrape": "爬取",
   "search.scrapeThisVideo": "爬取此视频",
   "search.loadingData": "正在加载数据...",
   "search.statusDownloaded": "已下载",
   "search.taskId": "任务 #{id}",
   "search.tags": "标签",
-  "search.noDetailData": "暂无详细数据，请先{scrape}或下载",
+  "search.noDetailData": "暂无详细数据请先{scrape}或下载",
   "search.videoData": "视频数据",
   "search.fieldTitle": "标题",
   "search.fieldDate": "日期",
@@ -339,7 +334,7 @@ const zhCN: TranslationDict = {
   "batchSearch.total": "总计",
   "batchSearch.all": "全部",
   "batchSearch.candidates": "{count} 个候选",
-  "batchSearch.progress": "进度：",
+  "batchSearch.progress": "进度",
   "batchSearch.copyNotFound": "复制未找到",
   "batchSearch.retryFailed": "重试失败",
   "batchSearch.hideLogs": "隐藏日志",
@@ -349,10 +344,10 @@ const zhCN: TranslationDict = {
   "batchSearch.colScore": "评分",
   "batchSearch.colStatus": "状态",
   "batchSearch.colTask": "任务",
-  "batchSearch.complete": "批量搜索完成：下载 {downloaded}，未找到 {notFound}，失败 {failed}",
-  "batchSearch.started": "批量搜索已启动，共 {count} 个标题",
+  "batchSearch.complete": "批量搜索完成下载 {downloaded}未找到 {notFound}失败 {failed}",
+  "batchSearch.started": "批量搜索已启动共 {count} 个标题",
   "batchSearch.copied": "已复制 {count} 个标题到剪贴板",
-  "batchSearch.placeholder": "粘贴视频标题，每行一个，例如：\n美丽女仆的秘密生活\n天使的诱惑\n调教日记",
+  "batchSearch.placeholder": "粘贴视频标题每行一个例如\n美丽女仆的秘密生活\n天使的诱惑\n调教日记",
   "batchSearch.pleaseInputTitle": "请输入标题",
   "batchSearch.noValidTitle": "未找到有效标题",
   "batchSearch.cancelled": "批量搜索已取消",
@@ -367,7 +362,7 @@ const zhCN: TranslationDict = {
   "taskSettings.maxConcurrentTasks": "最大并发任务数",
   "taskSettings.maxConcurrentTasksDesc": "同时运行的视频/图库下载任务上限",
   "taskSettings.maxScrapingTasks": "最大识别任务数",
-  "taskSettings.maxScrapingTasksDesc": "同时进行识别（爬取）的任务上限",
+  "taskSettings.maxScrapingTasksDesc": "同时进行识别爬取的任务上限",
   "taskSettings.sniffMaxConcurrentTasks": "嗅探最大并发任务数",
   "taskSettings.maxSniffTasksDesc": "同时运行的嗅探任务上限",
   "taskSettings.tsSegmentConcurrent": "TS 分片并发数",
@@ -377,11 +372,32 @@ const zhCN: TranslationDict = {
   "taskSettings.unitTasks": "个",
   "taskSettings.unitSegments": "个",
   "taskSettings.unitFiles": "个",
-  "taskSettings.note": "修改后立即生效，无需重启",
+  "taskSettings.note": "修改后立即生效无需重启",
   "taskSettings.refresh": "刷新",
   "taskSettings.save": "保存",
   "taskSettings.loadFailed": "加载设置失败",
   "taskSettings.saveFailed": "保存设置失败",
-};
+
+  /* ─── 控制台日志 ─── */
+  "console.noTaskLogs": "暂无任务日志",
+  "console.fetchFailed": "日志获取失败",
+
+  /* ─── DAG 节点状态 ─── */
+  "dag.nodeState.pending": "待就绪",
+  "dag.nodeState.ready": "就绪",
+  "dag.nodeState.queued": "排队中",
+  "dag.nodeState.allocated": "已分配",
+  "dag.nodeState.running": "执行中",
+  "dag.nodeState.paused": "已暂停",
+  "dag.nodeState.verifying": "校验中",
+  "dag.nodeState.resumeVerify": "恢复校验",
+  "dag.nodeState.completed": "已完成",
+  "dag.nodeState.failed": "已失败",
+  "dag.nodeState.cancelled": "已取消",
+  "dag.nodeState.timeout": "已超时",
+} satisfies TranslationDict;
+
+/** Ui 模块的翻译键联合类型 */
+export type UiTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

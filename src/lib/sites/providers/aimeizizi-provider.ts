@@ -1,24 +1,27 @@
-﻿import type { Page } from 'playwright';
+import type { Page } from 'playwright';
+import { loggers } from '@/lib/core/infra/logger';
 import { BaseSiteProvider } from '../base-provider';
 import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockCheckResult } from '../types';
 import type {
+
   GalleryScrapeResult,
   GalleryZipInfo,
   ScrapeResult,
 } from '@/types';
 import { PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from '@/lib/core/stealth/anti-crawler';
 import { logT } from '@/lib/i18n/server';
-import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
+import { getProtagonistService } from '@/lib/protagonist';
 import {
   BLOCKED_TITLE_KEYWORDS,
   BLOCKED_CATEGORIES,
   BLOCKED_PROTAGONISTS,
   BLOCKED_PROTAGONISTS_ENABLED,
-} from './constants';
+} from './aimeizizi/constants';
 import { getBlocklistService } from '../blocklist-service';
 
+const logger = loggers.aimeiziziProvider();
 export interface ScrapeDeps {
-  resolveUrl(url: string): string;
+  resolveUrl(url: string, domain?: string): string;
   cleanTitle(rawTitle: string): string;
   extractProtagonist(title: string, tags: string[]): Promise<string>;
   extractDescription(title: string, protagonist: string): string;
@@ -31,7 +34,7 @@ export interface ScrapeDeps {
 
 import {
   SITE_DOMAINS,
-  SITE_SUFFIX_PATTERN,
+  SITE_SUFFIX_PATTERNS,
   domainHealthTracker,
   extractArticleId,
   replaceDomain,
@@ -49,8 +52,8 @@ import { scrapeGalleryHttp as scrapeGalleryHttpImpl } from './aimeizizi/scrape-g
 
 export class AimeiziziProvider extends BaseSiteProvider implements GallerySiteProvider {
   readonly id = 'aimeizizi';
-  readonly name = '鐖卞瀛?;
-  readonly baseUrl = 'https://www.lovecutes.com';
+  readonly name = '?;'
+  readonly baseUrl = 'https://'
   readonly enabled = true;
   readonly playButtonSelectors: string[] = [];
   readonly m3u8ExcludePatterns: string[] = ['ad', 'stat', 'analytics'];
@@ -84,8 +87,10 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     let title = rawTitle.trim();
     title = title.replace(/^\[.*?\]\s*/, '');
     title = removePublisherPrefix(title);
-    title = title.replace(SITE_SUFFIX_PATTERN, '');
-    title = title.replace(/\s*[-鈥斺€揮\s*鐖卞瀛怽s*$/i, '');
+    for (const pattern of SITE_SUFFIX_PATTERNS) {
+      title = title.replace(pattern, '');
+    }
+    title = title.replace(/\s*[-\s]*$/i, '');
     return title.trim();
   }
 
@@ -96,7 +101,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
 
     if (name) {
       service.learnPerson(name).catch((err) => {
-        console.warn(logT('log.aimeizizi.learnPersonFailed'), err);
+        logger.warnT('log.aimeizizi.learnPersonFailed', err);
       });
     }
 
@@ -107,7 +112,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     if (!title) return '';
     if (!protagonist) return title;
 
-    let desc = title.replace(protagonist, '').replace(/^\s*[-鈥斺€揮\s*/, '').trim();
+    let desc = title.replace(protagonist, '').replace(/^\s*[-\s]*/, '').trim();
     desc = desc.replace(/\s*\d+P\d*V?\s*$/i, '').trim();
     return desc;
   }
@@ -121,7 +126,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
       const titleLower = title.toLowerCase();
       for (const keyword of this.blockedTitleKeywords) {
         if (titleLower.includes(keyword.toLowerCase())) {
-          return { blocked: true, reason: `鏍囬鍖呭惈灞忚斀鍏抽敭璇? "${keyword}"` };
+          return { blocked: true, reason: `title contains "${keyword}"` };
         }
       }
     }
@@ -129,7 +134,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     if (category) {
       for (const keyword of this.blockedCategories) {
         if (category.includes(keyword)) {
-          return { blocked: true, reason: `鍒嗙被鍖呭惈灞忚斀鍏抽敭璇? "${keyword}"` };
+          return { blocked: true, reason: `category contains "${keyword}"` };
         }
       }
     }
@@ -137,7 +142,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     if (this.blockedProtagonistsEnabled && protagonist) {
       for (const blocked of this.blockedProtagonists) {
         if (protagonist === blocked || protagonist.includes(blocked)) {
-          return { blocked: true, reason: `涓昏鍚嶈灞忚斀: "${blocked}"` };
+          return { blocked: true, reason: `protagonist matches "${blocked}"` };
         }
       }
     }
@@ -168,7 +173,6 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     return this.checkBlocked(title, category, protagonist);
   }
 
-
   matchesUrl(url: string): boolean {
     try {
       const parsed = new URL(url);
@@ -195,7 +199,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     for (const item of rawResults) {
       const check = await this.checkContentBlockedAsync(item.title, '');
       if (check.blocked) {
-        console.log(logT('log.aimeizizi.blockedSearchResult', { title: item.title.substring(0, 50), reason: check.reason ?? '' }));
+        logger.infoT('log.aimeizizi.blockedSearchResult', { title: item.title.substring(0, 50), reason: check.reason ?? '' });
         continue;
       }
       filteredResults.push(item);
@@ -210,7 +214,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     const protagonist = await this.extractProtagonist(title, raw.tags);
 
     const metaKeywords = raw.keywordStr
-      .split(/[,锛?锛沒/)
+      .split(/[,]/)
       .map((t) => t.trim())
       .filter((t) => t && t.length < 50 && !raw.tags.includes(t));
 
@@ -260,11 +264,15 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
     };
   }
 
-  resolveUrl(url: string): string {
+  resolveUrl(url: string, domain?: string): string {
     if (!url) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
     if (url.startsWith('//')) return `https:${url}`;
-    if (url.startsWith('/')) return `${this.baseUrl}${url}`;
+    if (url.startsWith('/')) {
+      const base = domain || this.baseUrl;
+      const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      return `${normalizedBase}${url}`;
+    }
     return url;
   }
 
@@ -313,7 +321,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
 
         await sleep(randomDelay(PAGE_DELAY_MIN, PAGE_DELAY_MAX));
       } catch (err) {
-        console.error(logT('log.aimeizizi.listPageFailed', { page: pageNum }), err);
+        logger.errorT('log.aimeizizi.listPageFailed', { page: pageNum }, err);
         break;
       }
     }
@@ -354,7 +362,7 @@ export class AimeiziziProvider extends BaseSiteProvider implements GallerySitePr
       );
       for (const link of navLinks) {
         const text = link.textContent?.trim() || '';
-        if (text.includes('涓嬩竴椤?) || text.includes('Next') || text.includes('鈥?) || text.includes('禄')) {
+        if (text.includes('') || text.includes('Next') || text.includes('') || text.includes('')) {
           return true;
         }
       }

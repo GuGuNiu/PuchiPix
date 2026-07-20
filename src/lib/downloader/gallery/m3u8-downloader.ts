@@ -1,15 +1,13 @@
 import fs from 'fs';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { taskQueueManager } from '@/lib/core/orchestrator/task/queue-manager';
 import { fetchM3U8Content, parseM3U8 } from '../m3u8-parser';
 import type { M3U8Segment } from '../m3u8-parser';
 import { downloadSegment, generateTSID } from '../segment-downloader';
 import { mergeSegments, verifySegments, cleanupSegments } from '../merger';
-import { transcodeTS } from '@/lib/transcoder/ffmpeg';
+import { transcodeTS } from '@/lib/transcoder';
 import { ensureDir } from './utils';
 
-/**
- * 下载 M3U8 视频到指定路径
- */
+
 export async function downloadM3U8Video(
   m3u8Url: string,
   outputPath: string,
@@ -35,7 +33,7 @@ export async function downloadM3U8Video(
     }
 
     if (segments.length === 0) {
-      console.error(`[GalleryDL] M3U8 无分片: ${m3u8Url}`);
+      console.error(`[GalleryDL] M3U8 has no segments: ${m3u8Url}`);
       return false;
     }
 
@@ -61,13 +59,13 @@ export async function downloadM3U8Video(
 
     const failedCount = segResults.filter((r) => !r.success).length;
     if (failedCount > 0) {
-      console.error(`[GalleryDL] M3U8 下载失败: ${failedCount}/${segments.length} 个分片失败`);
+      console.error(`[GalleryDL] M3U8 download failed: ${failedCount}/${segments.length} segments failed`);
       return false;
     }
 
     const verification = verifySegments(segDir, segments.length);
     if (!verification.valid) {
-      console.error(`[GalleryDL] M3U8 分片校验失败: 期望 ${segments.length}，实际 ${verification.actualCount}`);
+      console.error(`[GalleryDL] M3U8 segment verification failed: expected ${segments.length}, actual ${verification.actualCount}`);
       return false;
     }
 
@@ -80,7 +78,7 @@ export async function downloadM3U8Video(
 
     return true;
   } catch (err) {
-    console.error(`[GalleryDL] M3U8 下载异常: ${m3u8Url}`, err);
+    console.error(`[GalleryDL] M3U8 download error: ${m3u8Url}`, err);
     await cleanupSegments(segDir).catch(() => {});
     return false;
   }

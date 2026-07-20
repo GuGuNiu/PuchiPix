@@ -80,7 +80,6 @@ export function buildPageHeaders(
   return headers;
 }
 
-/** 反自动化注入脚本，覆盖常见 detection vector */
 export function getStealthScripts(profile?: BrowserProfile): string[] {
   const p = profile ?? randomProfile();
   const scripts: string[] = [];
@@ -223,7 +222,6 @@ export async function applyStealthToPage(
     await page.addInitScript(script);
   }
 
-  // 通过 CDP 移除 webdriver 标志，补充 init script 的不足
   try {
     const client = await page.context().newCDPSession(page);
     await client.send('Page.setWebLifecycleState', { state: 'active' });

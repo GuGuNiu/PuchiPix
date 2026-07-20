@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { lifecycle } from '@/lib/core/infra/lifecycle';
 import { eventBus } from '@/lib/core/infra/event-bus';
 import { ttlLock } from '@/lib/core/infra/ttl-lock';
+import { workerManager } from '@/lib/core/infra/worker-manager';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -12,7 +13,6 @@ export async function GET(): Promise<Response> {
   const lockStats = ttlLock.getStats();
   const activeLocks = ttlLock.getActiveLocks();
 
-  // 收集各组件状态（延迟加载，避免初始化未就绪时报错）
   let ouoStatus: unknown = null;
   let domainHealth: unknown = null;
 
@@ -23,8 +23,8 @@ export async function GET(): Promise<Response> {
   }
 
   try {
-    const { getGlobalDomainHealthTracker } = await import('@/lib/core/domain/domain-health-tracker');
-    const tracker = getGlobalDomainHealthTracker();
+    const { getDomainHealthTracker } = await import('@/lib/core/domain/domain-health-tracker');
+    const tracker = getDomainHealthTracker();
     domainHealth = {
       rateLimitedDomains: tracker.getRateLimitedDomains(),
     };
@@ -34,6 +34,7 @@ export async function GET(): Promise<Response> {
   return NextResponse.json({
     status: lifecycle.isHealthy() ? 'ok' : 'degraded',
     lifecycle: health,
+    worker: workerManager.getStats(),
     eventBus: busStats,
     locks: {
       active: lockStats.activeLocks,

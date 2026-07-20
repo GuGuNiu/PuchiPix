@@ -1,16 +1,8 @@
-/**
- * 相似度计算器集合
- *
- * 提供多种字符串相似度算法实现。
- */
+
 
 import type { SimilarityCalculator, SimilarityAlgorithm } from './types';
 
-/**
- * Levenshtein 编辑距离算法
- *
- * 计算两个字符串之间的最小编辑距离（插入、删除、替换）。
- */
+
 export class LevenshteinCalculator implements SimilarityCalculator {
   name: SimilarityAlgorithm = 'levenshtein';
 
@@ -55,11 +47,7 @@ export class LevenshteinCalculator implements SimilarityCalculator {
   }
 }
 
-/**
- * Jaro-Winkler 相似度算法
- *
- * 适合短字符串比较，对前缀匹配给予更高权重。
- */
+
 export class JaroWinklerCalculator implements SimilarityCalculator {
   name: SimilarityAlgorithm = 'jaroWinkler';
   private readonly scalingFactor = 0.1;
@@ -136,13 +124,7 @@ export class JaroWinklerCalculator implements SimilarityCalculator {
   }
 }
 
-/**
- * Bigram (二元语法) 相似度算法
- *
- * 将字符串拆分为连续的二元组，计算集合的 Dice 系数。
- * Dice 系数 = 2×|A∩B| / (|A|+|B|)，对部分匹配比 Jaccard 更宽容，
- * 适合拼音模糊匹配场景。
- */
+
 export class BigramCalculator implements SimilarityCalculator {
   name: SimilarityAlgorithm = 'bigram';
 
@@ -184,13 +166,7 @@ export class BigramCalculator implements SimilarityCalculator {
   }
 }
 
-/**
- * 组合相似度计算器
- *
- * 综合 Levenshtein、Jaro-Winkler 和 Bigram(Dice) 三种算法的加权结果。
- * 默认权重为 Levenshtein×0.4 + JaroWinkler×0.3 + Bigram(Dice)×0.3，
- * 权重经归一化后求和，确保总分在 0-1 范围内。
- */
+
 export class CombinedCalculator implements SimilarityCalculator {
   name: SimilarityAlgorithm = 'combined';
   private calculators: Map<SimilarityAlgorithm, SimilarityCalculator>;
@@ -231,9 +207,7 @@ export class CombinedCalculator implements SimilarityCalculator {
   }
 }
 
-/**
- * 相似度计算器工厂
- */
+
 export function createSimilarityCalculator(
   algorithm: SimilarityAlgorithm,
   weights?: { levenshtein?: number; jaroWinkler?: number; bigram?: number }

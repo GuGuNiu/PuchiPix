@@ -50,6 +50,7 @@ function VideoCardImpl({ item, index, onScrape, gallery = false }: VideoCardProp
 
   useEffect(() => {
     if (item.m3u8Url && !resolvedUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResolvedUrl(item.m3u8Url);
       previewUrlCache.set(item.pageUrl, item.m3u8Url);
     }

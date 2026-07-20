@@ -1,16 +1,170 @@
-import type { NextRequest} from 'next/server';
-import { NextResponse } from 'next/server';
+﻿﻿import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import https from 'https';
+import http from 'http';
 import path from 'path';
 import prisma from '@/lib/db/prisma';
 import { eventBus } from '@/lib/core/infra/event-bus';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { workerManager } from '@/lib/core/infra/worker-manager';
 import { safeDeleteDir, safeDeleteFile, summarizeDeleteResults } from '@/lib/utils/safe-delete';
+import { detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
+import { ensureDir } from '@/lib/utils/file-system';
+import { ErrorCode, isAppError } from '@/lib/core/error-codes';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 import type { GalleryData } from '@/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** 将 Prisma Gallery 对象映射为 API 响应格式（含关联数据） */
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.png': 'image/png', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp',
+};
+
+const COVER_CACHE_DIR = './data/cover_cache';
+
+const etagCache = new Map<number, { etag: string; ts: number }>();
+const ETAG_CACHE_TTL = 60_000;
+
+function getCachePath(galleryId: number, url: string): string {
+  const ext = (() => {
+    try {
+      const cleanUrl = url.split('?')[0].split('#')[0];
+      const e = path.extname(cleanUrl).toLowerCase();
+      if (e && ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(e)) return e;
+    } catch {}
+    return '.jpg';
+  })();
+  return path.join(COVER_CACHE_DIR, `${galleryId}${ext}`);
+}
+
+function downloadRemoteCover(url: string, destPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let referer = '';
+    try {
+      const parsed = new URL(url);
+      referer = `${parsed.protocol}//${parsed.host}/`;
+    } catch {}
+
+    const protocol = url.startsWith('https://') ? https : http;
+    const request = protocol.get(
+      url,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          'Referer': referer,
+          'sec-fetch-dest': 'image',
+          'sec-fetch-mode': 'no-cors',
+          'sec-fetch-site': 'same-origin',
+        },
+        timeout: 15000,
+      },
+      (response) => {
+        if (
+          response.statusCode &&
+          response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          response.headers.location
+        ) {
+          const redirectUrl = response.headers.location;
+          const absoluteRedirect = redirectUrl.startsWith('http')
+            ? redirectUrl
+            : new URL(redirectUrl, url).href;
+          downloadRemoteCover(absoluteRedirect, destPath).then(resolve);
+          return;
+        }
+
+        if (response.statusCode !== 200) {
+          resolve(false);
+          return;
+        }
+
+        const fileStream = fs.createWriteStream(destPath);
+        response.pipe(fileStream);
+        fileStream.on('finish', () => { fileStream.close(); resolve(true); });
+        fileStream.on('error', () => { fs.unlink(destPath, () => {}); resolve(false); });
+      },
+    );
+
+    request.on('error', () => resolve(false));
+    request.on('timeout', () => { request.destroy(); resolve(false); });
+  });
+}
+
+async function handleCover(request: NextRequest, galleryId: number): Promise<NextResponse> {
+  const gallery = await prisma.gallery.findUnique({
+    where: { id: galleryId },
+    select: { coverLocalPath: true, coverUrl: true },
+  });
+
+  if (!gallery) {
+    return NextResponse.json({ error: 'Gallery not found' }, { status: 404 });
+  }
+
+  let coverPath = gallery.coverLocalPath;
+  const coverUrl = gallery.coverUrl;
+
+  if (!coverPath || !fs.existsSync(coverPath)) {
+    if (!coverUrl) {
+      return NextResponse.json({ error: 'No cover available' }, { status: 404 });
+    }
+
+    const cachePath = getCachePath(galleryId, coverUrl);
+    if (fs.existsSync(cachePath) && fs.statSync(cachePath).size > 0) {
+      coverPath = cachePath;
+    } else {
+      ensureDir(COVER_CACHE_DIR);
+      const downloaded = await downloadRemoteCover(coverUrl, cachePath);
+      if (!downloaded || !fs.existsSync(cachePath)) {
+        return NextResponse.redirect(coverUrl, 302);
+      }
+      coverPath = cachePath;
+      prisma.gallery.update({
+        where: { id: galleryId },
+        data: { coverLocalPath: cachePath },
+      }).catch(() => {});
+    }
+  }
+
+  const stat = await fs.promises.stat(coverPath);
+  const etag = `"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+
+  const cached = etagCache.get(galleryId);
+  if (cached && Date.now() - cached.ts < ETAG_CACHE_TTL && cached.etag === etag) {
+  }
+
+  const ifNoneMatch = request.headers.get('if-none-match');
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    etagCache.set(galleryId, { etag, ts: Date.now() });
+    return new NextResponse(null, {
+      status: 304,
+      headers: { ETag: etag, 'Cache-Control': 'public, max-age=86400, immutable' },
+    });
+  }
+
+  etagCache.set(galleryId, { etag, ts: Date.now() });
+
+  const ext = path.extname(coverPath).toLowerCase();
+  const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
+
+  const imageBuffer = await fs.promises.readFile(coverPath);
+
+  return new NextResponse(imageBuffer, {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(stat.size),
+      'Cache-Control': 'public, max-age=86400, immutable',
+      ETag: etag,
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+
 function mapGalleryWithRelations(g: {
   id: number;
   seq?: string | null;
@@ -171,9 +325,189 @@ function mapGalleryWithRelations(g: {
   };
 }
 
-/** GET /api/gallery/[id] — 获取图库详情 */
+
+async function handleDownload(request: NextRequest, gid: number): Promise<NextResponse> {
+  const body = await request.json().catch(() => ({}));
+  const concurrency = body.concurrency;
+
+  const gallery = await prisma.gallery.findUnique({
+    where: { id: gid },
+    select: { id: true, status: true },
+  });
+
+  if (!gallery) {
+    return NextResponse.json({ error: 'Gallery not found' }, { status: 404 });
+  }
+
+  workerManager.send({
+    type: 'gallery:download',
+    payload: { galleryId: gid, concurrency },
+  });
+
+  return NextResponse.json({ message: t('api.gallery.downloadStarted'), galleryId: gid });
+}
+
+
+async function handlePause(gid: number): Promise<NextResponse> {
+  const gallery = await prisma.gallery.findUnique({
+    where: { id: gid },
+    select: { id: true },
+  });
+
+  if (!gallery) {
+    return NextResponse.json({ error: 'Gallery not found' }, { status: 404 });
+  }
+
+  workerManager.send({
+    type: 'gallery:action',
+    payload: { galleryId: gid, action: 'pause' },
+  });
+
+  return NextResponse.json({ message: 'Gallery paused', galleryId: gid });
+}
+
+
+async function handleResume(_request: NextRequest, gid: number): Promise<NextResponse> {
+  const gallery = await prisma.gallery.findUnique({
+    where: { id: gid },
+    select: { id: true, status: true },
+  });
+
+  if (!gallery) {
+    return NextResponse.json({ error: t('api.gallery.notFound') }, { status: 404 });
+  }
+
+  workerManager.send({
+    type: 'gallery:action',
+    payload: { galleryId: gid, action: 'resume' },
+  });
+
+  return NextResponse.json({ message: 'Gallery resumed', galleryId: gid });
+}
+
+
+async function handleRetryFailed(_request: NextRequest, gid: number): Promise<NextResponse> {
+  const gallery = await prisma.gallery.findUnique({
+    where: { id: gid },
+    select: { id: true },
+  });
+
+  if (!gallery) {
+    return NextResponse.json({ error: t('api.gallery.notFound') }, { status: 404 });
+  }
+
+  workerManager.send({
+    type: 'gallery:action',
+    payload: { galleryId: gid, action: 'retry-failed' },
+  });
+
+  return NextResponse.json({ message: t('api.gallery.retryFailedStarted'), galleryId: gid });
+}
+
+
+async function handleDownloadZip(request: NextRequest, gid: number): Promise<NextResponse> {
+  const body = await request.json().catch(() => ({}));
+  const manualUrl: string | undefined = body.manualUrl;
+  const enqueue: boolean = body.enqueue === true;
+  const maxRetries: number | undefined = body.maxRetries;
+
+  const gallery = await prisma.gallery.findUnique({
+    where: { id: gid },
+    include: { downloadInfo: true },
+  });
+
+  if (!gallery) {
+    return NextResponse.json({ error: t('api.gallery.notFound') }, { status: 404 });
+  }
+
+  if (!gallery.downloadInfo) {
+    return NextResponse.json({ error: t('api.gallery.noZipInfo') }, { status: 400 });
+  }
+
+  const effectiveUrl = manualUrl || gallery.downloadInfo.downloadUrl;
+  if (!effectiveUrl) {
+    return NextResponse.json(
+      { error: t('api.gallery.noDownloadUrl') },
+      { status: 400 },
+    );
+  }
+
+  if (enqueue) {
+    const source = detectDownloadSource(effectiveUrl);
+    if (source !== 'ouo') {
+      return NextResponse.json(
+        { error: t('api.gallery.invalidSource', { source }) },
+        { status: 400 },
+      );
+    }
+  }
+
+  if (manualUrl && manualUrl !== gallery.downloadInfo.downloadUrl) {
+    await prisma.galleryDownloadInfo.update({
+      where: { galleryId: gid },
+      data: { downloadUrl: manualUrl },
+    });
+  }
+
+  workerManager.send({
+    type: 'gallery:action',
+    payload: { galleryId: gid, action: 'download-zip', manualUrl, enqueue, maxRetries },
+  });
+
+  if (enqueue) {
+    return NextResponse.json({ queued: true, galleryId: gid });
+  }
+
+  return NextResponse.json({ message: t('api.gallery.downloadStarted'), galleryId: gid });
+}
+
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  setLocaleFromHeaders(request.headers);
+  try {
+    const { id } = await params;
+    const gid = parseInt(id, 10);
+
+    if (isNaN(gid)) {
+      return NextResponse.json({ error: 'Invalid gallery ID' }, { status: 400 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { action = 'download', ...rest } = body;
+
+    const innerRequest = new NextRequest(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(rest),
+    });
+
+    switch (action) {
+      case 'download':
+        return handleDownload(innerRequest, gid);
+      case 'pause':
+        return handlePause(gid);
+      case 'resume':
+        return handleResume(innerRequest, gid);
+      case 'retry-failed':
+        return handleRetryFailed(innerRequest, gid);
+      case 'download-zip':
+        return handleDownloadZip(innerRequest, gid);
+      default:
+        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Gallery action failed';
+    const code = isAppError(error) && error.code === ErrorCode.ERR_ALREADY_DOWNLOADING ? 409 : 500;
+    return NextResponse.json({ error: msg }, { status: code });
+  }
+}
+
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
@@ -182,6 +516,11 @@ export async function GET(
 
     if (isNaN(galleryId)) {
       return NextResponse.json({ error: 'Invalid gallery ID' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    if (searchParams.get('type') === 'cover') {
+      return handleCover(request, galleryId);
     }
 
     const gallery = await prisma.gallery.findUnique({
@@ -204,12 +543,8 @@ export async function GET(
   }
 }
 
-/** PATCH /api/gallery/[id] — 更新图库（重新解析主角名等）
- *
- * 支持的 action：
- * - reparseProtagonist: 使用智能解析系统重新提取主角名
- *
- */
+// PATCH /api/gallery/[id] — UpdateGraphlibrary
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -236,7 +571,6 @@ export async function PATCH(
           return NextResponse.json({ error: 'Gallery not found' }, { status: 404 });
         }
 
-        // 解析标签
         let tags: string[] = [];
         try {
           tags = JSON.parse(gallery.tags) as string[];
@@ -244,14 +578,12 @@ export async function PATCH(
           tags = [];
         }
 
-        // 使用智能解析系统重新提取主角名
-        const { getProtagonistService } = await import('@/lib/protagonist/protagonist-service');
+        const { getProtagonistService } = await import('@/lib/protagonist');
         const service = getProtagonistService();
         const newProtagonist = await service.extractFromTitleSmart(gallery.title, tags);
 
-        // 自动学习
         if (newProtagonist) {
-          service.learnPerson(newProtagonist).catch(() => {});
+          service.learnPerson(newProtagonist).catch(() => { });
         }
 
         await prisma.gallery.update({
@@ -280,11 +612,8 @@ export async function PATCH(
   }
 }
 
-/** DELETE /api/gallery/[id] — 删除图库
- *
- * 全链路删除：取消下载后读取图库信息，删除本地文件和数据库记录，最后通知前端。
- *
- */
+// DELETE /api/gallery/[id] — DeleteGraphlibrary
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -296,23 +625,12 @@ export async function DELETE(
     return NextResponse.json({ error: 'Invalid gallery ID' }, { status: 400 });
   }
 
-try {
-taskQueueManager.cancelAcquire('gallery', galleryId);
-// 取消排队中的识别槽位请求
-taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
+  try {
+    workerManager.send({
+      type: 'gallery:action',
+      payload: { galleryId, action: 'pause' },
+    });
 
-// 取消正在进行的下载
-    try {
-      const { getGalleryDownloader } = await import('@/lib/downloader/gallery');
-      getGalleryDownloader().cancelDownload(galleryId);
-    } catch {
-    }
-
-    // 释放已持有的识别槽位和普通槽位（如果任务处于 scraping/downloading 阶段）
-    taskQueueManager.releaseScrapingSlot('gallery', galleryId);
-    taskQueueManager.releaseSlot('gallery', galleryId);
-
-    // 读取图库信息，用于后续本地文件清理
     const gallery = await prisma.gallery.findUnique({
       where: { id: galleryId },
       include: {
@@ -321,12 +639,10 @@ taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
     });
 
     if (!gallery) {
-      // 图库不存在，视为已删除
       eventBus.emit('gallery:deleted', { galleryId });
       return NextResponse.json({ success: true });
     }
 
-    // 删除本地文件，带重试
     const galleryRoot = process.env.GALLERY_PATH || './data/galleries';
     const zipRoot = process.env.GALLERY_ZIP_PATH || './data/gallery_zips';
     const resolvedGalleryRoot = path.resolve(galleryRoot);
@@ -334,24 +650,18 @@ taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
 
     const deleteResults = [];
 
-    // 删除图库爬取文件夹
     if (gallery.savePath) {
       const savePathResolved = path.resolve(gallery.savePath);
-      // 安全检查：确保路径在 galleries 目录下，防止误删
       if (savePathResolved.startsWith(resolvedGalleryRoot) || savePathResolved.startsWith(resolvedZipRoot)) {
         deleteResults.push(await safeDeleteDir(savePathResolved));
       } else {
-        // 如果不在预期目录下，也尝试删除（可能是自定义路径）
         deleteResults.push(await safeDeleteDir(savePathResolved));
       }
     }
 
-    // 删除 ZIP 下载文件和解压目录
     if (gallery.downloadInfo) {
-      // ZIP 文件
       if (gallery.downloadInfo.localPath) {
         const zipPath = path.resolve(gallery.downloadInfo.localPath);
-        // 安全检查：确保路径在预期目录下
         if (zipPath.startsWith(resolvedZipRoot) || zipPath.startsWith(resolvedGalleryRoot)) {
           deleteResults.push(await safeDeleteFile(zipPath));
         } else {
@@ -359,7 +669,6 @@ taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
         }
       }
 
-      // 解压目录
       if (gallery.downloadInfo.extractedPath) {
         const extractPath = path.resolve(gallery.downloadInfo.extractedPath);
         deleteResults.push(await safeDeleteDir(extractPath));
@@ -369,7 +678,7 @@ taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
     const tempZipDir = path.join(resolvedZipRoot, `gallery_${galleryId}`);
     deleteResults.push(await safeDeleteDir(tempZipDir));
 
-    console.log(`[GalleryDelete] 图库 #${galleryId}: ${summarizeDeleteResults(deleteResults)}`);
+    console.log(`[GalleryDelete] Gallery #${galleryId}: ${summarizeDeleteResults(deleteResults)}`);
 
     await prisma.$transaction(async (tx) => {
       await tx.gallery.delete({
@@ -379,11 +688,11 @@ taskQueueManager.cancelScrapingAcquire('gallery', galleryId);
 
     eventBus.emit('gallery:deleted', { galleryId });
 
-    console.log(`[GalleryDelete] 图库 #${galleryId} 删除完成`);
+    console.log(`[GalleryDelete] Gallery #${galleryId} deletion completed`);
     return NextResponse.json({ success: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete gallery';
-    console.error(`[GalleryDelete] 图库 #${galleryId} 删除失败:`, message);
+    console.error(`[GalleryDelete] Gallery #${galleryId} deletion failed:`, message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

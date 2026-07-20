@@ -1,12 +1,10 @@
-﻿/**
- * Sijishe 绔欑偣鎻愪緵鑰?
- *
- * 鏀寔甯栧瓙鎼滅储銆佽棰戦〉闈㈢埇鍙栧拰涓嬭浇閾炬帴鎻愬彇锛岄渶鐧诲綍 Cookie銆?
- */
+
 import type { Page } from "playwright";
+import { loggers } from '@/lib/core/infra/logger';
 import { BaseSiteProvider } from "../base-provider";
 import type { ExtendedMetadata, GallerySiteProvider, SiteSearchResult, BlockCheckResult } from "../types";
 import type {
+
   GalleryScrapeResult,
   GalleryImageItem,
   GalleryVideoItem,
@@ -19,7 +17,7 @@ import {
   extractDownloadLinks,
   isThreadPurchasable,
 } from "../sjs-actions";
-import { getProtagonistService } from "@/lib/protagonist/protagonist-service";
+import { getProtagonistService } from "@/lib/protagonist";
 import {
   SITE_DOMAINS,
   PRIMARY_DOMAIN,
@@ -47,9 +45,10 @@ import {
   getNextPageUrl,
 } from "./sjs-provider/page-extractors";
 
+const logger = loggers.sjsProvider();
 export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider {
   readonly id = "sjs";
-  readonly name = "鍙告満绀?;
+  readonly name = "?;"
   readonly baseUrl = PRIMARY_DOMAIN;
   readonly enabled = true;
 
@@ -106,9 +105,9 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
     const downloadLinks = extractDownloadLinks(pageHtml);
 
     if (needsPurchase) {
-      console.log(logT("log.sjs.paidContent"));
+      logger.infoT("log.sjs.paidContent");
     } else if (downloadLinks.length > 0) {
-      console.log(logT("log.sjs.detectedDownloadLinks", { count: downloadLinks.length }));
+      logger.infoT("log.sjs.detectedDownloadLinks", { count: downloadLinks.length });
     }
 
     const metadata = await this.extractExtendedMetadata(page);
@@ -167,9 +166,9 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
           }
         }
 
-        console.log(logT("log.sjs.pageNewImages", { page: pageNum, total: allImages.length }));
+        logger.infoT("log.sjs.pageNewImages", { page: pageNum, total: allImages.length });
       } catch (err) {
-        console.error(logT("log.sjs.scrapePageFailed", { page: pageNum }), err);
+        logger.errorT("log.sjs.scrapePageFailed", { page: pageNum }, err);
         break;
       }
     }
@@ -189,11 +188,8 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
 
     let gameCharacters: string[] | undefined;
     try {
-      const { getCharacterDBService } = await import("@/lib/character-db");
-      const db = getCharacterDBService();
-      if (!db.isLoaded()) {
-        await db.load();
-      }
+      const { getCharacterDBServiceAsync } = await import("@/lib/character-db");
+      const db = await getCharacterDBServiceAsync();
       const charMatches = db.identifyInTags(metadata.tags).filter(m => m.character.category === 'game');
       gameCharacters = charMatches.length > 0 ? charMatches.map((m) => m.character.name) : undefined;
     } catch {}
@@ -271,7 +267,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
         : await extractForumListResults(page);
 
       if (results.length === 0) {
-        console.log(logT("log.sjs.listPageNoResults", { page: pageNum }));
+        logger.infoT("log.sjs.listPageNoResults", { page: pageNum });
         break;
       }
 
@@ -286,14 +282,14 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
         }
       }
 
-      console.log(logT("log.sjs.listPageNewResults", { page: pageNum, count: newCount, total: allResults.length }));
+      logger.infoT("log.sjs.listPageNewResults", { page: pageNum, count: newCount, total: allResults.length });
 
       if (newCount === 0) break;
 
       const nextUrl = await getNextPageUrl(page, pageUrl, pageNum, this.baseUrl);
 
       if (!nextUrl) {
-        console.log(logT("log.sjs.listPageNoNext"));
+        logger.infoT("log.sjs.listPageNoNext");
         break;
       }
 
@@ -303,7 +299,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
           timeout: 30000,
         });
       } catch (err) {
-        console.error(logT("log.sjs.navNextFailed"), err);
+        logger.errorT("log.sjs.navNextFailed", undefined, { error: err });
         break;
       }
     }
@@ -340,7 +336,7 @@ export class SjsProvider extends BaseSiteProvider implements GallerySiteProvider
 
     if (name) {
       service.learnPerson(name).catch((err) => {
-        console.warn(logT("log.sjs.learnPersonFailed"), err);
+        logger.warnT("log.sjs.learnPersonFailed", err);
       });
     }
 

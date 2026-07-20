@@ -5,6 +5,7 @@ import { eventBus } from '@/lib/core/infra/event-bus';
 import { ttlLock } from '@/lib/core/infra/ttl-lock';
 import { getOrCreateGlobal } from '@/lib/core/infra/global-singleton';
 import { backoffDelay, sleep } from '@/lib/core/stealth/anti-crawler';
+import { ErrorCode, AppError } from '@/lib/core/error-codes';
 import {
   getGalleryConcurrency,
   getGalleryRoot,
@@ -13,29 +14,23 @@ import {
   ensureDir,
   MAX_RETRIES,
 } from './utils';
-import { downloadFile } from '../file-download';
+import { downloadFileWithDomainFallback } from '../domain-fallback';
 import { downloadM3U8Video } from './m3u8-downloader';
 
 export class GalleryDownloader {
-  /** 正在下载的图库 ID 集合，防止并发下载同一图库 */
   private downloading: Set<number> = new Set();
-  /** 图库自动重试计数（内存态） */
   private galleryRetries: Map<number, number> = new Map();
-  /** 已取消的图库 ID 集合，下载循环会检查并提前终止 */
   private cancelled: Set<number> = new Set();
-  /** 最大图库级自动重试次数 */
   private static readonly MAX_GALLERY_RETRIES = 1;
 
-  /**
-   * 取消指定图库的下载
-   */
+  
   cancelDownload(galleryId: number): void {
     this.cancelled.add(galleryId);
     this.galleryRetries.delete(galleryId);
   }
 
   /**
-   * 停止所有活跃的图库下载
+   * Stopallactive GraphlibraryDownload
    */
   stopAll(): void {
     for (const galleryId of this.downloading) {
@@ -44,22 +39,20 @@ export class GalleryDownloader {
       prisma.gallery
         .update({
           where: { id: galleryId },
-          data: { status: 'cancelled', errorMsg: '服务关闭，任务已取消' },
+          data: { status: 'cancelled', errorMsg: 'Service shutdown, task cancelled' },
         })
         .catch(() => {});
     }
     this.galleryRetries.clear();
-    console.log(`[GalleryDownloader] 已取消 ${this.downloading.size} 个活跃下载`);
+    console.log(`[GalleryDownloader] Cancelled ${this.downloading.size} active downloads`);
   }
 
-  /** 检查图库是否已被取消 */
+  /** CheckGraphlibraryisnoCancel */
   private isCancelled(galleryId: number): boolean {
     return this.cancelled.has(galleryId);
   }
 
-  /**
-   * 下载整个图库的所有图片和视频
-   */
+  
   async downloadGallery(
     galleryId: number,
     concurrency: number = getGalleryConcurrency(),
@@ -70,7 +63,7 @@ export class GalleryDownloader {
     savePath: string;
   }> {
     if (this.downloading.has(galleryId)) {
-      throw new Error(`图库 #${galleryId} 正在下载中`);
+      throw new AppError(ErrorCode.ERR_ALREADY_DOWNLOADING, `Gallery #${galleryId} is already downloading`);
     }
 
     const lockKey = `gallery:download:${galleryId}`;
@@ -80,7 +73,7 @@ export class GalleryDownloader {
     });
 
     if (!lockHandle) {
-      throw new Error(`图库 #${galleryId} 正在被其他进程下载`);
+      throw new AppError(ErrorCode.ERR_ALREADY_DOWNLOADING, `Gallery #${galleryId} is being downloaded by another process`);
     }
 
     this.downloading.add(galleryId);
@@ -102,8 +95,8 @@ export class GalleryDownloader {
         const delayMs = 10000;
 
         console.log(
-          `[GalleryDL] 图库 #${galleryId} 有 ${result.failed} 个文件失败，` +
-          `${delayMs / 1000}s 后自动重试...`,
+          `[GalleryDL] Gallery #${galleryId}: ${result.failed} files failed, ` +
+          `auto-retry in ${delayMs / 1000}s...`,
         );
 
         await prisma.galleryImage.updateMany({
@@ -122,7 +115,7 @@ export class GalleryDownloader {
           return result;
         }
 
-        console.log(`[GalleryDL] 图库 #${galleryId}: 开始自动重试...`);
+        console.log(`[GalleryDL] Gallery #${galleryId}: starting auto-retry...`);
         result = await this._doDownload(galleryId, getGalleryConcurrency());
       }
 
@@ -153,11 +146,11 @@ export class GalleryDownloader {
     });
 
     if (!gallery) {
-      throw new Error(`图库 #${galleryId} 不存在`);
+      throw new Error(`Gallery #${galleryId} not found`);
     }
 
     if (gallery.status === 'scraping') {
-      throw new Error(`图库 #${galleryId} 尚未完成爬取，请等待识别完成后再开始下载`);
+      throw new Error(`Gallery #${galleryId} scrape not complete, wait for recognition to finish before downloading`);
     }
 
     const folderName = buildGalleryFolderName(
@@ -188,7 +181,7 @@ export class GalleryDownloader {
       if (!fs.existsSync(coverFilePath) || fs.statSync(coverFilePath).size === 0) {
         let coverDownloaded = false;
         for (let retry = 0; retry < MAX_RETRIES; retry++) {
-          coverDownloaded = await downloadFile(gallery.coverUrl, coverFilePath, downloadHeaders);
+          coverDownloaded = (await downloadFileWithDomainFallback(gallery.coverUrl, coverFilePath, downloadHeaders)).success;
           if (coverDownloaded) break;
           if (retry < MAX_RETRIES - 1) {
             await sleep(backoffDelay(retry, 1000, 8000));
@@ -199,9 +192,9 @@ export class GalleryDownloader {
             where: { id: galleryId },
             data: { coverLocalPath: coverFilePath },
           });
-          console.log(`[GalleryDL] 图库 #${galleryId} 封面下载成功: ${coverFilePath}`);
+          console.log(`[GalleryDL] Gallery #${galleryId} cover downloaded: ${coverFilePath}`);
         } else {
-          console.error(`[GalleryDL] 图库 #${galleryId} 封面下载失败: ${gallery.coverUrl}`);
+          console.error(`[GalleryDL] Gallery #${galleryId} cover download failed: ${gallery.coverUrl}`);
         }
       } else {
         await prisma.gallery.update({
@@ -244,7 +237,7 @@ export class GalleryDownloader {
 
       let downloaded = false;
       for (let retry = 0; retry < MAX_RETRIES; retry++) {
-        downloaded = await downloadFile(img.url, filePath, downloadHeaders);
+        downloaded = (await downloadFileWithDomainFallback(img.url, filePath, downloadHeaders)).success;
         if (downloaded) break;
         if (retry < MAX_RETRIES - 1) {
           await sleep(backoffDelay(retry, 1000, 8000));
@@ -303,7 +296,7 @@ export class GalleryDownloader {
       if (!video.url.includes('.m3u8')) {
         let downloaded = false;
         for (let retry = 0; retry < MAX_RETRIES; retry++) {
-          downloaded = await downloadFile(video.url, filePath, downloadHeaders);
+          downloaded = (await downloadFileWithDomainFallback(video.url, filePath, downloadHeaders)).success;
           if (downloaded) break;
           if (retry < MAX_RETRIES - 1) {
             await sleep(backoffDelay(retry, 1000, 8000));
@@ -393,32 +386,32 @@ export class GalleryDownloader {
     }
 
     console.log(
-      `[GalleryDL] 图库 #${galleryId} 下载统计: ` +
-      `成功=${success} 失败=${failed} 跳过=${skipped} | ` +
-      `磁盘文件: 图片=${actualImages}/${expectedImages} 视频=${actualVideos}/${expectedVideos}`,
+      `[GalleryDL] Gallery #${galleryId} download stats: ` +
+      `success=${success}, failed=${failed}, skipped=${skipped} | ` +
+      `disk files: images=${actualImages}/${expectedImages}, videos=${actualVideos}/${expectedVideos}`,
     );
 
     let finalStatus: string;
     let finalErrorMsg = '';
     if (totalFiles === 0) {
       finalStatus = 'failed';
-      finalErrorMsg = '爬取结果为空，未找到任何图片或视频';
-      console.error(`[GalleryDL] 图库 #${galleryId} 无可下载文件（爬取结果为空）`);
+      finalErrorMsg = 'Scrape result is empty, no images or videos found';
+      console.error(`[GalleryDL] Gallery #${galleryId} no downloadable files, scrape result is empty`);
     } else if (failed === 0 && actualImages >= expectedImages && actualVideos >= expectedVideos) {
       finalStatus = 'completed';
     } else if (success > 0) {
       finalStatus = 'partial';
-      finalErrorMsg = `部分下载失败：失败 ${failed} 个，磁盘图片 ${actualImages}/${expectedImages}，磁盘视频 ${actualVideos}/${expectedVideos}`;
+      finalErrorMsg = `Partial download failed, ${failed} failed, disk images ${actualImages}/${expectedImages}, disk videos ${actualVideos}/${expectedVideos}`;
       console.error(
-        `[GalleryDL] 图库 #${galleryId} 部分下载失败: ` +
-        `失败=${failed}, 磁盘图片=${actualImages}/${expectedImages}, 磁盘视频=${actualVideos}/${expectedVideos}`,
+        `[GalleryDL] Gallery #${galleryId} partial download failed: ` +
+        `failed=${failed}, disk images=${actualImages}/${expectedImages}, disk videos=${actualVideos}/${expectedVideos}`,
       );
     } else {
       finalStatus = 'failed';
-      finalErrorMsg = `全部下载失败：磁盘图片 ${actualImages}/${expectedImages}，磁盘视频 ${actualVideos}/${expectedVideos}`;
+      finalErrorMsg = `All downloads failed, disk images ${actualImages}/${expectedImages}, disk videos ${actualVideos}/${expectedVideos}`;
       console.error(
-        `[GalleryDL] 图库 #${galleryId} 全部下载失败: ` +
-        `磁盘图片=${actualImages}/${expectedImages}, 磁盘视频=${actualVideos}/${expectedVideos}`,
+        `[GalleryDL] Gallery #${galleryId} all downloads failed: ` +
+        `disk images=${actualImages}/${expectedImages}, disk videos=${actualVideos}/${expectedVideos}`,
       );
     }
 
@@ -467,9 +460,7 @@ export class GalleryDownloader {
     return result;
   }
 
-  /**
-   * 仅重试失败的图片和视频
-   */
+  
   async retryFailedImages(
     galleryId: number,
   ): Promise<{
@@ -479,7 +470,7 @@ export class GalleryDownloader {
     savePath: string;
   }> {
     if (this.downloading.has(galleryId)) {
-      throw new Error(`图库 #${galleryId} 正在下载中`);
+      throw new AppError(ErrorCode.ERR_ALREADY_DOWNLOADING, `Gallery #${galleryId} is already downloading`);
     }
 
     const lockKey = `gallery:download:${galleryId}`;
@@ -489,7 +480,7 @@ export class GalleryDownloader {
     });
 
     if (!lockHandle) {
-      throw new Error(`图库 #${galleryId} 正在被其他进程下载`);
+      throw new AppError(ErrorCode.ERR_ALREADY_DOWNLOADING, `Gallery #${galleryId} is being downloaded by another process`);
     }
 
     this.downloading.add(galleryId);
@@ -514,9 +505,7 @@ export class GalleryDownloader {
     }
   }
 
-  /**
-   * 并发执行任务池
-   */
+  
   private async runConcurrent(
     tasks: (() => Promise<void>)[],
     concurrency: number,

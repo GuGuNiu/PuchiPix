@@ -8,7 +8,7 @@
 
 import { getCharacterDBService } from '@/lib/character-db/character-db-service';
 
-async function test() {
+async function test(): Promise<void> {
   console.log('=== 拼音匹配器 + 别名库测试 ===\n');
 
   const dbService = getCharacterDBService();

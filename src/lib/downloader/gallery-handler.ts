@@ -1,18 +1,24 @@
-﻿﻿import prisma from '@/lib/db/prisma';
+import prisma from '@/lib/db/prisma';
+import { loggers } from '@/lib/core/infra/logger';
 import { eventBus } from '@/lib/core/infra/event-bus';
 import { getSiteRegistry, extractDomainFromUrl } from '@/lib/sites';
 import { getSiteModuleByUrl } from '@/lib/sites/site-modules';
 import type { SiteProvider, GallerySiteProvider } from '@/lib/sites';
-import { getSharedBrowser } from '@/lib/core/stealth/browser-pool';
+import { getSharedBrowser, browserContextPool } from '@/lib/core/stealth/browser-pool';
 import { getGalleryDownloader } from '@/lib/downloader/gallery';
-import { createStealthPage } from '@/lib/core/stealth/anti-crawler';
 import { shouldFallbackToPlaywright } from '@/lib/core/stealth/waf-detector';
 import { allocateSeq } from '@/lib/core/orchestrator/seq-allocator';
 import { logT } from '@/lib/i18n/server';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { taskQueueManager } from '@/lib/core/orchestrator/task/queue-manager';
+import { dagConfig } from '@/lib/core/orchestrator/dag/config';
+import { dagOrchestrator } from '@/lib/core/orchestrator/dag/orchestrator';
+import { createGalleryDag } from '@/lib/core/orchestrator/dag/init';
 import { checkGalleryDuplicate } from '@/lib/utils/task-dedup';
 import { normalizeUrl, cleanUrl } from '@/lib/utils/url-normalizer';
+import { sleep } from '@/lib/utils/delay';
 
+
+const logger = loggers.galleryHandler();
 export function getGalleryProvider(url: string): (SiteProvider & GallerySiteProvider) | null {
   const trimmedUrl = url.trim();
   if (trimmedUrl.endsWith('.m3u8')) return null;
@@ -33,8 +39,8 @@ export function getGalleryProvider(url: string): (SiteProvider & GallerySiteProv
       const galleryProvider = fallbackProvider as SiteProvider & Partial<GallerySiteProvider>;
       if (typeof galleryProvider.scrapeGallery === 'function') {
         console.warn(
-          `[GalleryHandler] 鍥惧簱 Provider 閫氳繃 site-modules 鍏滃簳鍖归厤: ${trimmedUrl} 鈫?${moduleInfo.id}` +
-          `(registry.matchesUrl 鏈尮閰嶏紝鍙兘瀛樺湪杈圭晫鎯呭喌)`,
+          `[GalleryHandler] Provider did not match URL, falling back to site-modules mapping: ${trimmedUrl} → ${moduleInfo.id}` +
+          `(registry.matchesUrl failed)`,
         );
         return galleryProvider as SiteProvider & GallerySiteProvider;
       }
@@ -55,26 +61,29 @@ export async function scrapeGalleryAsync(
     return;
   }
 
-  // 娉ㄦ剰锛氳皟鐢ㄨ€咃紙createGalleryTask 鎴?startupRecovery锛夊簲璇ュ凡缁忚幏鍙栦簡璇嗗埆妲戒綅
-  // 杩欓噷妫€鏌ユ槸鍚﹀凡鍗犵敤妲戒綅锛岄伩鍏嶅弻閲嶆Ы浣嶅崰鐢ㄩ棶棰?
   const hasScrapingSlot = taskQueueManager.hasActiveScrapingSlot('gallery', galleryId);
 
-  // 浠呭湪娌℃湁妲戒綅鏃跺皾璇曡幏鍙栵紙闃插尽鎬х紪绋嬶紝澶勭悊鎵嬪姩璋冪敤鐨勬儏鍐碉級
   if (!hasScrapingSlot) {
     const scrapingAcquired = await taskQueueManager.acquireScrapingSlot('gallery', galleryId);
     if (!scrapingAcquired) {
-      console.log(logT('log.galleryHandler.cancelledInScrapeQueue', { id: galleryId }));
+      await prisma.gallery.update({
+        where: { id: galleryId },
+        data: { status: 'scrape_pending' },
+      });
+      eventBus.emit('gallery:scrapePending', { galleryId, url });
+      logger.infoT('log.galleryHandler.cancelledInScrapeQueue', { id: galleryId });
       return;
     }
   }
 
   const T0 = Date.now();
-  const log = (msg: string): void => console.log(`[ScrapeTiming#${galleryId}] ${Date.now() - T0}ms 鈥?${msg}`);
-  log(`寮€濮嬪紓姝ョ埇鍙? ${url}`);
+  const log = (msg: string): void => console.log(`[ScrapeTiming#${galleryId}] ${Date.now() - T0}ms | ${msg}`);
+  const SCRAPE_TO_DOWNLOAD_DELAY_MS = 3000;
+  log(`Scrape started: ${url}`);
 
   if (provider.supportsHttpScrape && provider.scrapeGalleryHttp) {
     try {
-      log('灏濊瘯 HTTP 蹇€熻矾寰?);
+      log('Trying HTTP scrape');
       const httpResult = await provider.scrapeGalleryHttp(url);
 
       const qualityCheck = shouldFallbackToPlaywright({
@@ -85,28 +94,28 @@ export async function scrapeGalleryAsync(
       });
 
       if (qualityCheck.fallback) {
-        log(`HTTP 璺緞鍐呭璐ㄩ噺涓嶈冻: ${qualityCheck.reason}锛岄檷绾у埌 Playwright`);
+        log(`HTTP scrape quality poor: ${qualityCheck.reason}, falling back to Playwright`);
       } else {
-        log(`HTTP 鐖彇鎴愬姛: 鏍囬="${httpResult.title.substring(0, 30)}" 鍥剧墖=${httpResult.imageCount} 瑙嗛=${httpResult.videoCount}`);
+        log(`HTTP scrape success: title="${httpResult.title.substring(0, 30)}" images=${httpResult.imageCount} videos=${httpResult.videoCount}`);
 
         const httpHasImages = httpResult.images.length > 0;
         const httpHasVideos = httpResult.videos.length > 0;
         const httpHasZipInfo = httpResult.zipInfo && httpResult.zipInfo.downloadUrl;
 
         if (!httpHasImages && !httpHasVideos && !httpHasZipInfo) {
-          log(`鍥惧簱 #${galleryId} 鐖彇瀹屾垚锛屼絾鏈壘鍒颁换浣曞彲涓嬭浇鍐呭`);
+          log(`Gallery #${galleryId} no valid content`);
           await prisma.gallery.update({
             where: { id: galleryId },
             data: {
-              title: httpResult.title || '鏈懡鍚嶅浘搴?,
+              title: httpResult.title || 'Unknown',
               status: 'failed',
-              errorMsg: '椤甸潰鐖彇鎴愬姛锛屼絾鏈壘鍒颁换浣曞浘鐗囥€佽棰戞垨涓嬭浇閾炬帴',
+              errorMsg: 'Empty scrape result',
             },
           });
           eventBus.emit('gallery:scrapeFailed', {
             galleryId,
             url,
-            error: '椤甸潰鐖彇鎴愬姛锛屼絾鏈壘鍒颁换浣曞彲涓嬭浇鍐呭',
+            error: 'Empty scrape result',
           });
           taskQueueManager.releaseScrapingSlot('gallery', galleryId);
           return;
@@ -192,9 +201,18 @@ export async function scrapeGalleryAsync(
 
         taskQueueManager.releaseScrapingSlot('gallery', galleryId);
 
-        // 璇嗗埆瀹屾垚锛屽皾璇曡幏鍙栦笅杞芥Ы浣?
+        log(`Waiting ${SCRAPE_TO_DOWNLOAD_DELAY_MS}ms before download...`);
+        await sleep(SCRAPE_TO_DOWNLOAD_DELAY_MS);
+
+        // DelayafterheavynewChecktask status，Preventcancelled/completed resumedownload
+        const refreshedGallery = await prisma.gallery.findUnique({ where: { id: galleryId } });
+        if (!refreshedGallery || refreshedGallery.status === 'completed' || refreshedGallery.status === 'cancelled') {
+          log('Task status changed, skipping download');
+          return;
+        }
+
         const slotUsage = taskQueueManager.getSlotUsage('gallery');
-        log(`涓嬭浇妲戒綅妫€鏌? 褰撳墠${slotUsage.current}/${slotUsage.max}, 鍙敤=${slotUsage.available}`);
+        log(`Download slots: ${slotUsage.current}/${slotUsage.max}, available=${slotUsage.available}`);
 
         if (!slotUsage.available) {
           await prisma.gallery.update({
@@ -202,7 +220,7 @@ export async function scrapeGalleryAsync(
             data: { status: 'download_pending' },
           });
           eventBus.emit('gallery:downloadPending', { galleryId, url });
-          log('涓嬭浇妲戒綅宸叉弧锛岃繘鍏ョ瓑寰呬笅杞界姸鎬?);
+          log('Waiting for download slot');
           return;
         }
 
@@ -213,11 +231,11 @@ export async function scrapeGalleryAsync(
             data: { status: 'download_pending' },
           });
           eventBus.emit('gallery:downloadPending', { galleryId, url });
-          log('涓嬭浇妲戒綅绔炰簤澶辫触锛岃繘鍏ョ瓑寰呬笅杞界姸鎬?);
+          log('Download slot acquisition failed');
           return;
         }
 
-        log('鑾峰彇鍒颁笅杞芥Ы浣嶏紝瑙﹀彂涓嬭浇');
+        log('Starting download');
         getGalleryDownloader()
           .downloadGallery(galleryId)
           .then((dlResult) => {
@@ -232,18 +250,18 @@ export async function scrapeGalleryAsync(
         return;
       }
     } catch (err) {
-      log(`HTTP 璺緞寮傚父: ${err instanceof Error ? err.message : err}锛岄檷绾у埌 Playwright`);
+      log(`HTTP scrape failed: ${err instanceof Error ? err.message : err}, falling back to Playwright`);
     }
   }
 
   const browser = await getSharedBrowser();
-  log('鑾峰彇鍏变韩娴忚鍣ㄥ疄渚嬪畬鎴?);
-  const { page, context } = await createStealthPage(browser, undefined, provider.baseUrl);
-  log('鍒涘缓 Stealth 椤甸潰瀹屾垚');
+  log('Acquiring browser');
+  const { page, context } = await browserContextPool.acquire(browser, undefined, provider.baseUrl);
+  log('Acquiring stealth context (pooled)');
 
   if (provider.setupBrowserContext) {
     await provider.setupBrowserContext(context);
-    log('setupBrowserContext 瀹屾垚');
+    log('setupBrowserContext completed');
   }
 
   try {
@@ -259,12 +277,12 @@ export async function scrapeGalleryAsync(
 
     for (const tryUrl of urlsToTry) {
       try {
-        log(`寮€濮嬪鑸? ${tryUrl}`);
+        log(`Navigating to ${tryUrl}`);
         const response = await page.goto(tryUrl, {
           waitUntil: 'domcontentloaded',
           timeout: 30000,
         });
-        log(`椤甸潰瀵艰埅瀹屾垚 (HTTP ${response?.status()})`);
+        log(`Response status (HTTP ${response?.status()})`);
 
         const httpStatus = response?.status();
         if (httpStatus === 404) {
@@ -275,7 +293,7 @@ export async function scrapeGalleryAsync(
 
         if (httpStatus === 403 || httpStatus === 429) {
           const domain = extractDomainFromUrl(tryUrl);
-          console.warn(logT('log.galleryHandler.domainRateLimited', { url: tryUrl, status: httpStatus }));
+          logger.warnT('log.galleryHandler.domainRateLimited', { url: tryUrl, status: httpStatus });
           if (domain && adaptiveProvider.markDomainRateLimited) {
             adaptiveProvider.markDomainRateLimited(domain);
           }
@@ -284,17 +302,17 @@ export async function scrapeGalleryAsync(
         }
 
         const resp = await page.waitForSelector('article, #gdt, #gn, .itg, #postlist, #threadlisttableid', { timeout: 10000 }).catch(() => null);
-        log(`绛夊緟鍐呭閫夋嫨鍣ㄥ畬鎴?(${resp ? '鍛戒腑' : '瓒呮椂'})`);
+        log(`Page content detected (${resp ? 'success' : 'failed'})`);
         if (!resp) {
-          lastError = new Error(`椤甸潰鏃犲唴瀹? ${tryUrl}`);
+          lastError = new Error(`Page content not found: ${tryUrl}`);
           continue;
         }
 
-        log('寮€濮?scrapeGallery');
+        log('Calling scrapeGallery');
         result = await provider.scrapeGallery(page, tryUrl);
-        log(`scrapeGallery 瀹屾垚: 鏍囬="${result.title.substring(0, 30)}" 鍥剧墖=${result.imageCount} 瑙嗛=${result.videoCount} 椤垫暟=${result.pageCount}`);
+        log(`scrapeGallery completed: title="${result.title.substring(0, 30)}" images=${result.imageCount} videos=${result.videoCount} pages=${result.pageCount}`);
 
-        if (result.title === '404' || result.title.includes('椤甸潰涓嶅瓨鍦?) || result.title.includes('Not Found')) {
+        if (result.title === '404' || result.title.includes('未找到') || result.title.includes('Not Found')) {
           isNotFound = true;
           result = null;
           lastError = new Error(`PAGE_NOT_FOUND: ${tryUrl}`);
@@ -309,7 +327,7 @@ export async function scrapeGalleryAsync(
         break;
       } catch (err) {
         lastError = err;
-        if (err instanceof Error && err.message.includes('鍐呭琚睆钄?)) {
+        if (err instanceof Error && err.message.includes('Target closed')) {
           throw err;
         }
         if (err instanceof Error && err.message.includes('PAGE_NOT_FOUND')) {
@@ -323,38 +341,38 @@ export async function scrapeGalleryAsync(
         taskQueueManager.releaseScrapingSlot('gallery', galleryId);
         await prisma.gallery.update({
           where: { id: galleryId },
-          data: { status: 'not_found', errorMsg: '椤甸潰涓嶅瓨鍦?(404)' },
+          data: { status: 'not_found', errorMsg: 'Page not found (404)' },
         });
-        eventBus.emit('gallery:scrapeFailed', { galleryId, url, error: '椤甸潰涓嶅瓨鍦?(404)' });
+        eventBus.emit('gallery:scrapeFailed', { galleryId, url, error: 'Page not found (404)' });
         return;
       }
-      throw lastError || new Error('鎵€鏈夊煙鍚嶅潎鐖彇澶辫触');
+      throw lastError || new Error('Scrape failed');
     }
 
     const hasImages = result.images.length > 0;
     const hasVideos = result.videos.length > 0;
     const hasZipInfo = result.zipInfo && result.zipInfo.downloadUrl;
-    
+
     if (!hasImages && !hasVideos && !hasZipInfo) {
-      log(`鍥惧簱 #${galleryId} 鐖彇瀹屾垚锛屼絾鏈壘鍒颁换浣曞彲涓嬭浇鍐呭`);
+      log(`Gallery #${galleryId} no valid content`);
       await prisma.gallery.update({
         where: { id: galleryId },
         data: {
-          title: result.title || '鏈懡鍚嶅浘搴?,
+          title: result.title || 'Unknown',
           status: 'failed',
-          errorMsg: '椤甸潰鐖彇鎴愬姛锛屼絾鏈壘鍒颁换浣曞浘鐗囥€佽棰戞垨涓嬭浇閾炬帴',
+          errorMsg: 'Empty scrape result',
         },
       });
       eventBus.emit('gallery:scrapeFailed', {
         galleryId,
         url,
-        error: '椤甸潰鐖彇鎴愬姛锛屼絾鏈壘鍒颁换浣曞彲涓嬭浇鍐呭',
+        error: 'Empty scrape result',
       });
       taskQueueManager.releaseScrapingSlot('gallery', galleryId);
       return;
     }
 
-    log('寮€濮嬫暟鎹簱鍐欏叆');
+    log('Scrape succeeded, saving data');
     await prisma.gallery.update({
       where: { id: galleryId },
       data: {
@@ -425,7 +443,7 @@ export async function scrapeGalleryAsync(
         })),
       });
     }
-    log('鏁版嵁搴撳啓鍏ュ畬鎴?);
+    log('Data saved');
 
     eventBus.emit('gallery:scrapeCompleted', {
       galleryId,
@@ -436,16 +454,25 @@ export async function scrapeGalleryAsync(
 
     taskQueueManager.releaseScrapingSlot('gallery', galleryId);
 
+    log(`Waiting ${SCRAPE_TO_DOWNLOAD_DELAY_MS}ms before download...`);
+    await sleep(SCRAPE_TO_DOWNLOAD_DELAY_MS);
+
+    const refreshedGallery = await prisma.gallery.findUnique({ where: { id: galleryId } });
+    if (!refreshedGallery || refreshedGallery.status === 'completed' || refreshedGallery.status === 'cancelled') {
+      log('Task status changed, skipping download');
+      return;
+    }
+
     const slotUsage = taskQueueManager.getSlotUsage('gallery');
-    log(`涓嬭浇妲戒綅妫€鏌? 褰撳墠${slotUsage.current}/${slotUsage.max}, 鍙敤=${slotUsage.available}`);
-    
+    log(`Download slots: ${slotUsage.current}/${slotUsage.max}, available=${slotUsage.available}`);
+
     if (!slotUsage.available) {
       await prisma.gallery.update({
         where: { id: galleryId },
         data: { status: 'download_pending' },
       });
       eventBus.emit('gallery:downloadPending', { galleryId, url });
-      log('涓嬭浇妲戒綅宸叉弧锛岃繘鍏ョ瓑寰呬笅杞界姸鎬?);
+      log('Waiting for download slot');
       return;
     }
 
@@ -456,11 +483,11 @@ export async function scrapeGalleryAsync(
         data: { status: 'download_pending' },
       });
       eventBus.emit('gallery:downloadPending', { galleryId, url });
-      log('涓嬭浇妲戒綅绔炰簤澶辫触锛岃繘鍏ョ瓑寰呬笅杞界姸鎬?);
+      log('Download slot acquisition failed');
       return;
     }
 
-    log('鑾峰彇鍒颁笅杞芥Ы浣嶏紝绔嬪嵆瑙﹀彂涓嬭浇');
+    log('Starting download');
     getGalleryDownloader()
       .downloadGallery(galleryId)
       .then((dlResult) => {
@@ -474,7 +501,7 @@ export async function scrapeGalleryAsync(
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     const notFound = errMsg.includes('PAGE_NOT_FOUND') || errMsg.includes('404');
-    log(`鐖彇寮傚父: ${errMsg}`);
+    log(`Scrape failed: ${errMsg}`);
 
     taskQueueManager.releaseScrapingSlot('gallery', galleryId);
     const isBrowserClosed =
@@ -485,10 +512,10 @@ export async function scrapeGalleryAsync(
       errMsg.includes('context') && errMsg.includes('destroyed');
 
     if (isBrowserClosed) {
-      log('妫€娴嬪埌娴忚鍣ㄥ叧闂敊璇紝淇濇寔 pending 鐘舵€佺瓑寰呴噸鍚悗閲嶈瘯');
+      log('Browser closed, resetting to pending');
       await prisma.gallery.update({
         where: { id: galleryId },
-        data: { status: 'pending', errorMsg: '鏈嶅姟鍏抽棴涓柇锛岀瓑寰呴噸鏂板惎鍔? },
+        data: { status: 'pending', errorMsg: '' },
       });
     } else {
       await prisma.gallery.update({
@@ -499,21 +526,24 @@ export async function scrapeGalleryAsync(
 
     eventBus.emit('gallery:scrapeFailed', { galleryId, url, error: errMsg });
   } finally {
-    await page.close().catch(() => {});
-    await context.close().catch(() => {});
-    log(`娴佺▼缁撴潫锛堥〉闈?涓婁笅鏂囧凡鍏抽棴锛塦);
+    await browserContextPool.release(context, page);
+    log('Scrape flow ended');
   }
 }
 
-export async function createGalleryTask(
+
+export async function createGalleryRecord(
   rawUrl: string,
   provider: SiteProvider & GallerySiteProvider,
 ): Promise<{
   galleryId: number;
   seq: string;
   duplicate: boolean;
+  matchType?: string | null;
+  existingUrl?: string | null;
   existingStatus?: string;
   existingTitle?: string;
+  message?: string | null;
 }> {
   const url = cleanUrl(rawUrl);
   const normalizedUrl = normalizeUrl(url);
@@ -524,14 +554,16 @@ export async function createGalleryTask(
       galleryId: dedupResult.recordId ?? 0,
       seq: '',
       duplicate: true,
+      matchType: dedupResult.matchType,
+      existingUrl: dedupResult.existingUrl,
       existingStatus: dedupResult.status ?? undefined,
       existingTitle: dedupResult.title ?? undefined,
+      message: dedupResult.message,
     };
   }
 
   const seq = await allocateSeq();
 
-  // 鍏堝垱寤哄浘搴撹褰曪紙鐘舵€佷负 pending锛夛紝鑾峰彇鐪熷疄 galleryId
   const gallery = await prisma.gallery.upsert({
     where: { sourceUrl: normalizedUrl },
     create: {
@@ -543,10 +575,77 @@ export async function createGalleryTask(
     update: {},
   });
 
-  // 浣跨敤鐪熷疄 galleryId 灏濊瘯鑾峰彇璇嗗埆妲戒綅
+  return {
+    galleryId: gallery.id,
+    seq: gallery.seq ?? seq,
+    duplicate: false,
+  };
+}
+
+export async function createGalleryTask(
+  rawUrl: string,
+  provider: SiteProvider & GallerySiteProvider,
+): Promise<{
+  galleryId: number;
+  seq: string;
+  duplicate: boolean;
+  matchType?: string | null;
+  existingUrl?: string | null;
+  existingStatus?: string;
+  existingTitle?: string;
+  message?: string | null;
+}> {
+  const url = cleanUrl(rawUrl);
+  const normalizedUrl = normalizeUrl(url);
+
+  const dedupResult = await checkGalleryDuplicate(url);
+  if (dedupResult.duplicate) {
+    return {
+      galleryId: dedupResult.recordId ?? 0,
+      seq: '',
+      duplicate: true,
+      matchType: dedupResult.matchType,
+      existingUrl: dedupResult.existingUrl,
+      existingStatus: dedupResult.status ?? undefined,
+      existingTitle: dedupResult.title ?? undefined,
+      message: dedupResult.message,
+    };
+  }
+
+  const seq = await allocateSeq();
+
+  const gallery = await prisma.gallery.upsert({
+    where: { sourceUrl: normalizedUrl },
+    create: {
+      sourceUrl: normalizedUrl,
+      siteId: provider.id,
+      status: 'pending',
+      seq,
+    },
+    update: {},
+  });
+
+  if (dagConfig.enabled && dagConfig.isTaskTypeEnabledSync('gallery')) {
+    const dagDefinition = createGalleryDag({
+      galleryId: gallery.id,
+      url,
+      providerId: provider.id,
+      isBatch: false,
+    });
+
+    dagDefinition.nodes[0].config.galleryId = gallery.id;
+
+    await dagOrchestrator.submitDag(dagDefinition);
+
+    return {
+      galleryId: gallery.id,
+      seq: gallery.seq ?? seq,
+      duplicate: false,
+    };
+  }
+
   const scrapingAcquired = await taskQueueManager.acquireScrapingSlot('gallery', gallery.id);
   if (!scrapingAcquired) {
-    // 妲戒綅宸叉弧锛岃繘鍏ョ瓑寰呰瘑鍒槦鍒?
     await prisma.gallery.update({
       where: { id: gallery.id },
       data: { status: 'scrape_pending' },
@@ -560,7 +659,6 @@ export async function createGalleryTask(
     };
   }
 
-  // 鑾峰彇妲戒綅鎴愬姛锛屽紑濮嬭瘑鍒?
   await prisma.gallery.update({
     where: { id: gallery.id },
     data: { status: 'scraping' },
@@ -569,7 +667,7 @@ export async function createGalleryTask(
   eventBus.emit('gallery:scrapeStarted', { galleryId: gallery.id, url });
 
   scrapeGalleryAsync(gallery.id, url, provider).catch((err) => {
-    console.error(logT('log.galleryHandler.asyncScrapeError', { id: gallery.id }), err);
+    logger.errorT('log.galleryHandler.asyncScrapeError', { id: gallery.id }, err);
   });
 
   return {

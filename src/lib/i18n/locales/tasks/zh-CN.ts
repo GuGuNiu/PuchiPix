@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// 任务管理页面文本 — 简体中文（基准）
 const zhCN: TranslationDict = {
   "tasks.typeAll": "全部",
   "tasks.typeVideo": "视频",
@@ -12,11 +11,12 @@ const zhCN: TranslationDict = {
   "tasks.sortProgressAsc": "进度升序",
   "tasks.sortStatus": "按状态",
   "tasks.searchPlaceholder": "搜索标题、链接或主角...",
+  "tasks.search": "搜索...",
   "tasks.pleaseSelectTasks": "请先选择任务",
-  "tasks.confirmBatchDelete": "确认批量删除 {count} 个任务？",
-  "tasks.batchDeleteComplete": "批量删除完成：{count} 个",
-  "tasks.batchResult": "完成：{ok} 成功，{fail} 失败",
-  "tasks.confirmDelete": "确认删除{type} #{id}？",
+  "tasks.confirmBatchDelete": "确认批量删除 {count} 个任务",
+  "tasks.batchDeleteComplete": "批量删除完成{count} 个",
+  "tasks.batchResult": "完成{ok} 成功{fail} 失败",
+  "tasks.confirmDelete": "确认删除{type} #{id}",
   "tasks.deleted": "已删除{type} #{id}",
   "tasks.taskActionDone": "{type} #{id} 已{action}",
   "tasks.taskActionSubmitting": "正在{action}{type} #{id}...",
@@ -28,9 +28,9 @@ const zhCN: TranslationDict = {
   "tasks.pleaseInputValidLink": "请输入有效的 HTTP(S) 链接",
   "tasks.addingTasksInBackground": "正在后台添加 {count} 个任务...",
   "tasks.taskCreating": "任务创建中...",
-  "tasks.sniffTaskCreated": "嗅探任务 {id} 已创建，正在分析列表页...",
-  "tasks.galleryTaskCreated": "图包 #{id} 已创建，正在识别...",
-  "tasks.videoTaskCreated": "任务 #{id} 已创建，正在识别...",
+  "tasks.sniffTaskCreated": "嗅探任务 {id} 已创建正在分析列表页...",
+  "tasks.galleryTaskCreated": "图包 #{id} 已创建正在识别...",
+  "tasks.videoTaskCreated": "任务 #{id} 已创建正在识别...",
   "tasks.addFailedShort": "添加失败: {error}",
   "tasks.addTask": "添加任务",
   "tasks.batchSearch": "批量搜索",
@@ -41,7 +41,7 @@ const zhCN: TranslationDict = {
   "tasks.batchDelete": "批量删除",
   "tasks.selected": "已选 {count}",
   "tasks.noTasksTitle": "暂无任务",
-  "tasks.noTasksDesc": "在上方输入框粘贴链接，或从搜索页面批量导入",
+  "tasks.noTasksDesc": "在上方输入框粘贴链接或从搜索页面批量导入",
   "tasks.noMatchingTasks": "没有匹配的任务",
   "tasks.tryAdjustFilter": "尝试调整筛选条件或搜索关键词",
   "tasks.taskDetail": "任务详情",
@@ -79,7 +79,7 @@ const zhCN: TranslationDict = {
   "tasks.sourceUrl": "源链接",
   "tasks.imageCount": "图片",
   "tasks.videoCount": "视频",
-  "tasks.sniffResults": "发现 {found} 个图包，跳过 {skipped} 个已完成",
+  "tasks.sniffResults": "发现 {found} 个图包跳过 {skipped} 个已完成",
   "tasks.identifying": "识别中...",
   "tasks.batchRetry": "批量重试",
   "tasks.batchRetryTitle": "重试失败/已取消的任务",
@@ -133,7 +133,7 @@ const zhCN: TranslationDict = {
   "tasks.paste": "粘贴",
   "tasks.clear": "清空",
   "tasks.batchImport": "批量导入 ({count})",
-  "tasks.linkInputPlaceholder": "支持 M3U8 直链、视频页面或图库页面地址，多个链接换行分隔",
+  "tasks.linkInputPlaceholder": "支持 M3U8 直链、视频页面或图库页面地址多个链接换行分隔",
   "tasks.clipboardNoLinks": "剪贴板中未找到有效链接",
   "tasks.clipboardAllExist": "剪贴板中的链接已全部存在",
   "tasks.clipboardReadFail": "无法读取剪贴板",
@@ -143,10 +143,10 @@ const zhCN: TranslationDict = {
   "tasks.copyTaskData": "复制任务数据",
   "tasks.taskDataCopied": "已复制 #{id} 数据",
   "tasks.copyFailed": "复制失败",
-  "tasks.noApplicableTasks": "没有可{action}的任务（{skipped} 个已跳过）",
-  "tasks.batchActionComplete": "批量{action}完成：{count} 个",
-  "tasks.batchActionCompleteWithSkipped": "批量{action}完成：{count} 个，{skipped} 个跳过",
-  "tasks.batchResultWithSkipped": "完成：{ok} 成功，{fail} 失败，{skipped} 个跳过",
+  "tasks.noApplicableTasks": "没有可{action}的任务{skipped} 个已跳过",
+  "tasks.batchActionComplete": "批量{action}完成{count} 个",
+  "tasks.batchActionCompleteWithSkipped": "批量{action}完成{count} 个{skipped} 个跳过",
+  "tasks.batchResultWithSkipped": "完成{ok} 成功{fail} 失败{skipped} 个跳过",
   "tasks.countUnit": "{count} 个",
   "tasks.imageUnit": "{count} 张",
   "tasks.durationMinutes": "{count} 分钟",
@@ -157,7 +157,10 @@ const zhCN: TranslationDict = {
   "tasks.statInput": "已输入",
   "tasks.statLines": "行",
   "tasks.statDetected": "已识别",
-  "tasks.statItems": "个", "tasks.firstPage": "首页", "tasks.prevPage": "上一页", "tasks.nextPage": "下一页", "tasks.lastPage": "末页", "tasks.recordCount": "{count} 条", "tasks.jumpToPage": "跳至页码", "tasks.jumpToPagePlaceholder": "页码",
-};
+  "tasks.jumpToPagePlaceholder": "页码",
+} satisfies TranslationDict;
+
+/** Tasks 模块的翻译键联合类型 */
+export type TasksTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

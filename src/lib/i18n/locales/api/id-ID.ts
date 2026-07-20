@@ -5,7 +5,19 @@ const idID: TranslationDict = {
   "api.gallery.scrapeComplete": "Ekstraksi galeri selesai, unduhan dimulai secara asinkron",
   "api.gallery.batchMissingUrls": "Parameter urls harus array tidak kosong",
   "api.characterDb.syncRunning": "Tugas sinkronisasi sedang berjalan",
-  "api.gallery.batchEmptyUrl": "URL kosong", "api.tasks.noM3u8Extracted": "Tidak bisa mengekstrak tautan M3U8 dari halaman", "api.blocklist.addFailed": "Gagal menambahkan", "api.common.internalError": "Kesalahan internal server", "api.common.missingParams": "Parameter wajib hilang: {params}",
+  "api.gallery.batchEmptyUrl": "URL kosong", "api.tasks.noM3u8Extracted": "Tidak bisa mengekstrak tautan M3U8 dari halaman", "api.blocklist.addFailed": "Gagal menambahkan",
+  "api.logs.systemReady": "Sistem siap, menunggu tugas...",
+  "api.logs.taskNumber": "Tugas #{id}",
+  "api.logs.fetchFailed": "Gagal mengambil log",
+  "api.gallery.unsupportedScrape": "Situs {site} tidak mendukung ekstraksi galeri",
+  "api.gallery.allDomainsFailed": "Semua domain gagal diekstrak",
+  "api.tasks.multipleM3u8Detected": "Terdeteksi {count} alamat M3U8, silakan pilih",
+  "api.tasks.unsupportedListScrape": "Penyedia tidak mendukung ekstraksi halaman daftar",
+  "api.common.internalError": "Kesalahan internal server", "api.common.missingParams": "Parameter wajib hilang: {params}",
   "api.gallery.noProviderForRescrape": "Penyedia galeri tidak ditemukan, tidak dapat mengekstrak ulang",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} tidak ditemukan",
+  "api.dag.invalidAction": "Aksi tidak valid: {action}",
 };
 export default idID;

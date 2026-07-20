@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { sanitizeFilename } from '@/lib/utils';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
+import { taskQueueManager } from '@/lib/core/orchestrator/task/queue-manager';
 import { randomProfile, buildStealthHeaders, DEFAULT_ACCEPT_LANGUAGE } from '@/lib/core/stealth/anti-crawler';
 
 const DEFAULT_GALLERY_PATH = './data/galleries';
@@ -61,15 +61,9 @@ export function ensureDir(dirPath: string): void {
 }
 
 /**
- * 根据文件 URL 判断下载类型，生成匹配的请求头
  *
- * Cloudflare 等防护会校验 sec-fetch-dest 和 Referer 的一致性：
- * - 图片请求须用 sec-fetch-dest: image，且 Referer 与图片同域
- * - 文档请求头（sec-fetch-dest: document）会导致图片 403
  *
- * @param url - 文件 URL
- * @param referer - 调用方传入的 Referer（可能跨域）
- * @returns 适配的请求头集合
+ * @param url - file URL
  */
 export function buildDownloadHeaders(
   url: string,

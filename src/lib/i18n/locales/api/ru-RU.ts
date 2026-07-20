@@ -58,10 +58,27 @@ const ruRU: TranslationDict = {
   // Чёрный список
   "api.blocklist.addFailed": "Ошибка добавления",
 
+  // Логи
+  "api.logs.systemReady": "Система готова, ожидание задач...",
+  "api.logs.taskNumber": "Задача #{id}",
+  "api.logs.fetchFailed": "Не удалось получить логи",
+
+  // Галерея (дополнение)
+  "api.gallery.unsupportedScrape": "Сайт {site} не поддерживает сбор галерей",
+  "api.gallery.allDomainsFailed": "Не удалось выполнить сбор со всех доменов",
+
+  // Задачи (дополнение)
+  "api.tasks.multipleM3u8Detected": "Обнаружено {count} адресов M3U8, выберите",
+  "api.tasks.unsupportedListScrape": "Провайдер не поддерживает сбор страниц списка",
+
   // Общее
   "api.characterDb.syncRunning": "Задача синхронизации уже выполняется",
   "api.common.internalError": "Внутренняя ошибка сервера",
   "api.common.missingParams": "Отсутствуют обязательные параметры: {params}",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} не найден",
+  "api.dag.invalidAction": "Недопустимое действие: {action}",
 };
 
 export default ruRU;

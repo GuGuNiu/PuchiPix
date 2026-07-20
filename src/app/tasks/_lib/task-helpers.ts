@@ -10,25 +10,39 @@ export type TypeFilter = "all" | "video" | "gallery" | "sniff";
 export type SortBy = "date_desc" | "date_asc" | "progress_desc" | "progress_asc" | "status";
 
 export const TYPE_PILL_KEYS = [
-  { value: "all", labelKey: "tasks.typeAll" },
-  { value: "video", labelKey: "tasks.typeVideo" },
-  { value: "gallery", labelKey: "tasks.typeGallery" },
-  { value: "sniff", labelKey: "tasks.typeSniff" },
+  { value: "all", labelKey: "tasks.typeAll", icon: "layers" as const },
+  { value: "video", labelKey: "tasks.typeVideo", icon: "film" as const },
+  { value: "gallery", labelKey: "tasks.typeGallery", icon: "image" as const },
+  { value: "sniff", labelKey: "tasks.typeSniff", icon: "wifi" as const },
 ];
 
 export const FILTER_PILL_KEYS = [
   { value: "all", labelKey: "tasks.typeAll" },
   { value: "scraping", labelKey: "common.scraping" },
-  { value: "pending", labelKey: "common.pending" },
   { value: "downloading", labelKey: "common.downloading" },
+  { value: "pending", labelKey: "common.pending" },
   { value: "completed", labelKey: "common.completed" },
   { value: "failed", labelKey: "common.failed" },
 ];
 
 export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
-  scraping: ["scraping", "scrape_pending"],
+  scraping: ["scraping", "scrape_pending", "pending"],
   downloading: ["downloading", "download_pending"],
 };
+
+export function getEffectiveFilterStatus(task: DownloadTask): TaskStatus {
+  const hasScrapeResults = (task.ImageCount ?? 0) > 0 || (task.VideoCount ?? 0) > 0;
+
+  if (task.Status === "paused") {
+    return hasScrapeResults ? "download_pending" : "scraping";
+  }
+
+  if (task.Status === "pending") {
+    return hasScrapeResults ? "download_pending" : "scraping";
+  }
+
+  return task.Status;
+}
 
 export const SORT_OPTION_KEYS = [
   { value: "date_desc", labelKey: "tasks.sortDateDesc" },

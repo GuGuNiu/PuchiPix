@@ -1,9 +1,8 @@
 import { createHash } from 'crypto';
-import { USER_AGENT, CookieJar } from './types';
+import type { CookieJar } from './types';
+import { USER_AGENT } from './types';
 
-/**
- * 生成随机字母字符串（用于 loginhash 参数）。
- */
+
 export function getRandomString(len: number): string {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
   let result = '';
@@ -14,17 +13,15 @@ export function getRandomString(len: number): string {
 }
 
 /**
- * MD5 哈希。
+ * MD5 hash。
  *
- * Discuz AJAX 登录需要将密码 MD5 哈希后提交。
+ * Discuz AJAX loginneedpassword MD5 hashafterCommit。
  */
 export function md5(input: string): string {
   return createHash('md5').update(input, 'utf8').digest('hex');
 }
 
-/**
- * 从 HTML 中提取 input[name] 的 value 属性。
- */
+
 export function extractInputValue(html: string, name: string): string {
   const regex = new RegExp(
     `<input[^>]*name=["']${name}["'][^>]*value=["']([^"']*)["']`,
@@ -41,9 +38,7 @@ export function extractInputValue(html: string, name: string): string {
   return match2 ? match2[1] : '';
 }
 
-/**
- * 从 HTML 中提取 a#id 的 href 属性。
- */
+
 export function extractAnchorHref(html: string, id: string): string | null {
   const regex = new RegExp(`<a[^>]*id=["']${id}["'][^>]*href=["']([^"']*)["']`, 'i');
   const match = html.match(regex);
@@ -54,9 +49,7 @@ export function extractAnchorHref(html: string, id: string): string | null {
   return match2 ? match2[1] : null;
 }
 
-/**
- * 从 HTML 中提取 #id 元素的 innerHTML（简单实现）。
- */
+
 export function extractElementText(html: string, selector: string): string {
   const idMatch = selector.match(/id=['"]([^'"]+)['"]/);
   if (idMatch) {
@@ -69,9 +62,7 @@ export function extractElementText(html: string, selector: string): string {
   return '';
 }
 
-/**
- * 从 HTML 中提取 class 匹配的元素内容。
- */
+
 export function extractClassContent(html: string, className: string): string | null {
   const regex = new RegExp(
     `<div[^>]*class=["'][^"']*${className}[^"']*["'][^>]*>([\\s\\S]*?)</div>`,
@@ -81,9 +72,7 @@ export function extractClassContent(html: string, className: string): string | n
   return match ? match[1] : null;
 }
 
-/**
- * 发送 HTTP 请求并自动管理 Cookie。
- */
+
 export async function httpRequest(
   url: string,
   options: {

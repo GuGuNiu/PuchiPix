@@ -17,3 +17,20 @@ export { useRouteState } from './route-state';
 export type { RouteStateEntry, RouteStateConfig } from './route-state';
 
 export { seedPresetData } from './seed-preset-data';
+
+export { requestWithRetry, checkWaf } from './http-client';
+export type { RequestWithRetryOptions, RequestResult } from './http-client';
+
+export {
+  createLogger,
+  loggerRegistry,
+  runWithTraceContext,
+  getTraceId,
+  getTraceContext,
+  LogLevel,
+  loggers,
+} from './logger';
+export type { Logger, LogContext, StructuredLogEntry } from './logger';
+
+export { logSink } from './log-sink';
+export type { LogQueryFilter, LogSinkListener, LogSinkStats } from './log-sink';

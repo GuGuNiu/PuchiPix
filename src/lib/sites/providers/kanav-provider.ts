@@ -3,7 +3,6 @@ import type { ExtendedMetadata, SeriesItem, BlockCheckResult } from '../types';
 import { getBlocklistService } from '../blocklist-service';
 import { removePublisherPrefix } from '@/lib/utils/title-cleaner';
 
-/** KanAV 播放器数据中的 vod_data 结构 */
 interface KanavVodData {
   vod_name: string;
   vod_actor: string;
@@ -11,7 +10,6 @@ interface KanavVodData {
   vod_class: string;
 }
 
-/** KanAV 播放器数据结构 */
 interface KanavPlayerData {
   flag: string;
   encrypt: number;
@@ -66,18 +64,18 @@ export class KanavProvider extends BaseSiteProvider {
     let title = rawTitle.trim();
 
     title = title.replace(
-      /^(在线播放|在线观看|播放|观看|播放页面)\s*[-—–·:：\s]+/i,
+      /^(在线播放|在线观看|播放|观看|播放页面)\s*[-—–·:\s]+/i,
       ''
     );
 
     title = removePublisherPrefix(title);
 
     const siteSuffixPatterns = [
-      /\s*[-—–]\s*KanAV.*$/i,           // " - KanAV-免费高清中文AV在线看"
-      /\s*[-—–]\s*免费.*在线看.*$/i,     // " - 免费高清中文AV在线看"
-      /\s*[-—–]\s*高清.*在线看.*$/i,     // " - 高清AV在线看"
-      /\s*[-—–]\s*AV.*在线.*$/i,         // " - AV在线看"
-      /\s*[-—–]\s*[A-Za-z]+-\s*免费.*$/i, // " - xxx-免费..."
+      /\s*[-—–]\s*KanAV.*$/i,           // Site name suffix
+      /\s*[-—–]\s*免费.*在线看.*$/i,     // Free HD suffix
+      /\s*[-—–]\s*高清.*在线看.*$/i,     // HD stream suffix
+      /\s*[-—–]\s*AV.*在线.*$/i,         // AV stream suffix
+      /\s*[-—–]\s*[A-Za-z]+-\s*免费.*$/i, // Free prefix suffix
     ];
     for (const pattern of siteSuffixPatterns) {
       title = title.replace(pattern, '');
@@ -145,7 +143,7 @@ export class KanavProvider extends BaseSiteProvider {
     }
 
     if (category) {
-      const categories = category.split(/[,，、/\|&]/).map(s => s.trim()).filter(Boolean);
+      const categories = category.split(/[,、/\|&]/).map(s => s.trim()).filter(Boolean);
       for (const cat of categories) {
         for (const keyword of this.blockedCategories) {
           if (cat.includes(keyword)) {
@@ -176,6 +174,11 @@ export class KanavProvider extends BaseSiteProvider {
   getAdaptiveUrls(url: string): string[] {
     return [url];
   }
+
+  matchesUrl(url: string): boolean {
+    return url.includes('kanav') || url.includes(this.baseUrl);
+  }
+
   getAdaptiveSearchUrls(keyword: string): string[] {
     return [this.buildSearchUrl(keyword)];
   }
@@ -282,7 +285,7 @@ export class KanavProvider extends BaseSiteProvider {
           const content = metaKeywords.getAttribute('content');
           if (content) {
             metadata.metaKeywords = content
-              .split(/[,，;；]/)
+              .split(/[,;]/)
               .map((t) => t.trim())
               .filter((t) => t && !t.includes(' - ') && t.length < 50);
           }
@@ -301,7 +304,7 @@ export class KanavProvider extends BaseSiteProvider {
     return {
       title,
       tags: [...result.tags, ...result.metaKeywords],
-      actors: result.vodActor ? result.vodActor.split(/[,，、/\|&]/).map(s => s.trim()).filter(Boolean) : [],
+      actors: result.vodActor ? result.vodActor.split(/[,、/\|&]/).map(s => s.trim()).filter(Boolean) : [],
       categories: result.categories,
       director: result.vodDirector,
       series: result.seriesRaw,

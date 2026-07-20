@@ -1,26 +1,13 @@
-"use client";
+﻿"use client";
 
-/**
- * 资源/任务管理 共用顶部工具栏（复合组件）
- *
- * 由以下可组合的子部件构成：
- * - FilterCapsule：分段胶囊筛选器（可选两组：primary + secondary）
- * - SearchBox：搜索输入框
- * - SortSelect：排序下拉选择
- * - ToolbarActions：右侧操作按钮区（自定义 children）
- *
- * 两个页面共享同一套视觉语言（seg-capsule 风格），
- * 通过 props 控制各子部件的显隐和内容。
- *
- */
 
-import { Search as SearchIcon, RefreshCw } from "lucide-react";
+
+import { Search as SearchIcon, RefreshCw, Layers, Film, Image, Wifi } from "lucide-react";
 import GlassSelect from "./glass-select";
 
 export interface FilterPill {
   value: string;
   label: string;
-  /** 可选的计数徽标 */
   count?: number;
 }
 
@@ -29,110 +16,112 @@ export interface SortOption {
   label: string;
 }
 
+export interface PrimaryFilterPill extends FilterPill {
+  icon?: "layers" | "film" | "image" | "wifi";
+}
+
 interface ResourceToolbarProps {
-  /** 主筛选胶囊（如 Tasks 的类型筛选，Gallery 的状态筛选） */
-  primaryFilters?: FilterPill[];
+  primaryFilters?: PrimaryFilterPill[];
   primaryFilterValue?: string;
   onPrimaryFilterChange?: (value: string) => void;
 
-  /** 次筛选胶囊（如 Tasks 的状态筛选），如不需要则省略 */
   secondaryFilters?: FilterPill[];
   secondaryFilterValue?: string;
   onSecondaryFilterChange?: (value: string) => void;
 
-  /** 搜索框 */
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
 
-  /** 排序下拉 */
   sortOptions?: SortOption[];
   sortValue?: string;
   onSortChange?: (value: string) => void;
 
-  /** 右侧操作区（按钮等自定义内容） */
   children?: React.ReactNode;
 
-  /** 刷新回调（提供时显示刷新按钮） */
   onRefresh?: () => void;
 
-  /** 刷新按钮文本 */
   refreshLabel?: string;
 }
 
-/** 分段胶囊筛选器 */
-function FilterCapsule({
-  pills,
-  value,
-  onChange,
-  wrap = false,
-}: {
-  pills: FilterPill[];
-  value: string;
-  onChange: (v: string) => void;
-  wrap?: boolean;
-}): React.JSX.Element {
-  return (
-    <div className="seg-capsule" style={wrap ? { flexWrap: "wrap" } : { flexShrink: 0 }}>
-      {pills.map((pill) => (
-        <button
-          key={pill.value}
-          className={`seg-capsule-item ${value === pill.value ? "active" : ""}`}
-          onClick={() => onChange(pill.value)}
-        >
-          {pill.label}
-          {pill.count !== undefined && (
-            <span style={{ marginLeft: 4, opacity: 0.7, fontSize: 11 }}>
-              {pill.count}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-}
+const ICON_MAP: Record<string, React.ReactNode> = {
+  layers: <Layers size={14} />,
+  film: <Film size={14} />,
+  image: <Image size={14} />,
+  wifi: <Wifi size={14} />,
+};
 
-/** 搜索输入框 */
-function SearchBox({
-  value,
-  onChange,
-  placeholder,
+function UnifiedFilterBar({
+  primaryPills,
+  primaryValue,
+  onPrimaryChange,
+  secondaryPills,
+  secondaryValue,
+  onSecondaryChange,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
+  primaryPills: PrimaryFilterPill[];
+  primaryValue: string;
+  onPrimaryChange: (v: string) => void;
+  secondaryPills: FilterPill[];
+  secondaryValue: string;
+  onSecondaryChange: (v: string) => void;
+  searchValue?: string;
+  onSearchChange?: (v: string) => void;
+  searchPlaceholder?: string;
 }): React.JSX.Element {
   return (
-    <div style={{ flex: 1, minWidth: 200, position: "relative" }}>
-      <SearchIcon
-        size={14}
-        style={{
-          position: "absolute",
-          left: 10,
-          top: "50%",
-          transform: "translateY(-50%)",
-          color: "var(--text-muted)",
-          pointerEvents: "none",
-        }}
-      />
-      <input
-        type="text"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: "100%",
-          padding: "6px 12px 6px 32px",
-          fontSize: 13,
-          height: 32,
-          boxSizing: "border-box",
-          background: "var(--bg-inset)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)",
-          color: "var(--text-primary)",
-          outline: "none",
-        }}
-      />
+    <div className="unified-filter-bar">
+      <div className="unified-filter-group">
+        {primaryPills.map((pill) => (
+          <button
+            key={pill.value}
+            className={`unified-filter-item ${primaryValue === pill.value ? "active" : ""}`}
+            onClick={() => onPrimaryChange(pill.value)}
+            title={pill.label}
+          >
+            {pill.icon && <span className="unified-filter-icon">{ICON_MAP[pill.icon]}</span>}
+            <span className="unified-filter-label">{pill.label}</span>
+            {pill.count !== undefined && (
+              <span className="unified-filter-count">{pill.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="unified-filter-divider" />
+
+      {onSearchChange && (
+        <div className="unified-filter-search">
+          <SearchIcon size={12} className="unified-filter-search-icon" />
+          <input
+            type="text"
+            placeholder={searchPlaceholder || ""}
+            value={searchValue || ""}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="unified-filter-search-input"
+          />
+        </div>
+      )}
+
+      <div className="unified-filter-divider" />
+
+      <div className="unified-filter-group">
+        {secondaryPills.map((pill) => (
+          <button
+            key={pill.value}
+            className={`unified-filter-item ${secondaryValue === pill.value ? "active" : ""}`}
+            onClick={() => onSecondaryChange(pill.value)}
+          >
+            <span className="unified-filter-label">{pill.label}</span>
+            {pill.count !== undefined && (
+              <span className="unified-filter-count">{pill.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -146,38 +135,27 @@ export default function ResourceToolbar({
   onSecondaryFilterChange,
   searchValue,
   onSearchChange,
-  searchPlaceholder = "搜索...",
+  searchPlaceholder = "",
   sortOptions,
   sortValue,
   onSortChange,
   children,
   onRefresh,
-  refreshLabel = "刷新",
+  refreshLabel = "",
 }: ResourceToolbarProps): React.JSX.Element {
   return (
     <div className="tasks-toolbar">
-      {primaryFilters && onPrimaryFilterChange && (
-        <FilterCapsule
-          pills={primaryFilters}
-          value={primaryFilterValue || ""}
-          onChange={onPrimaryFilterChange}
-        />
-      )}
-
-      {secondaryFilters && onSecondaryFilterChange && (
-        <FilterCapsule
-          pills={secondaryFilters}
-          value={secondaryFilterValue || ""}
-          onChange={onSecondaryFilterChange}
-          wrap
-        />
-      )}
-
-      {onSearchChange && (
-        <SearchBox
-          value={searchValue || ""}
-          onChange={onSearchChange}
-          placeholder={searchPlaceholder}
+      {primaryFilters && onPrimaryFilterChange && secondaryFilters && onSecondaryFilterChange && (
+        <UnifiedFilterBar
+          primaryPills={primaryFilters}
+          primaryValue={primaryFilterValue || ""}
+          onPrimaryChange={onPrimaryFilterChange}
+          secondaryPills={secondaryFilters}
+          secondaryValue={secondaryFilterValue || ""}
+          onSecondaryChange={onSecondaryFilterChange}
+          searchValue={searchValue}
+          onSearchChange={onSearchChange}
+          searchPlaceholder={searchPlaceholder}
         />
       )}
 

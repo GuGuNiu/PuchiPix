@@ -58,10 +58,27 @@ const deDE: TranslationDict = {
   // Sperrliste
   "api.blocklist.addFailed": "Hinzufügen fehlgeschlagen",
 
+  // Logs
+  "api.logs.systemReady": "System bereit, warte auf Aufgaben...",
+  "api.logs.taskNumber": "Aufgabe #{id}",
+  "api.logs.fetchFailed": "Logs konnten nicht abgerufen werden",
+
+  // Galerie (Ergänzung)
+  "api.gallery.unsupportedScrape": "Site {site} unterstützt kein Galerie-Scraping",
+  "api.gallery.allDomainsFailed": "Alle Domains konnten nicht gescrapt werden",
+
+  // Aufgaben (Ergänzung)
+  "api.tasks.multipleM3u8Detected": "{count} M3U8-Adressen erkannt, bitte auswählen",
+  "api.tasks.unsupportedListScrape": "Provider unterstützt kein Listen-Seiten-Scraping",
+
   // Allgemein
   "api.characterDb.syncRunning": "Synchronisierungsaufgabe läuft bereits",
   "api.common.internalError": "Interner Serverfehler",
   "api.common.missingParams": "Erforderliche Parameter fehlen: {params}",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} nicht gefunden",
+  "api.dag.invalidAction": "Ungültige Aktion: {action}",
 };
 
 export default deDE;

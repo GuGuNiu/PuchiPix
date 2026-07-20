@@ -1,13 +1,23 @@
+try {
+  const Module = require('module');
+  const origResolve = Module._resolveFilename;
+  Module._resolveFilename = function (request: string, parent: NodeJS.Module | undefined, ...args: unknown[]) {
+    if (request === 'server-only') {
+      return require.resolve('./empty-server-only.js');
+    }
+    return origResolve.call(this, request, parent, ...args);
+  };
+} catch { }
+
 import type { Server as HTTPServer } from "http";
 import { createServer } from "http";
 import { parse } from "url";
 import next from "next";
-import { initSocketIO, getIO, broadcastProgress } from "./src/lib/ws/socket";
-import { lifecycle } from "./src/lib/core/lifecycle";
-import { eventBus } from "./src/lib/core/event-bus";
-import { ttlLock } from "./src/lib/core/ttl-lock";
-import type { ProgressMessage } from "@/types";
-import { logT } from "@/lib/i18n/server";
+import { lifecycle } from "./src/lib/core/infra/lifecycle";
+import { eventBus } from "./src/lib/core/infra/event-bus";
+import { createLogger } from "./src/lib/core/infra/logger";
+
+const serverLogger = createLogger('Server');
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
@@ -28,177 +38,96 @@ app.prepare().then(async () => {
   });
 
   lifecycle.onInit({
-    name: "task-state-reset",
-    timeout: 15000,
-    fn: async () => {
-      const { resetRunningTasksOnStartup } = await import(
-        "./src/lib/core/task-state-reset"
-      );
-      await resetRunningTasksOnStartup();
-      console.log(logT("log.server.taskStateReset"));
-    },
-  });
-
-  lifecycle.onInit({
-    name: "seed-preset-data",
-    timeout: 10000,
-    fn: async () => {
-      const { seedPresetData } = await import(
-        "./src/lib/core/seed-preset-data"
-      );
-      await seedPresetData();
-    },
-  });
-
-  lifecycle.onInit({
     name: "socket.io",
     fn: async () => {
+      const { initSocketIO } = await import("./src/lib/ws/socket");
       initSocketIO(server);
     },
   });
 
-  lifecycle.onInit({
-    name: "download-manager",
-    timeout: 15000,
-    fn: async () => {
-      const { getDownloadManager } = await import("./src/lib/api-helpers");
-      const dm = getDownloadManager();
-
-      dm.setProgressCallback((msg: ProgressMessage) => {
-        broadcastProgress(msg);
-
-        eventBus.emit("task:progress", {
-          taskId: msg.task_id,
-          progress: msg.progress,
-          status: msg.status,
-          speed: msg.speed,
-          segment: msg.segment,
-          total: msg.total,
-        });
-
-        if (msg.status === "completed") {
-          eventBus.emit("task:completed", { taskId: msg.task_id });
-        } else if (msg.status === "failed") {
-          eventBus.emit("task:failed", {
-            taskId: msg.task_id,
-            error: "Download failed",
-          });
-        }
-      });
-
-      console.log(logT("log.server.downloadManagerInit"));
-    },
-  });
-
+  // 桥接非 DAG 事件到 Socket.IO（DAG 事件由 ws/socket.ts 内的 setupDagEventBridge 定向推送）
   lifecycle.onInit({
     name: "event-bus-bridge",
     fn: async () => {
+      const { getIO } = await import("./src/lib/ws/socket");
+      const { logT } = await import("@/lib/i18n/server");
       eventBus.setSocketBridge((event, payload) => {
+        if (typeof event === 'string' && event.startsWith('dag:')) return;
+        if (typeof event === 'string' && event.startsWith('worker:')) return;
         try {
           getIO().emit(event, payload);
-        } catch {}
+        } catch { }
       });
 
-      console.log(logT("log.server.eventBusBridgeInit"));
+      serverLogger.info(logT("log.server.eventBusBridgeInit"));
     },
   });
 
+  // Worker 进程管理 — fork 子进程运行全部重负载模块
   lifecycle.onInit({
-    name: "ouo-orchestrator",
+    name: "worker",
+    timeout: 60000,
     fn: async () => {
-      const { getOuoOrchestrator } =
-        await import("./src/lib/core/ouo-orchestrator");
-      getOuoOrchestrator().start();
-      console.log(logT("log.server.ouoOrchestratorStart"));
+      const { workerManager } = await import("./src/lib/core/infra/worker-manager");
+      workerManager.start();
+      await workerManager.waitForReady(30000);
+      serverLogger.info("Worker process ready");
     },
   });
 
-  lifecycle.onShutdown({
-    name: "task-state-reset",
-    timeout: 10000,
+  // IPC → EventBus 桥接 — Worker 事件转发到主进程 EventBus
+  lifecycle.onInit({
+    name: "ipc-event-bridge",
     fn: async () => {
-      const { resetRunningTasksOnStartup } = await import(
-        "./src/lib/core/task-state-reset"
-      );
-      await resetRunningTasksOnStartup();
-      console.log("[Server] Task states reset on shutdown");
+      const { workerManager } = await import("./src/lib/core/infra/worker-manager");
+      const { setupMainIpcBridge } = await import("./src/lib/core/infra/ipc-bridge");
+      setupMainIpcBridge();
+
+      // Worker task:progress events forwarded to Socket.IO clients as 'progress'
+      // The Worker emits 'task:progress' via IPC; broadcastProgress re-emits as
+      // 'progress' to match the frontend socket-store listener (socket.on('progress'))
+      workerManager.on('event', (event: string, payload: unknown) => {
+        if (event === 'task:progress' && payload) {
+          const { broadcastProgress } = require("./src/lib/ws/socket");
+          try {
+            broadcastProgress(payload);
+          } catch { }
+        }
+      });
     },
   });
 
+  // DAG 快照缓存 — 监听 Worker 推送的 dag:snapshotSync 事件，更新主进程缓存
+  lifecycle.onInit({
+    name: "dag-snapshot-cache",
+    fn: async () => {
+      const { dagSnapshotCache } = await import("./src/lib/core/orchestrator/dag/snapshot-cache");
+
+      eventBus.on('dag:snapshotSync', (payload) => {
+        dagSnapshotCache.update(payload);
+      });
+
+      // Worker 重启时清除缓存，避免向 API 返回陈旧数据
+      eventBus.on('worker:restarting', () => {
+        dagSnapshotCache.clear();
+      });
+
+      serverLogger.info("DAG snapshot cache listener initialized");
+    },
+  });
+
+  // 关闭顺序：Worker 先停 → event-bus → HTTP 最后
+  // shutdown hooks 按注册逆序执行，因此 http-server 先注册（最后执行），worker 最后注册（最先执行）
   lifecycle.onShutdown({
     name: "http-server",
     timeout: 5000,
     fn: async () => {
       return new Promise<void>((resolve) => {
         server.close(() => {
-          console.log("[Server] HTTP server closed");
+          serverLogger.info("HTTP server closed");
           resolve();
         });
       });
-    },
-  });
-
-  lifecycle.onShutdown({
-    name: "download-manager",
-    timeout: 10000,
-    fn: async () => {
-      const { getDownloadManager } = await import("./src/lib/api-helpers");
-      const dm = getDownloadManager();
-      await dm.stop();
-      console.log("[Server] Download manager stopped");
-    },
-  });
-
-  lifecycle.onShutdown({
-    name: "gallery-downloader",
-    timeout: 10000,
-    fn: async () => {
-      const { getGalleryDownloader } = await import(
-        "./src/lib/downloader/gallery-downloader"
-      );
-      getGalleryDownloader().stopAll();
-      console.log("[Server] Gallery downloader stopped");
-    },
-  });
-
-  lifecycle.onShutdown({
-    name: "ouo-orchestrator",
-    timeout: 15000,
-    fn: async () => {
-      const { getOuoOrchestrator } =
-        await import("./src/lib/core/ouo-orchestrator");
-      await getOuoOrchestrator().stop();
-      console.log("[Server] OUO orchestrator stopped");
-    },
-  });
-
-  lifecycle.onShutdown({
-    name: "browser-instances",
-    timeout: 10000,
-    fn: async () => {
-      const { closeSharedBrowser } =
-        await import("./src/lib/core/browser-pool");
-      const { getSearchEngine } =
-        await import("./src/lib/search/search-engine");
-      const { getScraper } = await import("./src/lib/scraper/scraper");
-      const { getSniffer } = await import("./src/lib/scraper/sniffer");
-
-      await Promise.allSettled([
-        closeSharedBrowser(),
-        getSearchEngine().close(),
-        getScraper().close(),
-        getSniffer().stop(),
-      ]);
-
-      console.log("[Server] Browser instances closed");
-    },
-  });
-
-  lifecycle.onShutdown({
-    name: "ttl-lock-cleanup",
-    fn: async () => {
-      ttlLock.stopCleanup();
-      ttlLock.clear();
     },
   });
 
@@ -211,12 +140,29 @@ app.prepare().then(async () => {
     },
   });
 
+  lifecycle.onShutdown({
+    name: "worker",
+    timeout: 20000,
+    fn: async () => {
+      const { workerManager } = await import("./src/lib/core/infra/worker-manager");
+      await workerManager.stop();
+      serverLogger.info("Worker process stopped");
+    },
+  });
+
+  process.on('beforeExit', async () => {
+    try {
+      const { workerManager } = await import("./src/lib/core/infra/worker-manager");
+      await workerManager.stop();
+    } catch { }
+  });
+
   try {
     await lifecycle.boot();
 
     const port = parseInt(process.env.PORT || "10540", 10);
     server.listen(port, () => {
-      console.log(`> PuchiPix server ready on http://localhost:${port}`);
+      serverLogger.info(`PuchiPix server ready on http://localhost:${port}`);
 
       if (dev) {
         const warmupRoutes = [
@@ -230,15 +176,15 @@ app.prepare().then(async () => {
         ];
         Promise.all(
           warmupRoutes.map((route) =>
-            fetch(`http://localhost:${port}${route}`).catch(() => {}),
+            fetch(`http://localhost:${port}${route}`).catch(() => { }),
           ),
         ).then(() => {
-          console.log("[Server] 路由预热完成");
+          serverLogger.info("Route warmup completed");
         });
       }
     });
   } catch (err) {
-    console.error("[Server] 启动失败:", err);
+    serverLogger.error("Startup failed", { error: err });
     process.exit(1);
   }
 });

@@ -11,7 +11,7 @@ export function probeUrl(
 ): Promise<ProbeResult> {
   return new Promise((resolve, reject) => {
     if (redirects > MAX_REDIRECTS) {
-      reject(new Error('重定向次数超限'));
+      reject(new Error('Too many redirects'));
       return;
     }
 
@@ -72,7 +72,7 @@ export function probeUrl(
     req.on('error', reject);
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('HEAD 请求超时'));
+      reject(new Error('HEAD request timeout'));
     });
 
     req.end();
@@ -86,7 +86,7 @@ export function probeUrlWithGet(
 ): Promise<ProbeResult> {
   return new Promise((resolve, reject) => {
     if (redirects > MAX_REDIRECTS) {
-      reject(new Error('重定向次数超限'));
+      reject(new Error('Too many redirects'));
       return;
     }
 
@@ -147,7 +147,7 @@ export function probeUrlWithGet(
     req.on('error', reject);
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('GET Range 探测超时'));
+      reject(new Error('GET Range probe timeout'));
     });
   });
 }

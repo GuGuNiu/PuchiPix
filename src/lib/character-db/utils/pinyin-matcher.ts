@@ -1,8 +1,4 @@
-/**
- * 拼音匹配器
- *
- * 基于核心拼音服务的角色匹配工具，支持多种相似度算法。
- */
+
 
 import { getPinyinService, type SimilarityOptions } from '@/lib/core/pinyin-service';
 import type { CharacterEntry } from '../types';
@@ -16,22 +12,17 @@ export interface PinyinMatchResult {
 }
 
 export interface PinyinMatcherConfig {
-  /** 相似度阈值 (0-1)，低于此值不返回结果 */
   similarityThreshold: number;
-  /** 是否启用模糊匹配 */
   enableFuzzy: boolean;
-  /** 模糊匹配容错率 */
   fuzzyTolerance: number;
-  /** 最大编辑距离 */
   maxEditDistance: number;
-  /** 相似度算法选项 */
   similarityOptions?: SimilarityOptions;
 }
 
 export class PinyinMatcher {
   private config: PinyinMatcherConfig;
   private pinyinService = getPinyinService();
-  /** 角色拼音缓存 */
+  /** RolepinyinCache */
   private pinyinCache = new Map<string, {
     full: string;
     initials: string;
@@ -59,7 +50,7 @@ export class PinyinMatcher {
   }
 
   /**
-   * 为角色列表构建拼音索引
+   * ToroleListBuildpinyinIndex
    */
   buildIndex(characters: CharacterEntry[]): void {
     this.pinyinCache.clear();
@@ -67,7 +58,7 @@ export class PinyinMatcher {
     for (const char of characters) {
       const mainVariants = this.pinyinService.getVariants(char.name);
 
-      // 构建别名拼音映射
+      // Buildalias pinyinMap
       const aliasesPinyin = new Map<string, { full: string; initials: string }>();
       for (const alias of char.aliases) {
         const aliasVariants = this.pinyinService.getVariants(alias);
@@ -85,9 +76,7 @@ export class PinyinMatcher {
     }
   }
 
-  /**
-   * 在文本中查找匹配的角色
-   */
+  
   findMatches(text: string, characters: CharacterEntry[]): PinyinMatchResult[] {
     const results: PinyinMatchResult[] = [];
     const seen = new Set<string>();
@@ -105,7 +94,6 @@ export class PinyinMatcher {
         const cached = this.pinyinCache.get(char.id);
         if (!cached) continue;
 
-        // 精确匹配
         if (this.exactMatch(candidate, char, cached)) {
           const key = `${char.id}:exact`;
           if (!seen.has(key)) {
@@ -121,7 +109,6 @@ export class PinyinMatcher {
           continue;
         }
 
-        // 全拼音匹配（使用相似度算法）
         const fullSim = this.pinyinService.calculateSimilarity(
           candidateVariants.full,
           cached.full,
@@ -142,7 +129,6 @@ export class PinyinMatcher {
           continue;
         }
 
-        // 首字母匹配
         if (candidateVariants.initials === cached.initials && cached.initials.length >= 2) {
           const key = `${char.id}:initials`;
           if (!seen.has(key)) {
@@ -158,7 +144,6 @@ export class PinyinMatcher {
           continue;
         }
 
-        // 别名匹配
         for (const [alias, aliasPinyin] of cached.aliases) {
           const aliasSim = this.pinyinService.calculateSimilarity(
             candidateVariants.full,
@@ -181,7 +166,6 @@ export class PinyinMatcher {
           }
         }
 
-        // 模糊匹配（使用 Combined 算法）
         if (this.config.enableFuzzy) {
           const fuzzySim = this.pinyinService.calculateSimilarity(
             candidateVariants.full,
@@ -211,9 +195,7 @@ export class PinyinMatcher {
     return results.sort((a, b) => b.confidence - a.confidence);
   }
 
-  /**
-   * 从文本中提取候选名称
-   */
+  
   private extractCandidates(text: string): string[] {
     const candidates: string[] = [];
 
@@ -238,9 +220,7 @@ export class PinyinMatcher {
     return [...new Set(candidates)];
   }
 
-  /**
-   * 精确匹配检查
-   */
+  
   private exactMatch(
     candidate: string,
     char: CharacterEntry,
@@ -259,9 +239,7 @@ export class PinyinMatcher {
     return false;
   }
 
-  /**
-   * 批量匹配 TAG 列表
-   */
+  
   matchTags(tags: string[], characters: CharacterEntry[]): PinyinMatchResult[] {
     const allResults: PinyinMatchResult[] = [];
     const seen = new Set<string>();
@@ -281,7 +259,6 @@ export class PinyinMatcher {
   }
 }
 
-// 导出单例
 let pinyinMatcher: PinyinMatcher | null = null;
 
 export function getPinyinMatcher(config?: Partial<PinyinMatcherConfig>): PinyinMatcher {

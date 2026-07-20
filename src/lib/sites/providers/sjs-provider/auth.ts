@@ -1,11 +1,13 @@
-﻿import type { BrowserContext } from "playwright";
+import type { BrowserContext } from "playwright";
+import { loggers } from '@/lib/core/infra/logger';
 import type { CookieData } from "../../site-account-manager";
 import { getSiteAccountManager } from "../../site-account-manager";
 import { DomainHealthTracker } from "@/lib/core/domain/domain-health-tracker";
 import { logT } from "@/lib/i18n/server";
 import { SITE_DOMAINS, DISCUZ_COOKIE_PREFIX } from "./constants";
 
-/** 鍩熷悕鍋ュ悍搴﹁窡韪櫒 */
+
+const logger = loggers.sjsAuth();
 const domainHealthTracker = new DomainHealthTracker();
 
 export function getBestDomain(): string {
@@ -24,9 +26,6 @@ export function markDomainRateLimited(domain: string): void {
   domainHealthTracker.markRateLimited(domain);
 }
 
-/**
- * 璁剧疆娴忚鍣ㄤ笂涓嬫枃 Cookie銆?
- */
 export async function setupSjsBrowserContext(
   context: BrowserContext,
 ): Promise<{ accountId: number | null }> {
@@ -34,7 +33,7 @@ export async function setupSjsBrowserContext(
   const account = await accountManager.getAvailableAccount("sjs");
 
   if (!account) {
-    console.warn(logT("log.sjs.noAccount"));
+    logger.warnT("log.sjs.noAccount");
     return { accountId: null };
   }
 
@@ -58,19 +57,16 @@ export async function setupSjsBrowserContext(
         logT("log.sjs.cookieInjected", { id: account.id, count: cookies.length }),
       );
     } catch (err) {
-      console.warn(logT("log.sjs.cookieInjectionFailed"), err);
+      logger.warnT("log.sjs.cookieInjectionFailed", undefined, { error: err });
     }
   } else {
-    console.log(logT("log.sjs.noCookieStartLogin"));
+    logger.infoT("log.sjs.noCookieStartLogin");
     await performLogin(context, account.id, account.username, account.password);
   }
 
   return { accountId: account.id };
 }
 
-/**
- * 鎵ц Discuz 璁哄潧鐧诲綍娴佺▼銆?
- */
 async function performLogin(
   context: BrowserContext,
   accountId: number,
@@ -88,7 +84,7 @@ async function performLogin(
 
     const loginForm = await page.locator('form[id^="loginform_"]').first();
     if (!loginForm) {
-      throw new Error("鏈壘鍒扮櫥褰曡〃鍗?);
+      throw new Error("Login form not found");
     }
 
     const _formhash = await page
@@ -118,7 +114,7 @@ async function performLogin(
     const isLoggedIn = await logoutLink.isVisible({ timeout: 5000 }).catch(() => false);
 
     if (!isLoggedIn) {
-      throw new Error("鐧诲綍澶辫触锛氭湭妫€娴嬪埌鐧诲綍鐘舵€?);
+      throw new Error("Login failed - not logged in");
     }
 
     const cookies = await context.cookies();
@@ -146,7 +142,7 @@ async function performLogin(
       );
 
     if (sjsCookies.length === 0) {
-      throw new Error("鐧诲綍鍚庢湭鑾峰彇鍒?Cookie");
+      throw new Error("No cookies after login");
     }
 
     await accountManager.saveAuthCookies(accountId, sjsCookies, DISCUZ_COOKIE_PREFIX);
@@ -156,7 +152,7 @@ async function performLogin(
 
     domainHealthTracker.markHealthy(domain);
   } catch (err) {
-    console.error(logT("log.sjs.loginFailed"), err);
+    logger.errorT("log.sjs.loginFailed", undefined, { error: err });
     await accountManager.markLoginFailed(
       accountId,
       err instanceof Error ? err.message : String(err),
@@ -164,7 +160,7 @@ async function performLogin(
 
     domainHealthTracker.markRateLimited(domain);
 
-    throw new Error(`鍙告満绀剧櫥褰曞け璐? ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Auth failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     await page.close().catch(() => {});
   }

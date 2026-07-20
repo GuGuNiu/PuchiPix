@@ -1,6 +1,6 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
-import { getProtagonistService } from '@/lib/protagonist/protagonist-service';
+import { getProtagonistService } from '@/lib/protagonist';
 import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const service = getProtagonistService();
 
     if (name) {
-      // 获取指定主角的详细信息
       const stats = await service.getProtagonistStats(name);
 
       if (!stats) {
@@ -30,7 +29,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         data: stats,
       });
     } else {
-      // 获取所有主角列表
+      // GetallprotagonistList
       const protagonists = await service.getAllProtagonists();
 
       return NextResponse.json({

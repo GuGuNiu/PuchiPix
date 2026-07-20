@@ -6,7 +6,7 @@
 
 import { getCharacterDBService, GAME_LABELS } from '@/lib/character-db';
 
-async function test() {
+async function test(): Promise<void> {
   console.log('=== 角色识别库测试 ===\n');
 
   console.log('1. 测试 CharacterDBService');

@@ -291,3 +291,25 @@ model DagSnapshot {
 
   @@map("dag_snapshots")
 }
+
+model DownloadHistory {
+  id          String   @id @default(cuid())
+  siteId      String   @map("site_id")
+  galleryId   Int      @map("gallery_id")
+  url         String
+  status      String   @default("completed")
+  imageCount  Int      @default(0) @map("image_count")
+  videoCount  Int      @default(0) @map("video_count")
+  title       String   @default("")
+  protagonist String   @default("")
+  savePath    String   @default("") @map("save_path")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([siteId, galleryId])
+  @@index([siteId])
+  @@index([createdAt])
+  @@index([status])
+
+  @@map("download_history")
+}

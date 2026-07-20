@@ -1,35 +1,27 @@
 import type { NextRequest} from 'next/server';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { getSiteRegistry, extractDomainFromUrl } from '@/lib/sites';
-import { getGalleryDownloader } from '@/lib/downloader/gallery';
-import { getSharedBrowser } from '@/lib/core/stealth/browser-pool';
-import { ttlLock } from '@/lib/core/infra/ttl-lock';
-import { eventBus } from '@/lib/core/infra/event-bus';
-import { createStealthPage } from '@/lib/core/stealth/anti-crawler';
-import { allocateSeq } from '@/lib/core/orchestrator/seq-allocator';
-import { parseTitleCount, detectDownloadSource } from '@/lib/downloader/gallery-content-verifier';
-import { cleanUrl, normalizeUrl } from '@/lib/utils/url-normalizer';
-import { checkGalleryDuplicate } from '@/lib/utils/task-dedup';
-import { taskQueueManager } from '@/lib/core/orchestrator/task-queue-manager';
-import type { GallerySiteProvider, SiteProvider } from '@/lib/sites';
+import { getGalleryProvider, createGalleryRecord } from '@/lib/downloader/gallery-handler';
+import { cleanUrl } from '@/lib/utils/url-normalizer';
+import { rateLimiter } from '@/lib/core/infra/rate-limiter';
+import { workerManager } from '@/lib/core/infra/worker-manager';
+import { t, setLocaleFromHeaders } from '@/lib/i18n/server';
 import type { GalleryData } from '@/types';
-import { t, setServerLocaleFromHeaders } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 type GalleryWithRelations = {
-id: number;
+  id: number;
   seq?: string | null;
-sourceUrl: string;
-siteId: string;
-scrapedDomain: string;
-title: string;
-protagonist: string;
-description: string;
-category: string;
-tags: string;
+  sourceUrl: string;
+  siteId: string;
+  scrapedDomain: string;
+  title: string;
+  protagonist: string;
+  description: string;
+  category: string;
+  tags: string;
   coverUrl: string;
   coverLocalPath: string;
   gameCharacters: string | null;
@@ -181,339 +173,107 @@ function mapGallery(g: GalleryWithRelations): GalleryData {
   };
 }
 
-/**
- * 爬取图库并异步触发下载
- *
- */
+interface BatchResult {
+  url: string;
+  status: 'completed' | 'not_found' | 'failed' | 'skipped';
+  galleryId?: number;
+  title?: string;
+  error?: string;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  setServerLocaleFromHeaders(request.headers);
+  setLocaleFromHeaders(request.headers);
   try {
     const body = await request.json();
-    const { url: rawUrl } = body;
+
+    const { urls, url: rawUrl } = body;
+    if (urls && Array.isArray(urls) && urls.length > 0) {
+      const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+      if (!rateLimiter.checkLimit(`batch:${ip}`, 60_000, 3)) {
+        return NextResponse.json({ error: t('api.gallery.tooManyRequests') }, { status: 429 });
+      }
+
+      const results: BatchResult[] = [];
+
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i].trim();
+        if (!url) {
+          results.push({ url, status: 'failed', error: t('api.gallery.batchEmptyUrl') });
+          continue;
+        }
+
+        const provider = getGalleryProvider(url);
+        if (!provider) {
+          results.push({ url, status: 'failed', error: t('api.gallery.noProvider') });
+          continue;
+        }
+
+        try {
+          const result = await createGalleryRecord(url, provider);
+          if (result.duplicate) {
+            results.push({ url, status: 'skipped', galleryId: result.galleryId, title: result.existingTitle });
+          } else {
+            workerManager.send({
+              type: 'task:create',
+              payload: { taskType: 'gallery', galleryId: result.galleryId, url },
+            });
+            results.push({ url, status: 'completed', galleryId: result.galleryId });
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          results.push({ url, status: 'failed', error: errMsg });
+        }
+
+        if (i < urls.length - 1) {
+          const delay = 3000 + Math.floor(Math.random() * 5000);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+
+      const summary = {
+        total: results.length,
+        completed: results.filter((r) => r.status === 'completed').length,
+        skipped: results.filter((r) => r.status === 'skipped').length,
+        not_found: results.filter((r) => r.status === 'not_found').length,
+        failed: results.filter((r) => r.status === 'failed').length,
+      };
+
+      return NextResponse.json({ results, summary });
+    }
 
     if (!rawUrl) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
-    // 清洗 URL：去除首尾空白、不可见字符、零宽字符等
     const url = cleanUrl(rawUrl);
-    const normalizedUrl = normalizeUrl(url);
-
-    const registry = getSiteRegistry();
-    const provider = registry.getProviderByUrl(url);
+    const provider = getGalleryProvider(url);
 
     if (!provider) {
       return NextResponse.json({ error: t('api.gallery.noProvider') }, { status: 400 });
     }
 
-    const galleryProvider = provider as SiteProvider & Partial<GallerySiteProvider>;
-    if (!galleryProvider.scrapeGallery) {
-      return NextResponse.json(
-        { error: `站点 ${provider.name} 不支持图库爬取` },
-        { status: 400 }
-      );
-    }
-
-    // 去重检查：精确匹配 + 镜像域名匹配 + 路径签名匹配
-    const dedupResult = await checkGalleryDuplicate(url);
-    if (dedupResult.duplicate) {
+    const result = await createGalleryRecord(url, provider);
+    if (result.duplicate) {
       return NextResponse.json({
         duplicate: true,
-        matchType: dedupResult.matchType,
-        galleryId: dedupResult.recordId,
-        existingUrl: dedupResult.existingUrl,
-        existingStatus: dedupResult.status,
-        existingTitle: dedupResult.title,
-        message: dedupResult.message,
+        matchType: result.matchType,
+        galleryId: result.galleryId,
+        existingUrl: result.existingUrl,
+        existingStatus: result.existingStatus,
+        existingTitle: result.existingTitle,
+        message: result.message,
       }, { status: 409 });
     }
 
-    const seq = await allocateSeq();
-    const gallery = await prisma.gallery.upsert({
-      where: { sourceUrl: normalizedUrl },
-      create: {
-        sourceUrl: normalizedUrl,
-        siteId: provider.id,
-        status: 'scraping',
-        seq,
-      },
-      update: {
-        status: 'scraping',
-      },
+    workerManager.send({
+      type: 'task:create',
+      payload: { taskType: 'gallery', galleryId: result.galleryId, url },
     });
 
-    eventBus.emit('gallery:scrapeStarted', { galleryId: gallery.id, url });
-
-    // TTL 锁防止同一 URL 被并发爬取
-    const lockKey = `gallery:scrape:${url}`;
-    const lockHandle = await ttlLock.acquire(lockKey, {
-      ttl: 120000,
-      waitTimeout: 5000,
-    });
-
-    if (!lockHandle) {
-      return NextResponse.json(
-        { error: t('api.gallery.alreadyScraping') },
-        { status: 409 }
-      );
-    }
-
-    const browser = await getSharedBrowser();
-    const { page, context } = await createStealthPage(browser, undefined, provider.baseUrl);
-
-    try {
-      const adaptiveProvider = galleryProvider as SiteProvider & Partial<{
-        getAdaptiveUrls: (url: string) => string[];
-        markDomainRateLimited: (domain: string) => void;
-        markDomainHealthy: (domain: string) => void;
-      }>;
-      const urlsToTry = adaptiveProvider.getAdaptiveUrls ? adaptiveProvider.getAdaptiveUrls(url) : [url];
-      let result: Awaited<ReturnType<GallerySiteProvider['scrapeGallery']>> | null = null;
-      let lastError: unknown = null;
-
-      let isNotFound = false;
-
-      for (const tryUrl of urlsToTry) {
-        try {
-          const response = await page.goto(tryUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000,
-          });
-
-          const httpStatus = response?.status();
-          if (httpStatus === 404) {
-            console.warn(`[Gallery] 域名 ${tryUrl} 返回 404`);
-            isNotFound = true;
-            lastError = new Error(`PAGE_NOT_FOUND: ${tryUrl}`);
-            continue;
-          }
-
-          // 检测 403/429 限流，快速切换域名（不再等待 10s 超时）
-          if (httpStatus === 403 || httpStatus === 429) {
-            const domain = extractDomainFromUrl(tryUrl);
-            console.warn(`[Gallery] 域名 ${tryUrl} 返回 ${httpStatus}（限流），快速切换`);
-            if (domain && adaptiveProvider.markDomainRateLimited) {
-              adaptiveProvider.markDomainRateLimited(domain);
-            }
-            lastError = new Error(`RATE_LIMITED: ${tryUrl}`);
-            continue;
-          }
-
-          const resp = await page.waitForSelector('article', { timeout: 10000 }).catch(() => null);
-          if (!resp) {
-            console.warn(`[Gallery] 域名 ${tryUrl} 未找到 article，尝试下一个`);
-            lastError = new Error(`页面无内容: ${tryUrl}`);
-            continue;
-          }
-
-          result = await galleryProvider.scrapeGallery!(page, tryUrl);
-
-          // 检测页面内容是否为 404（标题为 "404" 或包含"页面不存在"）
-          if (result.title === '404' || result.title.includes('页面不存在') || result.title.includes('Not Found')) {
-            console.warn(`[Gallery] 域名 ${tryUrl} 页面内容为 404: "${result.title}"`);
-            isNotFound = true;
-            result = null;
-            lastError = new Error(`PAGE_NOT_FOUND: ${tryUrl}`);
-            continue;
-          }
-
-          // 成功，标记域名为健康
-          const successDomain = extractDomainFromUrl(tryUrl);
-          if (successDomain && adaptiveProvider.markDomainHealthy) {
-            adaptiveProvider.markDomainHealthy(successDomain);
-          }
-
-          break;
-        } catch (err) {
-          console.warn(`[Gallery] 域名 ${tryUrl} 爬取失败:`, err instanceof Error ? err.message : err);
-          lastError = err;
-          if (err instanceof Error && err.message.includes('内容被屏蔽')) {
-            throw err;
-          }
-          if (err instanceof Error && err.message.includes('PAGE_NOT_FOUND')) {
-            isNotFound = true;
-          }
-        }
-      }
-
-      if (!result) {
-        if (isNotFound) {
-          await prisma.gallery.update({
-            where: { id: gallery.id },
-            data: { status: 'not_found' },
-          });
-
-          await page.close().catch(() => {});
-          await context.close().catch(() => {});
-
-          eventBus.emit('gallery:scrapeFailed', {
-            galleryId: gallery.id,
-            url,
-            error: t('api.gallery.pageNotFound'),
-          });
-
-          return NextResponse.json({
-            message: t('api.gallery.pageNotFoundSkipped'),
-            data: { ID: gallery.id, SourceURL: url, Status: 'not_found' },
-          });
-        }
-        throw lastError || new Error('所有域名均爬取失败');
-      }
-
-      // 解析标题中的预期图片/视频数量（如 "11P2V"）
-      const { expectedImages, expectedVideos } = parseTitleCount(result.title);
-
-      await prisma.gallery.update({
-        where: { id: gallery.id },
-        data: {
-          title: result.title,
-          protagonist: result.protagonist,
-          description: result.description,
-          category: result.category,
-          tags: JSON.stringify(result.tags),
-          coverUrl: result.coverUrl,
-          publishTime: result.publishTime || null,
-          imageCount: result.imageCount,
-          videoCount: result.videoCount,
-          pageCount: result.pageCount,
-          scrapedDomain: result.scrapedDomain || '',
-          gameCharacters: result.gameCharacters ? JSON.stringify(result.gameCharacters) : null,
-          expectedImageCount: expectedImages,
-          expectedVideoCount: expectedVideos,
-          status: 'completed',
-        },
-        include: { images: true, videos: true },
-      });
-
-      // 持久化 ZIP 压缩包下载信息
-      if (result.zipInfo) {
-        const zipDownloadSource = detectDownloadSource(result.zipInfo.downloadUrl);
-        const isOuoUrl = zipDownloadSource === 'ouo';
-        await prisma.galleryDownloadInfo.upsert({
-          where: { galleryId: gallery.id },
-          create: {
-            galleryId: gallery.id,
-            title: result.zipInfo.title,
-            fileCount: result.zipInfo.fileCount,
-            fileSizeText: result.zipInfo.fileSizeText,
-            imageDimensions: result.zipInfo.imageDimensions,
-            password: result.zipInfo.password,
-            downloadUrl: result.zipInfo.downloadUrl,
-            downloadSource: zipDownloadSource,
-            ouoUrl: isOuoUrl ? result.zipInfo.downloadUrl : '',
-            provider: result.zipInfo.provider,
-            requiresLogin: result.zipInfo.requiresLogin,
-            requiresEmail: result.zipInfo.requiresEmail,
-            status: result.zipInfo.downloadUrl ? 'available' : 'unavailable',
-          },
-          update: {
-            title: result.zipInfo.title,
-            fileCount: result.zipInfo.fileCount,
-            fileSizeText: result.zipInfo.fileSizeText,
-            imageDimensions: result.zipInfo.imageDimensions,
-            password: result.zipInfo.password,
-            downloadUrl: result.zipInfo.downloadUrl,
-            downloadSource: zipDownloadSource,
-            ouoUrl: isOuoUrl ? result.zipInfo.downloadUrl : '',
-            provider: result.zipInfo.provider,
-            requiresLogin: result.zipInfo.requiresLogin,
-            requiresEmail: result.zipInfo.requiresEmail,
-            status: result.zipInfo.downloadUrl ? 'available' : 'unavailable',
-          },
-        });
-      }
-
-      if (result.images.length > 0) {
-        await prisma.galleryImage.createMany({
-          data: result.images.map((img) => ({
-            galleryId: gallery.id,
-            url: img.url,
-            pageIndex: img.pageIndex,
-            orderIndex: img.orderIndex,
-            status: 'pending',
-          })),
-        });
-      }
-
-      if (result.videos.length > 0) {
-        await prisma.galleryVideo.createMany({
-          data: result.videos.map((vid) => ({
-            galleryId: gallery.id,
-            url: vid.url,
-            status: 'pending',
-          })),
-        });
-      }
-
-      const fullGallery = await prisma.gallery.findUnique({
-        where: { id: gallery.id },
-        include: { images: true, videos: true, downloadInfo: true },
-      });
-
-      await page.close();
-      await context.close();
-
-      eventBus.emit('gallery:scrapeCompleted', {
-        galleryId: gallery.id,
-        title: result.title,
-        imageCount: result.imageCount,
-        videoCount: result.videoCount,
-      });
-
-      // 异步触发图包下载（不阻塞 API 响应）
-      // 通过队列管理器获取槽位，遵守并发上限设置
-      taskQueueManager.acquireSlot('gallery', gallery.id).then(async (acquired) => {
-        if (!acquired) {
-          console.log(`[Gallery] 图库 #${gallery.id} 在排队等待中被取消`);
-          return;
-        }
-        const currentGallery = await prisma.gallery.findUnique({ where: { id: gallery.id } });
-        if (!currentGallery || currentGallery.status === 'completed' || currentGallery.status === 'not_found') {
-          taskQueueManager.releaseSlot('gallery', gallery.id);
-          return;
-        }
-        getGalleryDownloader()
-          .downloadGallery(gallery.id)
-          .then((dlResult) => {
-            console.log(
-              `[Gallery] 图库 #${gallery.id} 下载完成: ` +
-              `成功 ${dlResult.success}, 失败 ${dlResult.failed}, 跳过 ${dlResult.skipped}, ` +
-              `保存路径 ${dlResult.savePath}`,
-            );
-          })
-          .catch((err) => {
-            console.error(`[Gallery] 图库 #${gallery.id} 下载失败:`, err);
-            eventBus.emit('gallery:downloadFailed', { galleryId: gallery.id, error: err.message });
-          });
-      });
-
-      return NextResponse.json({
-        message: '图库爬取完成，下载已异步启动',
-        data: mapGallery(fullGallery!),
-      });
-    } catch (err) {
-      await page.close().catch(() => {});
-      await context.close().catch(() => {});
-
-      const errMsg = err instanceof Error ? err.message : String(err);
-      const notFound = errMsg.includes('PAGE_NOT_FOUND') || errMsg.includes('404');
-
-      await prisma.gallery.update({
-        where: { id: gallery.id },
-        data: { status: notFound ? 'not_found' : 'failed' },
-      });
-
-      eventBus.emit('gallery:scrapeFailed', {
-        galleryId: gallery.id,
-        url,
-        error: errMsg,
-      });
-
-      throw err;
-    } finally {
-      ttlLock.releaseHandle(lockHandle);
-      await context.close().catch(() => {});
-    }
+    return NextResponse.json({
+      message: t('api.gallery.scrapeStarted'),
+      data: { ID: result.galleryId, SourceURL: url, Status: 'pending' },
+    }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Gallery scrape failed';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -527,7 +287,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const limit = parseInt(searchParams.get('limit') || '20');
     const protagonist = searchParams.get('protagonist') || '';
     const status = searchParams.get('status') || '';
-    // 默认跳过 count 查询以加速响应；仅在明确请求分页计数时执行
     const withCount = searchParams.get('withCount') === 'true';
 
     const where: {

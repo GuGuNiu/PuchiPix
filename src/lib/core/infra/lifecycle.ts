@@ -1,14 +1,15 @@
 import { getOrCreateGlobal } from './global-singleton';
+import { loggers } from './logger';
+
+const logger = loggers.lifecycle();
 
 export type LifecyclePhase = 'booting' | 'ready' | 'draining' | 'shutdown';
 export type LifecycleStatus = LifecyclePhase | 'error';
+export type LifecycleMode = 'main' | 'worker';
 
 export interface LifecycleHook {
-  /** 唯一标识 */
   name: string;
-  /** 执行函数（启动或关闭） */
   fn: () => Promise<void>;
-  /** 超时毫秒数，默认 10000 */
   timeout?: number;
 }
 
@@ -20,9 +21,17 @@ class LifecycleManager {
   private shuttingDown = false;
   private startedAt: number = 0;
   private lastError: Error | null = null;
-  /** 已注册的 hook 名称集合，防止重复注册 */
   private registeredInitNames = new Set<string>();
   private registeredShutdownNames = new Set<string>();
+  private mode: LifecycleMode = 'main';
+
+  setMode(mode: LifecycleMode): void {
+    this.mode = mode;
+  }
+
+  get currentMode(): LifecycleMode {
+    return this.mode;
+  }
 
   get currentStatus(): LifecycleStatus {
     return this.status;
@@ -40,89 +49,57 @@ class LifecycleManager {
     return this.status === 'ready';
   }
 
-  /**
-   * 注册启动 hook（幂等 — 同名 hook 只注册一次）。
-   *
-   * hook 会按注册顺序在 boot() 时依次执行。
-   * 如果某个 hook 失败或超时，后续 hook 不再执行。
-   *
-   * HMR 场景下，模块重新加载会重新调用 onInit，
-   * 通过名称去重避免重复注册。
-   *
-   * @param hook - 启动 hook 定义
-   */
   onInit(hook: LifecycleHook): void {
     if (this.registeredInitNames.has(hook.name)) {
-      return; // 幂等：已注册，跳过
+      return;
     }
     this.registeredInitNames.add(hook.name);
 
-    // 如果已经 ready（HMR 重载场景），直接执行 hook
     if (this.status === 'ready') {
       this.runWithTimeout(hook.fn(), hook.timeout ?? 10000, hook.name)
-        .then(() => console.log(`[Lifecycle] ✓ ${hook.name} 完成 (HMR 热注册)`))
-        .catch((err) => console.error(`[Lifecycle] ✗ ${hook.name} 失败 (HMR):`, err));
+        .then(() => logger.info(`Hook ${hook.name} completed (HMR)`))
+        .catch((err) => logger.error(`Hook ${hook.name} failed (HMR)`, { error: err }));
       return;
     }
 
     if (this.status !== 'booting') {
-      console.warn(`[Lifecycle] onInit("${hook.name}") 在 ${this.status} 阶段调用，已忽略`);
+      logger.warn(`onInit("${hook.name}") called in ${this.status} phase, ignored`);
       return;
     }
     this.initHooks.push(hook);
   }
 
-  /**
-   * 注册关闭 hook（幂等 — 同名 hook 只注册一次）。
-   *
-   * hook 会按注册的**逆序**在 shutdown() 时执行。
-   * 先注册的资源最后关闭（如先关 HTTP 再关数据库）。
-   *
-   * @param hook - 关闭 hook 定义
-   */
   onShutdown(hook: LifecycleHook): void {
     if (this.registeredShutdownNames.has(hook.name)) {
-      return; // 幂等：已注册，跳过
+      return;
     }
     this.registeredShutdownNames.add(hook.name);
     this.shutdownHooks.push(hook);
   }
 
-  /**
-   * 执行全部启动流程（幂等 — HMR 安全）。
-   *
-   * 依次执行所有 init hooks，每个 hook 有独立超时。
-   * 全部成功后状态变为 ready，并绑定信号处理。
-   *
-   * 如果已经 ready（HMR 重载场景），不会重复执行 init hooks，
-   * 只重新绑定信号处理（可能因 HMR 丢失）。
-   *
-   * @throws 如果任何 hook 失败或超时（仅在首次 boot 时）
-   */
   async boot(): Promise<void> {
-    // 幂等：如果已经 ready，跳过 init hooks，只确保信号处理已绑定
     if (this.status === 'ready') {
       this.bindSignalHandlers();
       return;
     }
 
     if (this.status !== 'booting') {
-      throw new Error(`[Lifecycle] 无法在 ${this.status} 阶段执行 boot`);
+      throw new Error(`Cannot boot in ${this.status} phase`);
     }
 
-    console.log(`[Lifecycle] 开始启动流程，共 ${this.initHooks.length} 个 init hook`);
+    logger.info(`Boot sequence started, ${this.initHooks.length} init hooks`);
 
     for (const hook of this.initHooks) {
       const timeout = hook.timeout ?? 10000;
-      console.log(`[Lifecycle] 执行 init hook: ${hook.name} (timeout: ${timeout}ms)`);
+      logger.info(`Executing init hook: ${hook.name} (timeout: ${timeout}ms)`);
 
       try {
         await this.runWithTimeout(hook.fn(), timeout, hook.name);
-        console.log(`[Lifecycle] ✓ ${hook.name} 完成`);
+        logger.info(`Hook ${hook.name} completed`);
       } catch (err) {
         this.status = 'error';
         this.lastError = err instanceof Error ? err : new Error(String(err));
-        console.error(`[Lifecycle] ✗ ${hook.name} 失败:`, this.lastError.message);
+        logger.error(`Hook ${hook.name} failed`, { error: this.lastError.message });
         throw this.lastError;
       }
     }
@@ -130,54 +107,45 @@ class LifecycleManager {
     this.status = 'ready';
     this.startedAt = Date.now();
     this.bindSignalHandlers();
-    console.log(`[Lifecycle] 🚀 应用已就绪 (uptime 计时开始)`);
+    logger.info('Application ready (uptime counter started)');
   }
 
   /**
-   * 执行优雅关闭流程。
-   *
-   - 状态变为 draining，拒绝新的请求
-   - 按逆序执行 shutdown hooks
-   - 状态变为 shutdown
-   - 进程退出
-   *
-   * @param exitCode - 进程退出码，默认 0
+   * Transition to draining state (reject new requests), execute shutdown hooks
+   * in reverse order, then transition to shutdown state and exit the process.
    */
   async shutdown(exitCode: number = 0): Promise<void> {
     if (this.shuttingDown) {
-      console.log('[Lifecycle] 关闭流程已在进行中，跳过重复调用');
+      logger.info('Shutdown already in progress, skipping');
       return;
     }
 
     this.shuttingDown = true;
     this.status = 'draining';
-    console.log(`[Lifecycle] 开始优雅关闭，共 ${this.shutdownHooks.length} 个 shutdown hook`);
+    logger.info(`Graceful shutdown started, ${this.shutdownHooks.length} shutdown hooks`);
 
-    // 按逆序执行关闭 hooks
     const reversed = [...this.shutdownHooks].reverse();
     for (const hook of reversed) {
       const timeout = hook.timeout ?? 10000;
-      console.log(`[Lifecycle] 执行 shutdown hook: ${hook.name} (timeout: ${timeout}ms)`);
+      logger.info(`Executing shutdown hook: ${hook.name} (timeout: ${timeout}ms)`);
 
       try {
         await this.runWithTimeout(hook.fn(), timeout, hook.name);
-        console.log(`[Lifecycle] ✓ ${hook.name} 完成`);
+        logger.info(`Hook ${hook.name} completed`);
       } catch (err) {
-        // 关闭过程中单个 hook 失败不中断后续 hook
-        console.error(
-          `[Lifecycle] ✗ ${hook.name} 失败:`,
-          err instanceof Error ? err.message : String(err)
+        logger.error(
+          `Hook ${hook.name} failed`,
+          { error: err instanceof Error ? err.message : String(err) },
         );
       }
     }
 
     this.status = 'shutdown';
-    console.log('[Lifecycle] 优雅关闭完成，退出进程');
+    logger.info('Graceful shutdown completed, exiting process');
     process.exit(exitCode);
   }
 
   /**
-   * 获取生命周期状态摘要（供健康检查 API 使用）。
    */
   getHealthInfo(): {
     status: string;
@@ -202,7 +170,7 @@ class LifecycleManager {
   private runWithTimeout<T>(promise: Promise<T>, ms: number, name: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error(`Hook "${name}" 超时 (${ms}ms)`));
+        reject(new Error(`Hook "${name}" timed out (${ms}ms)`));
       }, ms);
 
       promise
@@ -221,26 +189,37 @@ class LifecycleManager {
     if (this.signalHandlersBound) return;
     this.signalHandlersBound = true;
 
+    if (this.mode === 'worker') {
+      process.on('uncaughtException', (err) => {
+        logger.error('uncaughtException', { error: err instanceof Error ? err.message : String(err) });
+        this.lastError = err;
+      });
+
+      process.on('unhandledRejection', (reason) => {
+        logger.error('unhandledRejection', { error: reason });
+      });
+      return;
+    }
+
     const handler = (signal: string): void => {
-      console.log(`\n[Lifecycle] 收到 ${signal} 信号，开始优雅关闭...`);
+      logger.info(`Received ${signal} signal, starting graceful shutdown...`);
       this.shutdown(0).catch((err) => {
-        console.error('[Lifecycle] 优雅关闭失败:', err);
+        logger.error('Graceful shutdown failed', { error: err });
         process.exit(1);
       });
     };
 
     process.on('SIGINT', () => handler('SIGINT'));
     process.on('SIGTERM', () => handler('SIGTERM'));
+    process.on('SIGHUP', () => handler('SIGHUP'));
 
-    // 未捕获异常 — 记录后继续运行（不退出）
     process.on('uncaughtException', (err) => {
-      console.error('[Lifecycle] uncaughtException:', err instanceof Error ? err.message : String(err));
+      logger.error('uncaughtException', { error: err instanceof Error ? err.message : String(err) });
       this.lastError = err;
     });
 
-    // 未处理的 Promise 拒绝
     process.on('unhandledRejection', (reason) => {
-      console.error('[Lifecycle] unhandledRejection:', reason);
+      logger.error('unhandledRejection', { error: reason });
     });
   }
 
@@ -256,9 +235,7 @@ class LifecycleManager {
 }
 
 /**
- * HMR 安全的全局单例导出。
+ * HMR security globalSingletonExport。
  *
- * 使用 globalThis 存储实例，确保 HMR 热重载时不会重新创建 LifecycleManager，
- * 从而保留已注册的 init/shutdown hooks、已绑定的信号处理和当前状态。
  */
 export const lifecycle = getOrCreateGlobal('__puchipix_lifecycle__', () => new LifecycleManager());

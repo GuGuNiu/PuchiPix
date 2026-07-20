@@ -1,9 +1,8 @@
 import type { TranslationDict } from "../../types";
 
-// 屏蔽词库页面文本 — 简体中文（基准）
 const zhCN: TranslationDict = {
   "blocklist.title": "屏蔽词库",
-  "blocklist.subtitle": "管理站点内容的屏蔽规则，支持按标题/分类/主角/导演过滤",
+  "blocklist.subtitle": "管理站点内容的屏蔽规则支持按标题/分类/主角/导演过滤",
   "blocklist.scopeAll": "全局",
   "blocklist.scopeAimeizizi": "爱妹子",
   "blocklist.scopeKanav": "KanAV",
@@ -35,14 +34,17 @@ const zhCN: TranslationDict = {
   "blocklist.invalidRegex": "正则表达式无效",
   "blocklist.placeholderKeyword": "输入屏蔽关键词...",
   "blocklist.placeholderRegex": "输入正则表达式...",
-  "blocklist.confirmDelete": "确认删除选中的规则？",
-  "blocklist.noRules": "暂无屏蔽规则，点击\"添加规则\"创建",
+  "blocklist.confirmDelete": "确认删除选中的规则",
+  "blocklist.noRules": "暂无屏蔽规则点击\"添加规则\"创建",
   "blocklist.noMatchingRules": "没有匹配的规则",
   "blocklist.loadFailed": "加载屏蔽规则失败",
   "blocklist.addSuccess": "规则已添加",
   "blocklist.toggleFailed": "更新失败",
   "blocklist.pleaseSelectRules": "请先选择要删除的规则",
   "blocklist.confirmAdd": "确认添加",
-};
+} satisfies TranslationDict;
+
+/** Blocklist 模块的翻译键联合类型 */
+export type BlocklistTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

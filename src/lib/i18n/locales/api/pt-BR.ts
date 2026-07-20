@@ -5,7 +5,19 @@ const ptBR: TranslationDict = {
   "api.gallery.scrapeComplete": "Raspagem da galeria concluída, download iniciado assincronamente",
   "api.gallery.batchMissingUrls": "Parâmetro urls deve ser um array não vazio",
   "api.characterDb.syncRunning": "A tarefa de sincronização já está em execução",
-  "api.gallery.batchEmptyUrl": "URL vazia", "api.tasks.noM3u8Extracted": "Não foi possível extrair o link M3U8 da página", "api.blocklist.addFailed": "Falha ao adicionar", "api.common.internalError": "Erro interno do servidor", "api.common.missingParams": "Parâmetros obrigatórios ausentes: {params}",
+  "api.gallery.batchEmptyUrl": "URL vazia", "api.tasks.noM3u8Extracted": "Não foi possível extrair o link M3U8 da página", "api.blocklist.addFailed": "Falha ao adicionar",
+  "api.logs.systemReady": "Sistema pronto, aguardando tarefas...",
+  "api.logs.taskNumber": "Tarefa #{id}",
+  "api.logs.fetchFailed": "Falha ao buscar logs",
+  "api.gallery.unsupportedScrape": "O site {site} não suporta raspagem de galeria",
+  "api.gallery.allDomainsFailed": "Todos os domínios falharam na raspagem",
+  "api.tasks.multipleM3u8Detected": "{count} endereços M3U8 detectados, selecione",
+  "api.tasks.unsupportedListScrape": "O provedor não suporta raspagem de página de listagem",
+  "api.common.internalError": "Erro interno do servidor", "api.common.missingParams": "Parâmetros obrigatórios ausentes: {params}",
   "api.gallery.noProviderForRescrape": "Nenhum provedor de galeria encontrado, não é possível re-raspar",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} não encontrado",
+  "api.dag.invalidAction": "Ação inválida: {action}",
 };
 export default ptBR;

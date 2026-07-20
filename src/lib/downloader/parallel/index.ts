@@ -30,11 +30,11 @@ export async function parallelDownload(
   try {
     probe = await probeUrl(url, headers);
   } catch (err) {
-    console.warn('[ParallelDL] HEAD 探测失败，降级为 GET Range:', err instanceof Error ? err.message : err);
+    console.warn('[ParallelDL] HEAD probe failed, falling back to GET Range:', err instanceof Error ? err.message : err);
     try {
       probe = await probeUrlWithGet(url, headers);
     } catch (err2) {
-      console.error('[ParallelDL] GET Range 探测也失败:', err2 instanceof Error ? err2.message : err2);
+      console.error('[ParallelDL] GET Range probe also failed:', err2 instanceof Error ? err2.message : err2);
       return {
         success: false,
         fileSize: 0,
@@ -69,7 +69,7 @@ export async function parallelDownload(
 
   const totalSize = probe.contentLength;
   console.log(
-    `[ParallelDL] 文件大小: ${totalSize} bytes (${(totalSize / 1024 / 1024).toFixed(1)} MB), Range 支持: ${probe.acceptsRanges}`,
+    `[ParallelDL] File size: ${totalSize} bytes (${(totalSize / 1024 / 1024).toFixed(1)} MB), Range supported: ${probe.acceptsRanges}`,
   );
 
   const useParallel = probe.acceptsRanges && totalSize > 5 * 1024 * 1024;
@@ -78,7 +78,7 @@ export async function parallelDownload(
     : 1;
 
   if (!useParallel) {
-    console.log('[ParallelDL] 降级为单线程下载');
+    console.log('[ParallelDL] Falling back to single-thread download');
     const result = await singleThreadDownload(
       probe.finalUrl,
       actualPath,
@@ -118,7 +118,7 @@ export async function parallelDownload(
     });
   }
 
-  console.log(`[ParallelDL] 使用 ${actualChunks} 线程并行下载，每块约 ${(chunkSize / 1024 / 1024).toFixed(1)} MB`);
+  console.log(`[ParallelDL] Using ${actualChunks} threads, chunk size ~${(chunkSize / 1024 / 1024).toFixed(1)} MB`);
 
   let lastProgressLog = 0;
   const trackProgress = (): void => {
@@ -132,7 +132,7 @@ export async function parallelDownload(
       const elapsed = (Date.now() - startTime) / 1000;
       const speed = elapsed > 0 ? (downloaded / 1024 / 1024 / elapsed).toFixed(1) : '0';
       console.log(
-        `[ParallelDL] 进度: ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB / ${(totalSize / 1024 / 1024).toFixed(1)} MB, ${speed} MB/s)`,
+        `[ParallelDL] Progress: ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB / ${(totalSize / 1024 / 1024).toFixed(1)} MB, ${speed} MB/s)`,
       );
       lastProgressLog = downloaded;
     }
@@ -153,14 +153,14 @@ export async function parallelDownload(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(
-          `[ParallelDL] 分块 ${chunk.index} 失败（第 ${attempt + 1} 次）: ${msg}`,
+          `[ParallelDL] Chunk ${chunk.index} failed, attempt ${attempt + 1}: ${msg}`,
         );
         chunk.retries = attempt + 1;
         if (attempt < maxRetries) {
           const delay = Math.min(2000 * Math.pow(2, attempt), 10000);
           await sleep(delay + Math.random() * 1000);
         } else {
-          throw new Error(`分块 ${chunk.index} 下载失败（重试 ${maxRetries} 次）: ${msg}`);
+          throw new Error(`Chunk ${chunk.index} download failed after ${maxRetries} retries: ${msg}`);
         }
       }
     }
@@ -169,7 +169,7 @@ export async function parallelDownload(
   try {
     await Promise.all(chunkPromises);
   } catch (err) {
-    console.error('[ParallelDL] 下载失败:', err instanceof Error ? err.message : err);
+    console.error('[ParallelDL] Download failed:', err instanceof Error ? err.message : err);
     return {
       success: false,
       fileSize: 0,
@@ -186,7 +186,7 @@ export async function parallelDownload(
   const stat = fs.statSync(actualPath);
   if (stat.size !== totalSize) {
     console.error(
-      `[ParallelDL] 文件大小不匹配: 期望 ${totalSize}，实际 ${stat.size}`,
+      `[ParallelDL] File size mismatch: expected ${totalSize}, actual ${stat.size}`,
     );
     return {
       success: false,
@@ -199,7 +199,7 @@ export async function parallelDownload(
   }
 
   console.log(
-    `[ParallelDL] 下载完成: ${actualPath} (${totalSize} bytes, ${(avgSpeed / 1024).toFixed(0)} KB/s)`,
+    `[ParallelDL] Download completed: ${actualPath} (${totalSize} bytes, ${(avgSpeed / 1024).toFixed(0)} KB/s)`,
   );
 
   return {

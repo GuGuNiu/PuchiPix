@@ -1,6 +1,8 @@
 ﻿import type { Page, BrowserContext } from "playwright";
+import { loggers } from '@/lib/core/infra/logger';
 import type { ExtendedMetadata, SiteSearchResult } from "../../types";
 import {
+
   BASE_E_URL,
   BASE_EX_URL,
   IMAGE_BATCH_SIZE,
@@ -12,9 +14,7 @@ import {
 import { MAX_GALLERY_PAGES, PAGE_DELAY_MIN, PAGE_DELAY_MAX, randomDelay, sleep } from "@/lib/core/stealth/anti-crawler";
 import { logT } from "@/lib/i18n/server";
 
-/**
- * 璁剧疆娴忚鍣ㄤ笂涓嬫枃 Cookie銆?
- */
+const logger = loggers.pageExtractors();
 export async function setupExhentaiContext(context: BrowserContext): Promise<void> {
   const cookies = getExhentaiCookies();
   if (!cookies) return;
@@ -44,9 +44,6 @@ export async function setupExhentaiContext(context: BrowserContext): Promise<voi
   await context.addCookies(cookieList);
 }
 
-/**
- * 浠庢悳绱㈢粨鏋滈〉闈㈡彁鍙栧浘搴撻摼鎺ュ垪琛ㄣ€?
- */
 export async function extractSearchResults(page: Page): Promise<SiteSearchResult[]> {
   return page.evaluate(() => {
     const results: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
@@ -96,9 +93,6 @@ export async function extractSearchResults(page: Page): Promise<SiteSearchResult
   });
 }
 
-/**
- * 浠庡浘搴撹鎯呴〉鎻愬彇鎵╁睍鍏冧俊鎭€?
- */
 export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetadata> {
   const raw = await page.evaluate(() => {
     const titleEl = document.querySelector("#gn") as HTMLElement | null;
@@ -198,9 +192,6 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
   };
 }
 
-/**
- * 浠庡浘搴撹鎯呴〉鎻愬彇鐢诲粖鍩烘湰淇℃伅銆?
- */
 export async function extractGalleryInfo(
   page: Page,
 ): Promise<{ pages: number; posted: string; coverUrl: string; uploader: string; category: string }> {
@@ -234,9 +225,6 @@ export async function extractGalleryInfo(
   });
 }
 
-/**
- * 鏀堕泦鍥惧簱鎵€鏈夐〉闈㈢殑鍥剧墖椤甸摼鎺ャ€?
- */
 export async function collectImagePageLinks(
   page: Page,
   galleryUrl: string,
@@ -261,7 +249,7 @@ export async function collectImagePageLinks(
           timeout: 20000,
         });
       } catch (err) {
-        console.error(logT("log.exhentai.scrapePageFailed", { page: pageNum }), err);
+        logger.errorT("log.exhentai.scrapePageFailed", { page: pageNum }, err);
         break;
       }
     }
@@ -290,9 +278,6 @@ export async function collectImagePageLinks(
   return allLinks;
 }
 
-/**
- * 鎵归噺浠庡浘鐗囬〉鎻愬彇瀹為檯鍥剧墖 URL銆?
- */
 export async function fetchImageUrls(
   page: Page,
   imagePageUrls: string[],
@@ -341,7 +326,7 @@ export async function fetchImageUrls(
         results[batchIndices[j]] = url;
       });
     } catch (err) {
-      console.error(logT("log.exhentai.batchFailed", { batch: i }), err);
+      logger.errorT("log.exhentai.batchFailed", { batch: i }, err);
     }
 
     if (i + IMAGE_BATCH_SIZE < imagePageUrls.length) {
@@ -350,7 +335,7 @@ export async function fetchImageUrls(
 
     const successCount = results.filter(Boolean).length;
     console.log(
-      `[ExHentai] 鍥剧墖 URL 鑾峰彇杩涘害: ${Math.min(i + IMAGE_BATCH_SIZE, imagePageUrls.length)}/${imagePageUrls.length}锛堟垚鍔?${successCount}锛塦,
+      `[ExHentai]  URL : ${Math.min(i + IMAGE_BATCH_SIZE, imagePageUrls.length)}/${imagePageUrls.length}?${successCount}`,
     );
   }
 

@@ -2,9 +2,7 @@ import type { Page } from "playwright";
 import type { ExtendedMetadata, SiteSearchResult } from "../../types";
 import { cleanSjsTitle, extractForumId, PLACEHOLDER_GIF } from "./constants";
 
-/**
- * 从搜索结果页面提取帖子链接列表。
- */
+
 export async function extractSearchResults(page: Page): Promise<SiteSearchResult[]> {
   return page.evaluate(() => {
     const results: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
@@ -46,9 +44,7 @@ export async function extractSearchResults(page: Page): Promise<SiteSearchResult
   });
 }
 
-/**
- * 从帖子详情页提取扩展元信息。
- */
+
 export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetadata> {
   const raw = await page.evaluate(() => {
     const titleEl = document.querySelector("#thread_subject");
@@ -120,7 +116,7 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
   const title = cleanSjsTitle(raw.title || raw.documentTitle);
 
   const metaKeywords = raw.keywordStr
-    .split(/[,，;；]/)
+    .split(/[,;]/)
     .map((t) => t.trim())
     .filter((t) => t && t.length < 50 && !raw.tags.includes(t));
 
@@ -135,9 +131,7 @@ export async function extractExtendedMetadata(page: Page): Promise<ExtendedMetad
   };
 }
 
-/**
- * 从帖子页面提取图片、视频和封面信息。
- */
+
 export async function extractPostContent(
   page: Page,
   pageIndex: number,
@@ -217,9 +211,7 @@ const href = a.href;
   );
 }
 
-/**
- * 获取帖子总页数。
- */
+
 export async function getThreadTotalPages(page: Page): Promise<number> {
   return page.evaluate(() => {
     const pageLinks = document.querySelectorAll(".pg a, .pgs a");
@@ -260,9 +252,7 @@ export async function getThreadTotalPages(page: Page): Promise<number> {
   });
 }
 
-/**
- * 从版块列表页提取帖子链接。
- */
+
 export async function extractForumListResults(page: Page): Promise<SiteSearchResult[]> {
   return page.evaluate(() => {
     const results: { url: string; title: string; coverUrl?: string; date?: string }[] = [];
@@ -293,9 +283,7 @@ export async function extractForumListResults(page: Page): Promise<SiteSearchRes
   });
 }
 
-/**
- * 获取下一页 URL。
- */
+
 export async function getNextPageUrl(
   page: Page,
   currentUrl: string,

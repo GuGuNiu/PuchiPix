@@ -1,9 +1,9 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import prisma from '@/lib/db/prisma';
 import { retry } from '@/lib/utils';
 import { ensureDir } from '@/lib/utils/file-system';
-import { downloadFile } from './file-download';
+import { downloadFileWithDomainFallback } from './domain-fallback';
 import { randomUA } from '@/lib/core/stealth/anti-crawler';
 
 const COVER_MAX_RETRIES = 3;
@@ -54,7 +54,7 @@ export async function downloadGalleryCover(
   }
 
   const result = await retry(
-    () => downloadFile(coverUrl, coverFilePath, {
+    () => downloadFileWithDomainFallback(coverUrl, coverFilePath, {
       headers: buildImageHeaders(coverUrl, sourceUrl),
     }),
     {
@@ -71,10 +71,10 @@ export async function downloadGalleryCover(
       where: { id: galleryId },
       data: { coverLocalPath: coverFilePath, savePath: basePath },
     });
-    console.log(`[CoverDL] 鍥惧簱 #${galleryId} 灏侀潰涓嬭浇鎴愬姛: ${coverFilePath}`);
+    console.log(`[CoverDL] Gallery #${galleryId} cover downloaded: ${coverFilePath}`);
     return coverFilePath;
   }
 
-  console.error(`[CoverDL] 鍥惧簱 #${galleryId} 灏侀潰涓嬭浇澶辫触: ${coverUrl}`);
+  console.error(`[CoverDL] Gallery #${galleryId} cover download failed: ${coverUrl}`);
   return null;
 }

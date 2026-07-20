@@ -1,4 +1,4 @@
-// 文件大小处理
+// File sizeHandle
 export {
   parseFileSize,
   formatFileSize,
@@ -6,7 +6,6 @@ export {
   compareFileSizes,
 } from './file-size';
 
-// 延迟与计时
 export {
   sleep,
   randomDelay,
@@ -17,7 +16,7 @@ export {
   type RetryOptions,
 } from './delay';
 
-// URL 处理
+// URL Handle
 export {
   cleanUrl,
   normalizeUrl,
@@ -28,14 +27,13 @@ export {
   extractDomain,
 } from './url-normalizer';
 
-// 文件名处理
+// FilenameHandle
 export {
   sanitizeFilename,
   extractFilenameFromHeaders,
   extractFilenameFromUrl,
 } from './filename';
 
-// 字符串处理
 export {
   replaceDomain,
   decodeHtmlEntities,
@@ -43,7 +41,7 @@ export {
   truncate,
 } from './string';
 
-// 格式化
+// Format
 export {
   formatDuration,
   formatTime,
@@ -51,10 +49,3 @@ export {
   formatNumber,
 } from './format';
 
-// 任务去重
-export {
-  checkGalleryDuplicate,
-  checkVideoTaskDuplicate,
-  checkTaskDuplicate,
-  type DedupResult,
-} from './task-dedup';

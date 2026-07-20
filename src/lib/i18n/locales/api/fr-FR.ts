@@ -5,7 +5,19 @@ const frFR: TranslationDict = {
   "api.gallery.scrapeComplete": "Extraction de la galerie terminée, téléchargement démarré asynchronement",
   "api.gallery.batchMissingUrls": "Le paramètre urls doit être un tableau non vide",
   "api.characterDb.syncRunning": "La tâche de synchronisation est déjà en cours",
-  "api.gallery.batchEmptyUrl": "URL vide", "api.tasks.noM3u8Extracted": "Impossible d'extraire le lien M3U8 de la page", "api.blocklist.addFailed": "Échec d'ajout", "api.common.internalError": "Erreur interne du serveur", "api.common.missingParams": "Paramètres obligatoires manquants: {params}",
+  "api.gallery.batchEmptyUrl": "URL vide", "api.tasks.noM3u8Extracted": "Impossible d'extraire le lien M3U8 de la page", "api.blocklist.addFailed": "Échec d'ajout",
+  "api.logs.systemReady": "Système prêt, en attente de tâches...",
+  "api.logs.taskNumber": "Tâche #{id}",
+  "api.logs.fetchFailed": "Échec de récupération des logs",
+  "api.gallery.unsupportedScrape": "Le site {site} ne supporte pas l'extraction de galerie",
+  "api.gallery.allDomainsFailed": "Tous les domaines ont échoué à l'extraction",
+  "api.tasks.multipleM3u8Detected": "{count} adresses M3U8 détectées, veuillez sélectionner",
+  "api.tasks.unsupportedListScrape": "Le fournisseur ne supporte pas l'extraction de page de liste",
+  "api.common.internalError": "Erreur interne du serveur", "api.common.missingParams": "Paramètres obligatoires manquants: {params}",
   "api.gallery.noProviderForRescrape": "Aucun fournisseur de galerie trouvé, impossible de re-scrapr",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} introuvable",
+  "api.dag.invalidAction": "Action invalide: {action}",
 };
 export default frFR;

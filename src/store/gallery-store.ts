@@ -126,10 +126,10 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
 
   retryDownload: async (id: number) => {
     try {
-      const res = await fetch(`/api/gallery/${id}/download`, {
+      const res = await fetch(`/api/gallery/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ action: 'download' }),
       });
       return res.ok;
     } catch {
@@ -143,10 +143,10 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       zipProgressMap: { ...s.zipProgressMap, [id]: { galleryId: id, downloaded: 0, total: 0, percent: 0 } },
     }));
     try {
-      const res = await fetch(`/api/gallery/${id}/download-zip`, {
+      const res = await fetch(`/api/gallery/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(manualUrl ? { manualUrl } : {}),
+        body: JSON.stringify({ action: 'download-zip', ...(manualUrl ? { manualUrl } : {}) }),
       });
       const data = await res.json();
       if (data.success) {

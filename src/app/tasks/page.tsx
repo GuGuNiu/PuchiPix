@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿"use client";
+"use client";
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname } from "next/navigation";
@@ -33,6 +33,8 @@ import {
   FILTER_PILL_KEYS,
   SORT_OPTION_KEYS,
   STATUS_ORDER,
+  STATUS_FILTER_GROUPS,
+  getEffectiveFilterStatus,
   type StatusFilter,
   type TypeFilter,
   type SortBy,
@@ -104,7 +106,6 @@ export default function TasksPage(): React.JSX.Element {
           setApiStats(data);
         }
       } catch {
-        // ignore
       }
     };
     fetchStats();
@@ -125,7 +126,6 @@ export default function TasksPage(): React.JSX.Element {
     return () => unsub();
   }, [fetchTasks, connectSSE]);
 
-  // 嗅探任务事件 Toast 通知
   const { sniffTaskEventId, lastSniffTaskEvent } = useTaskStore();
   useEffect(() => {
     if (sniffTaskEventId === 0 || !lastSniffTaskEvent) return;
@@ -138,7 +138,14 @@ export default function TasksPage(): React.JSX.Element {
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: tasks.length };
     for (const t of tasks) {
-      counts[t.Status] = (counts[t.Status] || 0) + 1;
+      const effectiveStatus = getEffectiveFilterStatus(t);
+      if (effectiveStatus === "scrape_pending") {
+        counts["scraping"] = (counts["scraping"] || 0) + 1;
+      } else if (effectiveStatus === "download_pending") {
+        counts["downloading"] = (counts["downloading"] || 0) + 1;
+      } else {
+        counts[effectiveStatus] = (counts[effectiveStatus] || 0) + 1;
+      }
     }
     return counts;
   }, [tasks]);
@@ -147,7 +154,15 @@ export default function TasksPage(): React.JSX.Element {
     let result = tasks;
 
     if (statusFilter !== "all") {
-      result = result.filter((t) => t.Status === statusFilter);
+      const groupStatuses = STATUS_FILTER_GROUPS[statusFilter];
+      if (groupStatuses) {
+        result = result.filter((t) => {
+          const effectiveStatus = getEffectiveFilterStatus(t);
+          return groupStatuses.includes(effectiveStatus);
+        });
+      } else {
+        result = result.filter((t) => getEffectiveFilterStatus(t) === statusFilter);
+      }
     }
 
     if (typeFilter === "video") {
@@ -192,7 +207,6 @@ export default function TasksPage(): React.JSX.Element {
     return sorted;
   }, [tasks, statusFilter, typeFilter, searchQuery, sortBy]);
 
-  // 分页逻辑
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const paginatedTasks = useMemo(() => {
@@ -204,14 +218,11 @@ export default function TasksPage(): React.JSX.Element {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   }, [totalPages]);
 
-  // 根据视口高度计算每页数量
   useEffect(() => {
-    const calculatePageSize = () => {
+    const calculatePageSize = (): void => {
       const vh = window.innerHeight;
-      // 顶部导航栏约 60px，工具栏约 56px，表头约 48px，分页栏约 44px，底部留白 16px
       const reservedHeight = 60 + 56 + 48 + 44 + 16;
       const availableHeight = vh - reservedHeight;
-      // 每行高度约 52px（padding 14+14 + 内容 + border）
       const rowHeight = 52;
       const calculated = Math.max(5, Math.floor(availableHeight / rowHeight));
       setPageSize(calculated);
@@ -222,8 +233,8 @@ export default function TasksPage(): React.JSX.Element {
     return () => window.removeEventListener("resize", calculatePageSize);
   }, []);
 
-  // 过滤条件变化时重置到第一页
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
   }, [statusFilter, typeFilter, searchQuery, sortBy]);
 
@@ -264,7 +275,7 @@ export default function TasksPage(): React.JSX.Element {
     <div className="tasks-layout">
       <div className="card tasks-list-card">
         <ResourceToolbar
-          primaryFilters={TYPE_PILL_KEYS.map(p => ({ value: p.value, label: t(p.labelKey) }))}
+          primaryFilters={TYPE_PILL_KEYS.map(p => ({ value: p.value, label: t(p.labelKey), icon: p.icon }))}
           primaryFilterValue={typeFilter}
           onPrimaryFilterChange={(v) => setTypeFilter(v as TypeFilter)}
           secondaryFilters={FILTER_PILL_KEYS.map((p) => ({ value: p.value, label: t(p.labelKey), count: statusCounts[p.value] || 0 }))}
@@ -272,10 +283,11 @@ export default function TasksPage(): React.JSX.Element {
           onSecondaryFilterChange={(v) => setStatusFilter(v as StatusFilter)}
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
-          searchPlaceholder={t("tasks.searchPlaceholder")}
+          searchPlaceholder={t("tasks.search")}
           sortOptions={SORT_OPTION_KEYS.map(o => ({ value: o.value, label: t(o.labelKey) }))}
           sortValue={sortBy}
           onSortChange={(v) => setSortBy(v as SortBy)}
+          refreshLabel={t("common.refresh")}
         >
           <button
             className="btn btn-primary btn-sm"
@@ -438,7 +450,6 @@ export default function TasksPage(): React.JSX.Element {
           </div>
         )}
 
-        {/* 分页控件 */}
         {filteredTasks.length > pageSize && (
           <div
             style={{
@@ -453,7 +464,6 @@ export default function TasksPage(): React.JSX.Element {
               zIndex: 10,
             }}
           >
-            {/* 左侧：分页按钮 */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
               <button
                 className="btn btn-outline btn-sm"
@@ -473,16 +483,47 @@ export default function TasksPage(): React.JSX.Element {
               </button>
 
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <button
-                    key={page}
-                    className={`btn btn-sm ${page === safePage ? "btn-primary" : "btn-outline"}`}
-                    onClick={() => goToPage(page)}
-                    style={{ minWidth: 32, padding: "4px 8px" }}
-                  >
-                    {page}
-                  </button>
-                ))}
+                {(() => {
+                  const maxVisible = 3;
+                  const pages: (number | string)[] = [];
+                  if (totalPages <= maxVisible) {
+                    for (let i = 1; i <= totalPages; i++) pages.push(i);
+                  } else {
+                    const half = Math.floor(maxVisible / 2);
+                    let start = Math.max(1, safePage - half);
+                    const end = Math.min(totalPages, start + maxVisible - 1);
+                    if (end - start + 1 < maxVisible) {
+                      start = Math.max(1, end - maxVisible + 1);
+                    }
+                    if (start > 1) pages.push(1, "...");
+                    for (let i = start; i <= end; i++) pages.push(i);
+                    if (end < totalPages) pages.push("...", totalPages);
+                  }
+                  return pages.map((page, idx) =>
+                    typeof page === "string" ? (
+                      <span
+                        key={`ellipsis-${idx}`}
+                        style={{
+                          color: "var(--text-muted)",
+                          padding: "4px 6px",
+                          fontSize: 13,
+                          userSelect: "none",
+                        }}
+                      >
+                        {page}
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        className={`btn btn-sm ${page === safePage ? "btn-primary" : "btn-outline"}`}
+                        onClick={() => goToPage(page)}
+                        style={{ minWidth: 32, padding: "4px 8px" }}
+                      >
+                        {page}
+                      </button>
+                    )
+                  );
+                })()}
               </div>
 
               <button
@@ -507,12 +548,10 @@ export default function TasksPage(): React.JSX.Element {
               </span>
             </div>
 
-            {/* 中间：实时任务日志 */}
             <div style={{ display: "flex", justifyContent: "center", flex: 1 }}>
               <ConsoleLog />
             </div>
 
-            {/* 右侧：速率显示 */}
             <div style={{ display: "flex", justifyContent: "flex-end", flex: 1 }}>
               <div
                 style={{
@@ -524,7 +563,6 @@ export default function TasksPage(): React.JSX.Element {
                   borderRadius: "var(--radius-md)",
                 }}
               >
-                {/* 硬盘读写（左侧） */}
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <span
                     style={{
@@ -553,7 +591,6 @@ export default function TasksPage(): React.JSX.Element {
 
                 <div style={{ width: 1, height: 12, background: "var(--border-light)" }} />
 
-                {/* 下载速度（右侧） */}
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <Wifi size={12} style={{ color: "var(--neon-cyan)" }} />
                   <span

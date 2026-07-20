@@ -19,22 +19,17 @@ export async function GET(): Promise<NextResponse> {
 
     const totalSize = videoInfos.reduce((sum: number, v: { fileSize: bigint | number }) => sum + Number(v.fileSize), 0);
 
-    // 平均速度（按已完成任务近似估算）
     const avgSpeed = completedTasks > 0 ? totalSize / completedTasks : 0;
-    const currentSpeed = 0; // 实时速度需要单独追踪
+    const currentSpeed = 0; // Real-time speed needs separate tracking
     const speedRating = completedTasks > 0 ? (totalSize / completedTasks / (1024 * 1024)) * 10 : 0;
 
-    // 获取系统磁盘 IO 信息（Node.js 18+ 支持）
-    // 默认显示 0 KB/s 作为磁盘速率
     let diskIoBytesPerSec = 0;
     try {
-      const diskInfo = (os as any).getDiskUsage?.() || (os as any).diskUsage?.();
+      const diskInfo = (os as unknown as { getDiskUsage?: () => { readSpeed?: number; writeSpeed?: number }; diskUsage?: () => { readSpeed?: number; writeSpeed?: number } }).getDiskUsage?.() || (os as unknown as { getDiskUsage?: () => { readSpeed?: number; writeSpeed?: number }; diskUsage?: () => { readSpeed?: number; writeSpeed?: number } }).diskUsage?.();
       if (diskInfo && typeof diskInfo === 'object') {
-        // 尝试从系统 API 获取实际磁盘 IO 速率（如果可用）
         diskIoBytesPerSec = diskInfo.readSpeed || diskInfo.writeSpeed || 0;
       }
     } catch {
-      // 保持默认 0
     }
     const diskIoStr = formatFileSize(diskIoBytesPerSec) + '/s';
 

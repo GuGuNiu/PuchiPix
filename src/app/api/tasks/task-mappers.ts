@@ -1,7 +1,7 @@
 import type { DownloadTask, TaskStatus } from '@/types';
 
 /**
- * 将 Gallery 状态映射为 TaskStatus
+ *  Gallery StateMapto TaskStatus
  */
 export function mapGalleryStatus(status: string): TaskStatus {
   switch (status) {
@@ -17,6 +17,8 @@ export function mapGalleryStatus(status: string): TaskStatus {
       return 'scrape_pending';
     case 'download_pending':
       return 'download_pending';
+    case 'paused':
+      return 'paused';
     case 'failed':
     case 'not_found':
       return 'failed';
@@ -25,9 +27,7 @@ export function mapGalleryStatus(status: string): TaskStatus {
   }
 }
 
-/**
- * 将 Gallery 记录映射为统一的 DownloadTask 格式
- */
+
 export function mapGalleryToTask(g: {
   id: number;
   seq?: string | null;
@@ -138,9 +138,7 @@ export function mapGalleryToTask(g: {
   };
 }
 
-/**
- * 将 SniffTask 记录映射为统一的 DownloadTask 格式
- */
+
 export function mapSniffToTask(s: {
   id: number;
   seq?: string | null;
@@ -158,6 +156,7 @@ export function mapSniffToTask(s: {
     sniffing: 'scraping',
     completed: 'completed',
     failed: 'failed',
+    paused: 'paused',
   };
 
   const progress = s.status === 'completed' ? 100 : s.status === 'sniffing' ? 30 : 0;

@@ -1,31 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useI18n } from "@/lib/i18n";
 
-/**
- * 控制台实时日志组件（任务管理专用）
- *
- * 每 1.2 秒刷新一次，显示最新任务管理相关日志。
- * 极窄边框 + 微弱圆角设计，贴边显示。
- */
 export function ConsoleLog(): React.JSX.Element {
-  const [log, setLog] = useState<string>("加载中...");
+  const { t } = useI18n();
+  const [log, setLog] = useState<string>(t("common.loading"));
 
   useEffect(() => {
-    const fetchLog = async () => {
+    const fetchLog = async (): Promise<void> => {
       try {
         const res = await fetch("/api/logs/latest");
         const data = await res.json();
-        setLog(data.log ?? "暂无任务日志");
+        setLog(data.log ?? t("console.noTaskLogs"));
       } catch {
-        setLog("日志获取失败");
+        setLog(t("console.fetchFailed"));
       }
     };
 
-    // 立即获取一次
     fetchLog();
 
-    // 每 1.2 秒刷新
     const interval = setInterval(fetchLog, 1200);
 
     return () => clearInterval(interval);

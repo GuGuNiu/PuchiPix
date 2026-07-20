@@ -11,6 +11,7 @@ const viVN: TranslationDict = {
   "tasks.sortProgressAsc": "Tiến trình ↑",
   "tasks.sortStatus": "Theo trạng thái",
   "tasks.searchPlaceholder": "Tìm kiếm tiêu đề, URL hoặc nhân vật...",
+  "tasks.search": "Tìm kiếm...",
   "tasks.pleaseSelectTasks": "Vui lòng chọn tác vụ trước",
   "tasks.confirmBatchDelete": "Xác nhận xóa hàng loạt {count} tác vụ?",
   "tasks.batchDeleteComplete": "Xóa hàng loạt hoàn tất: {count} mục",
