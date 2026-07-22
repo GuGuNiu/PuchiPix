@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: '部署目标环境'
+        description: 'Deploy target environment'
         required: true
         default: 'staging'
         type: choice
@@ -40,14 +40,14 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install dependencies
+        working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma client
-        run: pnpm prisma:generate
-
       - name: Build Next.js (standalone)
+        working-directory: frontend
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: 1
@@ -79,7 +79,7 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./frontend
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -103,12 +103,8 @@ jobs:
 
       - name: Deploy to staging server
         run: |
-          echo "🚀 部署到 Staging 环境"
-          echo "镜像: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
-          # 在此处添加你的部署脚本，例如：
-          # - SSH 到服务器执行 docker pull && docker compose up -d
-          # - 或调用 Kubernetes API 更新 deployment
-          # - 或调用云服务提供商 API
+          echo "Deploying to Staging"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
 
   deploy-production:
     name: Deploy to Production
@@ -125,6 +121,5 @@ jobs:
 
       - name: Deploy to production server
         run: |
-          echo "🚀 部署到 Production 环境"
-          echo "镜像: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
-          # 在此处添加你的生产环境部署脚本
+          echo "Deploying to Production"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}}"

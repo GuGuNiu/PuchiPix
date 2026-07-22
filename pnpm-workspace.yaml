@@ -1,5 +1,0 @@
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
-
-storeDir: .pnpm-store

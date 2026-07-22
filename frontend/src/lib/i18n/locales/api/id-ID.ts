@@ -1,0 +1,23 @@
+import type { TranslationDict } from "../../types";
+const idID: TranslationDict = {
+  "api.validation.maxConcurrentTasks": "Maks. tugas konkuren harus antara 1 dan 50", "api.validation.maxSniffConcurrent": "Maks. konkurensi sniff harus antara 1 dan 10", "api.validation.maxScrapingSlots": "Maks. slot ekstraksi harus antara 1 dan 50", "api.validation.tsSegmentConcurrent": "Konkurensi segmen TS harus antara 1 dan 200", "api.validation.galleryImageConcurrent": "Konkurensi gambar galeri harus antara 1 dan 50", "api.sjs.missingAction": "Parameter action hilang", "api.sjs.signMissingAccountId": "Masuk memerlukan parameter accountId", "api.sjs.buyMissingAccountId": "Beli postingan memerlukan parameter accountId", "api.sjs.buyMissingTid": "Beli postingan memerlukan parameter tid (ID postingan)", "api.sjs.loginMissingAccountId": "Masuk memerlukan parameter accountId", "api.sjsShelf.noUrls": "Silakan berikan daftar URL", "api.sjsShelf.emptyUrl": "URL kosong", "api.sjsShelf.invalidSjsUrl": "Bukan URL SJS yang valid", "api.sjsShelf.missingId": "Parameter id hilang", "api.sjsShelf.invalidId": "id tidak valid", "api.sjsShelf.notFound": "Bookmark tidak ditemukan", "api.sjsShelf.refreshFailed": "Gagal memperbarui metadata", "api.sjsShelf.unknownAction": "Aksi tidak diketahui", "api.search.missingJobId": "Silakan beri jobId", "api.search.batchScrapeStarted": "Ekstraksi massal dimulai", "api.search.missingPageUrl": "Silakan beri pageUrl", "api.search.videoNotFound": "Item video tidak ditemukan", "api.search.missingKeyword": "Silakan beri kata kunci pencarian", "api.search.missingVideoTitle": "Silakan beri judul video", "api.protagonist.galleryNotFound": "Tidak ada galeri untuk karakter ini", "api.protagonist.fetchFailed": "Gagal mengambil info karakter", "api.ouo.missingParams": "Parameter wajib hilang: galleryId, ouoUrl", "api.ouo.missingGalleryId": "Parameter wajib hilang: galleryId", "api.gallery.notFound": "Galeri tidak ditemukan", "api.gallery.noProviderMatch": "Tidak ada penyedia situs yang cocok, tidak bisa mengekstrak ulang", "api.gallery.rescrapeStarted": "Ekstraksi ulang galeri dimulai", "api.gallery.retryFailedStarted": "Coba lagi file gagal dimulai", "api.gallery.downloadStarted": "Unduhan galeri dimulai", "api.gallery.noZipInfo": "Galeri ini tidak memiliki info unduhan ZIP", "api.gallery.noDownloadUrl": "Tidak ada URL unduhan, silakan beri tautan mirror secara manual", "api.gallery.invalidSource": "Hanya sumber ouo.io yang mendukung antrian orquestrator, sumber saat ini adalah {source}", "api.gallery.noZipData": "Tidak ada info unduhan ZIP", "api.gallery.noProvider": "Tidak ada penyedia situs yang cocok", "api.gallery.alreadyScraping": "Galeri ini sedang diekstrak oleh tugas lain, coba lagi nanti", "api.gallery.pageNotFound": "Halaman tidak ditemukan (404)", "api.gallery.pageNotFoundSkipped": "Halaman tidak ditemukan (404), dilewati",
+  "api.gallery.identifying": "Galeri sedang diidentifikasi, tunggu hingga selesai sebelum mengunduh",
+  "api.gallery.scrapeComplete": "Ekstraksi galeri selesai, unduhan dimulai secara asinkron",
+  "api.gallery.batchMissingUrls": "Parameter urls harus array tidak kosong",
+  "api.characterDb.syncRunning": "Tugas sinkronisasi sedang berjalan",
+  "api.gallery.batchEmptyUrl": "URL kosong", "api.tasks.noM3u8Extracted": "Tidak bisa mengekstrak tautan M3U8 dari halaman", "api.blocklist.addFailed": "Gagal menambahkan",
+  "api.logs.systemReady": "Sistem siap, menunggu tugas...",
+  "api.logs.taskNumber": "Tugas #{id}",
+  "api.logs.fetchFailed": "Gagal mengambil log",
+  "api.gallery.unsupportedScrape": "Situs {site} tidak mendukung ekstraksi galeri",
+  "api.gallery.allDomainsFailed": "Semua domain gagal diekstrak",
+  "api.tasks.multipleM3u8Detected": "Terdeteksi {count} alamat M3U8, silakan pilih",
+  "api.tasks.unsupportedListScrape": "Penyedia tidak mendukung ekstraksi halaman daftar",
+  "api.common.internalError": "Kesalahan internal server", "api.common.missingParams": "Parameter wajib hilang: {params}",
+  "api.gallery.noProviderForRescrape": "Penyedia galeri tidak ditemukan, tidak dapat mengekstrak ulang",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} tidak ditemukan",
+  "api.dag.invalidAction": "Aksi tidak valid: {action}",
+};
+export default idID;

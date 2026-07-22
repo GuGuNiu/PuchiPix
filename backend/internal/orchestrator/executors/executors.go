@@ -1,0 +1,276 @@
+package executors
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"backend/internal/infra"
+)
+
+// Executor is the interface that node executors implement to perform
+// the actual work of a DAG node.
+type Executor interface {
+	// Key returns the executor's routing key, matching DagNodeDefinition.Executor.
+	Key() string
+	// Execute runs the node's work and returns the result.
+	Execute(ctx context.Context, node ExecutorNode) (bool, error)
+}
+
+// ExecutorNode carries the data an executor needs to run a node.
+type ExecutorNode struct {
+	NodeID      string
+	DagID       string
+	TaskType    string
+	Phase       string
+	ExecutorKey string
+	Config      map[string]any
+}
+
+// domainFallbackConfig holds the fallback domains for a download node.
+type domainFallbackConfig struct {
+	primaryDomain  string
+	fallbackDomains []string
+}
+
+// Registry holds all registered executors and routes execution calls
+// to the correct one based on the executor key.
+type Registry struct {
+	mu        sync.RWMutex
+	executors map[string]Executor
+	logger    *infra.Logger
+}
+
+// NewRegistry creates an empty executor registry.
+func NewRegistry() *Registry {
+	return &Registry{
+		executors: make(map[string]Executor),
+		logger:    infra.NewLogger("ExecutorRegistry"),
+	}
+}
+
+// Register adds an executor to the registry.
+func (r *Registry) Register(e Executor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.executors[e.Key()] = e
+	r.logger.Info("Executor registered", "key", e.Key())
+}
+
+// Get retrieves an executor by key.
+func (r *Registry) Get(key string) Executor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.executors[key]
+}
+
+// ScrapeExecutor handles the scrape phase, calling the site provider
+// to extract gallery metadata.
+type ScrapeExecutor struct {
+	logger *infra.Logger
+	providerFn func(ctx context.Context, url string) (map[string]any, error)
+}
+
+// NewScrapeExecutor creates a scrape executor with the given provider callback.
+func NewScrapeExecutor(providerFn func(ctx context.Context, url string) (map[string]any, error)) *ScrapeExecutor {
+	return &ScrapeExecutor{
+		logger:     infra.NewLogger("ScrapeExecutor"),
+		providerFn: providerFn,
+	}
+}
+
+func (e *ScrapeExecutor) Key() string { return "scrape" }
+
+func (e *ScrapeExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
+	url, ok := node.Config["url"].(string)
+	if !ok {
+		return false, fmt.Errorf("scrape executor: no url in config")
+	}
+	if e.providerFn == nil {
+		e.logger.Warn("No provider function registered, simulating success", "nodeId", node.NodeID)
+		return true, nil
+	}
+	data, err := e.providerFn(ctx, url)
+	if err != nil {
+		e.logger.Error("Scrape failed", err, "nodeId", node.NodeID, "dagId", node.DagID)
+		return false, err
+	}
+	if data != nil {
+		e.logger.Info("Scrape completed", "nodeId", node.NodeID, "dagId", node.DagID)
+	}
+	return true, nil
+}
+
+// DownloadExecutor handles the download phase, with domain fallback
+// support to switch to backup domains when the primary is unavailable.
+type DownloadExecutor struct {
+	logger      *infra.Logger
+	downloadFn func(ctx context.Context, url, savePath string, domains []string) error
+}
+
+// NewDownloadExecutor creates a download executor with the given
+// download callback that supports domain fallback.
+func NewDownloadExecutor(fn func(ctx context.Context, url, savePath string, domains []string) error) *DownloadExecutor {
+	return &DownloadExecutor{
+		logger:      infra.NewLogger("DownloadExecutor"),
+		downloadFn: fn,
+	}
+}
+
+func (e *DownloadExecutor) Key() string { return "download" }
+
+func (e *DownloadExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
+	url, _ := node.Config["url"].(string)
+	savePath, _ := node.Config["savePath"].(string)
+	var domains []string
+	if d, ok := node.Config["fallbackDomains"].([]any); ok {
+		for _, v := range d {
+			if s, ok := v.(string); ok {
+				domains = append(domains, s)
+			}
+		}
+	}
+
+	if e.downloadFn == nil {
+		e.logger.Warn("No download function registered, simulating success", "nodeId", node.NodeID)
+		return true, nil
+	}
+
+	err := e.downloadFn(ctx, url, savePath, domains)
+	if err != nil {
+		e.logger.Error("Download failed (all domains exhausted)", err, "nodeId", node.NodeID, "dagId", node.DagID)
+		return false, err
+	}
+	e.logger.Info("Download completed", "nodeId", node.NodeID, "dagId", node.DagID)
+	return true, nil
+}
+
+// VerifyExecutor handles the verify phase, checking downloaded content
+// and triggering needs_retry when verification finds missing data.
+type VerifyExecutor struct {
+	logger      *infra.Logger
+	verifyFn    func(ctx context.Context, node ExecutorNode) (string, int, string)
+}
+
+// NewVerifyExecutor creates a verify executor with the given verify callback.
+// The callback returns (status, corrected, reason).
+func NewVerifyExecutor(fn func(ctx context.Context, node ExecutorNode) (string, int, string)) *VerifyExecutor {
+	return &VerifyExecutor{
+		logger:   infra.NewLogger("VerifyExecutor"),
+		verifyFn: fn,
+	}
+}
+
+func (e *VerifyExecutor) Key() string { return "verify" }
+
+func (e *VerifyExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
+	if e.verifyFn == nil {
+		e.logger.Warn("No verify function registered, simulating success", "nodeId", node.NodeID)
+		return true, nil
+	}
+	status, corrected, reason := e.verifyFn(ctx, node)
+	switch status {
+	case "passed":
+		e.logger.Info("Verification passed", "nodeId", node.NodeID, "corrected", corrected, "reason", reason)
+		return true, nil
+	case "needs_retry":
+		e.logger.Warn("Verification needs retry", "nodeId", node.NodeID, "reason", reason)
+		return false, fmt.Errorf("needs_retry: %s", reason)
+	default:
+		e.logger.Error("Verification failed", nil, "nodeId", node.NodeID, "reason", reason)
+		return false, fmt.Errorf("verification failed: %s", reason)
+	}
+}
+
+// ExtractExecutor handles the extract phase, decompressing archives.
+type ExtractExecutor struct {
+	logger     *infra.Logger
+	extractFn  func(ctx context.Context, archivePath, destPath, password string) error
+}
+
+// NewExtractExecutor creates an extract executor with the given callback.
+func NewExtractExecutor(fn func(ctx context.Context, archivePath, destPath, password string) error) *ExtractExecutor {
+	return &ExtractExecutor{
+		logger:    infra.NewLogger("ExtractExecutor"),
+		extractFn: fn,
+	}
+}
+
+func (e *ExtractExecutor) Key() string { return "extract" }
+
+func (e *ExtractExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
+	archivePath, _ := node.Config["archivePath"].(string)
+	destPath, _ := node.Config["destPath"].(string)
+	password, _ := node.Config["password"].(string)
+
+	if e.extractFn == nil {
+		e.logger.Warn("No extract function registered, simulating success", "nodeId", node.NodeID)
+		return true, nil
+	}
+
+	if err := e.extractFn(ctx, archivePath, destPath, password); err != nil {
+		e.logger.Error("Extraction failed", err, "nodeId", node.NodeID)
+		return false, err
+	}
+	e.logger.Info("Extraction completed", "nodeId", node.NodeID, "archivePath", archivePath)
+	return true, nil
+}
+
+// DownloadWithDomainFallback implements the 260720 domain fallback fix,
+// trying the original URL first, then each fallback domain in sequence
+// until one succeeds.
+func DownloadWithDomainFallback(
+	ctx context.Context,
+	originalURL string,
+	domains []string,
+	tryFn func(ctx context.Context, url string) error,
+) error {
+	if tryFn == nil {
+		return fmt.Errorf("no try function provided")
+	}
+
+	var lastErr error
+
+	if err := tryFn(ctx, originalURL); err == nil {
+		return nil
+	} else {
+		lastErr = err
+	}
+
+	for _, domain := range domains {
+		replacedURL := ReplaceDomain(originalURL, domain)
+		if err := tryFn(ctx, replacedURL); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("all domains failed")
+	}
+	return lastErr
+}
+
+// ReplaceDomain swaps the domain portion of a URL with the given domain.
+func ReplaceDomain(originalURL, newDomain string) string {
+	schemeEnd := indexOf(originalURL, "://")
+	if schemeEnd < 0 {
+		return originalURL
+	}
+	rest := originalURL[schemeEnd+3:]
+	pathStart := indexOf(rest, "/")
+	if pathStart < 0 {
+		return originalURL[:schemeEnd+3] + newDomain
+	}
+	return originalURL[:schemeEnd+3] + newDomain + rest[pathStart:]
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}

@@ -1,11 +1,11 @@
-# Dependabot 自动依赖更新配置
-# 文档: https://docs.github.com/en/code-security/dependabot
+# Dependabot auto dependency update config
+# Docs: https://docs.github.com/en/code-security/dependabot
 
 version: 2
 updates:
-  # npm/pnpm 依赖
+  # Frontend npm/pnpm dependencies
   - package-ecosystem: npm
-    directory: /
+    directory: /frontend
     schedule:
       interval: weekly
       day: monday
@@ -21,19 +21,14 @@ updates:
       prefix: 'chore(deps)'
       include: scope
     groups:
-      # Next.js 生态
+      # Next.js ecosystem
       next-js:
         patterns:
           - next
           - react
           - react-dom
           - eslint-config-next
-      # Prisma ORM
-      prisma:
-        patterns:
-          - prisma
-          - '@prisma/*'
-      # TypeScript 生态
+      # TypeScript ecosystem
       typescript:
         patterns:
           - typescript
@@ -44,11 +39,26 @@ updates:
           - tailwindcss
           - '@tailwindcss/*'
     ignore:
-      # 主版本更新需要手动确认
+      # Major version updates need manual review
       - dependency-name: next
         update-types: ['version-update:semver-major']
       - dependency-name: react
         update-types: ['version-update:semver-major']
+
+  # Backend Go modules
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    labels:
+      - dependencies
+      - automerge
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
 
   # GitHub Actions
   - package-ecosystem: github-actions

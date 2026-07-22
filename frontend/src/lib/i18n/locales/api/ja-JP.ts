@@ -1,0 +1,86 @@
+import type { TranslationDict } from "../../types";
+
+// API エラーメッセージ — 日本語
+const jaJP: TranslationDict = {
+  "api.validation.maxConcurrentTasks": "同時実行タスク数は 1~50 の範囲で指定してください",
+  "api.validation.maxSniffConcurrent": "スニッフ最大並行数は 1~10 の範囲で指定してください",
+  "api.validation.maxScrapingSlots": "識別中最大数は 1~50 の範囲で指定してください",
+  "api.validation.tsSegmentConcurrent": "TS セグメント並行数は 1~200 の範囲で指定してください",
+  "api.validation.galleryImageConcurrent": "ギャラリー画像並行数は 1~50 の範囲で指定してください",
+
+  "api.sjs.missingAction": "action パラメータが不足しています",
+  "api.sjs.signMissingAccountId": "サインインには accountId パラメータが必要です",
+  "api.sjs.buyMissingAccountId": "投稿購入には accountId パラメータが必要です",
+  "api.sjs.buyMissingTid": "投稿購入には tid パラメータ投稿 IDが必要です",
+  "api.sjs.loginMissingAccountId": "ログインには accountId パラメータが必要です",
+
+  // SJS シェルフ
+  "api.sjsShelf.noUrls": "URL リストを提供してください",
+  "api.sjsShelf.emptyUrl": "空の URL",
+  "api.sjsShelf.invalidSjsUrl": "有効な SJS URL ではありません",
+  "api.sjsShelf.missingId": "id パラメータが不足しています",
+  "api.sjsShelf.invalidId": "無効な id",
+  "api.sjsShelf.notFound": "ブックマークが見つかりません",
+  "api.sjsShelf.refreshFailed": "メタデータの更新に失敗しました",
+  "api.sjsShelf.unknownAction": "不明なアクション",
+
+  "api.search.missingJobId": "jobId を指定してください",
+  "api.search.batchScrapeStarted": "一括スクレイプを開始しました",
+  "api.search.missingPageUrl": "pageUrl を指定してください",
+  "api.search.videoNotFound": "該当する動画項目が見つかりません",
+  "api.search.missingKeyword": "検索キーワードを指定してください",
+  "api.search.missingVideoTitle": "動画タイトルを指定してください",
+
+  "api.protagonist.galleryNotFound": "このキャラのギャラリーが見つかりません",
+  "api.protagonist.fetchFailed": "キャラ情報の取得に失敗しました",
+
+  "api.ouo.missingParams": "必須パラメータが不足しています: galleryId, ouoUrl",
+  "api.ouo.missingGalleryId": "必須パラメータが不足しています: galleryId",
+
+  "api.gallery.notFound": "ギャラリーが存在しません",
+  "api.gallery.noProviderMatch": "一致するサイトプロバイダーが見つかりません、再スクレイプできません",
+  "api.gallery.rescrapeStarted": "ギャラリーの再スクレイプを開始しました",
+  "api.gallery.retryFailedStarted": "失敗ファイルの再試行を開始しました",
+  "api.gallery.downloadStarted": "ギャラリーダウンロードを開始しました",
+  "api.gallery.noZipInfo": "このギャラリーには ZIP ダウンロード情報がありません",
+  "api.gallery.noDownloadUrl": "ダウンロード URL がありません、ミラーサイトリンクを手動で入力してください",
+  "api.gallery.invalidSource": "ouo.io ソースのみオーケストレーターエンキューに対応、現在のソースは {source}",
+  "api.gallery.noZipData": "ZIP ダウンロード情報がありません",
+  "api.gallery.noProvider": "一致するサイトプロバイダーが見つかりません",
+  "api.gallery.alreadyScraping": "このギャラリーは別のタスクでスクレイプ中です、後で再試行してください",
+  "api.gallery.pageNotFound": "ページが存在しません (404)",
+  "api.gallery.pageNotFoundSkipped": "ページが存在しません (404)、スキップしました",
+  "api.gallery.identifying": "ギャラリー識別中です。識別完了後にダウンロードを開始してください",
+  "api.gallery.scrapeComplete": "ギャラリースクレイプ完了、ダウンロードを非同期で開始しました",
+  "api.gallery.batchMissingUrls": "urls パラメータは空でない配列である必要があります",
+  "api.gallery.batchEmptyUrl": "空の URL",
+  "api.gallery.noProviderForRescrape": "ギャラリープロバイダーが見つかりません、再スクレイプできません",
+
+  "api.tasks.noM3u8Extracted": "ページから M3U8 リンクを抽出できません",
+
+  "api.blocklist.addFailed": "追加失敗",
+
+// ログ
+  "api.logs.systemReady": "システム準備完了、タスク待機中...",
+  "api.logs.taskNumber": "タスク #{id}",
+  "api.logs.fetchFailed": "ログ取得失敗",
+
+  // ギャラリー（補足）
+  "api.gallery.unsupportedScrape": "サイト {site} はギャラリースクレイピングをサポートしていません",
+  "api.gallery.allDomainsFailed": "すべてのドメインでスクレイピングに失敗しました",
+
+  // タスク（補足）
+  "api.tasks.multipleM3u8Detected": "{count} 個の M3U8 アドレスを検出しました、選択してください",
+  "api.tasks.unsupportedListScrape": "プロバイダーはリストページのスクレイピングをサポートしていません",
+
+  // 共通
+  "api.characterDb.syncRunning": "同期タスクが実行中です",
+  "api.common.internalError": "サーバー内部エラー",
+  "api.common.missingParams": "必須パラメータが不足しています: {params}",
+
+  // DAG
+  "api.dag.notFound": "DAG {dagId} が見つかりません",
+  "api.dag.invalidAction": "無効な操作: {action}",
+};
+
+export default jaJP;

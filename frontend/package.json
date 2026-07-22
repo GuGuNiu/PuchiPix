@@ -1,0 +1,40 @@
+{
+  "name": "puchipix-nextjs",
+  "version": "0.2.4",
+  "private": true,
+  "packageManager": "pnpm@10.9.0",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "next build",
+    "start": "tsx src/server.ts",
+    "lint": "eslint",
+    "test": "echo \"No tests configured\" && exit 0",
+    "test:typecheck": "tsc --noEmit",
+    "docker:build": "docker build -t puchipix .",
+    "docker:run": "docker run -p 10540:10540 --env-file .env -v puchipix-data:/app/data puchipix"
+  },
+  "dependencies": {
+    "@radix-ui/react-tooltip": "^1.2.12",
+    "@types/react-window": "^2.0.0",
+    "lucide-react": "^1.18.0",
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-window": "^2.2.7",
+    "socket.io-client": "^4.8.3",
+    "sonner": "^2.0.7",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "tsx": "^4",
+    "typescript": "^5",
+    "typescript-eslint": "^8.64.0"
+  }
+}

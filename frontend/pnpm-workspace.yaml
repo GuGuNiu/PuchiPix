@@ -1,0 +1,12 @@
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+onlyBuiltDependencies: []
+
+storeDir: .pnpm-store
+cacheDir: ./.npm-cache
+globalBinDir: ./node_modules/.bin
+nodeLinker: hoisted
+strictPeerDependencies: false
+enablePrePostScripts: true
