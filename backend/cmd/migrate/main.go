@@ -26,7 +26,7 @@ type tableDefinition struct {
 // Tables are ordered to satisfy foreign-key dependencies:
 // parents first, children later.
 var tables = []tableDefinition{
-	// ��?��? No FK dependencies ��?��?
+	// ── No FK dependencies ──
 	{Name: "download_tasks", SQLite: "download_tasks", Columns: []string{
 		"id", "url", "m3u8_url", "status", "progress", "file_path",
 		"format", "priority", "error_msg", "seq", "created_at", "updated_at",
@@ -87,13 +87,13 @@ var tables = []tableDefinition{
 		"id", "site_id", "config_key", "config_value",
 		"created_at", "updated_at",
 	}},
-	// ��?��? FK to download_tasks ��?��?
+	// ── FK to download_tasks ──
 	{Name: "video_infos", SQLite: "video_infos", Columns: []string{
 		"id", "task_id", "title", "source_url", "file_size",
 		"duration", "tags", "actors", "categories", "director",
 		"resolution", "created_at",
 	}},
-	// ��?��? FK to galleries ��?��?
+	// ── FK to galleries ──
 	{Name: "gallery_images", SQLite: "gallery_images", Columns: []string{
 		"id", "gallery_id", "url", "local_path", "file_name",
 		"file_size", "width", "height", "format", "page_index",
@@ -123,7 +123,7 @@ func main() {
 }
 
 func run() int {
-	fmt.Println("=== PuchiPix SQLite ??PostgreSQL Migration ===")
+	fmt.Println("=== PuchiPix SQLite → PostgreSQL Migration ===")
 	fmt.Println()
 
 	// Paths
@@ -132,7 +132,7 @@ func run() int {
 	sqlitePath := filepath.Join(projectRoot, "..", "data", "puchipix.db")
 	dumpSchema(sqlitePath)
 
-	// ��?��? Step 1: Start embedded PostgreSQL ��?��?
+	// ── Step 1: Start embedded PostgreSQL ──
 	fmt.Print("Starting embedded PostgreSQL... ")
 	pg := startEmbeddedPG()
 	if pg == nil {
@@ -149,7 +149,7 @@ func run() int {
 	}()
 	fmt.Println("ok")
 
-	// ��?��? Step 2: Connect to PostgreSQL ��?��?
+	// ── Step 2: Connect to PostgreSQL ──
 	pgConnStr := "postgres://puchipix:puchipix@localhost:5432/puchipix?sslmode=disable"
 	ctx := context.Background()
 	pgConn, err := pgx.Connect(ctx, pgConnStr)
@@ -159,7 +159,7 @@ func run() int {
 	}
 	defer pgConn.Close(ctx)
 
-	// ��?��? Step 3: Create PG tables ��?��?
+	// ── Step 3: Create PG tables ──
 	fmt.Print("Creating tables... ")
 	if err := createTables(ctx, pgConn); err != nil {
 		fmt.Fprintf(os.Stderr, "\nCreate tables failed: %v\n", err)
@@ -167,7 +167,7 @@ func run() int {
 	}
 	fmt.Println("ok")
 
-	// ��?��? Step 3b: Truncate (idempotent re-run safety) ��?��?
+	// ── Step 3b: Truncate (idempotent re-run safety) ──
 	fmt.Print("Truncating tables... ")
 	if err := truncateAll(ctx, pgConn); err != nil {
 		fmt.Fprintf(os.Stderr, "\nTruncate failed: %v\n", err)
@@ -175,7 +175,7 @@ func run() int {
 	}
 	fmt.Println("ok")
 
-	// ��?��? Step 4: Open SQLite ��?��?
+	// ── Step 4: Open SQLite ──
 	fmt.Print("Opening SQLite... ")
 	sqliteDB, err := sql.Open("sqlite", sqlitePath+"?_journal_mode=WAL&mode=ro")
 	if err != nil {
@@ -186,7 +186,7 @@ func run() int {
 	sqliteDB.SetMaxOpenConns(1) // single reader for migration
 	fmt.Println("ok")
 
-	// ��?��? Step 5: Migrate tables ��?��?
+	// ── Step 5: Migrate tables ──
 	migrated := 0
 	rows := 0
 	for _, t := range tables {
@@ -195,7 +195,7 @@ func run() int {
 			fmt.Printf("  %-30s (empty, skip)\n", t.Name)
 			continue
 		}
-		fmt.Printf("  %-30s %d rows ??", t.Name, count)
+		fmt.Printf("  %-30s %d rows →", t.Name, count)
 
 		n, err := migrateTable(ctx, sqliteDB, pgConn, t)
 		if err != nil {
@@ -214,7 +214,7 @@ func run() int {
 	fmt.Println()
 	fmt.Printf("Migration complete: %d tables, %d rows\n\n", migrated, rows)
 
-	// ��?��? Step 6: Verify ��?��?
+	// ── Step 6: Verify ──
 	fmt.Println("=== Verification ===")
 	allOk := true
 	for _, t := range tables {
@@ -228,10 +228,10 @@ func run() int {
 		fmt.Printf("  %-30s SQLite=%d PG=%d %s\n", t.Name, sqlCount, pgCount, status)
 	}
 	if !allOk {
-		fmt.Println("\n?? Row count mismatch detected ??review the mismatched tables.")
+		fmt.Println("\n✗ Row count mismatch detected — review the mismatched tables.")
 		return 2
 	}
-	fmt.Println("\n??All tables verified.")
+	fmt.Println("\n✓ All tables verified.")
 	return 0
 }
 
@@ -318,14 +318,14 @@ func migrateTable(ctx context.Context, sqlDB *sql.DB, pgConn *pgx.Conn, t tableD
 			return count, fmt.Errorf("scan row: %w", err)
 		}
 
-		// Type normalization: SQLite ??PostgreSQL
+		// Type normalization: SQLite → PostgreSQL
 		for i, v := range values {
-			// []byte ??string (TEXT columns)
+			// []byte → string (TEXT columns)
 			if b, ok := v.([]byte); ok {
 				values[i] = string(b)
 				continue
 			}
-			// int64 ??bool (BOOLEAN columns)
+			// int64 → bool (BOOLEAN columns)
 			if boolColumns[t.Columns[i]] {
 				if n, ok := v.(int64); ok {
 					values[i] = n != 0

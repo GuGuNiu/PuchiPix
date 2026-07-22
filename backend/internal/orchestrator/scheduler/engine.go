@@ -410,7 +410,7 @@ func (s *SchedulerEngine) GetStats() SchedulerStats {
 
 // StartScanTimer begins a periodic timer that re-scans for schedulable
 // nodes, compensating for missed slot-freed callbacks. A random jitter
-// (��25% of interval) is added to each tick to spread out schedule
+// (~25% of interval) is added to each tick to spread out schedule
 // attempts across goroutines and prevent thundering herd.
 func (s *SchedulerEngine) StartScanTimer(interval time.Duration) {
 	s.mu.Lock()
@@ -424,7 +424,7 @@ func (s *SchedulerEngine) StartScanTimer(interval time.Duration) {
 		for {
 			select {
 			case <-ticker.C:
-				// Jitter: ��25% of base interval to de-synchronize scans.
+				// Jitter: ~25% of base interval to de-synchronize scans.
 				jitterRange := interval / 4
 				jitterNs := rand.Int63n(int64(jitterRange)*2+1) - int64(jitterRange)
 				time.Sleep(time.Duration(jitterNs))

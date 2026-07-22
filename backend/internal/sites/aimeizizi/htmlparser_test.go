@@ -174,7 +174,7 @@ func TestParseGalleryPageHtml_Tags(t *testing.T) {
 		<a href="/tag/cute">cute</a>
 		<a href="/tag/cute">cute</a>
 		<a href="/tag/model">model</a>
-		<a href="/tag/">��ǩ</a>
+		<a href="/tag/">标签</a>
 		<a href="/tag/longtag">this-tag-text-is-definitely-over-thirty-chars</a>
 		</body></html>`
 	doc := mustDoc(t, html)
@@ -186,7 +186,7 @@ func TestParseGalleryPageHtml_Tags(t *testing.T) {
 }
 
 // TestParseGalleryPageHtml_Pagination verifies that the Chinese
-// pagination text (��N??��M?? is correctly parsed, enabling the
+// pagination text (第N页 共M页) is correctly parsed, enabling the
 // scraper to iterate through all pages of a multi-page gallery.
 func TestParseGalleryPageHtml_Pagination(t *testing.T) {
 	tests := []struct {
@@ -195,9 +195,9 @@ func TestParseGalleryPageHtml_Pagination(t *testing.T) {
 		currentPage int
 		totalPages  int
 	}{
-		{"simplified", "??2 ҳ��??5 ??, 2, 5},
-		{"traditional", "??3 퓣�??10 ??, 3, 10},
-		{"no spaces", "????????, 1, 3},
+		{"simplified", "第2 页，共5 页", 2, 5},
+		{"traditional", "第3 頁，共10 頁", 3, 10},
+		{"no spaces", "第1页共3页", 1, 3},
 	}
 
 	for _, tt := range tests {
@@ -258,7 +258,7 @@ func TestParseGalleryPageHtml_NoArticle(t *testing.T) {
 func TestParseExtMetadata(t *testing.T) {
 	html := `<html><head>
 		<title>Gallery Page Title</title>
-		<meta name="keywords" content="cute, model, photo, ����?? />
+		<meta name="keywords" content="cute, model, photo, 爱妹子" />
 		</head><body>
 		<h1>Gallery H1</h1>
 		<nav aria-label="Breadcrumb"><a href="/">Home</a><a href="/cat/photo">Photo</a></nav>
@@ -272,7 +272,7 @@ func TestParseExtMetadata(t *testing.T) {
 	assert.Equal(t, "Gallery H1", meta.H1Title)
 	assert.Equal(t, "Photo", meta.Category)
 	assert.Equal(t, "Gallery Page Title", meta.DocumentTitle)
-	assert.Equal(t, "cute, model, photo, ����??, meta.KeywordStr)
+	assert.Equal(t, "cute, model, photo, 爱妹子", meta.KeywordStr)
 	assert.Equal(t, "https://example.com/cover.jpg", meta.CoverURL)
 	assert.Contains(t, meta.Tags, "cute")
 	assert.Contains(t, meta.Tags, "model")
@@ -364,10 +364,10 @@ func TestParseZipInfoFromHtml_Full(t *testing.T) {
 	html := `<html><body>
 		<div class="download-info-box">
 			<div class="info-title">Archive Name</div>
-			<div class="info-item"><strong>�ļ�����</strong> 50</div>
-			<div class="info-item"><strong>�ļ���С</strong> 120MB</div>
-			<div class="info-item"><strong>ͼƬ�ߴ�</strong> 1920x1080</div>
-			<div class="info-item"><strong>����</strong> <input class="password-input" value="secret123" /></div>
+			<div class="info-item"><strong>文件数量</strong> 50</div>
+			<div class="info-item"><strong>文件大小</strong> 120MB</div>
+			<div class="info-item"><strong>图片尺寸</strong> 1920x1080</div>
+			<div class="info-item"><strong>密码</strong> <input class="password-input" value="secret123" /></div>
 		</div>
 		<a class="btn-download" href="https://mediafire.com/download/abc" data-provider="mediafire">
 			<span class="download-label">MediaFire Download</span>
@@ -428,7 +428,7 @@ func TestParseZipInfoFromHtml_RequiresEmail(t *testing.T) {
 		<div class="download-info-box">
 			<div class="info-item"><strong>Files</strong> 10</div>
 		</div>
-		<div class="download-notice-text">Please ��֤ your email to download</div>
+		<div class="download-notice-text">Please 验证 your email to download</div>
 		</body></html>`
 	doc := mustDoc(t, html)
 
@@ -519,9 +519,9 @@ func TestExtractDomainFromUrl(t *testing.T) {
 // display and search indexing.
 func TestCleanTitleImpl(t *testing.T) {
 	suffixPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`\s*[|\-]\s*(������|LoveCutes)\s*$`),
+		regexp.MustCompile(`\s*[|\-]\s*(爱妹子|LoveCutes)\s*$`),
 	}
-	prefixes := []string{"[������]", "��������??, "[LoveCutes]"}
+	prefixes := []string{"[爱妹子]", "【爱妹子吧】", "[LoveCutes]"}
 
 	tests := []struct {
 		name    string
@@ -529,12 +529,12 @@ func TestCleanTitleImpl(t *testing.T) {
 		want    string
 	}{
 		{"plain title", "My Gallery", "My Gallery"},
-		{"prefix removal", "[������] My Gallery", "My Gallery"},
-		{"bracket prefix removal", "�������ӡ�My Gallery", "My Gallery"},
-		{"suffix removal", "My Gallery | ����??, "My Gallery"},
+		{"prefix removal", "[爱妹子] My Gallery", "My Gallery"},
+		{"bracket prefix removal", "【爱妹子吧】My Gallery", "My Gallery"},
+		{"suffix removal", "My Gallery | 爱妹子", "My Gallery"},
 		{"prefix and suffix", "[LoveCutes] My Gallery - LoveCutes", "My Gallery"},
 		{"empty input", "", ""},
-		{"only prefix", "[������]", ""},
+		{"only prefix", "[爱妹子]", ""},
 	}
 
 	for _, tt := range tests {
@@ -548,9 +548,9 @@ func TestCleanTitleImpl(t *testing.T) {
 // TestRemovePublisherPrefix verifies that known publisher prefixes
 // are stripped, leaving the actual gallery title intact.
 func TestRemovePublisherPrefix(t *testing.T) {
-	prefixes := []string{"[������]", "��������??}
-	assert.Equal(t, "My Title", removePublisherPrefix("[������] My Title", prefixes))
-	assert.Equal(t, "My Title", removePublisherPrefix("�������ӡ�My Title", prefixes))
+	prefixes := []string{"[爱妹子]", "【爱妹子吧】"}
+	assert.Equal(t, "My Title", removePublisherPrefix("[爱妹子] My Title", prefixes))
+	assert.Equal(t, "My Title", removePublisherPrefix("【爱妹子吧】My Title", prefixes))
 	assert.Equal(t, "Unknown Title", removePublisherPrefix("Unknown Title", prefixes))
 }
 

@@ -223,7 +223,7 @@ func TestDetectCyclesNoCycle(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestDetectCyclesSimple verifies a simple A��B��A cycle is detected.
+// TestDetectCyclesSimple verifies a simple A→B→A cycle is detected.
 func TestDetectCyclesSimple(t *testing.T) {
 	m := NewManager()
 	m.AddTask(DagCapableTask{ID: "A"})
@@ -237,7 +237,7 @@ func TestDetectCyclesSimple(t *testing.T) {
 	assert.NotEmpty(t, cycleErr.CyclePath)
 }
 
-// TestDetectCyclesComplex verifies a longer cycle A��B��C��D��A is detected.
+// TestDetectCyclesComplex verifies a longer cycle A→B→C→D→A is detected.
 func TestDetectCyclesComplex(t *testing.T) {
 	m := NewManager()
 	m.AddTask(DagCapableTask{ID: "A"})
@@ -373,6 +373,6 @@ func TestAddTaskReplacesExisting(t *testing.T) {
 
 	stats := m.GetStats()
 	assert.Equal(t, 2, stats.TaskCount)
-	assert.Equal(t, 1, stats.DependencyCount, "dependency B��A should be preserved")
+	assert.Equal(t, 1, stats.DependencyCount, "dependency B→A should be preserved")
 	assert.False(t, m.AreDependenciesMet("B"), "B should still depend on A")
 }

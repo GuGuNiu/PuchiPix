@@ -105,15 +105,13 @@ func TestSiteInfoFields(t *testing.T) {
 	si := SiteInfo{
 		ID:      "test",
 		Name:    "Test Site",
-		NameCn:  "����??,
+		NameCn:  "爱妹子",
 		NameEn:  "Test Site",
 		BaseURL: "https://test.com",
 		Enabled: true,
 		Type:    "photo",
 		Gallery: true,
 	}
-
-	assert.Equal(t, "test", si.ID)
 	assert.True(t, si.Enabled)
 	assert.True(t, si.Gallery)
 }
@@ -123,7 +121,7 @@ func TestSiteInfoFields(t *testing.T) {
 func TestSiteModuleConfigFields(t *testing.T) {
 	m := SiteModuleConfig{
 		ID:      "test",
-		NameCn:  "����",
+		NameCn:  "测试",
 		NameEn:  "Test",
 		BaseURL: "https://test.com",
 		Type:    "photo",

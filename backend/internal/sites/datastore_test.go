@@ -16,7 +16,7 @@ func TestDataStoreGetModuleConfig(t *testing.T) {
 	cfg, ok := ds.GetModuleConfig("aimeizizi")
 	require.True(t, ok)
 	assert.Equal(t, "aimeizizi", cfg.ID)
-	assert.Equal(t, "����??, cfg.NameCn)
+	assert.Equal(t, "爱妹子", cfg.NameCn)
 	assert.True(t, cfg.Enabled)
 
 	_, ok = ds.GetModuleConfig("nonexistent")
@@ -65,7 +65,7 @@ func TestDataStoreGetPublisherPrefixes(t *testing.T) {
 
 	prefixes := ds.GetPublisherPrefixes("aimeizizi")
 	assert.NotEmpty(t, prefixes)
-	assert.Contains(t, prefixes, "[������]")
+	assert.Contains(t, prefixes, "[爱妹子]")
 
 	assert.Nil(t, ds.GetPublisherPrefixes("kanav"))
 	assert.Nil(t, ds.GetPublisherPrefixes("nonexistent"))
@@ -163,7 +163,7 @@ func TestDataStoreGetAgeVerifyConfig(t *testing.T) {
 	cfg, ok := ds.GetAgeVerifyConfig("xsnvshen")
 	require.True(t, ok)
 	assert.Equal(t, "simple-submit-response", cfg.Field)
-	assert.Equal(t, "���ȷ�Ͻ���{?ɫŮ??, cfg.Value)
+	assert.Equal(t, "点此确认进入秀色女神", cfg.Value)
 	assert.Equal(t, "gcha_sfc_ec22ca15b1", cfg.Cookie)
 
 	_, ok = ds.GetAgeVerifyConfig("aimeizizi")

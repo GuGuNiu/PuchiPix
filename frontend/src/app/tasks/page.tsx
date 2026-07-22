@@ -14,10 +14,6 @@ import {
   Square as SquareIcon,
   Plus,
   Settings,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Wifi,
 } from "lucide-react";
 import type { TaskStatus, DownloadTask } from "@/types";
@@ -45,6 +41,7 @@ import { AddTaskModal } from "./_components/add-task-modal";
 import { DataStream, DiskActivity } from "@/components/ops/data-stream";
 import { ConsoleLog } from "@/components/console-log";
 import { TaskDetailPopover } from "./_components/task-detail-popover";
+import { Pagination } from "@/components/ui/pagination";
 
 export default function TasksPage(): React.JSX.Element {
   const { t, locale } = useI18n();
@@ -464,88 +461,13 @@ export default function TasksPage(): React.JSX.Element {
               zIndex: 10,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => goToPage(1)}
-                disabled={safePage <= 1}
-                title="首页"
-              >
-                <ChevronsLeft size={14} />
-              </button>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => goToPage(safePage - 1)}
-                disabled={safePage <= 1}
-                title="上一页"
-              >
-                <ChevronLeft size={14} />
-              </button>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                {(() => {
-                  const maxVisible = 3;
-                  const pages: (number | string)[] = [];
-                  if (totalPages <= maxVisible) {
-                    for (let i = 1; i <= totalPages; i++) pages.push(i);
-                  } else {
-                    const half = Math.floor(maxVisible / 2);
-                    let start = Math.max(1, safePage - half);
-                    const end = Math.min(totalPages, start + maxVisible - 1);
-                    if (end - start + 1 < maxVisible) {
-                      start = Math.max(1, end - maxVisible + 1);
-                    }
-                    if (start > 1) pages.push(1, "...");
-                    for (let i = start; i <= end; i++) pages.push(i);
-                    if (end < totalPages) pages.push("...", totalPages);
-                  }
-                  return pages.map((page, idx) =>
-                    typeof page === "string" ? (
-                      <span
-                        key={`ellipsis-${idx}`}
-                        style={{
-                          color: "var(--text-muted)",
-                          padding: "4px 6px",
-                          fontSize: 13,
-                          userSelect: "none",
-                        }}
-                      >
-                        {page}
-                      </span>
-                    ) : (
-                      <button
-                        key={page}
-                        className={`btn btn-sm ${page === safePage ? "btn-primary" : "btn-outline"}`}
-                        onClick={() => goToPage(page)}
-                        style={{ minWidth: 32, padding: "4px 8px" }}
-                      >
-                        {page}
-                      </button>
-                    )
-                  );
-                })()}
-              </div>
-
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => goToPage(safePage + 1)}
-                disabled={safePage >= totalPages}
-                title="下一页"
-              >
-                <ChevronRight size={14} />
-              </button>
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => goToPage(totalPages)}
-                disabled={safePage >= totalPages}
-                title="末页"
-              >
-                <ChevronsRight size={14} />
-              </button>
-
-              <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
-                {safePage} / {totalPages} ({filteredTasks.length} 条)
-              </span>
+            <div style={{ flex: 1 }}>
+              <Pagination
+                currentPage={safePage}
+                totalPages={totalPages}
+                totalItems={filteredTasks.length}
+                onPageChange={goToPage}
+              />
             </div>
 
             <div style={{ display: "flex", justifyContent: "center", flex: 1 }}>

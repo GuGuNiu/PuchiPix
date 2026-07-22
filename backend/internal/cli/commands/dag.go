@@ -97,7 +97,7 @@ func (dagCommand) Execute(ctx CommandContext) error {
 	}
 
 	if withLogs {
-		fmt.Printf("\n%s��?��?��? DAG Logs ��?��?��?%s\n\n", ui.Bold, ui.Reset)
+		fmt.Printf("\n%s═══ DAG Logs ═══%s\n\n", ui.Bold, ui.Reset)
 		logs, err := ctx.Client.QueryLogs(dagclient.LogQueryFilter{DagID: dagID, Limit: 200})
 		if err != nil {
 			fmt.Printf("%sFailed to query logs: %s%s\n", ui.Red, err.Error(), ui.Reset)

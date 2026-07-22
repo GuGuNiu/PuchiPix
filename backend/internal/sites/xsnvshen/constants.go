@@ -27,7 +27,7 @@ var pkgDataStore sites.SiteDataStore
 var (
 	albumIDPattern   = regexp.MustCompile(`/album/(\d+)`)
 	modelIDPattern   = regexp.MustCompile(`/album/(\d+)/(\d+)/`)
-	siteSuffixPattern = regexp.MustCompile(`(?i)\s*[_|]\s*(�{?ɫŮ��|xsnvshen|XsNvShen)\s*$`)
+	siteSuffixPattern = regexp.MustCompile(`(?i)\s*[_|]\s*(秀色女神|xsnvshen|XsNvShen)\s*$`)
 	publisherPrefix   = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
 	bracketPrefix     = regexp.MustCompile(`^\[.*?\]\s*`)
 	trailingSeparator = regexp.MustCompile(`(?i)\s*[-\s]*$`)

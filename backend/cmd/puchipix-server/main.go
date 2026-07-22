@@ -35,7 +35,7 @@ import (
 func main() {
 	infra.InitGlobalConfig("INFO", true)
 
-	// ��?��? Embedded PostgreSQL ��?��?
+	// ── Embedded PostgreSQL ──
 	// Starts a project-local PostgreSQL process. Falls back to external
 	// PostgreSQL (or degraded mode) if startup fails ??5432 already in use,
 	// binary download failure, etc.
@@ -70,13 +70,13 @@ func main() {
 		logger.Info("Embedded PostgreSQL started", "port", 5432)
 	}
 
-	// ��?��? Database ��?��?
+	// ── Database ──
 	database, dbErr := db.NewDatabase(cfg.DatabaseURL, nil)
 	if dbErr != nil {
 		logger.Warn("Database unavailable, starting in degraded mode")
 	}
 
-	// ��?��? DAG Scheduler (only when database is available) ��?��?
+	// ── DAG Scheduler (only when database is available) ──
 	var dagOrch *dag.DagOrchestrator
 	var sched *orchsched.SchedulerEngine
 	var exeReg *executors.Registry
@@ -205,7 +205,7 @@ func main() {
 		logger.Info("Site providers registered", "count", 5)
 	}
 
-	// ��?��? HTTP Handlers ��?��?
+	// ── HTTP Handlers ──
 	h := handlers.New(database, eventBus)
 
 	// Inject DAG and service dependencies when database is available

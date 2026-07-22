@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	pageNavPattern  = regexp.MustCompile(`��\s*(\d+)\s*[�ҳ].*?��\s*(\d+)\s*[�ҳ]`)
+	pageNavPattern  = regexp.MustCompile(`第\s*(\d+)\s*[页頁].*?共\s*(\d+)\s*[页頁]`)
 	m3u8URLPattern  = regexp.MustCompile(`(?i)https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
 	dateInURLPattern = regexp.MustCompile(`/(\d{4})/(\d{2})/(\d{2})/`)
 )
@@ -50,7 +50,7 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 	tagSet := make(map[string]bool)
 	doc.Find(`a[href*="/tag/"]`).Each(func(_ int, a *goquery.Selection) {
 		text := strings.TrimSpace(a.Text())
-		if text != "" && text != "��ǩ" && len(text) < 30 {
+		if text != "" && text != "标签" && len(text) < 30 {
 			tagSet[text] = true
 		}
 	})
@@ -180,7 +180,7 @@ func ParseExtMetadata(doc *goquery.Document, placeholder string) ExtMetadata {
 	tagSet := make(map[string]bool)
 	doc.Find(`a[href*="/tag/"]`).Each(func(_ int, a *goquery.Selection) {
 		text := strings.TrimSpace(a.Text())
-		if text != "" && text != "��ǩ" && len(text) < 30 && !tagSet[text] {
+		if text != "" && text != "标签" && len(text) < 30 && !tagSet[text] {
 			tagSet[text] = true
 			result.Tags = append(result.Tags, text)
 		}
@@ -300,15 +300,15 @@ func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml
 		label := strings.TrimSpace(item.Find("strong").Text())
 		text := strings.TrimSpace(strings.Replace(item.Text(), label, "", 1))
 
-		if strings.Contains(label, "�ļ�����") || strings.Contains(label, "Files") {
+		if strings.Contains(label, "文件数量") || strings.Contains(label, "Files") {
 			if m := regexp.MustCompile(`(\d+)`).FindString(text); m != "" {
 				info.FileCount = atoiSafe(m)
 			}
-		} else if strings.Contains(label, "�ļ���С") || strings.Contains(label, "Size") {
+		} else if strings.Contains(label, "文件大小") || strings.Contains(label, "Size") {
 			info.FileSizeText = text
-		} else if strings.Contains(label, "ͼƬ�ߴ�") || strings.Contains(label, "Dimensions") {
+		} else if strings.Contains(label, "图片尺寸") || strings.Contains(label, "Dimensions") {
 			info.ImageDimensions = text
-		} else if strings.Contains(label, "����") || strings.Contains(label, "Password") {
+		} else if strings.Contains(label, "密码") || strings.Contains(label, "Password") {
 			input := item.Find(".password-input")
 			if val, exists := input.Attr("value"); exists && val != "" {
 				info.Password = val
@@ -339,10 +339,10 @@ func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml
 	}
 
 	noticeText := strings.TrimSpace(doc.Find(".download-notice-text").Text())
-	if strings.Contains(noticeText, "��¼") || strings.Contains(noticeText, "Login") {
+	if strings.Contains(noticeText, "登录") || strings.Contains(noticeText, "Login") {
 		info.RequiresLogin = true
 	}
-	if strings.Contains(noticeText, "����") || strings.Contains(noticeText, "��֤") || strings.Contains(noticeText, "Verify") {
+	if strings.Contains(noticeText, "密码") || strings.Contains(noticeText, "验证") || strings.Contains(noticeText, "Verify") {
 		info.RequiresEmail = true
 	}
 

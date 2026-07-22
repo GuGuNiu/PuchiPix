@@ -103,7 +103,7 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ��?��? Cover image mode ��?��?
+	// ── Cover image mode ──
 	if r.URL.Query().Get("type") == "cover" {
 		var coverPath string
 		err := h.DB.QueryRow(r.Context(),
@@ -373,7 +373,7 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 	h.DB.Exec(r.Context(), "DELETE FROM gallery_download_infos WHERE gallery_id = $1", id)
 	_, err = h.DB.Exec(r.Context(), "DELETE FROM galleries WHERE id = $1", id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.deleteFailed"))
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 		return
 	}
 
@@ -408,7 +408,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 		_, err := h.DB.Exec(r.Context(),
 			"UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = $1", id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.updateFailed"))
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "download", "status": "pending"})

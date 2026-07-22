@@ -104,7 +104,7 @@ func printTraceSummary(entries []dagclient.LogEntry) {
 		duration = ui.DurationBetween(entries[0].Timestamp, entries[len(entries)-1].Timestamp)
 	}
 
-	fmt.Printf("%s��?��?��? Trace Summary ��?��?��?%s\n", ui.Bold, ui.Reset)
+	fmt.Printf("%s═══ Trace Summary ═══%s\n", ui.Bold, ui.Reset)
 	fmt.Printf("  %sEntries:%s   %d\n", ui.Dim, ui.Reset, len(entries))
 	fmt.Printf("  %sModules:%s   %s\n", ui.Dim, ui.Reset, joinMapKeys(modules))
 	fmt.Printf("  %sDAG:%s       %s\n", ui.Dim, ui.Reset, joinMapKeys(dagIDs))
@@ -115,7 +115,7 @@ func printTraceSummary(entries []dagclient.LogEntry) {
 		errStr = fmt.Sprintf("%s%d%s", ui.Red, errCount, ui.Reset)
 	}
 	fmt.Printf("  %sErrors:%s    %s\n", ui.Dim, ui.Reset, errStr)
-	fmt.Printf("%s��?��?��? Trace Logs ��?��?��?%s\n\n", ui.Bold, ui.Reset)
+	fmt.Printf("%s═══ Trace Logs ═══%s\n\n", ui.Bold, ui.Reset)
 }
 
 func joinMapKeys(m map[string]bool) string {

@@ -29,7 +29,7 @@ var supportedSet = func() map[string]bool {
 //go:embed locales/*.json
 var localeFS embed.FS
 
-// TranslationDict is a flat dot-notation key��string map, mirroring the
+// TranslationDict is a flat dot-notation key→string map, mirroring the
 // TypeScript TranslationDict = Record<string, string>.
 type TranslationDict map[string]string
 

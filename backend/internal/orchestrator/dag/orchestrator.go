@@ -532,7 +532,7 @@ func (o *DagOrchestrator) activateSatisfiedSuccessors(ctx context.Context, dagID
 	}
 } // submitToScheduler builds a SchedulableNode from the definition and
 // submits it to the scheduler, rolling back to READY if rejected.
-// A randomized jitter (0�CmaxJitter ms) is applied before submission
+// A randomized jitter (0–maxJitter ms) is applied before submission
 // when multiple nodes are activated in the same batch, spreading the
 // burst to avoid thundering-herd contention.
 func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID string, node *dagNodeInstance) {
@@ -554,7 +554,7 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 		return
 	}
 
-	// Jitter: random 0�CmaxJitter ms sleep to spread burst submissions
+	// Jitter: random 0–maxJitter ms sleep to spread burst submissions
 	// when many nodes are activated in the same pass.
 	jitterMs := rand.Intn(maxJitter + 1)
 	if jitterMs > 0 {
@@ -1406,7 +1406,7 @@ func (o *DagOrchestrator) IsInitialized() bool {
 	return o.initialized
 }
 
-// ��?��?��? Dynamic Runtime Mutation APIs (Stage 5) ��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?
+// ═══ Dynamic Runtime Mutation APIs (Stage 5) ═══
 
 // AddNode injects a new node into a running DAG. If the node has no
 // unsatisfied dependencies at insertion time it is immediately
@@ -1645,7 +1645,7 @@ func (o *DagOrchestrator) SetNonCritical(ctx context.Context, dagID, nodeID stri
 	return nil
 }
 
-// ��?��?��? Helpers ��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?
+// ═══ Helpers ═══
 
 func getString(m map[string]any, key string) string {
 	v, ok := m[key].(string)

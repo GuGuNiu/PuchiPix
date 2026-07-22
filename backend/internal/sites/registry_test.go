@@ -129,7 +129,7 @@ func TestSiteRegistryGetSiteInfos(t *testing.T) {
 	reg := NewSiteRegistry()
 	reg.RegisterModule(SiteModuleConfig{
 		ID:      "test",
-		NameCn:  "����",
+		NameCn:  "测试",
 		NameEn:  "Test",
 		BaseURL: "https://test.com",
 		Type:    "photo",

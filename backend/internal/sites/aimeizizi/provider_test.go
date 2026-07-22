@@ -105,15 +105,14 @@ func TestProviderCanHandle(t *testing.T) {
 // from the SiteDataStore, producing clean titles for storage.
 func TestProviderCleanTitle(t *testing.T) {
 	p := newTestProvider(t, nil)
-
 	tests := []struct {
 		name  string
 		input string
 		want  string
 	}{
 		{"plain", "My Gallery", "My Gallery"},
-		{"with suffix", "My Gallery | ����??, "My Gallery"},
-		{"with prefix", "[������] My Gallery", "My Gallery"},
+		{"with suffix", "My Gallery | 爱妹子", "My Gallery"},
+		{"with prefix", "[爱妹子] My Gallery", "My Gallery"},
 		{"empty", "", ""},
 	}
 

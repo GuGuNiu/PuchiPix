@@ -78,7 +78,7 @@ func galleryHTML(title string, imageCount int, totalPages int) string {
 
 	nav := ""
 	if totalPages > 1 {
-		nav = `<nav>??1 ҳ��??` + itoa(totalPages) + ` ??/nav>`
+		nav = `<nav>第1 页，共` + itoa(totalPages) + ` 页</nav>`
 	}
 
 	return `<html><head><title>` + title + ` | LoveCutes</title></head><body>
@@ -140,7 +140,7 @@ func TestScrapeGalleryHTTP_MultiPage(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		html := `<html><head><title>Multi Page Gallery | LoveCutes</title></head><body>
 			<h1>Multi Page Gallery</h1>
-			<nav>??2 ҳ��??2 ??/nav>
+			<nav>第2 页，共2 页</nav>
 			<article>
 			<img data-src="https://cdn.example.com/img-2.jpg" />
 			<img data-src="https://cdn.example.com/img-3.jpg" />

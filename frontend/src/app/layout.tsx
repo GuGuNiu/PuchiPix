@@ -12,6 +12,7 @@ import "./styles/responsive.css";
 import Sidebar from "@/components/layout/sidebar";
 import SocketProvider from "@/components/providers/socket-provider";
 import ThemeProvider from "@/components/providers/theme-provider";
+import { QueryProvider } from "@/components/providers/query-provider";
 import { ThemedToaster, HlsScriptLoader } from "@/components/providers";
 import { I18nProvider } from "@/lib/i18n";
 
@@ -52,6 +53,7 @@ export default async function RootLayout({
       <body>
         <HlsScriptLoader />
         <ThemeProvider>
+          <QueryProvider>
           <I18nProvider>
             <SocketProvider>
               <div className="app-layout">
@@ -65,6 +67,7 @@ export default async function RootLayout({
             </SocketProvider>
             <ThemedToaster />
           </I18nProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

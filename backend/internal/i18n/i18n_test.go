@@ -155,12 +155,12 @@ func TestTFallback(t *testing.T) {
 		key    string
 		want   string
 	}{
-		{"zh-CN", "nav.dashboard", "���ڴ���"},
+		{"zh-CN", "nav.dashboard", "噗呲大厅"},
 		{"en-US", "nav.dashboard", "Puchi Hall"},
-		{"xx-XX", "nav.dashboard", "���ڴ���"},
-		{"zh-CN", "common.refresh", "ˢ��"},
+		{"xx-XX", "nav.dashboard", "噗呲大厅"},
+		{"zh-CN", "common.refresh", "刷新"},
 		{"en-US", "common.refresh", "Refresh"},
-		{"xx-XX", "common.refresh", "ˢ��"},
+		{"xx-XX", "common.refresh", "刷新"},
 		{"zh-CN", "nonexistent.key", "nonexistent.key"},
 	}
 
@@ -178,9 +178,9 @@ func TestTWithParams(t *testing.T) {
 		params map[string]string
 		want   string
 	}{
-		{"zh-CN", "tasks.deleted", map[string]string{"type": "ͼ��", "id": "42"}, "��ɾ��ͼ??#42"},
+		{"zh-CN", "tasks.deleted", map[string]string{"type": "图库", "id": "42"}, "已删除图库 #42"},
 		{"en-US", "tasks.deleted", map[string]string{"type": "Gallery", "id": "42"}, "Deleted Gallery #42"},
-		{"zh-CN", "api.gallery.notFound", nil, "ͼ�ⲻ��??},
+		{"zh-CN", "api.gallery.notFound", nil, "图库不存在"},
 	}
 
 	for _, tt := range tests {
@@ -195,7 +195,7 @@ func TestTCtx(t *testing.T) {
 	ctx = WithLocale(ctx, "zh-CN")
 
 	got := TCtx(ctx, "nav.dashboard")
-	want := "���ڴ���"
+	want := "噗呲大厅"
 
 	if got != want {
 		t.Errorf("TCtx() = %q, want %q", got, want)

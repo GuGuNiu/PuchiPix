@@ -218,7 +218,7 @@ func TestTaskStateMachineRestoreFromSnapshotEmpty(t *testing.T) {
 }
 
 // TestTaskStateMachineRestoreFromSnapshotRetryCount verifies that
-// RestoreFromSnapshot counts failed��ready transitions as retries.
+// RestoreFromSnapshot counts failed→ready transitions as retries.
 func TestTaskStateMachineRestoreFromSnapshotRetryCount(t *testing.T) {
 	fsm := orchestrator.NewTaskStateMachine("dag-1", "node-1", orchestrator.PhaseScrape, orchestrator.DagNodeDefinition{})
 

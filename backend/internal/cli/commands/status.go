@@ -74,7 +74,7 @@ func (statusCommand) Execute(ctx CommandContext) error {
 			if node.LastTrans != nil {
 				reason = node.LastTrans.Reason
 			}
-			fmt.Printf("    %s\u251c��?%s %-12s %s %s%s\n",
+			fmt.Printf("    %s├──%s %-12s %s %s%s\n",
 				ui.Dim, ui.Reset,
 				node.NodeID,
 				ui.StatePill(string(node.State)),
@@ -87,7 +87,7 @@ func (statusCommand) Execute(ctx CommandContext) error {
 	}
 
 	if withLogs {
-		fmt.Printf("\n%s��?��?��? Associated Logs ��?��?��?%s\n\n", ui.Bold, ui.Reset)
+		fmt.Printf("\n%s═══ Associated Logs ═══%s\n\n", ui.Bold, ui.Reset)
 		for _, dag := range data.Dags {
 			p := dag.Progress
 			if p.Completed == dag.NodeCount || p.Failed == dag.NodeCount {

@@ -172,7 +172,7 @@ type DagNodeDefinition struct {
 	// consults the policy's guards (which may redirect the target state),
 	// then validates the transition against the policy's transition rules,
 	// and finally runs any matching actions. This mirrors the 260720 TS
-	// TransitionPolicy mechanism that was not ported during TS��Go migration.
+	// TransitionPolicy mechanism that was not ported during TS→Go migration.
 	TransitionPolicy     *TransitionPolicy      `json:"transitionPolicy,omitempty"`
 }
 
