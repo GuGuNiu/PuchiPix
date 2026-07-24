@@ -133,7 +133,11 @@ func DetectWaf(statusCode int, html string, doc *goquery.Document) WafDetectionR
 			return WafDetectionResult{Blocked: true, Reason: WafReasonWafPage, Detail: "title indicates WAF block: " + title}
 		}
 
-		if doc.Find(`script[src*="cloudflare"]`).Length() > 0 || doc.Find(`script[src*="cf-chl"]`).Length() > 0 {
+		// Only flag Cloudflare CHALLENGE scripts, not all Cloudflare
+		// scripts (Rocket Loader, analytics, etc. are legitimate).
+		if doc.Find(`script[src*="cdn-cgi/challenge-platform"]`).Length() > 0 ||
+			doc.Find(`script[src*="cdn-cgi/cloudflare-static/challenge"]`).Length() > 0 ||
+			doc.Find(`script[src*="cf-chl"]`).Length() > 0 {
 			return WafDetectionResult{Blocked: true, Reason: WafReasonCloudflare, Detail: "HTML contains Cloudflare challenge script"}
 		}
 

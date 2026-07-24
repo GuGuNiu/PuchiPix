@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PuchiPix DAG 需求链路图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #ffffff;
+  --text: #1a1a2e;
+  --card-bg: #f8f9fa;
+  --border: #e2e8f0;
+  --p0: #ef4444;
+  --p1: #f59e0b;
+  --p2: #3b82f6;
+  --p3: #6b7280;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: var(--bg); color: var(--text); }
+h1 { text-align: center; margin-bottom: 8px; }
+.subtitle { text-align: center; color: #64748b; margin-bottom: 30px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+.tab { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 14px; color: #64748b; border-radius: 6px 6px 0 0; }
+.tab.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.chart-container { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; overflow-x: auto; }
+.legend { display: flex; gap: 20px; justify-content: center; margin: 16px 0; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+.p0-dot { background: var(--p0); }
+.p1-dot { background: var(--p1); }
+.p2-dot { background: var(--p2); }
+.p3-dot { background: var(--p3); }
+.matrix { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: var(--card-bg); }
+.card h3 { margin: 0 0 8px 0; font-size: 16px; }
+.card .priority { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; color: white; }
+.priority.p0 { background: var(--p0); }
+.priority.p1 { background: var(--p1); }
+.priority.p2 { background: var(--p2); }
+.priority.p3 { background: var(--p3); }
+.card .deps { font-size: 12px; color: #64748b; margin-top: 8px; }
+.card .desc { font-size: 13px; margin: 8px 0; }
+.state-list { font-size: 12px; color: #475569; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+th { background: #f1f5f9; font-weight: 600; }
+.status-ok { color: #16a34a; }
+.status-warn { color: #d97706; }
+.status-fail { color: #dc2626; }
+</style>
+</head>
+<body>
+
+<h1>PuchiPix DAG 系统需求链路图</h1>
+<p class="subtitle">8 个独立节点 · 因果依赖关系 · 优先级排序 · 4 Phase 执行计划</p>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab(event, 'graph')">依赖关系图</button>
+  <button class="tab" onclick="switchTab(event, 'timeline')">执行时序</button>
+  <button class="tab" onclick="switchTab(event, 'nodes')">节点详情</button>
+  <button class="tab" onclick="switchTab(event, 'statemachine')">状态机审计</button>
+</div>
+
+<div id="graph" class="tab-content active">
+<div class="chart-container">
+<div class="mermaid">
+graph TD
+    %% P0 Nodes
+    N3["🔄 N3: 状态机审计<br/>P0 · 无前置依赖"]
+    N5["📋 N5: 历史问题提取<br/>P0 · 无前置依赖"]
+    N2["🔌 N2: API 扩展<br/>P0 · 依赖 N3"]
+
+    %% P1 Nodes
+    N1["💻 N1: CLI 扩展<br/>P1 · 依赖 N2"]
+    N6["⚠️ N6: 异常处理路径<br/>P1 · 依赖 N3, N5"]
+    N7["🔍 N7: 边界条件分析<br/>P1 · 依赖 N3"]
+    N8["🔄 N8: 重试策略验证<br/>P1 · 依赖 N5, N6"]
+
+    %% P2 Nodes
+    N4["🖼️ N4: Gallery 异常修复<br/>P2 · 依赖 N1, N2, N8"]
+
+    %% Causal Dependencies
+    N3 --> N2
+    N3 --> N6
+    N3 --> N7
+    N5 --> N6
+    N5 --> N8
+    N2 --> N1
+    N6 --> N8
+    N7 --> N6
+    N1 --> N4
+    N2 --> N4
+    N8 --> N4
+
+    %% Styling
+    classDef p0 fill:#fef2f2,stroke:#ef4444,stroke-width:2px,color:#991b1b
+    classDef p1 fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#92400e
+    classDef p2 fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+
+    class N3,N5,N2 p0
+    class N1,N6,N7,N8 p1
+    class N4 p2
+</div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot p0-dot"></div> P0: 关键路径 (阻塞后续所有工作)</div>
+  <div class="legend-item"><div class="legend-dot p1-dot"></div> P1: 高优先级 (依赖 P0 完成)</div>
+  <div class="legend-item"><div class="legend-dot p2-dot"></div> P2: 常规优先级 (依赖 P1 完成)</div>
+  <div class="legend-item"><div class="legend-dot p3-dot"></div> P3: 低优先级 (可延后)</div>
+</div>
+</div>
+
+<div id="timeline" class="tab-content">
+<div class="chart-container">
+<div class="mermaid">
+gantt
+    title PuchiPix DAG 增强执行时序
+    dateFormat  YYYY-MM-DD
+    axisFormat  %m/%d
+
+    section Phase 1: 审计
+    状态机审计 (N3)           :done, n3, 2026-07-23, 1d
+    历史问题提取 (N5)         :done, n5, 2026-07-23, 1d
+
+    section Phase 2: 扩展
+    API 扩展 (N2)             :done, n2, 2026-07-23, 1d
+    CLI 扩展 (N1)             :done, n1, after n2, 1d
+
+    section Phase 3: 分析
+    异常处理路径 (N6)         :active, n6, after n3, 2d
+    边界条件分析 (N7)         :n7, after n3, 2d
+    重试策略验证 (N8)         :n8, after n6, 2d
+
+    section Phase 4: 修复
+    Gallery 异常修复 (N4)     :crit, n4, after n8, 3d
+</div>
+</div>
+</div>
+
+<div id="nodes" class="tab-content">
+<div class="matrix">
+  <div class="card">
+    <h3>N1: CLI 扩展 <span class="priority p1">P1</span></h3>
+    <p class="desc">扩展 puchipix-cli 支持 DAG 完整生命周期管理：create, link, trigger, delete</p>
+    <p class="deps">前置: N2 (API 扩展) &nbsp;|&nbsp; 影响: N4</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 4 个新命令 + dagclient 扩展 + Registry 注册</p>
+  </div>
+  <div class="card">
+    <h3>N2: API 扩展 <span class="priority p0">P0</span></h3>
+    <p class="desc">新增 POST /api/dag, POST /api/dag/{id}/link, POST trigger, DELETE 端点</p>
+    <p class="deps">前置: N3 (状态机审计) &nbsp;|&nbsp; 影响: N1, N4</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 4 个新端点 + DagOrchestrator ReactivateDagNodes/RemoveDag</p>
+  </div>
+  <div class="card">
+    <h3>N3: 状态机审计 <span class="priority p0">P0</span></h3>
+    <p class="desc">分析主任务状态机 (7 聚合态) 与子任务状态机 (13 节点态) 的完整转换逻辑</p>
+    <p class="deps">前置: 无 &nbsp;|&nbsp; 影响: N2, N6, N7</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 8 死锁路径验证 + 5 种关键模式提取</p>
+  </div>
+  <div class="card">
+    <h3>N4: Gallery 异常修复 <span class="priority p2">P2</span></h3>
+    <p class="desc">对 234 个 Gallery 逐一排查，重下载异常任务 (##SQFEAF, #RNZ9GS 等)</p>
+    <p class="deps">前置: N1, N2, N8 &nbsp;|&nbsp; 影响: 无</p>
+    <p class="state-list"><span class="status-warn">⚠️ 待执行</span> — 需要 PostgreSQL 数据库可用</p>
+  </div>
+  <div class="card">
+    <h3>N5: 历史问题提取 <span class="priority p0">P0</span></h3>
+    <p class="desc">从开发日志库提取 DAG 相关 36 个历史问题，分类为 5 种关键模式</p>
+    <p class="deps">前置: 无 &nbsp;|&nbsp; 影响: N6, N8</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 36 问题分类 + 7 待修复项 + 解决方案映射</p>
+  </div>
+  <div class="card">
+    <h3>N6: 异常处理路径 <span class="priority p1">P1</span></h3>
+    <p class="desc">分析状态机的异常处理路径与错误恢复机制，验证 8 个死锁修复</p>
+    <p class="deps">前置: N3, N5 &nbsp;|&nbsp; 影响: N8</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 审计报告中已覆盖所有异常路径</p>
+  </div>
+  <div class="card">
+    <h3>N7: 边界条件分析 <span class="priority p1">P1</span></h3>
+    <p class="desc">分析空节点列表、全 NonCritical 失败、NOT_FOUND 等边界条件</p>
+    <p class="deps">前置: N3 &nbsp;|&nbsp; 影响: N6</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 审计报告 §2.3 边界条件表</p>
+  </div>
+  <div class="card">
+    <h3>N8: 重试策略验证 <span class="priority p1">P1</span></h3>
+    <p class="desc">验证四级重试体系：文件级 → 段级 → 节点级 → DAG 级</p>
+    <p class="deps">前置: N5, N6 &nbsp;|&nbsp; 影响: N4</p>
+    <p class="state-list"><span class="status-ok">✅ 已完成</span> — 审计报告 §4.2 模式 3 重试预算分析</p>
+  </div>
+</div>
+</div>
+
+<div id="statemachine" class="tab-content">
+<div class="chart-container">
+<h3>子任务状态机 (13 Node States)</h3>
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> pending
+
+    pending --> ready: deps satisfied
+    pending --> cancelled: user cancel
+
+    ready --> queued: submit to scheduler
+    ready --> cancelled: user cancel
+    ready --> paused: user pause
+    ready --> needs_retry: verify fail
+
+    queued --> allocated: slot acquired
+    queued --> cancelled: user cancel
+    queued --> paused: user pause
+    queued --> ready: submit rejected
+
+    allocated --> running: executor start
+    allocated --> cancelled: user cancel
+    allocated --> paused: user pause
+    allocated --> failed: alloc failed
+
+    running --> verifying: shouldVerify
+    running --> completed: skipVerify
+    running --> failed: executor error
+    running --> timeout: deadline
+    running --> cancelled: user cancel
+    running --> paused: user pause
+
+    paused --> ready: resume
+    paused --> cancelled: cancel
+
+    verifying --> completed: verification passed
+    verifying --> failed: verification failed
+    verifying --> needs_retry: data missing (auto-retry)
+    verifying --> resume_verify: checkpoint
+    verifying --> paused: user pause
+
+    resume_verify --> verifying: resume check
+    resume_verify --> completed: passed
+    resume_verify --> failed: unrecoverable
+    resume_verify --> paused: user pause
+
+    failed --> ready: user retry
+    failed --> needs_retry: auto-retryable
+
+    needs_retry --> ready: auto retrigger
+
+    completed --> [*]
+    cancelled --> [*]
+</div>
+</div>
+
+<div class="chart-container">
+<h3>主任务状态机 (7 Aggregate States)</h3>
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> pending: SubmitDag
+
+    state pending {
+        [*] --> active
+        active --> has_paused: node→PAUSED
+        active --> has_failed: node→FAILED
+        active --> has_retry: node→NEEDS_RETRY
+        active --> all_done: all nodes COMPLETED
+        active --> has_cancel: node→CANCELLED
+    }
+
+    pending --> paused: PauseDag
+    pending --> failed: non-retryable failure
+    pending --> needs_retry: auto-retryable failure
+    pending --> completed: all nodes OK
+    pending --> cancelled: CancelDag
+    pending --> not_found: scrape NOT_FOUND
+
+    paused --> pending: ResumeDag
+
+    failed --> pending: RetryDag
+
+    needs_retry --> pending: auto retry
+
+    not_found --> [*]
+    completed --> [*]
+    cancelled --> [*]
+</div>
+</div>
+
+<div class="chart-container">
+<h3>已验证的死锁修复矩阵</h3>
+<table>
+  <tr><th>ID</th><th>死锁路径</th><th>根因</th><th>状态</th></tr>
+  <tr><td>S1</td><td>READY 永久等待</td><td>activateReadyNodes 仅扫描 PENDING</td><td class="status-ok">✅ 260720</td></tr>
+  <tr><td>S2</td><td>VERIFYING 重启卡死</td><td>restoreDag 不调用 onRestart</td><td class="status-ok">✅ defaultOnRestart</td></tr>
+  <tr><td>S3</td><td>孤立 QUEUED</td><td>submit() 失败状态未回退</td><td class="status-ok">✅ Phase 3 孤儿检测</td></tr>
+  <tr><td>S4</td><td>槽位泄漏</td><td>holderId 非唯一</td><td class="status-ok">✅ dagId:nodeId</td></tr>
+  <tr><td>S5</td><td>聚合优先级错</td><td>download 先于 scrape 检查</td><td class="status-ok">✅ 260720</td></tr>
+  <tr><td>S6</td><td>手动重试被阻</td><td>retryCount 超 maxAttempts</td><td class="status-ok">✅ resetRetryCount</td></tr>
+  <tr><td>S7</td><td>VERIFYING 跳过</td><td>executeNode 缺 VERIFYING 分支</td><td class="status-warn">⚠️ 待修复</td></tr>
+  <tr><td>S8</td><td>non-retryable 循环</td><td>retryable=false 未断路</td><td class="status-ok">✅ FAILED 前短路</td></tr>
+</table>
+</div>
+</div>
+
+<script>
+mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+function switchTab(event, tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+</script>
+</body>
+</html>

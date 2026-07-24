@@ -13,7 +13,7 @@ import (
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 
-	"backend/internal/api/handlers"
+	"backend/internal/api"
 	"backend/internal/config"
 	"backend/internal/db"
 	"backend/internal/downloader/video"
@@ -93,7 +93,7 @@ func main() {
 
 		// 3. Executor Registry ??routes node execution by key
 		exeReg = executors.NewRegistry()
-		orchestrator.WireExecutors(exeReg, siteReg)
+		orchestrator.WireExecutors(exeReg, siteReg, database)
 
 		// 4. Slot Pool ??concurrency control
 		slotPool := slot.NewSlotPool()
@@ -206,7 +206,7 @@ func main() {
 	}
 
 	// ── HTTP Handlers ──
-	h := handlers.New(database, eventBus)
+	h := api.New(database, eventBus)
 
 	// Inject DAG and service dependencies when database is available
 	if database != nil {
@@ -214,11 +214,81 @@ func main() {
 		ouoOrch := orchestrator.NewOuoOrchestrator()
 		dm := video.NewDownloadManager(database, eventBus, video.DefaultManagerConfig())
 
+		// Register the video download executor now that DownloadManager
+		// is available. WireExecutors (called during DAG init above) only
+		// registers gallery executors because DownloadManager is created
+		// later. Without this, video DAGs fail with "no executor
+		// registered for key: video:download".
+		if exeReg != nil {
+			statusFn := func(ctx context.Context, taskID int) (string, string, bool) {
+				var status, errMsg string
+				err := database.QueryRow(ctx,
+					`SELECT status, COALESCE(error_msg, '') FROM download_tasks WHERE id = $1`,
+					taskID).Scan(&status, &errMsg)
+				if err != nil {
+					return "", "", false
+				}
+				return status, errMsg, true
+			}
+
+			// taskLoaderFn loads the full DownloadTaskInput from the
+			// database. If m3u8_url is empty, it scrapes the page URL
+			// via the universal scraper to discover the M3U8 stream URL.
+			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
+				var pageURL, m3u8URL string
+				err := database.QueryRow(ctx,
+					`SELECT url, m3u8_url FROM download_tasks WHERE id = $1`,
+					taskID).Scan(&pageURL, &m3u8URL)
+				if err != nil {
+					return video.DownloadTaskInput{}, fmt.Errorf("query task %d: %w", taskID, err)
+				}
+
+				// If M3U8 URL is already known, use it directly.
+				if m3u8URL != "" {
+					return video.DownloadTaskInput{
+						ID:      taskID,
+						M3U8URL: m3u8URL,
+						PageURL: pageURL,
+					}, nil
+				}
+
+				// M3U8 URL not yet discovered — scrape the page.
+				logger.Info(fmt.Sprintf("M3U8 URL empty for task %d, scraping page: %s", taskID, pageURL))
+
+				scrapeCtx, scrapeCancel := context.WithTimeout(ctx, 2*time.Minute)
+				defer scrapeCancel()
+
+				result, err := universal.ScrapePage(scrapeCtx, pageURL)
+				if err != nil {
+					return video.DownloadTaskInput{}, fmt.Errorf("scrape page for M3U8: %w", err)
+				}
+				if result.M3U8URL == "" {
+					return video.DownloadTaskInput{}, fmt.Errorf("no M3U8 URL found on page: %s", pageURL)
+				}
+
+				// Persist the discovered M3U8 URL for future retries.
+				_, _ = database.Exec(ctx,
+					`UPDATE download_tasks SET m3u8_url = $1 WHERE id = $2`,
+					result.M3U8URL, taskID)
+
+				return video.DownloadTaskInput{
+					ID:      taskID,
+					M3U8URL: result.M3U8URL,
+					PageURL: pageURL,
+					Title:   result.Title,
+					Tags:    result.Tags,
+					Actors:  result.Actors,
+				}, nil
+			}
+
+			exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn))
+		}
+
 		h.WithDag(dagOrch, sched, exeReg)
 		h.WithServices(ouoOrch, dm, siteReg)
 	}
 
-	router := handlers.NewRouter(h, eventBus)
+	router := api.NewRouter(h, eventBus)
 
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
 	srv := &http.Server{
@@ -356,11 +426,21 @@ func startEmbeddedPG() *embeddedpostgres.EmbeddedPostgres {
 		Password("puchipix").
 		Database("puchipix").
 		Version(embeddedpostgres.V16).
+		Locale("C").
+		Encoding("UTF8").
 		Port(5432).
 		RuntimePath(filepath.Join(basePath, "run")).
 		DataPath(filepath.Join(basePath, "data")).
 		BinariesPath(filepath.Join(basePath, "bin")).
 		StartTimeout(30 * time.Second).
+		StartParameters(map[string]string{
+			"fsync":              "off",
+			"full_page_writes":   "off",
+			"max_wal_senders":    "0",
+			"wal_level":          "minimal",
+			"checkpoint_timeout": "1h",
+			"autovacuum":         "off",
+		}).
 		Logger(io.Discard)
 
 	pg := embeddedpostgres.NewDatabase(pgCfg)

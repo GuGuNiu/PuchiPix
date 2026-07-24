@@ -4,71 +4,75 @@ import "time"
 
 // DownloadTask represents a video download task (m3u8/mp4) with
 // progress tracking and priority scheduling support.
+//
+// JSON tags use PascalCase to match the frontend DownloadTask TypeScript
+// interface contract. The Go field Seq maps to the JSON key "DisplayID"
+// because the frontend uses DisplayID as the user-facing identifier.
 type DownloadTask struct {
-	ID        int       `json:"id" db:"id"`
-	URL       string    `json:"url" db:"url"`
-	M3U8URL   string    `json:"m3u8Url" db:"m3u8_url"`
-	Status    string    `json:"status" db:"status"`
-	Progress  float64   `json:"progress" db:"progress"`
-	FilePath  string    `json:"filePath" db:"file_path"`
-	Format    string    `json:"format" db:"format"`
-	Priority  int       `json:"priority" db:"priority"`
-	ErrorMsg  string    `json:"errorMsg" db:"error_msg"`
-	Seq       *string   `json:"seq" db:"seq"`
-	CreatedAt time.Time `json:"createdAt" db:"created_at"`
-	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+	ID        int       `json:"ID" db:"id"`
+	URL       string    `json:"URL" db:"url"`
+	M3U8URL   string    `json:"M3U8URL" db:"m3u8_url"`
+	Status    string    `json:"Status" db:"status"`
+	Progress  float64   `json:"Progress" db:"progress"`
+	FilePath  string    `json:"FilePath" db:"file_path"`
+	Format    string    `json:"Format" db:"format"`
+	Priority  int       `json:"Priority" db:"priority"`
+	ErrorMsg  string    `json:"ErrorMsg" db:"error_msg"`
+	Seq       *string   `json:"DisplayID" db:"seq"`
+	CreatedAt time.Time `json:"CreatedAt" db:"created_at"`
+	UpdatedAt time.Time `json:"UpdatedAt" db:"updated_at"`
 }
 
 // VideoInfo stores metadata extracted from a download task's source URL.
 type VideoInfo struct {
-	ID         int       `json:"id" db:"id"`
-	TaskID     int       `json:"taskId" db:"task_id"`
-	Title      string    `json:"title" db:"title"`
-	SourceURL  string    `json:"sourceUrl" db:"source_url"`
-	FileSize   int64     `json:"fileSize" db:"file_size"`
-	Duration   float64   `json:"duration" db:"duration"`
-	Tags       string    `json:"tags" db:"tags"`
-	Actors     string    `json:"actors" db:"actors"`
-	Categories string    `json:"categories" db:"categories"`
-	Director   string    `json:"director" db:"director"`
-	Resolution string    `json:"resolution" db:"resolution"`
-	CreatedAt  time.Time `json:"createdAt" db:"created_at"`
+	ID         int       `json:"ID" db:"id"`
+	TaskID     int       `json:"TaskID" db:"task_id"`
+	Title      string    `json:"Title" db:"title"`
+	SourceURL  string    `json:"SourceURL" db:"source_url"`
+	FileSize   int64     `json:"FileSize" db:"file_size"`
+	Duration   float64   `json:"Duration" db:"duration"`
+	Tags       string    `json:"Tags" db:"tags"`
+	Actors     string    `json:"Actors" db:"actors"`
+	Categories string    `json:"Categories" db:"categories"`
+	Director   string    `json:"Director" db:"director"`
+	Resolution string    `json:"Resolution" db:"resolution"`
+	CreatedAt  time.Time `json:"CreatedAt" db:"created_at"`
 }
 
 // Gallery is the central model for a multi-site image/video collection,
 // linking images, videos, and download metadata through a 1-to-many
 // and 1-to-1 relationship respectively.
 type Gallery struct {
-	ID                  int        `json:"id" db:"id"`
-	Seq                 *string    `json:"seq" db:"seq"`
-	SourceURL           string     `json:"sourceUrl" db:"source_url"`
-	SiteID              string     `json:"siteId" db:"site_id"`
-	ScrapedDomain       string     `json:"scrapedDomain" db:"scraped_domain"`
-	Title               string     `json:"title" db:"title"`
-	Protagonist         string     `json:"protagonist" db:"protagonist"`
-	Description         string     `json:"description" db:"description"`
-	Category            string     `json:"category" db:"category"`
-	Tags                string     `json:"tags" db:"tags"`
-	CoverURL            string     `json:"coverUrl" db:"cover_url"`
-	CoverLocalPath      string     `json:"coverLocalPath" db:"cover_local_path"`
-	ImageCount          int        `json:"imageCount" db:"image_count"`
-	VideoCount          int        `json:"videoCount" db:"video_count"`
-	PageCount           int        `json:"pageCount" db:"page_count"`
-	Status              string     `json:"status" db:"status"`
-	ErrorMsg            string     `json:"errorMsg" db:"error_msg"`
-	DownloadMethod      string     `json:"downloadMethod" db:"download_method"`
-	ExpectedImageCount  int        `json:"expectedImageCount" db:"expected_image_count"`
-	ExpectedVideoCount  int        `json:"expectedVideoCount" db:"expected_video_count"`
-	ContentVerified     bool       `json:"contentVerified" db:"content_verified"`
-	SavePath            string     `json:"savePath" db:"save_path"`
-	TotalSize           int64      `json:"totalSize" db:"total_size"`
-	DownloadedSize      int64      `json:"downloadedSize" db:"downloaded_size"`
-	GameCharacters      *string    `json:"gameCharacters" db:"game_characters"`
-	PublishTime         *string    `json:"publishTime" db:"publish_time"`
-	ScrapedAt           *time.Time `json:"scrapedAt" db:"scraped_at"`
-	CompletedAt         *time.Time `json:"completedAt" db:"completed_at"`
-	CreatedAt           time.Time  `json:"createdAt" db:"created_at"`
-	UpdatedAt           time.Time  `json:"updatedAt" db:"updated_at"`
+	ID                  int        `json:"ID" db:"id"`
+	Seq                 *string    `json:"DisplayID" db:"seq"`
+	SourceURL           string     `json:"SourceURL" db:"source_url"`
+	SiteID              string     `json:"SiteID" db:"site_id"`
+	ScrapedDomain       string     `json:"ScrapedDomain" db:"scraped_domain"`
+	Title               string     `json:"Title" db:"title"`
+	Protagonist         string     `json:"Protagonist" db:"protagonist"`
+	Description         string     `json:"Description" db:"description"`
+	Category            string     `json:"Category" db:"category"`
+	Tags                string     `json:"Tags" db:"tags"`
+	CoverURL            string     `json:"CoverURL" db:"cover_url"`
+	CoverLocalPath      string     `json:"CoverLocalPath" db:"cover_local_path"`
+	ImageCount          int        `json:"ImageCount" db:"image_count"`
+	VideoCount          int        `json:"VideoCount" db:"video_count"`
+	PageCount           int        `json:"PageCount" db:"page_count"`
+	Status              string     `json:"Status" db:"status"`
+	ErrorMsg            string     `json:"ErrorMsg" db:"error_msg"`
+	DownloadMethod      string     `json:"DownloadMethod" db:"download_method"`
+	ExpectedImageCount  int        `json:"ExpectedImageCount" db:"expected_image_count"`
+	ExpectedVideoCount  int        `json:"ExpectedVideoCount" db:"expected_video_count"`
+	ContentVerified     bool       `json:"ContentVerified" db:"content_verified"`
+	SavePath            string     `json:"SavePath" db:"save_path"`
+	TotalSize           int64      `json:"TotalSize" db:"total_size"`
+	DownloadedSize      int64      `json:"DownloadedSize" db:"downloaded_size"`
+	GameCharacters      *string    `json:"GameCharacters" db:"game_characters"`
+	PublishTime         *string    `json:"PublishTime" db:"publish_time"`
+	ScrapedAt           *time.Time `json:"ScrapedAt" db:"scraped_at"`
+	CompletedAt         *time.Time `json:"CompletedAt" db:"completed_at"`
+	CreatedAt           time.Time  `json:"CreatedAt" db:"created_at"`
+	UpdatedAt           time.Time  `json:"UpdatedAt" db:"updated_at"`
 }
 
 // GalleryImage tracks a single image within a gallery, including
@@ -144,18 +148,18 @@ type GalleryDownloadInfo struct {
 // SniffTask records a URL sniffing operation that discovers gallery
 // URLs from a listing page, tracking found/created/skipped counts.
 type SniffTask struct {
-	ID           int        `json:"id" db:"id"`
-	Seq          *string    `json:"seq" db:"seq"`
-	URL          string     `json:"url" db:"url"`
-	SiteID       string     `json:"siteId" db:"site_id"`
-	Status       string     `json:"status" db:"status"`
-	TotalFound   int        `json:"totalFound" db:"total_found"`
-	TotalCreated int        `json:"totalCreated" db:"total_created"`
-	TotalSkipped int        `json:"totalSkipped" db:"total_skipped"`
-	ErrorMsg     string     `json:"errorMsg" db:"error_msg"`
-	CompletedAt  *time.Time `json:"completedAt" db:"completed_at"`
-	CreatedAt    time.Time  `json:"createdAt" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updatedAt" db:"updated_at"`
+	ID           int        `json:"ID" db:"id"`
+	Seq          *string    `json:"DisplayID" db:"seq"`
+	URL          string     `json:"URL" db:"url"`
+	SiteID       string     `json:"SiteID" db:"site_id"`
+	Status       string     `json:"Status" db:"status"`
+	TotalFound   int        `json:"TotalFound" db:"total_found"`
+	TotalCreated int        `json:"TotalCreated" db:"total_created"`
+	TotalSkipped int        `json:"TotalSkipped" db:"total_skipped"`
+	ErrorMsg     string     `json:"ErrorMsg" db:"error_msg"`
+	CompletedAt  *time.Time `json:"CompletedAt" db:"completed_at"`
+	CreatedAt    time.Time  `json:"CreatedAt" db:"created_at"`
+	UpdatedAt    time.Time  `json:"UpdatedAt" db:"updated_at"`
 }
 
 // AppConfig is a key-value store for application-level settings.

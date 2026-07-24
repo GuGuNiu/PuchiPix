@@ -55,7 +55,7 @@ func performAgeVerification(ctx context.Context, domain string) bool {
 	}
 	req.Header = headers
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := stealth.NewStealthClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		scraperLogger.Warn("Age verification request failed",
@@ -468,7 +468,7 @@ func fetchHTMLRaw(ctx context.Context, targetURL, domain string) (string, int, e
 	}
 	req.Header = headers
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := stealth.NewStealthClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", 0, err

@@ -167,6 +167,27 @@ func (p *Provider) ResolveURL(rawURL, domain string) string {
 }
 
 func (p *Provider) ExtractProtagonist(title string, tags []string) string {
+	if title == "" {
+		return ""
+	}
+
+	// Aimeizizi gallery titles typically follow the pattern:
+	//   "ModelName – Description"  (en-dash)
+	//   "ModelName — Description"  (em-dash)
+	//   "ModelName - Description"  (hyphen)
+	// The protagonist (cosplayer/model) name appears before the separator.
+	separators := []string{" – ", " — ", " - ", " –", "—", "–"}
+	for _, sep := range separators {
+		if idx := strings.Index(title, sep); idx > 0 {
+			candidate := strings.TrimSpace(title[:idx])
+			// Reject candidates that are too long (likely not a name)
+			// or too short (likely noise).
+			if len(candidate) >= 2 && len(candidate) <= 50 {
+				return candidate
+			}
+		}
+	}
+
 	return ""
 }
 

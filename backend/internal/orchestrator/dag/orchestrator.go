@@ -1647,6 +1647,50 @@ func (o *DagOrchestrator) SetNonCritical(ctx context.Context, dagID, nodeID stri
 
 // ═══ Helpers ═══
 
+// ReactivateDagNodes re-scans a specific DAG for READY nodes and submits
+// them to the scheduler. This is used by the CLI `trigger` command and
+// the API trigger endpoint to recover stuck nodes after dependency
+// modifications or slot pool recovery.
+func (o *DagOrchestrator) ReactivateDagNodes(ctx context.Context, dagID string) error {
+	return o.activateReadyNodes(ctx, dagID)
+}
+
+// RemoveDag removes a DAG from the orchestrator's memory. Only DAGs in
+// terminal states (all nodes completed, cancelled, or failed) can be
+// removed. Active DAGs must be cancelled first.
+func (o *DagOrchestrator) RemoveDag(ctx context.Context, dagID string) error {
+	o.dagsMu.Lock()
+	defer o.dagsMu.Unlock()
+
+	dag, ok := o.dags[dagID]
+	if !ok {
+		return orchestrator.ErrDagNotFound
+	}
+
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+
+	// Verify all nodes are in terminal states
+	for nodeID, node := range dag.nodes {
+		state := node.fsm.State()
+		if !orchestrator.IsTerminalState(state) {
+			return fmt.Errorf("node %s is still in state %s (must be terminal)", nodeID, state)
+		}
+	}
+
+	delete(o.dags, dagID)
+
+	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
+		Type:      "dag:deleted",
+		DagID:     dagID,
+		Timestamp: time.Now(),
+		Payload:   map[string]any{"reason": "user_requested"},
+	})
+
+	o.logger.Info("DAG removed", "dagId", dagID)
+	return nil
+}
+
 func getString(m map[string]any, key string) string {
 	v, ok := m[key].(string)
 	if !ok {

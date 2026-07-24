@@ -1,4 +1,4 @@
-package aimeizizi
+﻿package aimeizizi
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -124,7 +125,7 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 	}
 
 	totalPages := firstPageData.TotalPages
-	if configTotalPages > 0 && configTotalPages < totalPages {
+	if configTotalPages > totalPages {
 		totalPages = configTotalPages
 	}
 	if totalPages > stealth.MaxGalleryPages {
@@ -223,7 +224,9 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 	protagonist := deps.ExtractProtagonist(title, firstPageData.Tags)
 	description := deps.ExtractDescription(title, protagonist)
 
-	blockCheck, err := deps.CheckBlockedAsync(ctx, title, firstPageData.Category, protagonist)
+	// Use a fresh context for blocklist check to avoid timeout when
+	// the scrape context has expired after long HTTP fetch attempts.
+	blockCheck, err := deps.CheckBlockedAsync(context.Background(), title, firstPageData.Category, protagonist)
 	if err != nil {
 		return nil, fmt.Errorf("check content blocked: %w", err)
 	}
@@ -290,10 +293,16 @@ func fetchAndParse(ctx context.Context, url, domain string) (*fetchResult, error
 		return nil, err
 	}
 	req.Header = headers
+	// Remove Accept-Encoding so the HTTP transport can use gzip (which Go
+	// supports) instead of zstd/br (which Go doesn't support natively).
+	// The stealth headers request "gzip, deflate, br, zstd" to mimic Chrome,
+	// but Go can't decompress zstd/br, resulting in unreadable HTML.
+	req.Header.Del("Accept-Encoding")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := stealth.NewStealthClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] fetchAndParse: domain=%s url=%s err=%v\n", domain, url, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -310,6 +319,11 @@ func fetchAndParse(ctx context.Context, url, domain string) (*fetchResult, error
 	}
 
 	wafResult := stealth.DetectWaf(resp.StatusCode, html, doc)
+
+	h1Text := strings.TrimSpace(doc.Find("h1").First().Text())
+	titleText := strings.TrimSpace(doc.Find("title").First().Text())
+	fmt.Fprintf(os.Stderr, "[DEBUG] fetchAndParse OK: domain=%s status=%d wafBlocked=%v wafDetail=%s htmlLen=%d h1=%q title=%q\n",
+		domain, resp.StatusCode, wafResult.Blocked, wafResult.Detail, len(html), h1Text, titleText)
 
 	return &fetchResult{
 		doc:        doc,

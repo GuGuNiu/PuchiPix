@@ -92,6 +92,58 @@ func (c *Client) CancelDag(dagID string) (*DagControlResponse, error) {
 	return c.controlDag(dagID, ActionCancel, "")
 }
 
+// CreateDag submits a new DAG definition to the backend.
+func (c *Client) CreateDag(req DagCreateRequest) (*DagCreateResponse, error) {
+	var resp DagCreateResponse
+	if err := c.post("/api/dag", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// CreateTask submits a new task via POST /api/tasks, mirroring the
+// frontend's fetch("/api/tasks", { method: "POST", body: { url } }).
+func (c *Client) CreateTask(req TaskCreateRequest) (*TaskCreateResponse, error) {
+	var resp TaskCreateResponse
+	if err := c.post("/api/tasks", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// AddDependency adds a runtime dependency edge between two nodes in a DAG.
+func (c *Client) AddDependency(dagID, parentID, childID string) (*DagLinkResponse, error) {
+	body := DagLinkRequest{ParentID: parentID, ChildID: childID}
+	var resp DagLinkResponse
+	path := fmt.Sprintf("/api/dag/%s/link", url.PathEscape(dagID))
+	if err := c.post(path, body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// TriggerDag re-activates any pending/ready nodes in a DAG, useful after
+// modifying dependencies or recovering from a stuck state.
+func (c *Client) TriggerDag(dagID string) (*DagControlResponse, error) {
+	var resp DagControlResponse
+	path := fmt.Sprintf("/api/dag/%s/trigger", url.PathEscape(dagID))
+	if err := c.post(path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DeleteDag removes a completed, cancelled, or failed DAG from the
+// orchestrator's memory. Active DAGs must be cancelled first.
+func (c *Client) DeleteDag(dagID string) (*DagDeleteResponse, error) {
+	var resp DagDeleteResponse
+	path := fmt.Sprintf("/api/dag/%s", url.PathEscape(dagID))
+	if err := c.delete(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Client) GetSchedulerStats() (*SchedulerStats, error) {
 	var resp SchedulerStats
 	if err := c.get("/api/dag/scheduler", &resp); err != nil {
@@ -168,6 +220,191 @@ func (c *Client) QueryLogs(filter LogQueryFilter) ([]LogEntry, error) {
 	return resp, nil
 }
 
+// ── Health / System / Stats ──
+
+// GetHealth checks server health and database connectivity.
+func (c *Client) GetHealth() (*HealthResponse, error) {
+	var resp HealthResponse
+	if err := c.get("/api/health", &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GetSystem returns runtime system information.
+func (c *Client) GetSystem() (*SystemResponse, error) {
+	var resp SystemResponse
+	if err := c.get("/api/system", &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GetStats returns aggregate dashboard statistics.
+func (c *Client) GetStats() (*StatsResponse, error) {
+	var resp StatsResponse
+	if err := c.get("/api/stats", &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ── Sites ──
+
+// GetSites returns the list of supported site providers.
+func (c *Client) GetSites() ([]SiteInfo, error) {
+	var resp []SiteInfo
+	if err := c.get("/api/sites", &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ── Download Tasks (video) ──
+
+// GetTasks returns a paginated list of download tasks.
+func (c *Client) GetTasks(limit, offset int) ([]DownloadTask, error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		params.Set("offset", fmt.Sprintf("%d", offset))
+	}
+	qs := params.Encode()
+	path := "/api/tasks"
+	if qs != "" {
+		path += "?" + qs
+	}
+	var resp []DownloadTask
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// GetTask returns a single download task by ID.
+func (c *Client) GetTask(id int) (*DownloadTask, error) {
+	var resp DownloadTask
+	path := fmt.Sprintf("/api/tasks/%d", id)
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// TaskAction performs an action (start/pause/resume/cancel/retry) on a task.
+func (c *Client) TaskAction(id int, action string) (*TaskActionResponse, error) {
+	body := TaskActionRequest{Action: action}
+	var resp TaskActionResponse
+	path := fmt.Sprintf("/api/tasks/%d", id)
+	if err := c.post(path, body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DeleteTask removes a download task by ID.
+func (c *Client) DeleteTask(id int) error {
+	path := fmt.Sprintf("/api/tasks/%d", id)
+	return c.delete(path, nil)
+}
+
+// ── Galleries ──
+
+// GetGalleries returns a paginated list of galleries, optionally filtered by status.
+func (c *Client) GetGalleries(limit, offset int, status string) ([]GallerySummary, error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		params.Set("offset", fmt.Sprintf("%d", offset))
+	}
+	if status != "" {
+		params.Set("status", status)
+	}
+	qs := params.Encode()
+	path := "/api/shelf"
+	if qs != "" {
+		path += "?" + qs
+	}
+	var resp []GallerySummary
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// GetGallery returns a single gallery by ID.
+func (c *Client) GetGallery(id int) (*GalleryDetail, error) {
+	var resp GalleryDetail
+	path := fmt.Sprintf("/api/shelf/%d", id)
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GalleryAction performs an action (retry-failed/pause/resume/download) on a gallery.
+func (c *Client) GalleryAction(id int, action string) (*GalleryActionResponse, error) {
+	body := GalleryActionRequest{Action: action}
+	var resp GalleryActionResponse
+	path := fmt.Sprintf("/api/shelf/%d", id)
+	if err := c.post(path, body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DeleteGallery removes a gallery and its associated images/videos.
+func (c *Client) DeleteGallery(id int) error {
+	path := fmt.Sprintf("/api/shelf/%d", id)
+	return c.delete(path, nil)
+}
+
+// GetGalleryFileProgress returns per-file progress for a gallery.
+func (c *Client) GetGalleryFileProgress(id int) (*GalleryFileProgressResponse, error) {
+	var resp GalleryFileProgressResponse
+	path := fmt.Sprintf("/api/shelf/%d/files/progress", id)
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ── Slot Holders / Slot Detail / Slot Update ──
+
+// GetSlotHolders returns active holder IDs for all slot types.
+func (c *Client) GetSlotHolders() (*SlotHoldersResponse, error) {
+	var resp SlotHoldersResponse
+	if err := c.get("/api/slots/holders", &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GetSlotDetail returns detailed info for a single slot type.
+func (c *Client) GetSlotDetail(slotType string) (*SlotDetailResponse, error) {
+	var resp SlotDetailResponse
+	path := fmt.Sprintf("/api/slots/%s", url.PathEscape(slotType))
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// UpdateSlotMax dynamically adjusts the max concurrency for a slot type.
+func (c *Client) UpdateSlotMax(slotType string, max int) (*SlotUpdateResponse, error) {
+	body := SlotUpdateRequest{Max: max}
+	var resp SlotUpdateResponse
+	path := fmt.Sprintf("/api/slots/%s", url.PathEscape(slotType))
+	if err := c.put(path, body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // GetStreamURL returns the SSE endpoint URL for real-time DAG events.
 func (c *Client) GetStreamURL() string {
 	return c.baseURL + "/api/dag/stream"
@@ -224,6 +461,14 @@ func (c *Client) get(path string, target any) error {
 
 func (c *Client) post(path string, body any, target any) error {
 	return c.request(http.MethodPost, path, body, target)
+}
+
+func (c *Client) delete(path string, target any) error {
+	return c.request(http.MethodDelete, path, nil, target)
+}
+
+func (c *Client) put(path string, body any, target any) error {
+	return c.request(http.MethodPut, path, body, target)
 }
 
 func (c *Client) request(method, path string, body any, target any) error {

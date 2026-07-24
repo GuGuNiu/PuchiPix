@@ -55,27 +55,31 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const shelfData = await shelfRes.json();
       const videoTasks = Array.isArray(videoData) ? videoData : [];
 
-      // Map gallery shelf items to DownloadTask format
+      // Map gallery shelf items to DownloadTask format.
+      // Gallery struct now uses PascalCase JSON tags (matching
+      // DownloadTask convention), but we keep fallback to camelCase
+      // for backward compatibility with cached/old responses.
       const galleryTasks: DownloadTask[] = Array.isArray(shelfData)
         ? shelfData.map((g: any) => ({
-            ID: g.id,
-            URL: g.sourceUrl || '',
+            ID: g.ID ?? g.id,
+            DisplayID: g.DisplayID ?? g.seq,
+            URL: (g.SourceURL ?? g.sourceUrl) || '',
             M3U8URL: '',
-            Status: g.status || 'pending',
+            Status: (g.Status ?? g.status) || 'pending',
             Progress: 0,
-            FilePath: g.savePath || '',
+            FilePath: (g.SavePath ?? g.savePath) || '',
             Format: '',
             Priority: 0,
-            ErrorMsg: g.errorMsg || '',
-            CreatedAt: g.createdAt || '',
-            UpdatedAt: g.updatedAt || '',
+            ErrorMsg: (g.ErrorMsg ?? g.errorMsg) || '',
+            CreatedAt: (g.CreatedAt ?? g.createdAt) || '',
+            UpdatedAt: (g.UpdatedAt ?? g.updatedAt) || '',
             TaskType: 'gallery' as const,
-            GalleryTitle: g.title || '',
-            ImageCount: g.imageCount ?? 0,
-            VideoCount: g.videoCount ?? 0,
-            DownloadMethod: g.downloadMethod || '',
-            GalleryTotalSize: g.totalSize ?? 0,
-            Person: g.protagonist || '',
+            GalleryTitle: (g.Title ?? g.title) || '',
+            ImageCount: (g.ImageCount ?? g.imageCount) ?? 0,
+            VideoCount: (g.VideoCount ?? g.videoCount) ?? 0,
+            DownloadMethod: (g.DownloadMethod ?? g.downloadMethod) || '',
+            GalleryTotalSize: (g.TotalSize ?? g.totalSize) ?? 0,
+            Person: (g.Protagonist ?? g.protagonist) || '',
           }))
         : [];
 

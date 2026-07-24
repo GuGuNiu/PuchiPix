@@ -34,7 +34,16 @@ func CheckFFmpeg() bool {
 func TranscodeTS(ctx context.Context, inputDir, outputPath string) error {
 	dirPath := filepath.Clean(inputDir)
 
-	entries, err := os.ReadDir(dirPath)
+	// Resolve to absolute path so that ffmpeg's concat demuxer can find
+	// the segment files regardless of the working directory. Without this,
+	// relative paths in concat.txt are resolved relative to the concat
+	// file's own directory, causing doubled paths.
+	absDir, err := filepath.Abs(dirPath)
+	if err != nil {
+		absDir = dirPath
+	}
+
+	entries, err := os.ReadDir(absDir)
 	if err != nil {
 		return fmt.Errorf("cannot read segment directory: %w", err)
 	}
@@ -55,10 +64,10 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string) error {
 		return extractSegmentIndex(files[i]) < extractSegmentIndex(files[j])
 	})
 
-	concatPath := filepath.Join(dirPath, "concat.txt")
+	concatPath := filepath.Join(absDir, "concat.txt")
 	var buf bytes.Buffer
 	for _, file := range files {
-		full := filepath.Join(dirPath, file)
+		full := filepath.Join(absDir, file)
 		buf.WriteString("file '")
 		buf.WriteString(strings.ReplaceAll(full, "\\", "/"))
 		buf.WriteString("'\n")

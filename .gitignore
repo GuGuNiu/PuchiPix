@@ -12,3 +12,5 @@
 
 # Legacy embedded PostgreSQL runtime (now stored under data/postgres/)
 .postgres/
+/backend/data
+/tmp

@@ -157,6 +157,13 @@ const zhCN: TranslationDict = {
   "tasks.statInput": "已输入",
   "tasks.statLines": "行",
   "tasks.statDetected": "已识别",
+  "tasks.statItems": "个",
+  "tasks.firstPage": "首页",
+  "tasks.prevPage": "上一页",
+  "tasks.nextPage": "下一页",
+  "tasks.lastPage": "末页",
+  "tasks.recordCount": "{count} 条",
+  "tasks.jumpToPage": "跳至页码",
   "tasks.jumpToPagePlaceholder": "页码",
 } satisfies TranslationDict;
 

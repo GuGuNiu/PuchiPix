@@ -92,7 +92,7 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 	}
 
 	totalPages := firstPageData.TotalPages
-	if configTotalPages > 0 && configTotalPages < totalPages {
+	if configTotalPages > totalPages {
 		totalPages = configTotalPages
 	}
 	if totalPages > stealth.MaxGalleryPages {
@@ -125,6 +125,54 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 		}
 	}
 
+	// Fetch remaining pages via browser navigation.
+	for pageNum := 2; pageNum <= totalPages; pageNum++ {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+
+		stealth.Sleep(stealth.PageDelayMin, stealth.PageDelayMax)
+
+		pageURLConstructed := usedDomain + "/article/" + articleID + "/page/" + itoa(pageNum) + "/"
+		pageHtml, err := navigateAndWait(ctx, pageURLConstructed)
+		if err != nil {
+			scraperLogger.Debug("Browser page fetch failed",
+				infra.LogContext{Extra: map[string]any{
+					"page":  pageNum,
+					"error": err.Error(),
+				}})
+			continue
+		}
+
+		pageDoc, err := goquery.NewDocumentFromReader(strings.NewReader(pageHtml))
+		if err != nil {
+			continue
+		}
+
+		pageData := ParseGalleryPageHtml(pageDoc, pageNum-1, deps.GetPlaceholder())
+		for _, img := range pageData.Images {
+			fullURL := deps.ResolveURL(img.URL, usedDomain)
+			if fullURL != "" && !imageUrlSet[fullURL] {
+				imageUrlSet[fullURL] = true
+				allImages = append(allImages, sites.GalleryImageItem{
+					URL:        fullURL,
+					PageIndex:  img.PageIndex,
+					OrderIndex: orderIndex,
+				})
+				orderIndex++
+			}
+		}
+		for _, videoURL := range pageData.Videos {
+			fullURL := deps.ResolveURL(videoURL, usedDomain)
+			if fullURL != "" && !videoUrlSet[fullURL] {
+				videoUrlSet[fullURL] = true
+				allVideos = append(allVideos, sites.GalleryVideoItem{URL: fullURL})
+			}
+		}
+	}
+
 	zipInfo := ParseZipInfoFromHtml(doc, usedDomain)
 
 	title := deps.CleanTitle(firstPageData.H1Title)
@@ -135,7 +183,9 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 	protagonist := deps.ExtractProtagonist(title, firstPageData.Tags)
 	description := deps.ExtractDescription(title, protagonist)
 
-	blockCheck, err := deps.CheckBlockedAsync(ctx, title, firstPageData.Category, protagonist)
+	// Use a fresh context for blocklist check to avoid timeout when
+	// the scrape context has expired after long chromedp navigation.
+	blockCheck, err := deps.CheckBlockedAsync(context.Background(), title, firstPageData.Category, protagonist)
 	if err != nil {
 		return nil, fmt.Errorf("check content blocked: %w", err)
 	}

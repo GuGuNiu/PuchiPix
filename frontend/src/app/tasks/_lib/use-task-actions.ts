@@ -158,7 +158,7 @@ export function useTaskActions({
           if (galleryActions.includes(action)) return `/api/shelf/${taskId}`;
           return null;
         }
-        return `/api/tasks/${taskId}/${action}`;
+        return `/api/tasks/${taskId}`;
       };
 
       const endpoint = resolveEndpoint();
@@ -183,6 +183,9 @@ export function useTaskActions({
           };
           fetchOpts.headers = { "Content-Type": "application/json" };
           fetchOpts.body = JSON.stringify({ action: galleryActionMap[action] });
+        } else if (!isSniff && !isGallery && action !== "delete") {
+          fetchOpts.headers = { "Content-Type": "application/json" };
+          fetchOpts.body = JSON.stringify({ action });
         }
         const res = await fetch(endpoint, fetchOpts);
         if (!res.ok) throw new Error(await res.text());

@@ -9,6 +9,13 @@ type Registry struct {
 // NewRegistry creates a Registry pre-populated with all built-in commands.
 func NewRegistry() *Registry {
 	cmds := []Command{
+		// ── System & monitoring ──
+		healthCommand{},
+		systemCommand{},
+		statsCommand{},
+		sitesCommand{},
+
+		// ── DAG monitoring & status ──
 		statusCommand{},
 		watchCommand{},
 		logsCommand{},
@@ -18,11 +25,21 @@ func NewRegistry() *Registry {
 		nodeCommand{},
 		traceCommand{},
 		workerCommand{},
+		eventsCommand{},
+
+		// ── DAG lifecycle control ──
 		pauseCommand,
 		resumeCommand,
 		retryCommand,
 		cancelCommand,
-		eventsCommand{},
+		dagCreateCommand{},
+		dagLinkCommand{},
+		dagTriggerCommand{},
+		dagDeleteCommand{},
+
+		// ── Task & gallery management ──
+		tasksCommand{},
+		galleriesCommand{},
 	}
 	return &Registry{commands: cmds}
 }

@@ -1,0 +1,14 @@
+{
+  "name": "崩坏3",
+  "nameEn": "Honkai Impact 3rd",
+  "shortNames": ["崩坏3", "崩三", "HI3"],
+  "characters": [
+    {"name": "琪亚娜", "pinyin": "qiyana", "aliases": ["Kiana", "草履虫"]},
+    {"name": "芽衣", "pinyin": "yayi", "aliases": ["Raiden Mei", "雷电芽衣"]},
+    {"name": "布洛妮娅", "pinyin": "buluoniya", "aliases": ["Bronya", "板鸭"]},
+    {"name": "爱莉希雅", "pinyin": "ailixiya", "aliases": ["Elysia", "粉色妖精"]},
+    {"name": "八重樱", "pinyin": "bachongying", "aliases": ["Yae Sakura"]},
+    {"name": "德丽莎", "pinyin": "delisha", "aliases": ["Theresa", "大姨妈"]},
+    {"name": "希儿", "pinyin": "xier", "aliases": ["Seele"]}
+  ]
+}

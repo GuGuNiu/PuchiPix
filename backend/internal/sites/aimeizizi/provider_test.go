@@ -256,12 +256,31 @@ func TestProviderResolveURL(t *testing.T) {
 // --- ExtractProtagonist ---
 
 // TestProviderExtractProtagonist verifies that the aimeizizi provider
-// returns an empty protagonist, as this site does not tag models by
-// name ??protagonist extraction is left to other providers or manual
-// user input.
+// correctly extracts the model/cosplayer name from titles that follow
+// the "ModelName – Description" pattern using various separators.
 func TestProviderExtractProtagonist(t *testing.T) {
 	p := newTestProvider(t, nil)
-	assert.Empty(t, p.ExtractProtagonist("Any Title", []string{"tag1", "tag2"}))
+
+	// En-dash separator (most common on aimeizizi).
+	assert.Equal(t, "雪晴Astra",
+		p.ExtractProtagonist("雪晴Astra – JK制服私房", []string{}))
+
+	// Em-dash separator.
+	assert.Equal(t, "Bangni邦尼",
+		p.ExtractProtagonist("Bangni邦尼 — 兔子洞护士", []string{}))
+
+	// Hyphen separator with spaces.
+	assert.Equal(t, "Machi馬吉",
+		p.ExtractProtagonist("Machi馬吉 - Kafka卡芙卡", []string{}))
+
+	// No separator: should return empty.
+	assert.Empty(t, p.ExtractProtagonist("JK制服寫真合集", []string{}))
+
+	// Empty title.
+	assert.Empty(t, p.ExtractProtagonist("", []string{}))
+
+	// Separator at start (no protagonist before it).
+	assert.Empty(t, p.ExtractProtagonist(" – Description only", []string{}))
 }
 
 // --- ExtractDescription ---

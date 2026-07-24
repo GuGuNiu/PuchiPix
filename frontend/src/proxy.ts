@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Securityheaderand CORS Middleware
+ * Security headers and CORS Proxy
  *
- *
+ * Next.js 16 renamed the middleware convention to proxy.
+ * See: https://nextjs.org/docs/messages/middleware-to-proxy
  */
 
 const DEFAULT_ALLOWED_ORIGINS = "http://localhost:10540";
@@ -59,7 +60,7 @@ function applyCors(headers: Headers, request: NextRequest): void {
   headers.set("Vary", "Origin");
 }
 
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   if (request.method === "OPTIONS") {
     const response = new NextResponse(null, { status: 204 });
     applyCors(response.headers, request);

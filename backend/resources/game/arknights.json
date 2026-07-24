@@ -1,0 +1,1010 @@
+{
+  "name": "明日方舟",
+  "nameEn": "Arknights",
+  "shortNames": [
+    "方舟",
+    "AK"
+  ],
+  "characters": [
+    {
+      "name": "12F",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿兰娜",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿罗玛",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿米娅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿米娅（近卫）",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿米娅（医疗）",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿斯卡纶",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿消",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "艾拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "埃拉托",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "艾丽妮",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "爱丽丝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "艾丝黛尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "艾雅法拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "安比尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "安德切尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "安洁莉娜",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "安赛尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "暗索",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "安哲拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "奥达",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "奥斯塔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "八幡海铃",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "摆渡人",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "柏喙",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "白金",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "百炼嘉维尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "白面鸮",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "拜松",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "白铁",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "白雪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "斑点",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "薄绿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "暴行",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "暴雨",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "贝洛内",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "贝娜",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "鞭刃",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "冰酿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "波卜",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "波登可",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "伯塔尼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "布丁",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "布洛卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "CONFESS-47",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "裁度",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "苍苔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "Castle-3",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "缠丸",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "车尔尼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "陈",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "骋风",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "澄闪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "承曦格雷伊",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赤冬",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赤刃明霄陈",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "斥罪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "仇白",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "初雪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "纯烬艾雅法拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "刺玫",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "伺夜",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "淬羽赫默",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "嵯峨",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "达格达",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "戴菲恩",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "但书",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "导火索",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "德克萨斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "地灵",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "蒂比",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "涤火杰西卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "电弧",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "调香师",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "冬时",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "豆苗",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "杜宾",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "杜林",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "渡桥",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "断崖",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "断罪者",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "铎铃",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "多萝西",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "芳汀",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "菲莱",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "菲亚梅塔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "芬",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "丰川祥子",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "风笛",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "风丸",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "风絮",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "Friston-3",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "芙兰卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "芙蓉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "复奏",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "GALLUS²",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "格拉尼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "格劳克斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "歌蕾蒂娅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "格雷伊",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "古米",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "归溟幽灵鲨",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "瑰盐",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "傀儡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "哈蒂娅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "哈洛德",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "海蒂",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "海沫",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "海霓",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "寒芒克洛丝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "寒檀",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "号角",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赫德雷",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "褐果",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赫拉格",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赫默",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "和弦",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黑",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黑键",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黑角",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "衡沙",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "吽",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "红",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "红豆",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "红隼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "鸿雪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "红云",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "华法琳",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "槐琥",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "煌",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "荒芜拉普兰德",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "灰毫",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "灰喉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "灰烬",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "霍尔海雅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "火龙S黑角",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "火哨",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "火神",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "棘刺",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "极光",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "极境",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "机械师",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "吉星",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "假日威龙陈",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "贾维",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "嘉维尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "锏",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "坚雷",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "缄默德克萨斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "见行者",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "角峰",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "孑",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "杰克",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "杰西卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "截云",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "惊蛰",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "九色鹿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "酒神",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "矩",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "卡达",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "卡夫卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "卡涅利安",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "卡缇",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凯尔希",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凯尔希·思衡托",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凯瑟琳",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "刻刀",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "刻俄柏",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "可露希尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "克洛丝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "可颂",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "空",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "空爆",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "空构",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "空弦",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "苦艾",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "拉普兰德",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "莱恩哈特",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "莱欧斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "莱伊",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "蓝毒",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "Lancet-2",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "老鲤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "雷狼龙S空爆",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "蕾缪安",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "雷蛇",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "砾",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "历阵锐枪芬",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "猎蜂",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "烈夏",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "裂响",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "林",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凛冬",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "临光",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "琳琅诗怀雅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凛视",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凛御银灰",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "令",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "铃兰",
+      "pinyin": "",
+      "aliases": []
+    }
+  ]
+}

@@ -75,7 +75,7 @@ function normalizeGallery(raw: any): GalleryData {
 
   return {
     ID: raw.id ?? raw.ID,
-    Seq: raw.seq ?? raw.Seq,
+    Seq: raw.DisplayID ?? raw.displayID ?? raw.seq ?? raw.Seq,
     SourceURL: raw.sourceUrl ?? raw.SourceURL ?? '',
     SiteID: raw.siteId ?? raw.SiteID ?? '',
     ScrapedDomain: raw.scrapedDomain ?? raw.ScrapedDomain ?? '',

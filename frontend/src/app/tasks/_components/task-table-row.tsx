@@ -74,7 +74,7 @@ export function TaskTableRow({
   const titleDisplay = isIdentifying && !rawTitle
     ? t("tasks.identifying")
     : (rawTitle || task.URL);
-  const progress = task.Progress;
+  const progress = typeof task.Progress === "number" ? task.Progress : 0;
   const progressPct = progress.toFixed(1) + "%";
   const stage = getProgressStage(task, t);
   const fillClass =

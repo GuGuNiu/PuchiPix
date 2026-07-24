@@ -5,8 +5,8 @@ CLI_NAME := puchipix-cli
 BUILD_DIR := bin
 
 build:
-	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd/puchipix-server
-	go build -o $(BUILD_DIR)/$(CLI_NAME) ./cmd/puchipix-cli
+	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd/server
+	go build -o $(BUILD_DIR)/$(CLI_NAME) ./cmd/cli
 
 test:
 	go test -v -race ./...
@@ -22,7 +22,7 @@ migrate:
 	go run ./cmd/migrate
 
 run:
-	go run ./cmd/puchipix-server
+	go run ./cmd/server
 
 clean:
 	rm -rf $(BUILD_DIR)

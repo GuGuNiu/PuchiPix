@@ -103,9 +103,12 @@ func (e *ScrapeExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, 
 
 // DownloadExecutor handles the download phase, with domain fallback
 // support to switch to backup domains when the primary is unavailable.
+// When galleryDownloadFn is set and the node Config contains a
+// "galleryId", it switches to gallery batch download mode.
 type DownloadExecutor struct {
-	logger      *infra.Logger
-	downloadFn func(ctx context.Context, url, savePath string, domains []string) error
+	logger            *infra.Logger
+	downloadFn        func(ctx context.Context, url, savePath string, domains []string) error
+	galleryDownloadFn func(ctx context.Context, galleryID int) error
 }
 
 // NewDownloadExecutor creates a download executor with the given
@@ -117,9 +120,41 @@ func NewDownloadExecutor(fn func(ctx context.Context, url, savePath string, doma
 	}
 }
 
+// WithGalleryDownload sets the gallery batch download function.
+func (e *DownloadExecutor) WithGalleryDownload(fn func(ctx context.Context, galleryID int) error) *DownloadExecutor {
+	e.galleryDownloadFn = fn
+	return e
+}
+
 func (e *DownloadExecutor) Key() string { return "download" }
 
 func (e *DownloadExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
+	// Gallery batch download mode: when galleryId is present in Config,
+	// download all gallery images/videos from the database.
+	if e.galleryDownloadFn != nil {
+		if gid, ok := node.Config["galleryId"]; ok {
+			var galleryID int
+			switch v := gid.(type) {
+			case int:
+				galleryID = v
+			case float64:
+				galleryID = int(v)
+			}
+			if galleryID > 0 {
+				e.logger.Info("Starting gallery batch download",
+					"nodeId", node.NodeID, "dagId", node.DagID, "galleryId", galleryID)
+				err := e.galleryDownloadFn(ctx, galleryID)
+				if err != nil {
+					e.logger.Error("Gallery download failed", err, "nodeId", node.NodeID, "galleryId", galleryID)
+					return false, err
+				}
+				e.logger.Info("Gallery download completed", "nodeId", node.NodeID, "galleryId", galleryID)
+				return true, nil
+			}
+		}
+	}
+
+	// Single-file download mode (original behavior).
 	url, _ := node.Config["url"].(string)
 	savePath, _ := node.Config["savePath"].(string)
 	var domains []string

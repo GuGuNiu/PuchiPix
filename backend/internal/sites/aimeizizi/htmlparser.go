@@ -127,6 +127,24 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 		}
 	})
 
+	// Extract publish time from article time element (most reliable source).
+	article.Find("time").Each(func(_ int, t *goquery.Selection) {
+		if result.PublishTime != "" {
+			return
+		}
+		// Try datetime attribute first (ISO 8601 format), then text content.
+		datetime := t.AttrOr("datetime", "")
+		if datetime != "" && len(datetime) >= 10 {
+			result.PublishTime = datetime[:10]
+			return
+		}
+		text := strings.TrimSpace(t.Text())
+		if text != "" {
+			result.PublishTime = text
+		}
+	})
+
+	// Fallback to JSON-LD VideoObject uploadDate.
 	doc.Find(`script[type="application/ld+json"]`).Each(func(_ int, script *goquery.Selection) {
 		if result.PublishTime != "" {
 			return
@@ -145,6 +163,7 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 		}
 	})
 
+	// Final fallback: extract date from cover URL path.
 	if result.PublishTime == "" && result.CoverURL != "" {
 		if m := dateInURLPattern.FindStringSubmatch(result.CoverURL); len(m) >= 4 {
 			result.PublishTime = m[1] + "-" + m[2] + "-" + m[3]

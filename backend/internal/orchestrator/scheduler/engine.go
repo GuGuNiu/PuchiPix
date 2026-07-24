@@ -513,3 +513,26 @@ func (s *SchedulerEngine) IsDraining() bool {
 	defer s.mu.Unlock()
 	return s.draining
 }
+
+// ── Slot introspection (API stubs — full implementation pending) ──
+
+// GetSlotSnapshot returns current slot usage per type for the dashboard API.
+func (s *SchedulerEngine) GetSlotSnapshot() map[string]slot.SlotUsage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.slotPool.GetSnapshot()
+}
+
+// UpdateSlotMax adjusts the max concurrency for a slot type at runtime.
+func (s *SchedulerEngine) UpdateSlotMax(slotType string, max int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.slotPool.UpdateMax(slotType, max)
+}
+
+// GetActiveSlotHolders returns which tasks currently hold each slot type.
+func (s *SchedulerEngine) GetActiveSlotHolders() map[string][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.slotPool.GetActiveHolders()
+}

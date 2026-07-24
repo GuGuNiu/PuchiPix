@@ -1,0 +1,31 @@
+# Compiled binaries — build artifacts, never commit
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Compiled output directory
+/bin/
+
+# Server logs
+*.log
+
+# Environment files (sensitive credentials)
+.env
+.env.local
+.env.production
+
+# IDE / OS files
+.DS_Store
+Thumbs.db
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of `go coverage`
+*.out
+/coverage/
+
+# Vendor is not used (Go modules)
+/vendor/

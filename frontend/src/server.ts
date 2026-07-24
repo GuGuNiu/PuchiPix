@@ -63,9 +63,17 @@ function proxyToGo(req: IncomingMessage, res: ServerResponse): void {
     proxyReq.end();
   }
 
-  // Forward the client disconnection to the proxy
-  req.on('close', () => {
-    proxyReq.destroy();
+  // Use res.on('close') instead of req.on('close') to detect
+  // premature client disconnection. req 'close' fires when the
+  // request body stream ends (e.g. POST body fully piped), which
+  // is BEFORE the Go backend responds — destroying proxyReq at
+  // that point kills the connection and causes 502.
+  // res 'close' fires when the response is complete or the client
+  // disconnects; writableEnded distinguishes the two.
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      proxyReq.destroy();
+    }
   });
 }
 

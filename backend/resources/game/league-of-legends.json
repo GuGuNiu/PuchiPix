@@ -1,0 +1,12 @@
+{
+  "name": "英雄联盟",
+  "nameEn": "League of Legends",
+  "shortNames": ["LOL", "英雄联盟"],
+  "characters": [
+    {"name": "阿狸", "pinyin": "ali", "aliases": ["Ahri", "九尾妖狐"]},
+    {"name": "阿卡丽", "pinyin": "akali", "aliases": ["Akali", "KDA阿卡丽"]},
+    {"name": "金克丝", "pinyin": "jinkesi", "aliases": ["Jinx"]},
+    {"name": "萨勒芬妮", "pinyin": "salefenni", "aliases": ["Seraphine"]},
+    {"name": "索娜", "pinyin": "suona", "aliases": ["Sona", "琴女"]}
+  ]
+}

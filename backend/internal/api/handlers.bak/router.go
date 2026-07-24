@@ -39,11 +39,15 @@ func NewRouter(h *Handlers, eventBus *infra.EventBus) http.Handler {
 
 		r.Route("/dag", func(r chi.Router) {
 			r.Get("/", h.DagList)
+			r.Post("/", h.DagCreate)
 			r.Get("/stream", h.DagStreamSSE)
 			r.Get("/{id}", h.DagDetail)
 			r.Post("/{id}/control", h.DagControl)
+			r.Post("/{id}/link", h.DagLink)
+			r.Post("/{id}/trigger", h.DagTrigger)
 			r.Get("/{id}/nodes", h.DagNodes)
 			r.Get("/{id}/snapshot", h.DagSnapshot)
+			r.Delete("/{id}", h.DagDelete)
 		})
 
 		r.Route("/tasks", func(r chi.Router) {

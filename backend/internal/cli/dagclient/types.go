@@ -46,6 +46,10 @@ const (
 	ActionResume  DagControlAction = "resume"
 	ActionRetry   DagControlAction = "retry"
 	ActionCancel  DagControlAction = "cancel"
+	ActionCreate  DagControlAction = "create"
+	ActionLink    DagControlAction = "link"
+	ActionTrigger DagControlAction = "trigger"
+	ActionDelete  DagControlAction = "delete"
 )
 
 type NodeError struct {
@@ -281,11 +285,237 @@ type WorkerRestartResponse struct {
 	ReadyMs int64 `json:"readyMs"`
 }
 
+// DagCreateRequest is the payload for creating a new DAG via the API.
+type DagCreateRequest struct {
+	TaskType   string `json:"taskType"`
+	SourceURL  string `json:"sourceUrl,omitempty"`
+	ProviderID string `json:"providerId,omitempty"`
+	GalleryID  int    `json:"galleryId,omitempty"`
+	TaskID     int    `json:"taskId,omitempty"`
+}
+
+// DagCreateResponse is the response for a DAG creation request.
+type DagCreateResponse struct {
+	DagID    string `json:"dagId"`
+	TaskType string `json:"taskType"`
+	Status   string `json:"status"`
+}
+
+// TaskCreateRequest matches the POST /api/tasks payload.
+type TaskCreateRequest struct {
+	URL      string `json:"url"`
+	Format   string `json:"format,omitempty"`
+	Seq      string `json:"seq,omitempty"`
+	Priority int    `json:"priority,omitempty"`
+}
+
+// TaskCreateResponse matches the POST /api/tasks response body.
+// PascalCase JSON tags match the frontend DownloadTask interface contract.
+type TaskCreateResponse struct {
+	ID        int    `json:"ID"`
+	DisplayID string `json:"DisplayID"`
+	Status    string `json:"Status"`
+}
+
+// DagLinkRequest is the payload for adding a dependency edge.
+type DagLinkRequest struct {
+	ParentID string `json:"parentId"`
+	ChildID  string `json:"childId"`
+}
+
+// DagLinkResponse confirms a dependency was added.
+type DagLinkResponse struct {
+	DagID    string `json:"dagId"`
+	ParentID string `json:"parentId"`
+	ChildID  string `json:"childId"`
+	Status   string `json:"status"`
+}
+
+// DagDeleteResponse confirms a DAG was removed.
+type DagDeleteResponse struct {
+	DagID  string `json:"dagId"`
+	Status string `json:"status"`
+}
+
 // SseEvent represents a single Server-Sent Events message parsed from
 // the event stream.
 type SseEvent struct {
 	Type string          `json:"-"`
 	Data json.RawMessage `json:"-"`
+}
+
+// ── Health / System / Stats ──
+
+// HealthResponse matches GET /api/health output.
+type HealthResponse struct {
+	Status   string `json:"status"`
+	Time     string `json:"time"`
+	Database string `json:"database"`
+}
+
+// SystemResponse matches GET /api/system output.
+type SystemResponse struct {
+	Version    string `json:"version"`
+	GoVersion  string `json:"goVersion"`
+	Goroutines int    `json:"goroutines"`
+	MemAlloc   uint64 `json:"memAlloc"`
+	MemSys     uint64 `json:"memSys"`
+	Uptime     string `json:"uptime"`
+	CPUCores   int    `json:"cpuCores"`
+}
+
+// StatsResponse matches GET /api/stats output. Fields are loosely
+// typed because the backend assembles this map dynamically.
+type StatsResponse struct {
+	Galleries         int            `json:"galleries"`
+	Tasks             int            `json:"tasks"`
+	DownloadHistory   int            `json:"downloadHistory"`
+	CurrentSpeedStr   string         `json:"current_speed_str"`
+	DiskIOStr         string         `json:"disk_io_str"`
+	SlotUsage         map[string]any `json:"slotUsage,omitempty"`
+	SchedulerQueueSize int           `json:"schedulerQueueSize,omitempty"`
+	SchedulerByPriority map[string]int `json:"schedulerByPriority,omitempty"`
+	DagTotal          int            `json:"dagTotal,omitempty"`
+	DagActive         int            `json:"dagActive,omitempty"`
+}
+
+// ── Sites ──
+
+// SiteInfo represents a supported site provider entry from
+// GET /api/sites.
+type SiteInfo struct {
+	SiteID      string   `json:"siteId"`
+	Name        string   `json:"name"`
+	Domains     []string `json:"domains"`
+	Type        string   `json:"type"`
+	Description string   `json:"description,omitempty"`
+}
+
+// ── Download Tasks (video) ──
+
+// DownloadTask matches the backend db.DownloadTask JSON output.
+// JSON tags use PascalCase to match the backend contract.
+type DownloadTask struct {
+	ID        int     `json:"ID"`
+	URL       string  `json:"URL"`
+	M3U8URL   string  `json:"M3U8URL"`
+	Status    string  `json:"Status"`
+	Progress  float64 `json:"Progress"`
+	FilePath  string  `json:"FilePath"`
+	Format    string  `json:"Format"`
+	Priority  int     `json:"Priority"`
+	ErrorMsg  string  `json:"ErrorMsg"`
+	DisplayID *string `json:"DisplayID"`
+	CreatedAt string  `json:"CreatedAt"`
+	UpdatedAt string  `json:"UpdatedAt"`
+}
+
+// TaskActionRequest is the body for POST /api/tasks/{id}.
+type TaskActionRequest struct {
+	Action string `json:"action"`
+}
+
+// TaskActionResponse is the response for POST /api/tasks/{id}.
+type TaskActionResponse struct {
+	ID     int    `json:"id"`
+	DagID  string `json:"dagId,omitempty"`
+	Status string `json:"status"`
+}
+
+// ── Galleries ──
+
+// GallerySummary is a compact gallery representation for list views.
+// The backend returns full Gallery structs; we only need key fields
+// for the CLI table output. Since the API returns full Gallery JSON,
+// all fields are present — we just use a subset for display.
+type GallerySummary struct {
+	ID             int     `json:"ID"`
+	DisplayID      *string `json:"DisplayID"`
+	SourceURL      string  `json:"SourceURL"`
+	SiteID         string  `json:"SiteID"`
+	Title          string  `json:"Title"`
+	Protagonist    string  `json:"Protagonist"`
+	Status         string  `json:"Status"`
+	ImageCount     int     `json:"ImageCount"`
+	VideoCount     int     `json:"VideoCount"`
+	TotalSize      int64   `json:"TotalSize"`
+	DownloadedSize int64   `json:"DownloadedSize"`
+	ErrorMsg       string  `json:"ErrorMsg"`
+	CreatedAt      string  `json:"CreatedAt"`
+}
+
+// GalleryDetail matches the full db.Gallery JSON output.
+type GalleryDetail struct {
+	GallerySummary
+	ScrapedDomain       string  `json:"ScrapedDomain"`
+	Description         string  `json:"Description"`
+	Category            string  `json:"Category"`
+	Tags                string  `json:"Tags"`
+	CoverURL            string  `json:"CoverURL"`
+	PageCount           int     `json:"PageCount"`
+	DownloadMethod      string  `json:"DownloadMethod"`
+	ExpectedImageCount  int     `json:"ExpectedImageCount"`
+	ExpectedVideoCount  int     `json:"ExpectedVideoCount"`
+	ContentVerified     bool    `json:"ContentVerified"`
+	SavePath            string  `json:"SavePath"`
+	GameCharacters      *string `json:"GameCharacters"`
+	PublishTime         *string `json:"PublishTime"`
+	ScrapedAt           *string `json:"ScrapedAt"`
+	CompletedAt         *string `json:"CompletedAt"`
+	UpdatedAt           string  `json:"UpdatedAt"`
+}
+
+// GalleryActionRequest is the body for POST /api/shelf/{id}.
+type GalleryActionRequest struct {
+	Action    string `json:"action"`
+	ManualURL string `json:"manualUrl,omitempty"`
+}
+
+// GalleryActionResponse is the response for POST /api/shelf/{id}.
+type GalleryActionResponse struct {
+	ID     int    `json:"id"`
+	Action string `json:"action"`
+	DagID  string `json:"dagId,omitempty"`
+	Status string `json:"status"`
+}
+
+// GalleryFileProgressResponse matches GET /api/shelf/{id}/files/progress.
+type GalleryFileProgressResponse struct {
+	GalleryID int           `json:"galleryId"`
+	Summary   map[string]any `json:"summary"`
+	Failed    []any          `json:"failed"`
+}
+
+// ── Slot Holders / Slot Update ──
+
+// SlotHoldersResponse matches GET /api/slots/holders.
+type SlotHoldersResponse struct {
+	Holders map[string][]string `json:"holders"`
+}
+
+// SlotUpdateRequest is the body for PUT /api/slots/{type}.
+type SlotUpdateRequest struct {
+	Max int `json:"max"`
+}
+
+// SlotUpdateResponse matches the PUT /api/slots/{type} response.
+type SlotUpdateResponse struct {
+	SlotType  string `json:"slotType"`
+	Current   int    `json:"current"`
+	Max       int    `json:"max"`
+	Available int    `json:"available"`
+}
+
+// SlotDetailResponse matches GET /api/slots/{type}.
+type SlotDetailResponse struct {
+	SlotType       string   `json:"slotType"`
+	Current        int      `json:"current"`
+	Max            int      `json:"max"`
+	Available      int      `json:"available"`
+	Utilization    float64  `json:"utilization"`
+	ActiveHolders  []string `json:"activeHolders"`
+	HolderCount    int      `json:"holderCount"`
+	SchedulerQueue int      `json:"schedulerQueue"`
 }
 
 // LogQueryFilter narrows a log history or SSE stream query.
