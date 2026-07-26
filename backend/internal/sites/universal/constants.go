@@ -41,11 +41,16 @@ var ActorSelectors = []string{
 var (
 	publisherPrefixPattern = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
 	onlineSuffixPatterns   = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\s*[-—丨]\s*在线播放.*$`),
-	regexp.MustCompile(`(?i)\s*[-—丨]\s*在线观看.*$`),
-	regexp.MustCompile(`(?i)\s*[-—丨]\s*免费.*$`),
-	regexp.MustCompile(`(?i)\s*[-—丨]\s*高清.*$`),
+		regexp.MustCompile(`(?i)\s*[-—丨]\s*在线播放.*$`),
+		regexp.MustCompile(`(?i)\s*[-—丨]\s*在线观看.*$`),
+		regexp.MustCompile(`(?i)\s*[-—丨]\s*免费.*$`),
+		regexp.MustCompile(`(?i)\s*[-—丨]\s*高清.*$`),
 	}
+	// Kanav (MacCMS) title patterns. Kanav titles follow the format
+	// "在线播放 - {title} - KanAV-免费高清中文AV在线看". We strip the
+	// leading "在线播放 - " and the trailing " - {site-name}..." suffix.
+	kanavPrefixPattern = regexp.MustCompile(`^在线播放\s*[-—丨]\s*`)
+	kanavSuffixPattern = regexp.MustCompile(`\s*[-—丨]\s*KanAV[^-]*$`)
 	m3u8ExtPattern       = regexp.MustCompile(`\.m3u8|\.m3u`)
 	m3u8UrlPattern       = regexp.MustCompile(`https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
 	resolutionPattern    = regexp.MustCompile(`(?i)(\d{3,4})x(\d{3,4})`)
@@ -66,13 +71,18 @@ epPattern      = regexp.MustCompile(`(?i)(?:ep|episode|part|第)(\d{1,3})`)
 	queryFragPat   = regexp.MustCompile(`[?#].*$`)
 )
 
-// CleanTitle removes publisher prefixes and common streaming-site
-// suffixes from a raw page title to produce a clean video name.
+// CleanTitle removes publisher prefixes, Kanav-style wrappers, and
+// common streaming-site suffixes from a raw page title to produce a
+// clean video name.
 func CleanTitle(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
 	}
-	title := publisherPrefixPattern.ReplaceAllString(rawTitle, "")
+	// Strip Kanav (MacCMS) wrappers: "在线播放 - {title} - KanAV..."
+	title := kanavPrefixPattern.ReplaceAllString(rawTitle, "")
+	title = kanavSuffixPattern.ReplaceAllString(title, "")
+	// Generic publisher prefix: "某某站: title"
+	title = publisherPrefixPattern.ReplaceAllString(title, "")
 	for _, pat := range onlineSuffixPatterns {
 		title = pat.ReplaceAllString(title, "")
 	}

@@ -1,0 +1,5 @@
+[36m⚡ Connecting to DAG SSE stream...[0m
+[2mURL: http://localhost:10541/api/dag/stream[0m
+[2mPress Ctrl+C to exit[0m
+
+[2m01:03:26[0m [2m[status][0m {"state":"connected"}

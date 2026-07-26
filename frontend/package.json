@@ -1,6 +1,6 @@
 {
   "name": "puchipix-nextjs",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "packageManager": "pnpm@10.9.0",
   "scripts": {

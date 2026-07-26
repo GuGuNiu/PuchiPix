@@ -46,24 +46,38 @@ export function getSiteModuleName(
   return module.nameCn;
 }
 
+function hostMatches(hostname: string, configuredHost: string): boolean {
+  return hostname === configuredHost || hostname.endsWith(`.${configuredHost}`);
+}
+
+function hostnameFromUrl(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
 export function getSiteModuleByUrl(url: string): SiteModuleConfig | undefined {
-  const urlLower = url.toLowerCase();
+  const hostname = hostnameFromUrl(url);
+  if (!hostname) return undefined;
+
   return ALL_SITE_MODULES.find((m) => {
     if (m.id === 'universal') return false;
     try {
       const host = new URL(m.baseUrl).hostname.toLowerCase();
-      if (urlLower.includes(host)) return true;
+      if (hostMatches(hostname, host)) return true;
     } catch {
     }
     if (m.domains) {
       for (const domain of m.domains) {
         try {
           const host = new URL(domain).hostname.toLowerCase();
-          if (urlLower.includes(host)) return true;
+          if (hostMatches(hostname, host)) return true;
         } catch {
         }
       }
     }
-    return urlLower.includes(m.id.toLowerCase());
+    return false;
   });
 }

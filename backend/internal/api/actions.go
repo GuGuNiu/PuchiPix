@@ -162,7 +162,15 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 	dagID := ""
 	if h.DagOrch != nil && h.DagFactory != nil {
 		def := h.DagFactory.NewSniffPipeline(req.URL, id)
-		dagID, _ = h.DagOrch.SubmitDag(r.Context(), def)
+		var submitErr error
+		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
+		if submitErr != nil {
+			h.DB.Exec(r.Context(),
+				"UPDATE sniff_tasks SET status = 'failed', error_msg = $1 WHERE id = $2",
+				"DAG submission failed: "+submitErr.Error(), id)
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{

@@ -26,7 +26,7 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	offset := queryInt(r, "offset", 0)
 
 	rows, err := h.DB.Query(r.Context(),
-		`SELECT id, url, m3u8_url, status, progress, file_path, format, priority, error_msg, seq, created_at, updated_at
+		`SELECT id, url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq, created_at, updated_at
 		 FROM download_tasks ORDER BY id DESC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
@@ -37,7 +37,7 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	tasks := []db.DownloadTask{}
 	for rows.Next() {
 		var t db.DownloadTask
-		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.Seq, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
@@ -106,6 +106,18 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		req.Priority = 1
 	}
 
+	// ── Module identification for video tasks ──
+	// Even without a dedicated Provider, identify the site module
+	// from the URL so the task carries site_id metadata. This enables
+	// frontend module badges, domain-based dedup, and mirror-domain
+	// fallback during M3U8 scraping.
+	siteID := ""
+	if h.SiteReg != nil {
+		if mod, ok := h.SiteReg.GetModuleByUrl(cleanedURL); ok {
+			siteID = mod.ID
+		}
+	}
+
 	// ── 3-tier dedup (ported from TS task-dedup.ts) ──
 	// Tier 1: Exact match on normalized URL.
 	// Tier 2: Mirror-domain match (same content, different mirror domain).
@@ -129,10 +141,10 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 
 	var id int
 	err := h.DB.QueryRow(r.Context(),
-		`INSERT INTO download_tasks (url, m3u8_url, status, progress, file_path, format, priority, error_msg, seq)
-		 VALUES ($1, '', 'pending', 0, '', $2, $3, '', $4)
+		`INSERT INTO download_tasks (url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq)
+		 VALUES ($1, '', 'pending', 0, '', $2, $3, '', $4, $5)
 		 RETURNING id`,
-		normalizedURL, req.Format, req.Priority, seqPtr).Scan(&id)
+		normalizedURL, req.Format, req.Priority, siteID, seqPtr).Scan(&id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 		return
@@ -141,20 +153,21 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	// Emit task:created so SSE clients receive real-time upsert
 	if h.EventBus != nil {
 		now := time.Now()
-		h.EventBus.Emit("task:created", db.DownloadTask{
+			h.EventBus.Emit("task:created", db.DownloadTask{
 			ID:        id,
 			URL:       normalizedURL,
 			Status:    "pending",
 			Progress:  0,
 			Format:    req.Format,
 			Priority:  req.Priority,
+			SiteID:    siteID,
 			Seq:       seqPtr,
 			CreatedAt: now,
 			UpdatedAt: now,
 		})
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "pending"})
+	writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "pending", "SiteID": siteID})
 }
 
 // createGalleryTask handles gallery URL submission by creating a
@@ -206,7 +219,18 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		} else {
 			def = dag.NewDagFactory().NewGalleryPipeline(normalizedURL, siteID, galleryID)
 		}
-		dagID, _ = h.DagOrch.SubmitDag(r.Context(), def)
+		var submitErr error
+		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
+		if submitErr != nil {
+			// DAG submission failed: mark the gallery as failed so the
+			// user can retry rather than leaving an orphaned "pending"
+			// record with no pipeline attached.
+			h.DB.Exec(r.Context(),
+				"UPDATE galleries SET status = 'failed', error_msg = $1 WHERE id = $2",
+				"DAG submission failed: "+submitErr.Error(), galleryID)
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+			return
+		}
 	}
 
 	// Emit gallery:created event for SSE clients (PascalCase keys
@@ -233,13 +257,9 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 }
 
 // createSniffTask handles listing page URL submission by creating a
-// sniff task record in the database. This mirrors the TS implementation's
-// isListingPage() → sniff task → scrapeListingAndEnqueue() routing that
-// was lost during the Go migration.
-//
-// Currently creates the sniff task record and returns it to the client.
-// The actual listing-page crawl is handled by a separate sniff DAG pipeline
-// (to be wired in a future iteration).
+// sniff task record and submitting a sniff DAG pipeline for crawling.
+// This mirrors the TS implementation's isListingPage() → sniff task →
+// scrapeListingAndEnqueue() routing that was lost during the Go migration.
 func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageURL, siteID, userSeq string) {
 	var seqPtr *string
 	if userSeq != "" {
@@ -260,6 +280,26 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 		return
 	}
 
+	// Submit sniff DAG pipeline for crawling (chromedp-based M3U8 capture).
+	dagID := ""
+	if h.DagOrch != nil {
+		var def orchestrator.DagDefinition
+		if h.DagFactory != nil {
+			def = h.DagFactory.NewSniffPipeline(pageURL, sniffID)
+		} else {
+			def = dag.NewDagFactory().NewSniffPipeline(pageURL, sniffID)
+		}
+		var submitErr error
+		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
+		if submitErr != nil {
+			h.DB.Exec(r.Context(),
+				"UPDATE sniff_tasks SET status = 'failed', error_msg = $1 WHERE id = $2",
+				"DAG submission failed: "+submitErr.Error(), sniffID)
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+			return
+		}
+	}
+
 	// Emit sniff task creation event for SSE clients.
 	if h.EventBus != nil {
 		h.EventBus.Emit("task:created", map[string]any{
@@ -269,6 +309,7 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 			"Status":     "pending",
 			"TaskType":   "sniff",
 			"SiteID":     siteID,
+			"DagID":      dagID,
 			"CreatedAt":  time.Now(),
 			"UpdatedAt":  time.Now(),
 		})
@@ -280,6 +321,7 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 		"DisplayID": *seqPtr,
 		"Status":    "pending",
 		"URL":       pageURL,
+		"DagID":     dagID,
 	})
 }
 
@@ -490,9 +532,9 @@ func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	var t db.DownloadTask
 	err := h.DB.QueryRow(r.Context(),
-		`SELECT id, url, m3u8_url, status, progress, file_path, format, priority, error_msg, seq, created_at, updated_at
+		`SELECT id, url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq, created_at, updated_at
 		 FROM download_tasks WHERE id = $1`, id).
-		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.Seq, &t.CreatedAt, &t.UpdatedAt)
+		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
 		return
@@ -550,8 +592,30 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "cancelled"})
 
 	case "retry":
-		// Cancel current download and re-submit through DAG.
-		h.DownloadMgr.CancelDownload(id)
+		if h.DagOrch == nil && h.DownloadMgr == nil {
+			writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.tasks.schedulerRequired"))
+			return
+		}
+		// Use RetryDag to reuse the existing DAG rather than CancelDag +
+		// SubmitDag, which creates a new DAG and has a race window between
+		// cancel and re-submit. RetryDag resets retry counts and
+		// re-transitions Failed/Timeout/NeedsRetry nodes to Ready within
+		// the same DAG instance, eliminating the race and preventing
+		// duplicate DAGs (§4 Service Layer: "do not create duplicate DAGs").
+		dagID := fmt.Sprintf("video-%d", id)
+		if h.DagOrch != nil && h.DagOrch.GetDagStatus(dagID) != nil {
+			if err := h.DagOrch.RetryDag(r.Context(), dagID, ""); err != nil {
+				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
+			return
+		}
+		// No active DAG found: fall back to creating a fresh DAG via
+		// submitVideoDag (first-time start or DAG was already cleaned up).
+		if h.DownloadMgr != nil {
+			h.DownloadMgr.CancelDownload(id)
+		}
 		dagID, err := h.submitVideoDag(r, id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))

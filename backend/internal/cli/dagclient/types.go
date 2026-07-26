@@ -315,6 +315,7 @@ type TaskCreateResponse struct {
 	ID        int    `json:"ID"`
 	DisplayID string `json:"DisplayID"`
 	Status    string `json:"Status"`
+	SiteID    string `json:"SiteID"`
 }
 
 // DagLinkRequest is the payload for adding a dependency edge.
@@ -405,6 +406,7 @@ type DownloadTask struct {
 	Format    string  `json:"Format"`
 	Priority  int     `json:"Priority"`
 	ErrorMsg  string  `json:"ErrorMsg"`
+	SiteID    string  `json:"SiteID"`
 	DisplayID *string `json:"DisplayID"`
 	CreatedAt string  `json:"CreatedAt"`
 	UpdatedAt string  `json:"UpdatedAt"`

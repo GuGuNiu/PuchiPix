@@ -183,14 +183,15 @@ type SiteInfo struct {
 // SiteModuleConfig defines a site's registration data, loaded from the
 // site-modules configuration and used to initialize the SiteRegistry.
 type SiteModuleConfig struct {
-	ID      string     `json:"id"`
-	NameCn  string     `json:"nameCn"`
-	NameEn  string     `json:"nameEn"`
-	BaseURL string     `json:"baseUrl"`
-	Type    string     `json:"type"`
-	Badge   BadgeTheme `json:"badge"`
-	Enabled bool       `json:"enabled"`
-	Domains []string   `json:"domains,omitempty"`
+	ID               string     `json:"id"`
+	NameCn           string     `json:"nameCn"`
+	NameEn           string     `json:"nameEn"`
+	BaseURL          string     `json:"baseUrl"`
+	Type             string     `json:"type"`
+	Badge            BadgeTheme `json:"badge"`
+	Enabled          bool       `json:"enabled"`
+	Domains          []string   `json:"domains,omitempty"`
+	ScrapingStrategy string     `json:"scrapingStrategy,omitempty"`
 }
 
 // AccountStatus tracks the lifecycle of a site login session.

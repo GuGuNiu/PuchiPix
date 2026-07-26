@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"backend/internal/i18n"
@@ -21,6 +22,7 @@ type unifiedTaskRow struct {
 	Format          string
 	Priority        int
 	ErrorMsg        string
+	SiteID          string
 	Seq             *string
 	Title           string
 	Protagonist     string
@@ -54,6 +56,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			        COALESCE(format, '') AS format,
 			        COALESCE(priority, 0) AS priority,
 			        COALESCE(error_msg, '') AS error_msg,
+			        COALESCE(site_id, '') AS site_id,
 			        seq, '' AS title, '' AS protagonist,
 			        0 AS image_count, 0 AS video_count,
 			        0 AS total_size, 0 AS downloaded_size,
@@ -72,6 +75,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			        END AS progress,
 			        COALESCE(save_path, '') AS file_path, '' AS format,
 			        0 AS priority, COALESCE(error_msg, '') AS error_msg,
+			        COALESCE(site_id, '') AS site_id,
 			        seq, COALESCE(title, '') AS title,
 			        COALESCE(protagonist, '') AS protagonist,
 			        COALESCE(image_count, 0) AS image_count,
@@ -86,6 +90,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			        COALESCE(status, 'pending') AS status, 0 AS progress,
 			        '' AS file_path, '' AS format, 0 AS priority,
 			        COALESCE(error_msg, '') AS error_msg,
+			        COALESCE(site_id, '') AS site_id,
 			        seq, '' AS title, '' AS protagonist,
 			        0 AS image_count, 0 AS video_count,
 			        0 AS total_size, 0 AS downloaded_size,
@@ -99,7 +104,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var r unifiedTaskRow
 				if err := rows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
-					&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.Seq,
+					&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
 					&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
 					&r.DownloadedSize, &r.ContentVerified,
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
@@ -114,7 +119,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				"FilePath":         r.FilePath,
 				"Format":           r.Format,
 				"Priority":         r.Priority,
-				"ErrorMsg":         r.ErrorMsg,
+				"ErrorMsg":        r.ErrorMsg,
+				"SiteID":          r.SiteID,
 				"DisplayID":        r.Seq,
 				"GalleryTitle":     r.Title,
 				"Person":           r.Protagonist,
@@ -238,20 +244,29 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// countFilesInDir counts regular files (not directories) inside the
-// given directory path. Returns 0 if the directory does not exist or
-// cannot be read. Used for accurate gallery progress calculation based
-// on actual disk state rather than DB estimates.
+// countFilesInDir walks a directory recursively and counts all regular
+// files, including those in subdirectories such as video_{id}/. The
+// segments/ subdirectory (containing intermediate TS segment files) is
+// excluded from counting to avoid inflating the file count above the
+// expected total. Returns 0 if the directory does not exist or cannot
+// be read. Used for accurate gallery progress calculation based on
+// actual disk state rather than DB estimates.
 func countFilesInDir(dirPath string) int {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
+	if dirPath == "" {
 		return 0
 	}
 	count := 0
-	for _, entry := range entries {
-		if entry.Type().IsRegular() {
+	filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == "segments" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
 			count++
 		}
-	}
+		return nil
+	})
 	return count
 }

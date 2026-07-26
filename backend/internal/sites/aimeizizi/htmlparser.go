@@ -85,21 +85,12 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 			}
 		})
 
-		if result.CoverURL == "" {
-			article.Find("img").Each(func(_ int, img *goquery.Selection) {
-				if result.CoverURL != "" {
-					return
-				}
-				url := firstNonEmpty(img.AttrOr("data-src", ""),
-					img.AttrOr("data-original-src", ""),
-					img.AttrOr("data-original", ""),
-					img.AttrOr("data-lazy-src", ""),
-					img.AttrOr("src", ""))
-				if url != "" && !strings.Contains(url, placeholder) &&
-					!strings.Contains(url, "/static/images/Loading") {
-					result.CoverURL = url
-				}
-			})
+		// Use the first collected image as the gallery cover instead of
+		// running a separate selection loop over article <img> elements.
+		// The first image (ordered by page position) is the most
+		// representative thumbnail for the gallery.
+		if result.CoverURL == "" && len(result.Images) > 0 {
+			result.CoverURL = result.Images[0].URL
 		}
 	}
 
@@ -207,6 +198,10 @@ func ParseExtMetadata(doc *goquery.Document, placeholder string) ExtMetadata {
 
 	result.KeywordStr = doc.Find(`meta[name="keywords"]`).AttrOr("content", "")
 
+	// Extract the first non-placeholder image from the article as the
+	// cover/thumbnail for search results and preview cards. This is
+	// distinct from the gallery detail-page cover logic (which uses
+	// the first uploaded image from the image collection).
 	article := doc.Find("article").First()
 	if article.Length() > 0 {
 		article.Find("img").Each(func(_ int, img *goquery.Selection) {

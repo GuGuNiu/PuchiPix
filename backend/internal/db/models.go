@@ -18,6 +18,7 @@ type DownloadTask struct {
 	Format    string    `json:"Format" db:"format"`
 	Priority  int       `json:"Priority" db:"priority"`
 	ErrorMsg  string    `json:"ErrorMsg" db:"error_msg"`
+	SiteID    string    `json:"SiteID" db:"site_id"`
 	Seq       *string   `json:"DisplayID" db:"seq"`
 	CreatedAt time.Time `json:"CreatedAt" db:"created_at"`
 	UpdatedAt time.Time `json:"UpdatedAt" db:"updated_at"`

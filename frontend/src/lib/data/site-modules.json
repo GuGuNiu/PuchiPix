@@ -12,7 +12,11 @@
         "solidColor": "#2563eb",
         "textColor": "#ffffff"
       },
-      "enabled": true
+      "enabled": true,
+      "domains": [
+        "https://kanav.ad",
+        "https://v1.kanav.work"
+      ]
     },
     "aimeizizi": {
       "id": "aimeizizi",

@@ -40,9 +40,9 @@ func TestDataStoreGetDomains(t *testing.T) {
 	domains := ds.GetDomains("aimeizizi")
 	assert.NotEmpty(t, domains)
 
-	// kanav has empty domains array
+	// kanav now has configured domains
 	kanavDomains := ds.GetDomains("kanav")
-	assert.Empty(t, kanavDomains)
+	assert.NotEmpty(t, kanavDomains)
 
 	// unknown site returns nil
 	assert.Nil(t, ds.GetDomains("nonexistent"))
@@ -255,7 +255,7 @@ func TestDataStoreCanHandle(t *testing.T) {
 		{"alternate domain match", "aimeizizi", "https://lovecutes.net/gallery/123", true},
 		{"unrelated domain", "aimeizizi", "https://example.com/gallery/123", false},
 		{"unknown site", "nonexistent", "https://lovecutes.com/gallery/123", false},
-		{"site with no domains", "kanav", "https://kanav.ad/video/1", false},
+		{"site with configured domains", "kanav", "https://v1.kanav.work/index.php/vod/play/id/1/sid/1/nid/1.html", true},
 		{"exhentai domain", "exhentai", "https://e-hentai.org/g/123", true},
 		{"exhentai alternate", "exhentai", "https://exhentai.org/g/123", true},
 		{"sjs domain", "sjs", "https://sjs66.com/thread-123-1-1.html", true},

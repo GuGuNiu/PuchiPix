@@ -106,10 +106,18 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 
 	// Inject url, galleryId, and providerId into node configs so
 	// executors can look up the gallery record and scrape the page.
+	// The download node gets skipVerify=true because the gallery
+	// pipeline has a dedicated verify node (vf-{galleryId}) that
+	// checks download completeness via the database rather than the
+	// filesystem-based StateReconciler path (which requires savePath
+	// in the Config that is determined dynamically at runtime).
 	for i := range nodes {
 		nodes[i].Config["url"] = url
 		nodes[i].Config["galleryId"] = galleryID
 		nodes[i].Config["providerId"] = providerID
+		if nodes[i].ID == fmt.Sprintf("dl-%d", galleryID) {
+			nodes[i].Config["skipVerify"] = true
+		}
 	}
 
 	return orchestrator.DagDefinition{
@@ -176,6 +184,14 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 		},
 	})
 
+	// Inject galleryId and skipVerify into resume pipeline nodes.
+	for i := range nodes {
+		nodes[i].Config["galleryId"] = galleryID
+		if nodes[i].ID == fmt.Sprintf("dl-%d", galleryID) {
+			nodes[i].Config["skipVerify"] = true
+		}
+	}
+
 	return orchestrator.DagDefinition{
 		ID:       dagID,
 		TaskType: orchestrator.TaskTypeGallery,
@@ -185,6 +201,7 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 		},
 	}
 }
+
 
 // NewScrapeTask builds a single-node scrape DAG for one-off gallery
 // scraping (preview/dry-run). This is the lightweight alternative to

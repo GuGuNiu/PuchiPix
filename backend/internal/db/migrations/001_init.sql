@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS download_tasks (
     format      TEXT        NOT NULL DEFAULT 'mp4',
     priority    INTEGER     NOT NULL DEFAULT 1,
     error_msg   TEXT        NOT NULL DEFAULT '',
+    site_id     TEXT        NOT NULL DEFAULT '',
     seq         TEXT,
     created_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -234,33 +236,125 @@ func main() {
 			// taskLoaderFn loads the full DownloadTaskInput from the
 			// database. If m3u8_url is empty, it scrapes the page URL
 			// via the universal scraper to discover the M3U8 stream URL.
+			// Uses StrategySelector to choose HTTP-first vs chromedp based
+			// on site configuration and runtime conditions, with automatic
+			// domain failover through DomainHealthTracker.
+			strategySelector := orchestrator.NewStrategySelector()
+			// Remove hardcoded "universal" from JSSites so it participates
+			// in the auto-selection path instead of being forced chromedp.
+			delete(strategySelector.JSSites, "universal")
+
 			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
-				var pageURL, m3u8URL string
+				var pageURL, m3u8URL, storedTitle string
 				err := database.QueryRow(ctx,
-					`SELECT url, m3u8_url FROM download_tasks WHERE id = $1`,
-					taskID).Scan(&pageURL, &m3u8URL)
+					`SELECT url, COALESCE(m3u8_url, ''), COALESCE(title, '') FROM download_tasks WHERE id = $1`,
+					taskID).Scan(&pageURL, &m3u8URL, &storedTitle)
 				if err != nil {
 					return video.DownloadTaskInput{}, fmt.Errorf("query task %d: %w", taskID, err)
 				}
 
-				// If M3U8 URL is already known, use it directly.
+				// If M3U8 URL is already known, use it directly with
+				// lightweight best-effort metadata scrape.
 				if m3u8URL != "" {
-					return video.DownloadTaskInput{
+					task := video.DownloadTaskInput{
 						ID:      taskID,
 						M3U8URL: m3u8URL,
 						PageURL: pageURL,
-					}, nil
+						Title:   storedTitle,
+					}
+					metaCtx, metaCancel := context.WithTimeout(ctx, 30*time.Second)
+					defer metaCancel()
+					if meta, metaErr := universal.ScrapePage(metaCtx, pageURL); metaErr == nil {
+						task.Title = meta.Title
+						task.Tags = meta.Tags
+						task.Actors = meta.Actors
+						task.Categories = meta.Categories
+						task.Director = meta.Director
+					}
+					return task, nil
 				}
 
-				// M3U8 URL not yet discovered — scrape the page.
-				logger.Info(fmt.Sprintf("M3U8 URL empty for task %d, scraping page: %s", taskID, pageURL))
+				// M3U8 URL not yet discovered — strategy-driven scrape with
+				// domain fallback. First, look up the site module to get
+				// mirror domains and scraping strategy.
+				var siteID string
+				var mirrorDomains []string
+				if h.SiteReg != nil {
+					if mod, ok := h.SiteReg.GetModuleByUrl(pageURL); ok {
+						siteID = mod.ID
+						mirrorDomains = mod.Domains
+					}
+				}
 
-				scrapeCtx, scrapeCancel := context.WithTimeout(ctx, 2*time.Minute)
-				defer scrapeCancel()
+				// Determine strategy. TaskTypeVideo with missing M3U8
+				// triggers the full strategy selection chain.
+				strategy := strategySelector.Select(orchestrator.SelectStrategyInput{
+					SiteID:   siteID,
+					TaskType: orchestrator.TaskTypeVideo,
+				})
 
-				result, err := universal.ScrapePage(scrapeCtx, pageURL)
-				if err != nil {
-					return video.DownloadTaskInput{}, fmt.Errorf("scrape page for M3U8: %w", err)
+				var result *sites.ScrapeResult
+				var scrapeErr error
+
+				switch strategy {
+				case orchestrator.StrategyHTTP:
+					scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
+						return universal.ScrapePageHTTP(ctx, url)
+					}
+					scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+					defer cancel()
+					result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
+
+				case orchestrator.StrategyChromedp:
+					scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
+						return universal.ScrapePage(ctx, url)
+					}
+					scrapeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+					defer cancel()
+					result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
+
+				default: // StrategyAuto
+					// HTTP first. If it returns a valid M3U8, use it.
+					// Otherwise fall back to chromedp.
+					logger.Info(fmt.Sprintf("M3U8 URL empty for task %d, trying HTTP scrape", taskID))
+					scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+					defer cancel()
+					scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
+						return universal.ScrapePageHTTP(ctx, url)
+					}
+					result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
+
+					// Quality gate: if HTTP didn't find a M3U8 or produced
+					// empty results, escalate to chromedp.
+					if scrapeErr != nil || (result != nil && result.M3U8URL == "" && result.Title == "") {
+						logger.Info(fmt.Sprintf("HTTP scrape insufficient for task %d, escalating to chromedp", taskID))
+						scrapeCtx2, cancel2 := context.WithTimeout(ctx, 2*time.Minute)
+						defer cancel2()
+						scrapeFn2 := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
+							return universal.ScrapePage(ctx, url)
+						}
+						result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx2, pageURL, mirrorDomains, scrapeFn2)
+
+						// Last resort: if headless chromedp also failed and the
+						// error pattern suggests CloudFlare/WAF blocking, try a
+						// visible (headful) browser. Anti-bot systems can detect
+						// headless Chrome via navigator.webdriver and other
+						// fingerprint signals; a visible browser often bypasses
+						// these checks.
+						if scrapeErr != nil && isLikelyAntiBot(scrapeErr) {
+							logger.Info(fmt.Sprintf("headless chromedp blocked for task %d, trying headful browser", taskID))
+							scrapeCtx3, cancel3 := context.WithTimeout(ctx, 40*time.Second)
+							defer cancel3()
+							scrapeFn3 := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
+								return universal.ScrapePageHeadful(ctx, url)
+							}
+							result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx3, pageURL, mirrorDomains, scrapeFn3)
+						}
+					}
+				}
+
+				if scrapeErr != nil {
+					return video.DownloadTaskInput{}, fmt.Errorf("scrape page for M3U8: %w", scrapeErr)
 				}
 				if result.M3U8URL == "" {
 					return video.DownloadTaskInput{}, fmt.Errorf("no M3U8 URL found on page: %s", pageURL)
@@ -268,16 +362,21 @@ func main() {
 
 				// Persist the discovered M3U8 URL for future retries.
 				_, _ = database.Exec(ctx,
-					`UPDATE download_tasks SET m3u8_url = $1 WHERE id = $2`,
-					result.M3U8URL, taskID)
+					`UPDATE download_tasks SET m3u8_url = $1, title = $2 WHERE id = $3`,
+					result.M3U8URL, result.Title, taskID)
+
+				// Pre-write video metadata immediately after scraping.
+				preWriteVideoInfo(ctx, database, taskID, result)
 
 				return video.DownloadTaskInput{
-					ID:      taskID,
-					M3U8URL: result.M3U8URL,
-					PageURL: pageURL,
-					Title:   result.Title,
-					Tags:    result.Tags,
-					Actors:  result.Actors,
+					ID:         taskID,
+					M3U8URL:    result.M3U8URL,
+					PageURL:    pageURL,
+					Title:      result.Title,
+					Tags:       result.Tags,
+					Actors:     result.Actors,
+					Categories: result.Categories,
+					Director:   result.Director,
 				}, nil
 			}
 
@@ -449,4 +548,64 @@ func startEmbeddedPG() *embeddedpostgres.EmbeddedPostgres {
 		return nil
 	}
 	return pg
+}
+
+// isLikelyAntiBot checks whether a scrape error pattern suggests the
+// page is protected by a CloudFlare/WAF challenge that blocks headless
+// Chrome. When true, the caller should escalate to a headful (visible)
+// browser as a last resort.
+func isLikelyAntiBot(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	for _, sig := range []string{
+		"cf-", "cloudflare", "challenge", "captcha", "turnstile",
+		"403", "access denied", "forbidden",
+		"deadline exceeded",                   // headless Chrome stuck on JS challenge
+		"navigation failed",                  // chromedp couldn't even load the page
+		"context deadline exceeded",
+	} {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// preWriteVideoInfo writes scraped metadata (title, tags, actors,
+// categories, director) to the video_infos table immediately after
+// scraping completes and before the download starts. This mirrors the
+// TS scrapeVideoAsync behavior where prisma.downloadTask.update with
+// videoInfo was called right after scraping, so users can see metadata
+// during the potentially long download phase.
+func preWriteVideoInfo(ctx context.Context, database *db.Database, taskID int, result *sites.ScrapeResult) {
+	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tagsJSON, _ := json.Marshal(result.Tags)
+	actorsJSON, _ := json.Marshal(result.Actors)
+	categoriesJSON, _ := json.Marshal(result.Categories)
+
+	_, err := database.Exec(writeCtx, `
+		INSERT INTO video_infos (task_id, title, source_url, tags, actors, categories, director)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (task_id) DO UPDATE SET
+			title = EXCLUDED.title,
+			source_url = EXCLUDED.source_url,
+			tags = EXCLUDED.tags,
+			actors = EXCLUDED.actors,
+			categories = EXCLUDED.categories,
+			director = EXCLUDED.director
+	`, taskID, result.Title, result.PageURL,
+		string(tagsJSON), string(actorsJSON), string(categoriesJSON),
+		result.Director)
+	if err != nil {
+		infra.NewLogger("Server").Warn("Failed to pre-write video metadata",
+			infra.LogContext{Extra: map[string]any{
+				"taskId": taskID,
+				"error":  err.Error(),
+			}})
+	}
 }

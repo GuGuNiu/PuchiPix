@@ -14,7 +14,12 @@
           "textColor": "#ffffff"
         },
         "enabled": true,
-        "domains": []
+        "scrapingStrategy": "auto",
+        "domains": [
+          "https://kanav.ad",
+          "https://v1.kanav.work",
+          "https://kanav.work"
+        ]
       },
       "provider": {}
     },

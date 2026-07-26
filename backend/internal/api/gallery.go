@@ -413,6 +413,10 @@ func (h *Handlers) GalleryImages(w http.ResponseWriter, r *http.Request) {
 
 // ShelfDelete removes a gallery and its associated images/videos from
 // the database. Responds to DELETE /api/shelf/{id}.
+//
+// Before deleting DB rows, any active DAG for this gallery is cancelled
+// to prevent orphaned DAGs from continuing to execute after the gallery
+// record is gone. This mirrors the TaskDelete safety pattern.
 func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -421,6 +425,19 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
 		return
+	}
+
+	// Cancel any active DAG for this gallery before deleting DB rows.
+	// This prevents orphaned DAGs from continuing to execute after the
+	// gallery record is gone, which would cause FK violations and DB
+	// write failures with no user-visible feedback.
+	if h.DagOrch != nil {
+		dagID := fmt.Sprintf("gallery-%d", id)
+		if status := h.DagOrch.GetDagStatus(dagID); status != nil {
+			// Best-effort cancel: if the DAG doesn't exist or is already
+			// terminal, proceed with DELETE anyway.
+			_ = h.DagOrch.CancelDag(r.Context(), dagID)
+		}
 	}
 
 	// Verify gallery exists before attempting deletion

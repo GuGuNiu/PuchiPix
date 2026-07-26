@@ -107,29 +107,41 @@ func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptio
 
 // DownloadFileWithDomainFallback downloads a file, trying mirror domains
 // if the original URL fails due to network errors or non-200 responses.
+// Domain health tracking prioritizes domains that have been recently
+// successful and deprioritizes rate-limited domains, enabling adaptive
+// failover when primary domains become unavailable.
 func DownloadFileWithDomainFallback(ctx context.Context, url, filePath string, opts *DownloadOptions) *DownloadResult {
 	result := DownloadFile(ctx, url, filePath, opts)
 	if result.Success {
+		stealth.GetDomainHealthTracker().MarkHealthy(ExtractDomain(url))
 		return result
 	}
+	stealth.GetDomainHealthTracker().MarkRateLimited(ExtractDomain(url))
 
 	fallbackURLs := GenerateMirrorURLs(url)
 	originalDomain := ExtractDomain(url)
 
-	for _, fallbackURL := range fallbackURLs {
-		if ExtractDomain(fallbackURL) == originalDomain {
+	// Use health-aware domain ordering: healthy domains first (shuffled
+	// for load distribution), then cooling domains by ascending cooldown.
+	orderedDomains := orderDomainsByHealth(fallbackURLs)
+
+	for _, fallbackURL := range orderedDomains {
+		fbDomain := ExtractDomain(fallbackURL)
+		if fbDomain == originalDomain {
 			continue
 		}
 		fallbackLogger.Debug("Trying mirror domain for download",
 			infra.LogContext{Extra: map[string]any{
 				"original": originalDomain,
-				"mirror":   ExtractDomain(fallbackURL),
+				"mirror":   fbDomain,
 			}})
 
 		fallbackResult := DownloadFile(ctx, fallbackURL, filePath, opts)
 		if fallbackResult.Success {
+			stealth.GetDomainHealthTracker().MarkHealthy(fbDomain)
 			return fallbackResult
 		}
+		stealth.GetDomainHealthTracker().MarkRateLimited(fbDomain)
 	}
 
 	return result
@@ -170,31 +182,76 @@ func FetchText(ctx context.Context, url string, headers map[string]string) (stri
 }
 
 // FetchTextWithDomainFallback fetches text content, trying mirror
-// domains when the original URL fails.
+// domains when the original URL fails. Domain health tracking
+// prioritizes healthy domains and deprioritizes rate-limited ones.
 func FetchTextWithDomainFallback(ctx context.Context, url string, headers map[string]string) (string, error) {
 	text, err := FetchText(ctx, url, headers)
 	if err == nil {
+		stealth.GetDomainHealthTracker().MarkHealthy(ExtractDomain(url))
 		return text, nil
 	}
+	stealth.GetDomainHealthTracker().MarkRateLimited(ExtractDomain(url))
 
 	fallbackURLs := GenerateMirrorURLs(url)
 	originalDomain := ExtractDomain(url)
 
 	var lastErr error = err
 
-	for _, fallbackURL := range fallbackURLs {
-		if ExtractDomain(fallbackURL) == originalDomain {
+	orderedDomains := orderDomainsByHealth(fallbackURLs)
+
+	for _, fallbackURL := range orderedDomains {
+		fbDomain := ExtractDomain(fallbackURL)
+		if fbDomain == originalDomain {
 			continue
 		}
 
 		text, err := FetchText(ctx, fallbackURL, headers)
 		if err == nil {
+			stealth.GetDomainHealthTracker().MarkHealthy(fbDomain)
 			return text, nil
 		}
+		stealth.GetDomainHealthTracker().MarkRateLimited(fbDomain)
 		lastErr = err
 	}
 
 	return "", lastErr
+}
+
+// orderDomainsByHealth extracts the unique domain set from a list of
+// mirror URLs and returns them ordered by health: healthy domains
+// first (shuffled), then cooling domains by ascending cooldown.
+func orderDomainsByHealth(urls []string) []string {
+	// Build unique domain list preserving order for consistent results.
+	seen := make(map[string]bool)
+	var domains []string
+	for _, u := range urls {
+		d := ExtractDomain(u)
+		if d != "" && !seen[d] {
+			seen[d] = true
+			domains = append(domains, u) // keep full URL for direct use
+		}
+	}
+
+	tracker := stealth.GetDomainHealthTracker()
+	domainURLs := make(map[string]string)
+	var domainList []string
+	for _, u := range domains {
+		d := ExtractDomain(u)
+		if _, exists := domainURLs[d]; !exists {
+			domainURLs[d] = u
+			domainList = append(domainList, d)
+		}
+	}
+
+	orderedDomains := tracker.GetAllDomainsOrdered(domainList)
+
+	result := make([]string, 0, len(orderedDomains))
+	for _, d := range orderedDomains {
+		if u, ok := domainURLs[d]; ok {
+			result = append(result, u)
+		}
+	}
+	return result
 }
 
 // GenerateMirrorURLs produces alternative URLs by replacing the domain

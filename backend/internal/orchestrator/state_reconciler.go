@@ -109,12 +109,41 @@ func (r *StateReconciler) verifyScrapeNode(ctx context.Context, node DagNodeForV
 
 // verifyDownloadNode checks whether all expected files exist on disk
 // and their status is consistent, correcting stale database records.
+//
+// For gallery download nodes, the savePath is read from the galleries
+// table (where it was written by the galleryFn during download) rather
+// than from the node Config (which only carries url/galleryId/providerId
+// at definition time and is never updated with the runtime savePath).
 func (r *StateReconciler) verifyDownloadNode(ctx context.Context, node DagNodeForVerification) VerificationResult {
 	if r.db == nil {
 		return VerificationResult{Status: "passed", Reason: "no database connection"}
 	}
 
 	savePath, _ := node.Config["savePath"].(string)
+
+	// Gallery nodes: read savePath from the galleries table, since the
+	// runtime save directory is determined dynamically during download
+	// and never written back to the DAG node Config.
+	if savePath == "" {
+		if gid, ok := node.Config["galleryId"]; ok {
+			var galleryID int
+			switch v := gid.(type) {
+			case int:
+				galleryID = v
+			case float64:
+				galleryID = int(v)
+			}
+			if galleryID > 0 {
+				var dbPath string
+				if scanErr := r.db.QueryRow(ctx,
+					"SELECT COALESCE(save_path, '') FROM galleries WHERE id = $1",
+					galleryID).Scan(&dbPath); scanErr == nil && dbPath != "" {
+					savePath = dbPath
+				}
+			}
+		}
+	}
+
 	if savePath == "" {
 		return VerificationResult{Status: "failed", Reason: "no savePath in config"}
 	}
