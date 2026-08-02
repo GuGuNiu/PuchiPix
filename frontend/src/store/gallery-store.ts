@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { GalleryData, DownloadTask, TaskStatus } from '@/types';
+import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
 
 export interface GalleryProgress {
   galleryId: number;
@@ -262,20 +263,17 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     })),
 
   connectSSE: () => {
-    let eventSource: EventSource | null = null;
+    // 共享常驻连接：路由切换不再反复断开/重连，页面仅订阅所需事件。
+    const unsubs: Array<() => void> = [];
 
-    const connect = (): void => {
-      eventSource = new EventSource('/api/tasks/stream');
+    unsubs.push(
+      onSseConnectionState((connState) => {
+        set({ sseConnected: connState === 'connected' });
+      }),
+    );
 
-      eventSource.onopen = () => {
-        set({ sseConnected: true });
-      };
-
-      eventSource.onerror = () => {
-        set({ sseConnected: false });
-      };
-
-      eventSource.addEventListener('initial', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data) as DownloadTask[];
           if (data.length === 0) return;
@@ -295,9 +293,11 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
         } catch (err) {
           console.warn('[GalleryStore] SSE initial parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('patch', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('patch', (e: MessageEvent) => {
         try {
           const { id, taskType, changes } = JSON.parse(e.data) as {
             id: number;
@@ -344,9 +344,11 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
         } catch (err) {
           console.warn('[GalleryStore] SSE patch parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('upsert', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('upsert', (e: MessageEvent) => {
         try {
           const task = JSON.parse(e.data) as DownloadTask;
           if (task.TaskType !== 'gallery') return;
@@ -354,9 +356,11 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
         } catch (err) {
           console.warn('[GalleryStore] SSE upsert parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('delete', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('delete', (e: MessageEvent) => {
         try {
           const { id, taskType } = JSON.parse(e.data) as {
             id: number;
@@ -379,17 +383,14 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
         } catch (err) {
           console.warn('[GalleryStore] SSE delete parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
-    };
-
-    connect();
+      }),
+    );
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
+      for (const unsub of unsubs) {
+        unsub();
       }
-      set({ sseConnected: false });
+      // 共享连接在 App 生命周期内常驻，这里仅取消订阅。
     };
   },
 

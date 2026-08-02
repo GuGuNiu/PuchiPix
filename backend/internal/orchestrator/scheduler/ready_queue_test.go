@@ -155,3 +155,39 @@ func TestReadyQueueConcurrentAccess(t *testing.T) {
 	for q.PopBest(fitsAll) != nil {
 	}
 }
+
+// TestReadyQueueUpdatePriority verifies that a queued node's priority
+// can be changed at runtime and that the heap reorders immediately.
+func TestReadyQueueUpdatePriority(t *testing.T) {
+	q := NewReadyQueue()
+	now := time.Now()
+	q.Push(makeNode("d", "a", 3, now))
+	q.Push(makeNode("d", "b", 5, now))
+	q.Push(makeNode("d", "c", 10, now))
+
+	// Promote "a" (LOW=3) above everything.
+	require.True(t, q.UpdatePriority("d", "a", 10))
+
+	var order []string
+	for {
+		n := q.PopBest(fitsAll)
+		if n == nil {
+			break
+		}
+		order = append(order, n.NodeID)
+	}
+	assert.Equal(t, []string{"a", "c", "b"}, order)
+}
+
+// TestReadyQueueUpdatePriorityNotQueued verifies updating a node that
+// is not in the queue is a safe no-op returning false.
+func TestReadyQueueUpdatePriorityNotQueued(t *testing.T) {
+	q := NewReadyQueue()
+	q.Push(makeNode("d", "a", 5, time.Now()))
+	require.False(t, q.UpdatePriority("d", "missing", 10))
+	require.False(t, q.UpdatePriority("other-dag", "a", 10))
+	// Original node still pops normally.
+	n := q.PopBest(fitsAll)
+	require.NotNil(t, n)
+	assert.Equal(t, "a", n.NodeID)
+}

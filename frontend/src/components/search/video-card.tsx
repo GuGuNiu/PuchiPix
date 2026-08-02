@@ -1,5 +1,3 @@
-"use client";
-
 import { useRef, useCallback, useState, useEffect, memo } from "react";
 import { Loader2, XCircle, Zap, Film, Tag, Download } from "lucide-react";
 import { useI18n } from "@/lib/i18n";

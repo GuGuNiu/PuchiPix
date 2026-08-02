@@ -1,6 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
+/**
+ * 稳定化 defaults 引用：调用处通常传对象字面量（如 { status: "all" }），
+ * 每次渲染都是新引用。若直接作为 useCallback 依赖，会导致 update 每次
+ * 渲染重建，进而连锁重建所有基于 update 的回调（setStatusFilter 等），
+ * 造成子组件无效重渲染。这里仅在内容实际变化时更新引用。
+ */
+function useStableDefaults<T extends Record<string, string>>(defaults: T): T {
+  const ref = useRef(defaults);
+  const prev = ref.current;
+  const keys = Object.keys(defaults);
+  const changed =
+    keys.length !== Object.keys(prev).length ||
+    keys.some((k) => prev[k] !== defaults[k]);
+  if (changed) {
+    ref.current = defaults;
+  }
+  return ref.current;
+}
 
 export function useUrlState<T extends Record<string, string>>(
   defaults: T,
@@ -11,10 +29,12 @@ export function useUrlState<T extends Record<string, string>>(
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
+  // 稳定 defaults，避免调用处字面量导致 update 每次渲染重建（性能瓶颈）
+  const stableDefaults = useStableDefaults(defaults);
 
   const values = {} as Record<string, string>;
-  for (const key of Object.keys(defaults)) {
-    values[key] = searchParams.get(key) ?? defaults[key];
+  for (const key of Object.keys(stableDefaults)) {
+    values[key] = searchParams.get(key) ?? stableDefaults[key];
   }
 
   const update = useCallback(
@@ -25,7 +45,7 @@ export function useUrlState<T extends Record<string, string>>(
           value === null ||
           value === undefined ||
           value === '' ||
-          value === defaults[key as keyof T]
+          value === stableDefaults[key as keyof T]
         ) {
           params.delete(key);
         } else {
@@ -37,7 +57,7 @@ export function useUrlState<T extends Record<string, string>>(
         replace: true,
       });
     },
-    [navigate, pathname, searchParams, defaults],
+    [navigate, pathname, searchParams, stableDefaults],
   );
 
   return { values: values as T, update };

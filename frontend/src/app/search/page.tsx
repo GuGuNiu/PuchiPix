@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
@@ -73,8 +71,13 @@ export default function SearchPage(): React.JSX.Element {
         data.status === "failed" ||
         data.status === "cancelled"
       ) {
+        // 任务已到终态：无条件停止轮询（修复此前 scrapingAll=true 时
+        // 完成态仍无限轮询的问题），并复位批量抓取状态
         setSubmitting(false);
-        if (!scrapingAll) return false;
+        if (scrapingAll) {
+          setScrapingAll(false);
+        }
+        return false;
       }
       return true;
     } catch {
@@ -428,7 +431,9 @@ export default function SearchPage(): React.JSX.Element {
                       key={j.id}
                       style={{ cursor: "pointer" }}
                       onClick={() => {
-                        updateUrl({ job: j.id });
+                        // 恢复任务时同步 URL 中的关键词（q），
+                        // 避免残留旧 q 参数导致刷新后搜索框内容错位
+                        updateUrl({ job: j.id, q: j.keywords.join(" ") || null });
                         setJob(j);
                       }}
                     >

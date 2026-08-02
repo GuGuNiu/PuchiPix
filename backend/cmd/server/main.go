@@ -136,6 +136,23 @@ func main() {
 			Max:        3,
 		})
 
+		// 4b. Stream slot state changes over the EventBus so SSE clients
+		// (GET /api/slots/stream) observe acquire / release / max / quota
+		// updates in real-time without polling. Payload mirrors the
+		// SlotStateChange shape with an extra timestamp.
+		slotPool.SetStateChangeCallback(func(change slot.SlotStateChange) {
+			eventBus.Emit("slot:stateChanged", map[string]any{
+				"event":     change.Event,
+				"slotType":  change.SlotType,
+				"current":   change.Current,
+				"max":       change.Max,
+				"available": change.Available,
+				"dagId":     change.DagID,
+				"holderId":  change.HolderID,
+				"ts":        time.Now().UnixMilli(),
+			})
+		})
+
 		// 5. DagOrchestrator ??full lifecycle management
 		dagOrch = dag.NewDagOrchestrator(eventStore, slotPool)
 
@@ -483,6 +500,30 @@ func (a *schedulerAdapter) Submit(node orchestrator.SchedulableNode) bool {
 		TimeoutMs:            node.TimeoutMs,
 		NonCritical:          node.NonCritical,
 	})
+}
+
+// SubmitWithDelay bridges the orchestrator's non-blocking retry backoff
+// to the scheduler's delayed submission.
+func (a *schedulerAdapter) SubmitWithDelay(node orchestrator.SchedulableNode, delay time.Duration) {
+	a.sched.SubmitWithDelay(orchsched.SchedulableNodeAdapter{
+		NodeID:               node.NodeID,
+		DagID:                node.DagID,
+		TaskType:             string(node.TaskType),
+		Phase:                string(node.Phase),
+		ExecutorKey:          node.ExecutorKey,
+		Priority:             int(node.Priority),
+		ResourceRequirements: convertResourceReqs(node.ResourceRequirements),
+		Config:               node.Config,
+		SubmittedAt:          node.SubmittedAt,
+		TimeoutMs:            node.TimeoutMs,
+		NonCritical:          node.NonCritical,
+	}, delay)
+}
+
+// UpdateNodePriority bridges dynamic priority adjustment to the
+// scheduler's ready queue.
+func (a *schedulerAdapter) UpdateNodePriority(dagID, nodeID string, newPriority int) bool {
+	return a.sched.UpdateNodePriority(dagID, nodeID, newPriority)
 }
 
 func (a *schedulerAdapter) HasNode(dagID, nodeID string) bool {

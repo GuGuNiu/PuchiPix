@@ -1,5 +1,3 @@
-"use client";
-
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "@/lib/i18n/toast";

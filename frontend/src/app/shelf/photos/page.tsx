@@ -1,5 +1,3 @@
-"use client";
-
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
@@ -141,10 +139,25 @@ export default function PhotosPage(): React.JSX.Element {
 
   useEffect(() => {
     if (expandedId === null) return;
+    let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailLoading(true);
-    fetchGalleryDetail(expandedId).finally(() => setDetailLoading(false));
-  }, [expandedId, fetchGalleryDetail]);
+    fetchGalleryDetail(expandedId)
+      .then((detail) => {
+        if (cancelled) return;
+        if (!detail) {
+          // URL 中 id 无效（旧链接/已被删除）：清理残留参数，
+          // 避免每次进入页面都发起一次注定失败的请求
+          setExpandedId(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedId, fetchGalleryDetail, setExpandedId]);
 
   const handleDelete = useCallback(
     async (id: number) => {

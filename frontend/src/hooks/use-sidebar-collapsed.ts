@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState, useCallback } from 'react';
 import { usePreferenceStore } from '@/store/preference-store';
 

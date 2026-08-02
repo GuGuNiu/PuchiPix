@@ -35,15 +35,36 @@ func (h *Handlers) DagList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// DagDelete removes a completed, cancelled, or failed DAG from memory.
+func (h *Handlers) DagDelete(w http.ResponseWriter, r *http.Request) {
+	if h.DagOrch == nil {
+		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+		return
+	}
+	dagID := chi.URLParam(r, "id")
+	if err := h.DagOrch.RemoveDag(r.Context(), dagID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to delete DAG: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"dagId":  dagID,
+	})
+}
+
 // DagDetail returns the full state of a single DAG instance by ID,
 // including all node states for the frontend DAG detail view.
 func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 	dagID := chi.URLParam(r, "id")
 	if h.DagOrch == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"id":    dagID,
-			"state": "not_initialized",
-			"nodes": []any{},
+			"id":        dagID,
+			"state":     "not_initialized",
+			"nodes":     []any{},
+			"taskType":  "",
+			"sourceUrl": "",
+			"createdAt": "",
+			"workerDown": true,
 		})
 		return
 	}
@@ -52,6 +73,34 @@ func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "DAG not found")
 		return
 	}
+
+	// Compute aggregate state from node states
+	infos := make([]orchestrator.NodeSnapshotInfo, len(status.Nodes))
+	for i, n := range status.Nodes {
+		infos[i] = orchestrator.NodeSnapshotInfo{
+			State:       n.State,
+			Phase:       n.Phase,
+			NonCritical: false,
+		}
+	}
+	// Default taskType; will be overridden if snapshot available
+	taskType := orchestrator.TaskTypeGallery
+	aggregateState := orchestrator.AggregateTaskStatus(taskType, infos)
+
+	// Get additional metadata from snapshot
+	var sourceURL string
+	var createdAt string
+	snap := h.DagOrch.GetDagSnapshot(dagID)
+	if snap != nil {
+		sourceURL = snap.Definition.Metadata.SourceURL
+		createdAt = snap.CreatedAt.Format("2006-01-02 15:04:05")
+		if snap.Definition.TaskType != "" {
+			taskType = snap.Definition.TaskType
+			// Recompute aggregate with correct task type
+			aggregateState = orchestrator.AggregateTaskStatus(taskType, infos)
+		}
+	}
+
 	nodes := make([]map[string]any, 0, len(status.Nodes))
 	for _, n := range status.Nodes {
 		nodes = append(nodes, map[string]any{
@@ -61,8 +110,13 @@ func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":    status.DagID,
-		"nodes": nodes,
+		"id":         status.DagID,
+		"nodes":      nodes,
+		"state":      aggregateState,
+		"taskType":   taskType,
+		"sourceUrl":  sourceURL,
+		"createdAt":  createdAt,
+		"workerDown": false,
 	})
 }
 
@@ -75,8 +129,9 @@ func (h *Handlers) DagControl(w http.ResponseWriter, r *http.Request) {
 	}
 	dagID := chi.URLParam(r, "id")
 	var req struct {
-		Action string `json:"action"`
-		NodeID string `json:"nodeId,omitempty"`
+		Action   string `json:"action"`
+		NodeID   string `json:"nodeId,omitempty"`
+		Priority int    `json:"priority,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -92,6 +147,19 @@ func (h *Handlers) DagControl(w http.ResponseWriter, r *http.Request) {
 		err = h.DagOrch.CancelDag(ctx, dagID)
 	case "retry":
 		err = h.DagOrch.RetryDag(ctx, dagID, req.NodeID)
+	case "setPriority":
+		// Dynamic priority adjustment: nodeId is required, priority is
+		// the new TaskPriority value (1..10). Applied to the queued node
+		// immediately and persisted for future submissions.
+		if req.NodeID == "" {
+			writeError(w, http.StatusBadRequest, "nodeId required for setPriority")
+			return
+		}
+		if req.Priority <= 0 {
+			writeError(w, http.StatusBadRequest, "priority must be a positive integer")
+			return
+		}
+		err = h.DagOrch.UpdateNodePriority(ctx, dagID, req.NodeID, orchestrator.TaskPriority(req.Priority))
 	default:
 		writeError(w, http.StatusBadRequest, "Unknown action: "+req.Action)
 		return
@@ -143,6 +211,70 @@ func (h *Handlers) DagSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snap)
+}
+
+// DagSchedulerStats returns the scheduler queue statistics for monitoring.
+func (h *Handlers) DagSchedulerStats(w http.ResponseWriter, r *http.Request) {
+	if h.Sched == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"queueSize":  0,
+			"byPriority": map[string]int{},
+			"byTaskType": map[string]int{},
+			"strategy":   "none",
+		})
+		return
+	}
+	stats := h.Sched.GetStats()
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// DagLink adds a runtime dependency edge between two nodes in a DAG.
+func (h *Handlers) DagLink(w http.ResponseWriter, r *http.Request) {
+	if h.DagOrch == nil {
+		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+		return
+	}
+	dagID := chi.URLParam(r, "id")
+	var req struct {
+		ParentID string `json:"parentId"`
+		ChildID  string `json:"childId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.ParentID == "" || req.ChildID == "" {
+		writeError(w, http.StatusBadRequest, "parentId and childId are required")
+		return
+	}
+	if err := h.DagOrch.AddDependency(r.Context(), dagID, req.ParentID, req.ChildID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to add dependency: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":   "ok",
+		"dagId":    dagID,
+		"parentId": req.ParentID,
+		"childId":  req.ChildID,
+	})
+}
+
+// DagTrigger re-activates pending/ready nodes in a DAG, useful for
+// recovering stuck nodes after dependency modifications or slot pool
+// recovery.
+func (h *Handlers) DagTrigger(w http.ResponseWriter, r *http.Request) {
+	if h.DagOrch == nil {
+		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+		return
+	}
+	dagID := chi.URLParam(r, "id")
+	if err := h.DagOrch.ReactivateDagNodes(r.Context(), dagID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to trigger DAG: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"dagId":  dagID,
+	})
 }
 
 // DagStreamSSE pushes DAG state change events in real-time via SSE,

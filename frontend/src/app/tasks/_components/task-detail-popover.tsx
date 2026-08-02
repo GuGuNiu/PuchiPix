@@ -1,5 +1,3 @@
-"use client";
-
 import { Copy, Clock, Monitor, HardDrive, Calendar, X } from "lucide-react";
 import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask, TaskStatus } from "@/types";

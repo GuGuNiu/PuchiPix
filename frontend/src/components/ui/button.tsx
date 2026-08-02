@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 
 type ButtonVariant = "default" | "ghost" | "outline" | "secondary" | "destructive";

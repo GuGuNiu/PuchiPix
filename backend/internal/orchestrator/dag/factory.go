@@ -61,7 +61,7 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 			executor: "scrape",
 			slotType: "scraping",
 			priority: orchestrator.PriorityNormal,
-			timeout:  120000,
+			timeout:  300000,
 			maxRetries: 2,
 			retryDelay: 5000,
 		},

@@ -71,6 +71,22 @@ func IsTerminalState(state NodeState) bool {
 	return len(transitions) == 0
 }
 
+// IsDeletableState reports whether a node state allows DAG deletion.
+// Unlike IsTerminalState, this also includes states that are effectively
+// final for cleanup purposes (failed, timeout) even though they technically
+// allow retry transitions. This lets users clean up failed DAGs without
+// requiring an explicit cancel first.
+func IsDeletableState(state NodeState) bool {
+	if IsTerminalState(state) {
+		return true
+	}
+	switch state {
+	case NodeStateFailed, NodeStateTimeout:
+		return true
+	}
+	return false
+}
+
 // TaskType identifies the category of work a DAG performs, determining
 // which aggregator and executors are used.
 type TaskType string
@@ -277,6 +293,13 @@ type DagMetadata struct {
 	ProviderID string    `json:"providerId,omitempty"`
 	UserID     string    `json:"userId,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// SlotLimits declares task-level slot quotas: the maximum number of
+	// slots of each type (e.g. {"download": 2, "scraping": 1}) this task
+	// may occupy simultaneously, strictly bounding its concurrency
+	// regardless of the global per-type max. Empty means "no task-level
+	// cap" (global limits apply). Read at SubmitDag time and enforced by
+	// the slot pool for every node of the DAG.
+	SlotLimits map[string]int `json:"slotLimits,omitempty"`
 }
 
 // SchedulableNode is the envelope passed to the scheduler when a node

@@ -222,6 +222,38 @@ func (s *SchedulerEngine) CancelNode(dagID, nodeID string) {
 	s.readyQueue.Remove(dagID, nodeID)
 }
 
+// UpdateNodePriority dynamically re-prioritizes a queued node. The
+// ready queue is reordered immediately; nodes not currently queued
+// are unaffected (the orchestrator persists the new priority for
+// future submissions). Returns true when the node was queued and
+// updated.
+func (s *SchedulerEngine) UpdateNodePriority(dagID, nodeID string, newPriority int) bool {
+	updated := s.readyQueue.UpdatePriority(dagID, nodeID, newPriority)
+	if updated {
+		s.logger.Info("Node priority updated", "nodeId", nodeID, "dagId", dagID, "priority", newPriority)
+	}
+	return updated
+}
+
+// SubmitWithDelay enqueues a node after the given delay without
+// blocking the caller. This replaces blocking time.Sleep backoff in
+// retry paths: the orchestrator returns immediately while the timer
+// goroutine performs the delayed submission. Submit still applies
+// drain checks and queue-capacity backpressure at fire time.
+func (s *SchedulerEngine) SubmitWithDelay(node SchedulableNodeAdapter, delay time.Duration) {
+	if delay <= 0 {
+		s.Submit(node)
+		return
+	}
+	time.AfterFunc(delay, func() {
+		if !s.Submit(node) {
+			// Submission rejected (e.g. draining or queue full); the
+			// orchestrator's rollback-to-READY handles the state.
+			s.logger.Warn("Delayed submit rejected", "nodeId", node.NodeID, "dagId", node.DagID, "delayMs", delay.Milliseconds())
+		}
+	})
+}
+
 // OnSlotFreed is called by the slot pool when a slot is released,
 // triggering a scheduling pass to use the freed capacity.
 func (s *SchedulerEngine) OnSlotFreed(slotType string) {
@@ -255,12 +287,30 @@ func (s *SchedulerEngine) Schedule() {
 		}
 	}
 
+	// Take one slot snapshot per scheduling pass and maintain it locally
+	// as nodes are dispatched, instead of re-locking the pool on every
+	// iteration. Correctness is preserved: the pool's release callback
+	// re-enters Schedule() (guarded by the scheduling flag), and
+	// AcquireBatch remains the final arbiter — a stale fit simply loses
+	// the race and the node is requeued for a later pass.
+	slots := s.slotPool.GetSnapshot()
+	consume := func(reqs []slot.ResourceRequirement) {
+		for _, req := range reqs {
+			u, ok := slots[req.SlotType]
+			if !ok {
+				continue
+			}
+			u.Current += req.Count
+			u.Available -= req.Count
+			slots[req.SlotType] = u
+		}
+	}
+
 	for {
 		if s.readyQueue.Len() == 0 {
 			return
 		}
 
-		slots := s.slotPool.GetSnapshot()
 		fits := func(node SchedulableNodeAdapter) bool {
 			for _, req := range node.ResourceRequirements {
 				usage, ok := slots[req.SlotType]
@@ -282,6 +332,7 @@ func (s *SchedulerEngine) Schedule() {
 			s.readyQueue.Push(*selected)
 			return
 		}
+		consume(selected.ResourceRequirements)
 
 		s.mu.Lock()
 		executorFn := s.executorFn

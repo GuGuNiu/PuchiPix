@@ -74,8 +74,8 @@ func (statusCommand) Execute(ctx CommandContext) error {
 	if withLogs {
 		fmt.Printf("\n%s═══ Associated Logs ═══%s\n\n", ui.Bold, ui.Reset)
 		for _, dag := range data.Dags {
-			p := dag.Progress
-			if p.Completed == dag.NodeCount || p.Failed == dag.NodeCount {
+			// Skip completed/failed DAGs when --logs is used.
+			if dag.State == "completed" || dag.State == "failed" || dag.State == "cancelled" {
 				continue
 			}
 			logs, err := ctx.Client.QueryLogs(dagclient.LogQueryFilter{DagID: dag.DagID, Limit: 5})

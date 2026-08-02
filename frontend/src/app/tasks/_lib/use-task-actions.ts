@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback } from "react";
 import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask } from "@/types";

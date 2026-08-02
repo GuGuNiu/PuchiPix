@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useCallback } from "react";
 import { toast } from "@/lib/i18n/toast";
 import { formatFileSize } from "@/lib/utils";

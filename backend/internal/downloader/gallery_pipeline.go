@@ -150,12 +150,13 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 // images were successfully downloaded. It returns (status, corrected, reason)
 // following the same protocol as the filesystem verifier.
 func VerifyGallery(ctx context.Context, database *db.Database, galleryID int, logger *infra.Logger) (string, int, string) {
+	// Use COALESCE to handle NULL values from SUM when no rows exist
 	var expectedImages, downloadedImages, failedImages int
 	err := database.QueryRow(ctx,
 		`SELECT
 			COUNT(*) AS total,
-			SUM(CASE WHEN status = 'downloaded' THEN 1 ELSE 0 END) AS downloaded,
-			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+			COALESCE(SUM(CASE WHEN status = 'downloaded' THEN 1 ELSE 0 END), 0) AS downloaded,
+			COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed
 		FROM gallery_images WHERE gallery_id = ?`,
 		galleryID).Scan(&expectedImages, &downloadedImages, &failedImages)
 	if err != nil {

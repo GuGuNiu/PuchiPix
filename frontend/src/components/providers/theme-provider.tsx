@@ -1,5 +1,3 @@
-"use client";
-
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { usePreferenceStore, type Theme } from "@/store/preference-store";
 

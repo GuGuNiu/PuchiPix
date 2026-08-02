@@ -1,5 +1,3 @@
-"use client";
-
 import { useRef, useState, useCallback } from "react";
 import { Film, Clock, HardDrive, Play, Monitor } from "lucide-react";
 import type { DownloadTask } from "@/types";

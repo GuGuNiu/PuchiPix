@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
@@ -110,9 +108,9 @@ export default function ProtagonistsPage(): React.JSX.Element {
       {!loading && !error && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {filtered.map((protagonist) => (
-            <Link
+            <Link 
               key={protagonist.name}
-              href={`/protagonists/${encodeURIComponent(protagonist.name)}`}
+              to={`/protagonists/${encodeURIComponent(protagonist.name)}`}
             >
               <Card className="group cursor-pointer hover:shadow-lg transition-shadow overflow-hidden">
                 <div className="aspect-[3/4] relative bg-muted overflow-hidden">

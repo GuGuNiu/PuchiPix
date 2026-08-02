@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { DownloadTask } from '@/types';
+import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
 
 interface TaskStore {
   tasks: DownloadTask[];
@@ -122,20 +123,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   connectSSE: () => {
-    let eventSource: EventSource | null = null;
+    // 共享常驻连接：路由切换不再反复断开/重连，
+    // 页面挂载时仅订阅所需事件，卸载时取消订阅。
+    const unsubs: Array<() => void> = [];
 
-    const connect = (): void => {
-      eventSource = new EventSource('/api/tasks/stream');
+    unsubs.push(
+      onSseConnectionState((connState) => {
+        set({ sseConnected: connState === 'connected' });
+      }),
+    );
 
-      eventSource.onopen = () => {
-        set({ sseConnected: true });
-      };
-
-      eventSource.onerror = () => {
-        set({ sseConnected: false });
-      };
-
-      eventSource.addEventListener('initial', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data) as DownloadTask[];
           const filtered = data.filter((t) => !deletedKeys.has(taskKey(t)));
@@ -148,9 +147,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE initial parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('upsert', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('upsert', (e: MessageEvent) => {
         try {
           const task = JSON.parse(e.data) as DownloadTask;
           const key = taskKey(task);
@@ -167,9 +168,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE upsert parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('patch', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('patch', (e: MessageEvent) => {
         try {
           const { id, taskType, changes } = JSON.parse(e.data) as {
             id: number;
@@ -185,9 +188,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE patch parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('delete', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('delete', (e: MessageEvent) => {
         try {
           const { id, taskType } = JSON.parse(e.data) as {
             id: number;
@@ -201,9 +206,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE delete parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('sniffTask', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('sniffTask', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data) as SniffTaskEventData;
           set((s) => ({
@@ -213,9 +220,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE sniffTask parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('notification', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('notification', (e: MessageEvent) => {
         try {
           const { type, message, id } = JSON.parse(e.data) as {
             type: 'info' | 'success' | 'warning' | 'error';
@@ -241,9 +250,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE notification parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
+      }),
+    );
 
-      eventSource.addEventListener('nodeProgress', (e: MessageEvent) => {
+    unsubs.push(
+      subscribeSseEvent('nodeProgress', (e: MessageEvent) => {
         try {
           const { dagId, current, total, failed } = JSON.parse(e.data) as {
             dagId: string;
@@ -278,18 +289,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         } catch (err) {
           console.warn('[TaskStore] SSE nodeProgress parse failed:', err instanceof Error ? err.message : String(err));
         }
-      });
-
-    };
-
-    connect();
+      }),
+    );
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
+      for (const unsub of unsubs) {
+        unsub();
       }
-      set({ sseConnected: false });
+      // 注意：共享连接在 App 生命周期内常驻，这里仅取消订阅，
+      // 不关闭连接、也不把 sseConnected 置 false（连接状态由共享层广播）。
     };
   },
 

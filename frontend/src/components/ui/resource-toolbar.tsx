@@ -1,7 +1,3 @@
-﻿"use client";
-
-
-
 import { Search as SearchIcon, RefreshCw, Layers, Film, Image, Wifi } from "lucide-react";
 import GlassSelect from "./glass-select";
 

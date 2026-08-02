@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import { AlertTriangle, RotateCw, Home } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -61,7 +59,7 @@ export default function GlobalError({ error, reset }: ErrorProps): React.JSX.Ele
           <RotateCw size={14} />
           重试
         </button>
-        <Link href="/" className="btn btn-outline btn-sm">
+        <Link to="/" className="btn btn-outline btn-sm">
           <Home size={14} />
           返回首页
         </Link>

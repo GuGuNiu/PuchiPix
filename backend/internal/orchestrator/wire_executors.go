@@ -18,6 +18,7 @@ import (
 	"backend/internal/infra"
 	"backend/internal/orchestrator/executors"
 	"backend/internal/sites"
+	"backend/internal/sites/universal"
 	"backend/internal/taskprogress"
 	"backend/internal/titleparser"
 )
@@ -49,6 +50,22 @@ func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, databas
 	reg.Register(newDownloadExecutor(siteReg, database, eventBus, progressEngine))
 	reg.Register(newVerifyExecutor(database))
 	reg.Register(newExtractExecutor())
+	// Sniff executor: routes M3U8 sniffing through the universal
+	// scraper's headless-browser network interception. Registered with
+	// a real implementation so sniff DAG nodes no longer fail with
+	// "no executor registered for key: sniff".
+	reg.Register(executors.NewSniffExecutor(func(ctx context.Context, url string, siteID string) (int, error) {
+		_ = siteID // site routing is implicit via universal scraper
+		result, err := universal.ScrapePage(ctx, url)
+		if err != nil {
+			return 0, err
+		}
+		n := len(result.M3U8Candidates)
+		if result.M3U8URL != "" {
+			n++
+		}
+		return n, nil
+	}))
 	infra.NewLogger("WireExecutors").Info("Executors wired to production implementations")
 }
 
@@ -139,7 +156,7 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 					expected_image_count = ?, expected_video_count = ?,
 					scraped_domain = ?, status = 'scraped',
 					scraped_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-					WHERE source_url = ?3`,
+					WHERE source_url = ?13`,
 				result.Title, protagonist, description,
 				result.Category, tagsStr, result.CoverURL,
 				result.ImageCount, result.VideoCount, result.PageCount,

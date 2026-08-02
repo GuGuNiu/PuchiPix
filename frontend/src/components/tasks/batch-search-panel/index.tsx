@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "@/lib/i18n/toast";
 import {

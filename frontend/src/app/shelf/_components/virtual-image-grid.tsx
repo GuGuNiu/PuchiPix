@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Grid, useGridRef } from "react-window";
 import { useI18n } from "@/lib/i18n";

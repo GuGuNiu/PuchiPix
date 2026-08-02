@@ -126,6 +126,24 @@ func (q *ReadyQueue) PopBest(fits func(SchedulableNodeAdapter) bool) *Schedulabl
 	return nil
 }
 
+// UpdatePriority dynamically re-prioritizes a queued node, restoring
+// heap order via heap.Fix at the item's current index. Returns false
+// when the node is not queued (callers should treat it as a no-op).
+// This backs the dynamic priority adjustment feature: a node's priority
+// is no longer frozen at submission time.
+func (q *ReadyQueue) UpdatePriority(dagID, nodeID string, newPriority int) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	item, exists := q.index[queueKeyOf(dagID, nodeID)]
+	if !exists {
+		return false
+	}
+	item.priority = newPriority
+	item.node.Priority = newPriority
+	heap.Fix(&q.h, item.heapIndex)
+	return true
+}
+
 // Remove deletes a node from the queue. Returns true if it was present.
 func (q *ReadyQueue) Remove(dagID, nodeID string) bool {
 	q.mu.Lock()

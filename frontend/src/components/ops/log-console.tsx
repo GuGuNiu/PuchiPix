@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Terminal, AlertTriangle, XCircle, Info, Bug, Trash2, Pause, Play, Filter } from "lucide-react";
 import { formatTime } from "@/lib/utils";

@@ -1,5 +1,3 @@
-﻿"use client";
-
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -146,8 +144,8 @@ function RecentTasks({ tasks, loading }: { tasks: DownloadTask[]; loading: boole
           <Activity size={14} style={{ color: "var(--accent)" }} />
           {t("dashboard.recentTasks")}
         </div>
-        <Link
-          href="/tasks"
+        <Link 
+          to="/tasks"
           style={{
             fontSize: 12,
             color: "var(--accent)",

@@ -1,6 +1,4 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -29,23 +27,23 @@ interface ProtagonistStats {
 export default function ProtagonistDetailPage(): React.JSX.Element {
   const { t } = useI18n();
   const params = useParams();
-  const name = decodeURIComponent(params.name as string);
+  // React Router v7 的 useParams 已自动解码 URL 参数，
+  // 此处不可再次 decodeURIComponent（含 % 的名字会二次解码出错甚至抛 URIError）。
+  const name = params.name ?? '';
 
   const [stats, setStats] = useState<ProtagonistStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // 请求序号：路由参数快速切换时丢弃过期响应，避免竞态覆盖
+  const requestSeq = useRef(0);
 
-  useEffect(() => {
-    if (name) {
-      fetchProtagonistStats();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name]);
-
-  async function fetchProtagonistStats(): Promise<void> {
+  const fetchProtagonistStats = useCallback(async (): Promise<void> => {
+    const seq = ++requestSeq.current;
     try {
       setLoading(true);
+      setError('');
       const response = await fetch(`/api/protagonists?name=${encodeURIComponent(name)}`);
+      if (seq !== requestSeq.current) return; // 已被更新的请求取代
       const result = await response.json();
 
       if (result.success) {
@@ -54,15 +52,31 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
         setError(result.error || t('protagonists.loadFailed'));
       }
     } catch {
+      if (seq !== requestSeq.current) return;
       setError(t('protagonists.networkError'));
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) {
+        setLoading(false);
+      }
     }
-  }
+  }, [name, t]);
+
+  useEffect(() => {
+    if (name) {
+      fetchProtagonistStats();
+    } else {
+      // 空 name（如访问 /protagonists/）视为无效：直接进入错误态
+      setLoading(false);
+      setError(t('protagonists.loadFailed'));
+    }
+    return () => {
+      requestSeq.current++; // 卸载时作废在途请求
+    };
+  }, [name, fetchProtagonistStats, t]);
 
   return (
     <div className="container mx-auto px-4 py-8 flex flex-col min-h-0" style={{ height: '100%' }}>
-      <Link href="/protagonists">
+      <Link to="/protagonists">
         <Button variant="ghost" className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           {t('protagonists.backToList')}
@@ -135,11 +149,12 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {stats.galleries.map((gallery) => (
-              <Link key={gallery.id} href={`/shelf/${gallery.id}`}>
+              // /shelf/:id 未定义路由，会落到 404；
+              // 改为 /shelf/photos?id=xxx，在相册页直接展开对应详情
+              <Link key={gallery.id} to={`/shelf/photos?id=${gallery.id}`}>
                 <Card className="group cursor-pointer hover:shadow-lg transition-shadow overflow-hidden">
                   <div className="aspect-[3/4] relative bg-muted overflow-hidden">
                     {gallery.coverUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={gallery.coverUrl}
                         alt={gallery.title}

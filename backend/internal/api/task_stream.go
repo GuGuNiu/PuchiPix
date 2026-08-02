@@ -234,6 +234,14 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			sse.SendEvent("gallery:created", payload)
 		})
 
+		// slot:stateChanged — forwarded so dashboards render slot
+		// occupancy in real-time (acquire/release/max/quota updates)
+		// without polling /api/slots. A dedicated /api/slots/stream
+		// endpoint is also available for slotType-filtered subscriptions.
+		unsubSlotState := h.EventBus.On("slot:stateChanged", func(payload any) {
+			sse.SendEvent("slot:stateChanged", payload)
+		})
+
 		defer func() {
 			unsubCreated()
 			unsubProgress()
@@ -244,6 +252,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			unsubNodeState()
 			unsubGalleryProg()
 			unsubGalleryCreated()
+			unsubSlotState()
 		}()
 	}
 

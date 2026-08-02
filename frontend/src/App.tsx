@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Component, Suspense, lazy, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "@/components/layout/sidebar";
 import SocketProvider from "@/components/providers/socket-provider";
@@ -6,9 +6,11 @@ import ThemeProvider from "@/components/providers/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ThemedToaster } from "@/components/providers";
 import { I18nProvider } from "@/lib/i18n";
+import { initSharedSse, destroySharedSse } from "@/lib/sse/shared-sse";
+import GlobalError from "./app/error";
 
 /*
- * Lazy-loaded page components �?replaces Next.js file-system routing.
+ * Lazy-loaded page components — replaces Next.js file-system routing.
  * Each import maps directly to the original app/ directory structure.
  */
 const Dashboard = lazy(() => import("./app/page"));
@@ -24,7 +26,7 @@ const ProtagonistsList = lazy(() => import("./app/protagonists/page"));
 const ProtagonistDetail = lazy(() => import("./app/protagonists/[name]/page"));
 const ModelStagePage = lazy(() => import("./app/modelstage/page"));
 
-/** Global loading fallback for lazy routes �?mirrors loading.tsx */
+/** Global loading fallback for lazy routes — mirrors loading.tsx */
 function RouteLoading(): React.JSX.Element {
   return (
     <div
@@ -43,7 +45,55 @@ function RouteLoading(): React.JSX.Element {
   );
 }
 
+/**
+ * Route-level error boundary — mirrors Next.js error.tsx.
+ * Lazy chunk 加载失败或页面渲染抛出异常时，展示 GlobalError 而非白屏。
+ */
+interface RouteErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface RouteErrorBoundaryState {
+  error: Error | null;
+}
+
+class RouteErrorBoundary extends Component<
+  RouteErrorBoundaryProps,
+  RouteErrorBoundaryState
+> {
+  state: RouteErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): RouteErrorBoundaryState {
+    return { error };
+  }
+
+  handleReset = (): void => {
+    this.setState({ error: null });
+  };
+
+  render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <GlobalError
+          error={this.state.error}
+          reset={this.handleReset}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App(): React.JSX.Element {
+  // 全局共享 SSE 连接：应用生命周期内常驻，
+  // 路由切换时页面只订阅/取消订阅，不再反复断开重连。
+  useEffect(() => {
+    initSharedSse();
+    return () => {
+      destroySharedSse();
+    };
+  }, []);
+
   return (
     <BrowserRouter>
       <ThemeProvider>
@@ -54,26 +104,28 @@ export default function App(): React.JSX.Element {
                 <Sidebar />
                 <div className="main-area">
                   <main className="content-area">
-                    <Suspense fallback={<RouteLoading />}>
-                      <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/tasks" element={<TasksPage />} />
-                        <Route path="/search" element={<SearchPage />} />
-                        {/* /shelf redirects to /shelf/photos (was server-side redirect()) */}
-                        <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
-                        <Route path="/shelf/photos" element={<ShelfPhotos />} />
-                        <Route path="/shelf/sjs" element={<ShelfSJS />} />
-                        <Route path="/sniff" element={<SniffPage />} />
-                        <Route path="/config" element={<ConfigPage />} />
-                        <Route path="/config/games" element={<ConfigGames />} />
-                        <Route path="/blocklist" element={<BlocklistPage />} />
-                        <Route path="/protagonists" element={<ProtagonistsList />} />
-                        <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
-                        <Route path="/modelstage" element={<ModelStagePage />} />
-                        {/* Custom 404 �?replaces not-found.tsx */}
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
-                    </Suspense>
+                    <RouteErrorBoundary>
+                      <Suspense fallback={<RouteLoading />}>
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/tasks" element={<TasksPage />} />
+                          <Route path="/search" element={<SearchPage />} />
+                          {/* /shelf redirects to /shelf/photos (was server-side redirect()) */}
+                          <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
+                          <Route path="/shelf/photos" element={<ShelfPhotos />} />
+                          <Route path="/shelf/sjs" element={<ShelfSJS />} />
+                          <Route path="/sniff" element={<SniffPage />} />
+                          <Route path="/config" element={<ConfigPage />} />
+                          <Route path="/config/games" element={<ConfigGames />} />
+                          <Route path="/blocklist" element={<BlocklistPage />} />
+                          <Route path="/protagonists" element={<ProtagonistsList />} />
+                          <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
+                          <Route path="/modelstage" element={<ModelStagePage />} />
+                          {/* Custom 404 — replaces not-found.tsx */}
+                          <Route path="*" element={<NotFound />} />
+                        </Routes>
+                      </Suspense>
+                    </RouteErrorBoundary>
                   </main>
                 </div>
               </div>
@@ -86,5 +138,5 @@ export default function App(): React.JSX.Element {
   );
 }
 
-/** Lazy-loaded 404 page �?mirrors not-found.tsx */
+/** Lazy-loaded 404 page — mirrors not-found.tsx */
 const NotFound = lazy(() => import("./app/not-found"));

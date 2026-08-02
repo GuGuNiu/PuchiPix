@@ -1,5 +1,3 @@
-"use client";
-
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { WifiOff } from "lucide-react";
 

@@ -38,7 +38,7 @@ export default function NotFound(): React.JSX.Element {
       >
         未找到对应的页面。它可能已被移动、删除，或从未存在。
       </p>
-      <Link href="/" className="btn btn-primary btn-sm">
+      <Link to="/" className="btn btn-primary btn-sm">
         <Home size={14} />
         返回首页
       </Link>

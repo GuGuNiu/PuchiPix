@@ -39,19 +39,25 @@ func NewRouter(h *Handlers, eventBus *infra.EventBus) http.Handler {
 		r.Route("/dag", func(r chi.Router) {
 			r.Get("/", h.DagList)
 			r.Get("/stream", h.DagStreamSSE)
+			r.Get("/scheduler", h.DagSchedulerStats)
 			r.Get("/{id}", h.DagDetail)
+			r.Delete("/{id}", h.DagDelete)
 			r.Post("/{id}/control", h.DagControl)
+			r.Post("/{id}/link", h.DagLink)
+			r.Post("/{id}/trigger", h.DagTrigger)
 			r.Get("/{id}/nodes", h.DagNodes)
 			r.Get("/{id}/snapshot", h.DagSnapshot)
 		})
 
 		// Slot pool monitoring and dynamic configuration endpoints.
-		// GET  /api/slots         - real-time slot usage snapshot
-		// GET  /api/slots/holders - active holder IDs for leak diagnosis
-		// GET  /api/slots/{type}  - detailed info for a single slot type
-		// PUT  /api/slots/{type}  - dynamically adjust max concurrency
+		// GET  /api/slots            - real-time slot usage snapshot
+		// GET  /api/slots/stream     - SSE subscription for slot state changes
+		// GET  /api/slots/holders    - active holder IDs for leak diagnosis
+		// GET  /api/slots/{type}     - detailed info for a single slot type
+		// PUT  /api/slots/{type}     - dynamically adjust max concurrency
 		r.Route("/slots", func(r chi.Router) {
 			r.Get("/", h.SlotList)
+			r.Get("/stream", h.SlotStreamSSE)
 			r.Get("/holders", h.SlotHolders)
 			r.Get("/{type}", h.SlotDetail)
 			r.Put("/{type}", h.SlotUpdate)

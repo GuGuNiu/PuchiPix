@@ -1,5 +1,3 @@
-"use client";
-
 import packageInfo from "../../../package.json";
 
 const APP_VERSION = packageInfo.version;
@@ -108,9 +106,9 @@ function NavGroupItem({ group, isActive, isOpen, onToggle, collapsed, hoverExpan
           const ItemIcon = item.icon;
           const itemLabel = t(item.labelKey);
           return (
-            <Link
+            <Link 
               key={item.href}
-              href={item.href}
+              to={item.href}
               className={`nav-item nav-sub-item ${isActive(item.href) ? "active" : ""}`}
               title={collapsed && !hoverExpand ? itemLabel : undefined}
             >
@@ -272,9 +270,9 @@ export default function Sidebar(): React.JSX.Element {
         {mobilePrimary.map((item) => {
           const Icon = item.icon;
           return (
-            <Link
+            <Link 
               key={item.href}
-              href={item.href}
+              to={item.href}
               className={`bottom-nav-item ${isActive(item.href) ? "active" : ""}`}
             >
               <Icon size={20} strokeWidth={2} />
@@ -292,9 +290,9 @@ export default function Sidebar(): React.JSX.Element {
             {mobileSecondary.map((item) => {
               const Icon = item.icon;
               return (
-                <Link
+                <Link 
                   key={item.href}
-                  href={item.href}
+                  to={item.href}
                   className={`bottom-nav-more-item ${isActive(item.href) ? "active" : ""}`}
                 >
                   <Icon size={16} strokeWidth={2} />

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,10 +16,11 @@ import (
 // mockScheduler implements dag.SchedulerInterface for testing,
 // recording all interactions for later assertion.
 type mockScheduler struct {
-	mu        sync.Mutex
-	submitted map[string]bool
-	cancelled []string
-	acceptAll bool
+	mu              sync.Mutex
+	submitted       map[string]bool
+	cancelled       []string
+	acceptAll       bool
+	priorityUpdates []string
 }
 
 func newMockScheduler(accept bool) *mockScheduler {
@@ -52,6 +54,21 @@ func (m *mockScheduler) CancelNode(dagID, nodeID string) {
 }
 
 func (m *mockScheduler) OnSlotFreed(slotType string) {}
+
+// SubmitWithDelay records the delayed submission as an immediate one
+// for test determinism (the orchestrator's delay logic is covered by
+// scheduler-level tests).
+func (m *mockScheduler) SubmitWithDelay(node orchestrator.SchedulableNode, delay time.Duration) {
+	m.Submit(node)
+}
+
+// UpdateNodePriority records priority updates for assertion.
+func (m *mockScheduler) UpdateNodePriority(dagID, nodeID string, newPriority int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.priorityUpdates = append(m.priorityUpdates, dagID+":"+nodeID)
+	return m.submitted[dagID+":"+nodeID]
+}
 
 // mockSlotPool implements dag.SlotPoolInterface for testing.
 type mockSlotPool struct {

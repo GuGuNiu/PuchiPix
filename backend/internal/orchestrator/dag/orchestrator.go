@@ -70,6 +70,11 @@ type dagInstance struct {
 // scheduler, avoiding a circular import.
 type SchedulerInterface interface {
 	Submit(node orchestrator.SchedulableNode) bool
+	// SubmitWithDelay enqueues a node after the given delay without
+	// blocking the caller, backing non-blocking retry backoff.
+	SubmitWithDelay(node orchestrator.SchedulableNode, delay time.Duration)
+	// UpdateNodePriority dynamically re-prioritizes a queued node.
+	UpdateNodePriority(dagID, nodeID string, newPriority int) bool
 	HasNode(dagID, nodeID string) bool
 	CancelNode(dagID, nodeID string)
 	OnSlotFreed(slotType string)
@@ -268,6 +273,18 @@ func (o *DagOrchestrator) SubmitDag(ctx context.Context, def orchestrator.DagDef
 	o.dagsMu.Lock()
 	o.dags[dagID] = dag
 	o.dagsMu.Unlock()
+
+	// Apply task-level slot quotas declared in the DAG metadata so the
+	// slot pool strictly bounds this task's concurrency per slot type
+	// (e.g. {"download": 2} caps this task at two simultaneous download
+	// slots even when the global pool allows more). Quotas are cleared
+	// when the DAG reaches a terminal state (see checkDagCompletion).
+	if len(def.Metadata.SlotLimits) > 0 {
+		if sp, ok := o.slotPool.(*slot.SlotPool); ok {
+			sp.SetDagQuota(dagID, def.Metadata.SlotLimits)
+			o.logger.Info("DAG slot quotas applied", "dagId", dagID, "limits", def.Metadata.SlotLimits)
+		}
+	}
 
 	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
 		Type:      "dag:created",
@@ -1024,29 +1041,20 @@ func (o *DagOrchestrator) RetryDag(ctx context.Context, dagID string, nodeID str
 		// Strategy layer (M6): honor the policy's retryPolicy. When
 		// retryCount >= maxAttempts, skip the retry and leave the node
 		// in FAILED so the user is notified that the retry budget is
-		// exhausted. When a backoff is configured, sleep before
-		// re-submitting so we don't immediately re-trigger the same
-		// error. Without a policy, fall back to the existing behavior
-		// (ResetRetryCount + immediate re-schedule).
+		// exhausted. When a backoff is configured, the re-submission is
+		// scheduled asynchronously (SubmitWithDelay) so the caller is
+		// never blocked by backoff sleeps. Without a policy, fall back
+		// to the existing behavior (ResetRetryCount + immediate
+		// re-schedule).
 		fsmCtx := node.fsm.Context()
 		policy := node.fsm.Policy()
+		delayMs := int64(0)
 		if policy != nil && policy.RetryPolicy != nil && policy.RetryPolicy.MaxAttempts > 0 {
 			if fsmCtx.RetryCount >= policy.RetryPolicy.MaxAttempts {
 				o.logger.Warn("Retry budget exhausted, skipping retry", "dagId", dagID, "nodeId", node.definition.ID, "retryCount", fsmCtx.RetryCount, "maxAttempts", policy.RetryPolicy.MaxAttempts)
 				continue
 			}
-			// Apply backoff before re-submitting.
-			if policy.RetryPolicy.BackoffMs > 0 {
-				delay := policy.RetryPolicy.BackoffMs
-				if policy.RetryPolicy.BackoffStrategy != "fixed" {
-					// exponential: base * 2^(retryCount)
-					shift := uint(fsmCtx.RetryCount)
-					if shift < 10 { // cap to avoid overflow
-						delay = policy.RetryPolicy.BackoffMs << shift
-					}
-				}
-				time.Sleep(time.Duration(delay) * time.Millisecond)
-			}
+			delayMs = computeRetryBackoffMs(policy.RetryPolicy, fsmCtx.RetryCount)
 		}
 		node.fsm.ResetRetryCount()
 		// A retried node must re-earn its successors: decrement their
@@ -1071,21 +1079,123 @@ func (o *DagOrchestrator) RetryDag(ctx context.Context, dagID string, nodeID str
 			Timestamp: time.Now(),
 			Payload: map[string]any{
 				"retryCount": node.fsm.Context().RetryCount + 1,
+				"backoffMs":  delayMs,
 			},
 		})
 
+		// Move to READY immediately (accepting the retry and taking the
+		// node out of the FAILED selection set), then submit now or
+		// after the backoff delay without blocking this goroutine.
 		_ = node.fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
 			Reason:      "user retry",
 			TriggeredBy: "user",
 		})
+		o.submitRetry(ctx, dagID, node.definition.ID, node, time.Duration(delayMs)*time.Millisecond)
+	}
+
+	o.logger.Info("DAG retry nodes", "dagId", dagID, "nodeCount", len(nodesToRetry))
+	return nil
+}
+
+// submitRetry transitions a retried node to QUEUED and submits it to
+// the scheduler, either immediately or after the given backoff delay
+// (non-blocking via time.AfterFunc). The delayed path re-validates the
+// node is still READY at fire time so a concurrent pause/cancel cannot
+// resurrect a dead node.
+func (o *DagOrchestrator) submitRetry(ctx context.Context, dagID, nodeID string, node *dagNodeInstance, delay time.Duration) {
+	if delay <= 0 {
 		_ = node.fsm.Transition(orchestrator.NodeStateQueued, orchestrator.TransitionContext{
 			Reason:      "re-submitted to scheduler",
 			TriggeredBy: "system",
 		})
-		o.submitToScheduler(ctx, node.definition.ID, dagID, node)
+		o.submitToScheduler(ctx, nodeID, dagID, node)
+		return
 	}
+	time.AfterFunc(delay, func() {
+		o.dagsMu.RLock()
+		dag, ok := o.dags[dagID]
+		o.dagsMu.RUnlock()
+		if !ok {
+			return
+		}
+		dag.mu.Lock()
+		n, exists := dag.nodes[nodeID]
+		if !exists || n.fsm.State() != orchestrator.NodeStateReady {
+			dag.mu.Unlock()
+			return
+		}
+		dag.mu.Unlock()
+		_ = n.fsm.Transition(orchestrator.NodeStateQueued, orchestrator.TransitionContext{
+			Reason:      "re-submitted to scheduler after backoff",
+			TriggeredBy: "system",
+		})
+		o.submitToScheduler(context.Background(), nodeID, dagID, n)
+	})
+}
 
-	o.logger.Info("DAG retry nodes", "dagId", dagID, "nodeCount", len(nodesToRetry))
+// computeRetryBackoffMs derives the retry delay from the policy and the
+// current retry count. Strategies:
+//
+//   - "fixed": BackoffMs every attempt
+//   - "exponential" (default): BackoffMs * 2^retryCount, capped at 1024x
+//   - "exponential_jitter": random in [0, BackoffMs*2^retryCount] to
+//     avoid synchronized retry storms across nodes
+//
+// Returns 0 when no backoff is configured.
+func computeRetryBackoffMs(p *orchestrator.RetryPolicy, retryCount int) int64 {
+	if p == nil || p.BackoffMs <= 0 {
+		return 0
+	}
+	base := p.BackoffMs
+	if p.BackoffStrategy != "fixed" {
+		shift := uint(retryCount)
+		if shift >= 10 { // cap to avoid overflow (max 1024x base)
+			shift = 10
+		}
+		base = p.BackoffMs << shift
+	}
+	if p.BackoffStrategy == "exponential_jitter" {
+		return rand.Int63n(base + 1)
+	}
+	return base
+}
+
+// UpdateNodePriority dynamically adjusts a node's scheduling priority
+// at runtime. The new priority is persisted to the node definition
+// (snapshot truth) and, when the node is currently queued, applied to
+// the ready queue immediately so the scheduler reorders it ahead of
+// lower-priority peers. Returns an error when the DAG or node does not
+// exist or the priority is invalid.
+func (o *DagOrchestrator) UpdateNodePriority(ctx context.Context, dagID, nodeID string, newPriority orchestrator.TaskPriority) error {
+	if newPriority <= 0 {
+		return fmt.Errorf("invalid priority %d", newPriority)
+	}
+	o.dagsMu.RLock()
+	dag, ok := o.dags[dagID]
+	o.dagsMu.RUnlock()
+	if !ok {
+		return orchestrator.ErrDagNotFound
+	}
+	dag.mu.Lock()
+	node, exists := dag.nodes[nodeID]
+	if !exists {
+		dag.mu.Unlock()
+		return orchestrator.ErrNodeNotFound
+	}
+	node.definition.Priority = newPriority
+	if o.scheduler != nil {
+		o.scheduler.UpdateNodePriority(dagID, nodeID, int(newPriority))
+	}
+	dag.mu.Unlock()
+
+	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
+		Type:      "dag:nodePriorityChanged",
+		DagID:     dagID,
+		NodeID:    nodeID,
+		Timestamp: time.Now(),
+		Payload:   map[string]any{"priority": int(newPriority)},
+	})
+	o.logger.Info("Node priority updated", "dagId", dagID, "nodeId", nodeID, "priority", newPriority)
 	return nil
 }
 
@@ -1157,6 +1267,13 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 			Payload:   map[string]any{"aggregateStatus": aggregateStatus},
 		})
 		o.logger.Info("DAG reached terminal aggregate state", "dagId", dagID, "aggregateStatus", aggregateStatus)
+	}
+
+	// The DAG is terminal: lift task-level slot quotas so its slot
+	// footprint no longer reserves capacity. In-flight holders release
+	// individually via the executor defer path.
+	if sp, ok := o.slotPool.(*slot.SlotPool); ok {
+		sp.ClearDagQuota(dagID)
 	}
 	return nil
 }
@@ -1690,9 +1807,9 @@ func (o *DagOrchestrator) ReactivateDagNodes(ctx context.Context, dagID string) 
 	return o.activateReadyNodes(ctx, dagID)
 }
 
-// RemoveDag removes a DAG from the orchestrator's memory. Only DAGs in
-// terminal states (all nodes completed, cancelled, or failed) can be
-// removed. Active DAGs must be cancelled first.
+// RemoveDag removes a DAG from the orchestrator's memory. DAGs with all
+// nodes in terminal or deletable states (failed/timeout) can be removed.
+// Active DAGs with running/pending nodes must be cancelled first.
 func (o *DagOrchestrator) RemoveDag(ctx context.Context, dagID string) error {
 	o.dagsMu.Lock()
 	defer o.dagsMu.Unlock()
@@ -1705,10 +1822,10 @@ func (o *DagOrchestrator) RemoveDag(ctx context.Context, dagID string) error {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()
 
-	// Verify all nodes are in terminal states
+	// Verify all nodes are in deletable states (terminal or failed/timeout)
 	for nodeID, node := range dag.nodes {
 		state := node.fsm.State()
-		if !orchestrator.IsTerminalState(state) {
+		if !orchestrator.IsDeletableState(state) {
 			return fmt.Errorf("node %s is still in state %s (must be terminal)", nodeID, state)
 		}
 	}

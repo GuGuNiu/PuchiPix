@@ -38,6 +38,18 @@ var cloudflareSignatures = []string{
 	"cf-mitigated",
 	"ray id",
 	"cf-ray",
+	"cf_chl_prog",
+	"cf-chl-bypass",
+	"challenge-platform",
+	"cdn-cgi/challenge",
+	"cloudflare-static/challenge",
+	"turnstile",
+	"cf-turnstile",
+	"cf_chl_jschl_tk",
+	"jschl_vc",
+	"jschl_answer",
+	"cf_chl_captcha_tk",
+	"captcha-container",
 }
 
 var wafSignatures = []string{
@@ -137,7 +149,10 @@ func DetectWaf(statusCode int, html string, doc *goquery.Document) WafDetectionR
 		// scripts (Rocket Loader, analytics, etc. are legitimate).
 		if doc.Find(`script[src*="cdn-cgi/challenge-platform"]`).Length() > 0 ||
 			doc.Find(`script[src*="cdn-cgi/cloudflare-static/challenge"]`).Length() > 0 ||
-			doc.Find(`script[src*="cf-chl"]`).Length() > 0 {
+			doc.Find(`script[src*="cf-chl"]`).Length() > 0 ||
+			doc.Find(`script[src*="cf_chl"]`).Length() > 0 ||
+			doc.Find(`script[src*="turnstile"]`).Length() > 0 ||
+			doc.Find(`script[id="cf-challenge-script"]`).Length() > 0 {
 			return WafDetectionResult{Blocked: true, Reason: WafReasonCloudflare, Detail: "HTML contains Cloudflare challenge script"}
 		}
 

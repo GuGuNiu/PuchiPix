@@ -68,6 +68,17 @@ func (p *Provider) ScrapeGallery(ctx context.Context, pageURL string) (*sites.Ga
 func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	result, err := ScrapeGalleryHTTP(ctx, pageURL, p)
 	if err != nil {
+		// If the error is due to content being blocked by the blocklist,
+		// do NOT fall back to browser - the block check will be applied
+		// again and the result will be the same.
+		if strings.Contains(err.Error(), "content blocked:") {
+			providerLogger.Warn("Content blocked by blocklist, skipping browser fallback",
+				infra.LogContext{Extra: map[string]any{
+					"url":   pageURL,
+					"error": err.Error(),
+				}})
+			return nil, err
+		}
 		providerLogger.Warn("HTTP scrape failed, no fallback configured",
 			infra.LogContext{Extra: map[string]any{
 				"url":   pageURL,

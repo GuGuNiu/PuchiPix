@@ -40,37 +40,27 @@ func (dagCommand) Execute(ctx CommandContext) error {
 	}
 
 	ui.PrintDivider(fmt.Sprintf("DAG Detail: %s", dag.DagID))
-	fmt.Printf("  %sType%s:      %s\n", ui.Bold, ui.Reset, dag.TaskType)
-	fmt.Printf("  %sSource URL%s: %s\n", ui.Bold, ui.Reset, dag.SourceURL)
-	fmt.Printf("  %sCreated%s:    %s\n", ui.Bold, ui.Reset, ui.FormatDateTime(dag.CreatedAt))
-	if dag.ProviderID != "" {
-		fmt.Printf("  %sProvider%s:   %s\n", ui.Bold, ui.Reset, dag.ProviderID)
+	if dag.State != "" {
+		fmt.Printf("  %sState%s:     %s\n", ui.Bold, ui.Reset, ui.StatePill(dag.State))
 	}
-	fmt.Println()
-
-	ui.PrintDivider("Node Definition")
-	for _, node := range dag.Definition.Nodes {
-		fmt.Printf("  %s%s%s [%s] executor=%s prio=%d\n",
-			ui.Cyan, node.ID, ui.Reset, node.Phase, node.Executor, node.Priority)
-		if len(node.Dependencies) > 0 {
-			fmt.Printf("    %sDepends: %s%s\n", ui.Dim, joinStrings(node.Dependencies, ", "), ui.Reset)
-		}
-		if len(node.ResourceRequirements) > 0 {
-			var resParts []string
-			for _, r := range node.ResourceRequirements {
-				resParts = append(resParts, fmt.Sprintf("%s\u00d7%d", r.SlotType, r.Count))
-			}
-			fmt.Printf("    %sResources: %s%s\n", ui.Dim, joinStrings(resParts, ", "), ui.Reset)
-		}
-		if node.Timeout > 0 {
-			fmt.Printf("    %sTimeout: %dms  Retry: %d%s\n", ui.Dim, node.Timeout, node.MaxRetries, ui.Reset)
-		}
+	if dag.TaskType != "" {
+		fmt.Printf("  %sType%s:      %s\n", ui.Bold, ui.Reset, dag.TaskType)
+	}
+	if dag.SourceURL != "" {
+		fmt.Printf("  %sSource URL%s: %s\n", ui.Bold, ui.Reset, dag.SourceURL)
+	}
+	if dag.CreatedAt != "" {
+		fmt.Printf("  %sCreated%s:    %s\n", ui.Bold, ui.Reset, ui.FormatDateTime(dag.CreatedAt))
 	}
 	fmt.Println()
 
 	ui.PrintDivider("Node Status")
 	for _, node := range dag.Nodes {
-		fmt.Printf("  %s%s%s %s\n", ui.Bold, node.NodeID, ui.Reset, ui.StateLabel(string(node.State)))
+		phaseStr := ""
+		if node.Phase != "" {
+			phaseStr = fmt.Sprintf(" [%s]", node.Phase)
+		}
+		fmt.Printf("  %s%s%s%s %s\n", ui.Bold, node.NodeID, phaseStr, ui.Reset, ui.StatePill(string(node.State)))
 		if node.Error != nil {
 			fmt.Printf("    %sError: [%s] %s%s\n", ui.Red, node.Error.Code, node.Error.Message, ui.Reset)
 			if node.Error.Retryable {

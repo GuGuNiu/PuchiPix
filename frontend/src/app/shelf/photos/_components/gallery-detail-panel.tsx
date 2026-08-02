@@ -1,5 +1,3 @@
-"use client";
-
 import { useI18n } from "@/lib/i18n";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { formatFileSize } from "@/lib/utils";

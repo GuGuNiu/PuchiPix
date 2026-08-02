@@ -1,5 +1,3 @@
-"use client";
-
 import { toast as sonnerToast } from "sonner";
 import type { ExternalToast, ToastT } from "sonner";
 import React from "react";

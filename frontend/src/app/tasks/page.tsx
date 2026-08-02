@@ -1,6 +1,4 @@
-"use client";
-
-import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
 import {
@@ -86,9 +84,10 @@ export default function TasksPage(): React.JSX.Element {
   const [linkInput, setLinkInput] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [addTab, setAddTab] = useState<"link" | "search">(
-    () => (savedData?.addTab as "link" | "search") ?? "link"
-  );
+  const [addTab, setAddTab] = useState<"link" | "search">("link");
+  // 用户是否已手动切换过 addTab：切换前允许用服务器持久化值恢复，
+  // 切换后以用户选择为准（避免异步加载的数据覆盖用户操作）。
+  const addTabTouched = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -113,8 +112,25 @@ export default function TasksPage(): React.JSX.Element {
   const currentSpeedStr = apiStats?.current_speed_str ?? "0 B/s";
   const diskIoStr = apiStats?.disk_io_str ?? "—";
 
+  // 恢复服务器持久化的 addTab（仅首次加载，且用户未手动切换时）
   useEffect(() => {
-    saveState({ addTab });
+    if (addTabTouched.current) return;
+    const restored = savedData?.addTab;
+    if (restored === "link" || restored === "search") {
+      setAddTab(restored);
+    }
+  }, [savedData]);
+
+  // 用户手动切换后标记 touched 并持久化，避免 mount 时用默认值覆盖服务器数据
+  const handleSetAddTab = useCallback((tab: "link" | "search") => {
+    addTabTouched.current = true;
+    setAddTab(tab);
+  }, []);
+
+  useEffect(() => {
+    if (addTabTouched.current) {
+      saveState({ addTab });
+    }
   }, [addTab, saveState]);
 
   useEffect(() => {
@@ -554,7 +570,7 @@ export default function TasksPage(): React.JSX.Element {
         show={showAddModal}
         onClose={() => setShowAddModal(false)}
         addTab={addTab}
-        setAddTab={setAddTab}
+        setAddTab={handleSetAddTab}
         linkInput={linkInput}
         setLinkInput={setLinkInput}
         onSubmit={handleSubmit}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"database/sql"
 	"backend/internal/db"
@@ -129,21 +130,59 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var g db.Gallery
+	// Use nullable intermediates for columns that may contain NULL values
+	// Time columns are also scanned as strings because SQLite stores them as TEXT
+	var (
+		scrapedDomain   sql.NullString
+		title           sql.NullString
+		protagonist     sql.NullString
+		description     sql.NullString
+		category        sql.NullString
+		tags            sql.NullString
+		coverURL        sql.NullString
+		coverLocalPath  sql.NullString
+		status          sql.NullString
+		errorMsg        sql.NullString
+		downloadMethod  sql.NullString
+		savePath        sql.NullString
+		scrapedAtStr    sql.NullString
+		completedAtStr  sql.NullString
+		createdAtStr    sql.NullString
+		updatedAtStr    sql.NullString
+	)
 	err := h.DB.QueryRow(r.Context(),
 		`SELECT id, seq, source_url, site_id, scraped_domain, title, protagonist, description, category, tags,
 		 cover_url, cover_local_path, image_count, video_count, page_count, status, error_msg, download_method,
 		 expected_image_count, expected_video_count, content_verified, save_path, total_size, downloaded_size,
 		 game_characters, publish_time, scraped_at, completed_at, created_at, updated_at
 		 FROM galleries WHERE id = ?`, id).Scan(
-		&g.ID, &g.Seq, &g.SourceURL, &g.SiteID, &g.ScrapedDomain, &g.Title, &g.Protagonist, &g.Description,
-		&g.Category, &g.Tags, &g.CoverURL, &g.CoverLocalPath, &g.ImageCount, &g.VideoCount, &g.PageCount,
-		&g.Status, &g.ErrorMsg, &g.DownloadMethod, &g.ExpectedImageCount, &g.ExpectedVideoCount,
-		&g.ContentVerified, &g.SavePath, &g.TotalSize, &g.DownloadedSize, &g.GameCharacters, &g.PublishTime,
-		&g.ScrapedAt, &g.CompletedAt, &g.CreatedAt, &g.UpdatedAt)
+		&g.ID, &g.Seq, &g.SourceURL, &g.SiteID, &scrapedDomain, &title, &protagonist, &description,
+		&category, &tags, &coverURL, &coverLocalPath, &g.ImageCount, &g.VideoCount, &g.PageCount,
+		&status, &errorMsg, &downloadMethod, &g.ExpectedImageCount, &g.ExpectedVideoCount,
+		&g.ContentVerified, &savePath, &g.TotalSize, &g.DownloadedSize, &g.GameCharacters, &g.PublishTime,
+		&scrapedAtStr, &completedAtStr, &createdAtStr, &updatedAtStr)
 	if err != nil {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.gallery.notFound"))
 		return
 	}
+	// Convert nullable strings to regular strings (empty string if NULL)
+	g.ScrapedDomain = scrapedDomain.String
+	g.Title = title.String
+	g.Protagonist = protagonist.String
+	g.Description = description.String
+	g.Category = category.String
+	g.Tags = tags.String
+	g.CoverURL = coverURL.String
+	g.CoverLocalPath = coverLocalPath.String
+	g.Status = status.String
+	g.ErrorMsg = errorMsg.String
+	g.DownloadMethod = downloadMethod.String
+	g.SavePath = savePath.String
+	// Parse time strings
+	g.ScrapedAt = parseNullTime(scrapedAtStr)
+	g.CompletedAt = parseNullTime(completedAtStr)
+	g.CreatedAt = parseTime(createdAtStr)
+	g.UpdatedAt = parseTime(updatedAtStr)
 	writeJSON(w, http.StatusOK, g)
 }
 
@@ -595,13 +634,97 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func scanGallery(rows *sql.Rows, g *db.Gallery) error {
-	return rows.Scan(
-		&g.ID, &g.Seq, &g.SourceURL, &g.SiteID, &g.ScrapedDomain, &g.Title, &g.Protagonist,
-		&g.Description, &g.Category, &g.Tags, &g.CoverURL, &g.CoverLocalPath, &g.ImageCount,
-		&g.VideoCount, &g.PageCount, &g.Status, &g.ErrorMsg, &g.DownloadMethod,
-		&g.ExpectedImageCount, &g.ExpectedVideoCount, &g.ContentVerified, &g.SavePath,
+	// Use nullable intermediates for columns that may contain NULL values
+	// (SQLite may return NULL for columns despite NOT NULL DEFAULT in schema,
+	// especially for columns not explicitly set during INSERT).
+	// Time columns are also scanned as strings because SQLite stores them as TEXT
+	// and the driver cannot auto-convert to time.Time.
+	var (
+		scrapedDomain   sql.NullString
+		title           sql.NullString
+		protagonist     sql.NullString
+		description     sql.NullString
+		category        sql.NullString
+		tags            sql.NullString
+		coverURL        sql.NullString
+		coverLocalPath  sql.NullString
+		status          sql.NullString
+		errorMsg        sql.NullString
+		downloadMethod  sql.NullString
+		savePath        sql.NullString
+		scrapedAtStr    sql.NullString
+		completedAtStr  sql.NullString
+		createdAtStr    sql.NullString
+		updatedAtStr    sql.NullString
+	)
+	err := rows.Scan(
+		&g.ID, &g.Seq, &g.SourceURL, &g.SiteID, &scrapedDomain, &title, &protagonist,
+		&description, &category, &tags, &coverURL, &coverLocalPath, &g.ImageCount,
+		&g.VideoCount, &g.PageCount, &status, &errorMsg, &downloadMethod,
+		&g.ExpectedImageCount, &g.ExpectedVideoCount, &g.ContentVerified, &savePath,
 		&g.TotalSize, &g.DownloadedSize, &g.GameCharacters, &g.PublishTime,
-		&g.ScrapedAt, &g.CompletedAt, &g.CreatedAt, &g.UpdatedAt)
+		&scrapedAtStr, &completedAtStr, &createdAtStr, &updatedAtStr)
+	if err != nil {
+		return err
+	}
+	// Convert nullable strings to regular strings (empty string if NULL)
+	g.ScrapedDomain = scrapedDomain.String
+	g.Title = title.String
+	g.Protagonist = protagonist.String
+	g.Description = description.String
+	g.Category = category.String
+	g.Tags = tags.String
+	g.CoverURL = coverURL.String
+	g.CoverLocalPath = coverLocalPath.String
+	g.Status = status.String
+	g.ErrorMsg = errorMsg.String
+	g.DownloadMethod = downloadMethod.String
+	g.SavePath = savePath.String
+	// Parse time strings (SQLite stores times as TEXT in ISO8601 format)
+	g.ScrapedAt = parseNullTime(scrapedAtStr)
+	g.CompletedAt = parseNullTime(completedAtStr)
+	g.CreatedAt = parseTime(createdAtStr)
+	g.UpdatedAt = parseTime(updatedAtStr)
+	return nil
+}
+
+// parseTime parses a non-nullable time string from SQLite.
+// Returns zero time if parsing fails.
+func parseTime(s sql.NullString) time.Time {
+	if !s.Valid || s.String == "" {
+		return time.Time{}
+	}
+	// Try multiple formats because SQLite may store times differently
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05.000",
+		time.RFC3339,
+		time.RFC3339Nano,
+	} {
+		if t, err := time.Parse(layout, s.String); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// parseNullTime parses a nullable time string from SQLite.
+// Returns nil if the string is empty or invalid.
+func parseNullTime(s sql.NullString) *time.Time {
+	if !s.Valid || s.String == "" {
+		return nil
+	}
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05.000",
+		time.RFC3339,
+		time.RFC3339Nano,
+	} {
+		if t, err := time.Parse(layout, s.String); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 // GalleryFileProgress returns per-file progress for a gallery task.

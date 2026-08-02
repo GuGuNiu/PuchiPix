@@ -1,5 +1,3 @@
-"use client";
-
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type { Locale } from "./types";
 import { DEFAULT_LOCALE } from "./types";

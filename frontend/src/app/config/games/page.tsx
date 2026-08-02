@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Users, Gamepad2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
