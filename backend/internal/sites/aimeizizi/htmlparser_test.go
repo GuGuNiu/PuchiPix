@@ -1,6 +1,7 @@
 package aimeizizi
 
 import (
+	"backend/internal/xutil"
 	"regexp"
 	"strings"
 	"testing"
@@ -479,31 +480,6 @@ func TestExtractArticleID(t *testing.T) {
 	}
 }
 
-// TestReplaceDomain verifies that the domain portion of a URL is
-// swapped to the target base domain when the original URL starts with
-// a known domain, enabling multi-domain failover without breaking
-// article paths.
-func TestReplaceDomain(t *testing.T) {
-	domains := []string{"https://www.lovecutes.com", "https://xx.knit.bid"}
-	tests := []struct {
-		name     string
-		rawURL   string
-		base     string
-		expected string
-	}{
-		{"replace first domain", "https://www.lovecutes.com/article/123/", "https://www.lovecutes.com", "https://www.lovecutes.com/article/123/"},
-		{"replace alternate domain", "https://xx.knit.bid/article/123/", "https://www.lovecutes.com", "https://www.lovecutes.com/article/123/"},
-		{"unknown domain unchanged", "https://other.com/article/123/", "https://www.lovecutes.com", "https://other.com/article/123/"},
-		{"empty url", "", "https://www.lovecutes.com", ""},
-		{"empty base", "https://www.lovecutes.com/article/123/", "", "https://www.lovecutes.com/article/123/"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, ReplaceDomain(tt.rawURL, tt.base, domains))
-		})
-	}
-}
-
 // TestExtractDomainFromUrl verifies that the scheme+host prefix is
 // extracted when the URL starts with a known domain, which the
 // scraper uses to reorder domain priority during failover.
@@ -571,10 +547,10 @@ func TestFirstNonEmpty(t *testing.T) {
 // prevent duplicate video URLs in the gallery result.
 func TestContains(t *testing.T) {
 	slice := []string{"a", "b", "c"}
-	assert.True(t, contains(slice, "a"))
-	assert.True(t, contains(slice, "c"))
-	assert.False(t, contains(slice, "d"))
-	assert.False(t, contains(nil, "a"))
+	assert.True(t, xutil.Contains(slice, "a"))
+	assert.True(t, xutil.Contains(slice, "c"))
+	assert.False(t, xutil.Contains(slice, "d"))
+	assert.False(t, xutil.Contains(nil, "a"))
 }
 
 // TestAtoiSafe verifies that numeric strings are converted to

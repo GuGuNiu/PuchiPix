@@ -34,7 +34,7 @@ func TestStatusCommandEmpty(t *testing.T) {
 	_, client := mockAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		resp := dagclient.DagListResponse{
 			Dags:  []dagclient.DagSummary{},
-			Stats: dagclient.DagListStats{},
+			Stats: &dagclient.DagListStats{},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -71,7 +71,7 @@ func TestStatusCommandWithDags(t *testing.T) {
 					},
 				},
 			},
-			Stats: dagclient.DagListStats{
+			Stats: &dagclient.DagListStats{
 				DagStats: dagclient.DagStats{TotalDags: 1, ActiveDags: 1, TotalNodes: 3},
 				Scheduler: dagclient.SchedulerStats{
 					QueueSize:  0,
@@ -106,7 +106,7 @@ func TestStatusCommandJSON(t *testing.T) {
 	_, client := mockAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		resp := dagclient.DagListResponse{
 			Dags: []dagclient.DagSummary{},
-			Stats: dagclient.DagListStats{
+			Stats: &dagclient.DagListStats{
 				DagStats:   dagclient.DagStats{TotalDags: 0},
 				Scheduler:  dagclient.SchedulerStats{Strategy: "priority-fair"},
 				Slots:      map[string]dagclient.SlotUsage{},
@@ -211,7 +211,7 @@ func TestDagCommandList(t *testing.T) {
 				NodeCount: 2,
 				Nodes:     []dagclient.DagNodeDefinition{},
 			},
-			Nodes: []dagclient.NodeDetail{
+			Nodes: []dagclient.SimplifiedNodeDetail{
 				{NodeID: "node-1", State: dagclient.NodeStateCompleted},
 				{NodeID: "node-2", State: dagclient.NodeStateRunning},
 			},
@@ -368,13 +368,10 @@ func TestNodeCommand(t *testing.T) {
 				NodeCount: 1,
 				Nodes:     []dagclient.DagNodeDefinition{},
 			},
-			Nodes: []dagclient.NodeDetail{
+			Nodes: []dagclient.SimplifiedNodeDetail{
 				{
 					NodeID: "node-1",
 					State:  dagclient.NodeStateCompleted,
-					History: []dagclient.StateTransitionRecord{
-						{From: "pending", To: "ready", Reason: "initialized", Timestamp: "2026-01-01T00:00:00Z"},
-					},
 				},
 			},
 		}
@@ -429,7 +426,7 @@ func TestContainsArg(t *testing.T) {
 			Dags: []dagclient.DagSummary{
 				{DagID: "dag-1", NodeCount: 1, Progress: dagclient.DagProgress{Running: 1}},
 			},
-			Stats: dagclient.DagListStats{
+			Stats: &dagclient.DagListStats{
 				DagStats:  dagclient.DagStats{TotalDags: 1, ActiveDags: 1, TotalNodes: 1},
 				Scheduler: dagclient.SchedulerStats{Strategy: "priority-fair"},
 				Slots:     map[string]dagclient.SlotUsage{},

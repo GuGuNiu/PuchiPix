@@ -50,11 +50,6 @@ type matchCandidate struct {
 	score float64
 }
 
-// pinyinArgs is the shared argument configuration for PinyinPro calls.
-// Normal style without tones is preferred for matching — tones would
-// create false negatives when segment text omits tone marks.
-var pinyinArgs = &pinyin.Args{Style: pinyin.Normal}
-
 // scoredMatch runs the full similarity-matrix pipeline for a single
 // segment against all loaded models. Returns the best candidate whose
 // score exceeds matchThreshold, or ("", false) if none qualify.

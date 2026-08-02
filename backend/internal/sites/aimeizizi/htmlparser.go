@@ -1,6 +1,7 @@
 package aimeizizi
 
 import (
+	"slices"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -96,14 +97,14 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 
 	doc.Find(`video source[src*=".m3u8"]`).Each(func(_ int, s *goquery.Selection) {
 		src := s.AttrOr("src", "")
-		if src != "" && !contains(result.Videos, src) {
+		if src != "" && !slices.Contains(result.Videos, src) {
 			result.Videos = append(result.Videos, src)
 		}
 	})
 
 	doc.Find(`video source[src*=".mp4"]`).Each(func(_ int, s *goquery.Selection) {
 		src := s.AttrOr("src", "")
-		if src != "" && !contains(result.Videos, src) {
+		if src != "" && !slices.Contains(result.Videos, src) {
 			result.Videos = append(result.Videos, src)
 		}
 	})
@@ -112,7 +113,7 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 		content := script.Text()
 		matches := m3u8URLPattern.FindAllString(content, -1)
 		for _, url := range matches {
-			if !contains(result.Videos, url) {
+			if !slices.Contains(result.Videos, url) {
 				result.Videos = append(result.Videos, url)
 			}
 		}
@@ -376,14 +377,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
 
 func atoiSafe(s string) int {
 	n := 0

@@ -63,20 +63,6 @@ func DomainHealthTracker() *stealth.DomainHealthTracker {
 	return stealth.GetDomainHealthTracker()
 }
 
-// ReplaceDomain swaps the domain in a URL to the target base URL,
-// checking against the provided domain list.
-func ReplaceDomain(rawURL, baseDomain string, domains []string) string {
-	if rawURL == "" || baseDomain == "" {
-		return rawURL
-	}
-	for _, domain := range domains {
-		if strings.HasPrefix(rawURL, domain) {
-			return baseDomain + rawURL[len(domain):]
-		}
-	}
-	return rawURL
-}
-
 // ExtractDomainFromUrl extracts the scheme+host portion of a URL,
 // matching against the provided domain list.
 func ExtractDomainFromUrl(rawURL string, domains []string) string {

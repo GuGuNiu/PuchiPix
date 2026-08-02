@@ -77,22 +77,6 @@ func (dagCommand) Execute(ctx CommandContext) error {
 				fmt.Printf("    %sRetryable%s\n", ui.Yellow, ui.Reset)
 			}
 		}
-		if node.Result != nil {
-			fmt.Printf("    %sResult: success=%v%s\n", ui.Dim, node.Result.Success, ui.Reset)
-		}
-		if len(node.History) > 0 {
-			fmt.Printf("    %sHistory (%d entries):%s\n", ui.Dim, len(node.History), ui.Reset)
-			start := 0
-			if len(node.History) > 5 {
-				start = len(node.History) - 5
-			}
-			for _, h := range node.History[start:] {
-				fmt.Printf("      %s %s \u2192 %s %s(%s: %s)%s\n",
-					ui.FormatTime(h.Timestamp),
-					ui.StatePill(string(h.From)), ui.StatePill(string(h.To)),
-					ui.Dim, h.TriggeredBy, h.Reason, ui.Reset)
-			}
-		}
 		fmt.Println()
 	}
 

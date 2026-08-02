@@ -12,6 +12,7 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/xutil"
 )
 
 var scraperLogger = infra.NewLogger("AimeiziziProvider")
@@ -202,7 +203,7 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 		}
 	}
 
-	allTags := uniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...))
+	allTags := xutil.UniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...), true)
 
 	result := &sites.GalleryScrapeResult{
 		SourceURL:     pageURL,

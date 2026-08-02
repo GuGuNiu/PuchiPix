@@ -9,6 +9,7 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/urlutil"
 )
 
 var providerLogger = infra.NewLogger("AimeiziziProvider")
@@ -131,7 +132,7 @@ func (p *Provider) CheckContentBlocked(title, category, protagonist string) site
 }
 
 func (p *Provider) NormalizeURL(rawURL string) string {
-	return ReplaceDomain(rawURL, p.baseURL, p.domains)
+	return urlutil.ReplaceDomain(rawURL, p.baseURL, p.domains)
 }
 
 func (p *Provider) IsListingPage(rawURL string) bool {

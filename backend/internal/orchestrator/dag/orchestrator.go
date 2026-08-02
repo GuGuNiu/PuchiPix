@@ -1252,17 +1252,6 @@ func (o *DagOrchestrator) GetAllDagSnapshots() []orchestrator.DagSnapshot {
 	return out
 }
 
-// RestoreDagForTest exposes snapshot restore + counter recomputation
-// for integration tests, simulating what Initialize does after loading
-// a persisted snapshot.
-func (o *DagOrchestrator) RestoreDagForTest(snap orchestrator.DagSnapshot) error {
-	if err := o.restoreDag(snap); err != nil {
-		return err
-	}
-	o.recomputeActivationCounters()
-	return nil
-}
-
 // restoreDag rebuilds a DAG instance from a snapshot.
 func (o *DagOrchestrator) restoreDag(snap orchestrator.DagSnapshot) error {
 	dag := &dagInstance{

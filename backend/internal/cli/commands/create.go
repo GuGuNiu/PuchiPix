@@ -69,9 +69,17 @@ func (c dagCreateCommand) Execute(ctx CommandContext) error {
 		return nil
 	}
 
-	fmt.Printf("%s Task created: #%d%s\n", ui.Green+"\u2705", result.ID, ui.Reset)
-	fmt.Printf("  Seq:    %s\n", result.DisplayID)
+	id := result.GalleryIDOrID()
+	seq := result.EffectiveSeq()
+	fmt.Printf("%s Task created: #%d%s\n", ui.Green+"\u2705", id, ui.Reset)
+	fmt.Printf("  Seq:    %s\n", seq)
 	fmt.Printf("  Status: %s\n", result.Status)
+	if result.TaskType != "" {
+		fmt.Printf("  Type:   %s\n", result.TaskType)
+	}
+	if result.DagID != "" {
+		fmt.Printf("  DAG:    %s\n", result.DagID)
+	}
 
 	return nil
 }

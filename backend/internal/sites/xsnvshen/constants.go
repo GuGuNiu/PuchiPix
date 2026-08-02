@@ -135,19 +135,6 @@ func CleanDescription(title, protagonist string) string {
 	return strings.TrimSpace(desc)
 }
 
-// ReplaceDomain swaps the domain in a URL to the target base URL.
-func ReplaceDomain(rawURL, baseDomain string) string {
-	if rawURL == "" || baseDomain == "" {
-		return rawURL
-	}
-	for _, domain := range SiteDomains {
-		if strings.HasPrefix(rawURL, domain) {
-			return baseDomain + rawURL[len(domain):]
-		}
-	}
-	return rawURL
-}
-
 // ExtractDomainFromUrl extracts the scheme+host portion of a URL.
 func ExtractDomainFromUrl(rawURL string) string {
 	for _, domain := range SiteDomains {

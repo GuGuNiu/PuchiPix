@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"backend/internal/sites"
+	"backend/internal/xutil"
 )
 
 // mockScrapeDeps implements ScrapeDeps for HTTP scraper tests,
@@ -282,7 +283,7 @@ func TestConvertZipInfo_Full(t *testing.T) {
 // from page content and meta keywords without duplicates.
 func TestUniqueStrings(t *testing.T) {
 	input := []string{"a", "b", "a", "c", "b", "d"}
-	result := uniqueStrings(input)
+	result := xutil.UniqueStrings(input, true)
 	assert.Equal(t, []string{"a", "b", "c", "d"}, result)
 }
 
@@ -290,20 +291,20 @@ func TestUniqueStrings(t *testing.T) {
 // an empty result, not a nil slice, for consistent downstream
 // JSON serialisation.
 func TestUniqueStrings_Empty(t *testing.T) {
-	result := uniqueStrings([]string{})
+	result := xutil.UniqueStrings([]string{}, true)
 	assert.Empty(t, result)
 }
 
 // TestUniqueStrings_Nil verifies that nil input does not panic.
 func TestUniqueStrings_Nil(t *testing.T) {
-	result := uniqueStrings(nil)
+	result := xutil.UniqueStrings(nil, true)
 	assert.Empty(t, result)
 }
 
 // TestUniqueStrings_AllDuplicates verifies that all-duplicate
 // input collapses to a single element.
 func TestUniqueStrings_AllDuplicates(t *testing.T) {
-	result := uniqueStrings([]string{"x", "x", "x"})
+	result := xutil.UniqueStrings([]string{"x", "x", "x"}, true)
 	assert.Equal(t, []string{"x"}, result)
 }
 

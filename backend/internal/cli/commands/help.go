@@ -6,13 +6,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-type helpCommand struct{}
-
-func (helpCommand) Name() string        { return "help" }
-func (helpCommand) Description() string { return "Show help information" }
-func (helpCommand) Usage() string        { return "puchipix-cli help [command]" }
-func (helpCommand) Aliases() []string   { return nil }
-
 // commandGroup defines a titled group of commands for help output.
 type commandGroup struct {
 	title string

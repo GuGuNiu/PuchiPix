@@ -7,12 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
 )
-
-var actionsLogger = infra.NewLogger("SjsProvider")
 
 // CheckinResult holds the outcome of a daily check-in operation.
 type CheckinResult struct {

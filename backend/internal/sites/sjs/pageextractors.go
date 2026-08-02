@@ -1,6 +1,7 @@
 package sjs
 
 import (
+	"slices"
 	"regexp"
 	"strconv"
 	"strings"
@@ -200,7 +201,7 @@ func ExtractExtendedMetadata(doc *goquery.Document) ExtendedMetadata {
 	var metaKeywords []string
 	for _, kw := range regexp.MustCompile(`[,;]`).Split(raw.KeywordStr, -1) {
 		kw = strings.TrimSpace(kw)
-		if kw != "" && len(kw) < 50 && !containsStr(raw.Tags, kw) {
+		if kw != "" && len(kw) < 50 && !slices.Contains(raw.Tags, kw) {
 			metaKeywords = append(metaKeywords, kw)
 		}
 	}
@@ -286,7 +287,7 @@ func ExtractPostContent(doc *goquery.Document, pageIndex int) PostContentData {
 	contentElHTML, _ := contentEl.Html()
 	videoMatches := videoURLPattern.FindAllString(contentElHTML, -1)
 	for _, v := range videoMatches {
-		if !containsStr(result.Videos, v) {
+		if !slices.Contains(result.Videos, v) {
 			result.Videos = append(result.Videos, v)
 		}
 	}
@@ -386,11 +387,3 @@ func GetNextPageUrl(doc *goquery.Document, currentURL string, currentPage int) s
 	return ""
 }
 
-func containsStr(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}

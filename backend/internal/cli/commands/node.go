@@ -28,7 +28,7 @@ func (nodeCommand) Execute(ctx CommandContext) error {
 		return err
 	}
 
-	var found *dagclient.NodeDetail
+	var found *dagclient.SimplifiedNodeDetail
 	for i := range dag.Nodes {
 		if dag.Nodes[i].NodeID == nodeID {
 			found = &dag.Nodes[i]
@@ -53,19 +53,10 @@ func (nodeCommand) Execute(ctx CommandContext) error {
 		fmt.Printf("  %sError%s: %s[%s] %s%s\n", ui.Bold, ui.Reset, ui.Red, found.Error.Code, found.Error.Message, ui.Reset)
 		fmt.Printf("    %sRetryable: %v%s\n", ui.Dim, found.Error.Retryable, ui.Reset)
 	}
-	if found.Result != nil {
-		b, _ := json.MarshalIndent(found.Result, "", "  ")
-		fmt.Printf("  %sResult%s: %s\n", ui.Bold, ui.Reset, string(b))
-	}
 	fmt.Println()
 
-	ui.PrintDivider("Full state history")
-	for _, h := range found.History {
-		fmt.Printf("  %s %s \u2192 %s\n", ui.FormatDateTime(h.Timestamp), ui.StatePill(string(h.From)), ui.StatePill(string(h.To)))
-		fmt.Printf("    %sTriggered by: %s  Reason: %s%s\n", ui.Dim, h.TriggeredBy, h.Reason, ui.Reset)
-		if h.Error != nil {
-			fmt.Printf("    %sError: [%s] %s%s\n", ui.Red, h.Error.Code, h.Error.Message, ui.Reset)
-		}
-	}
+	// Result and full state history are not returned by the simplified
+	// GET /api/dag/{id} endpoint; use `dag <id> --logs` or events for
+	// deeper tracing.
 	return nil
 }

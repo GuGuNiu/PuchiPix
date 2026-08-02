@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"backend/internal/sites"
+	"backend/internal/urlutil"
 )
 
 var SiteDomains []string
@@ -87,20 +88,7 @@ func NormalizeSjsUrl(rawURL string) string {
 		}
 		return PrimaryDomain + "/thread-" + m[1] + "-1-" + fid + ".html"
 	}
-	return ReplaceDomain(rawURL, PrimaryDomain)
-}
-
-// ReplaceDomain swaps the domain in a URL to the target base URL.
-func ReplaceDomain(rawURL, baseDomain string) string {
-	if rawURL == "" || baseDomain == "" {
-		return rawURL
-	}
-	for _, domain := range SiteDomains {
-		if strings.HasPrefix(rawURL, domain) {
-			return baseDomain + rawURL[len(domain):]
-		}
-	}
-	return rawURL
+	return urlutil.ReplaceDomain(rawURL, PrimaryDomain, SiteDomains)
 }
 
 // MatchesSjsUrl checks if a URL belongs to any known SJS domain.

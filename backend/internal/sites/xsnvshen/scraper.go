@@ -16,6 +16,7 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/xutil"
 )
 
 var scraperLogger = infra.NewLogger("XsnvshenProvider")
@@ -331,7 +332,7 @@ func buildScrapeResult(ctx context.Context, doc *goquery.Document, pageURL, used
 		}
 	}
 
-	allTags := uniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...))
+	allTags := xutil.UniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...), true)
 
 	scrapedDomain := usedDomain
 	if scrapedDomain == "" {
@@ -483,14 +484,3 @@ func fetchHTMLRaw(ctx context.Context, targetURL, domain string) (string, int, e
 	return string(body), resp.StatusCode, nil
 }
 
-func uniqueStrings(input []string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, s := range input {
-		if !seen[s] {
-			seen[s] = true
-			result = append(result, s)
-		}
-	}
-	return result
-}

@@ -27,12 +27,6 @@ type ExecutorNode struct {
 	Config      map[string]any
 }
 
-// domainFallbackConfig holds the fallback domains for a download node.
-type domainFallbackConfig struct {
-	primaryDomain  string
-	fallbackDomains []string
-}
-
 // Registry holds all registered executors and routes execution calls
 // to the correct one based on the executor key.
 type Registry struct {
@@ -249,63 +243,4 @@ func (e *ExtractExecutor) Execute(ctx context.Context, node ExecutorNode) (bool,
 	}
 	e.logger.Info("Extraction completed", "nodeId", node.NodeID, "archivePath", archivePath)
 	return true, nil
-}
-
-// DownloadWithDomainFallback implements the 260720 domain fallback fix,
-// trying the original URL first, then each fallback domain in sequence
-// until one succeeds.
-func DownloadWithDomainFallback(
-	ctx context.Context,
-	originalURL string,
-	domains []string,
-	tryFn func(ctx context.Context, url string) error,
-) error {
-	if tryFn == nil {
-		return fmt.Errorf("no try function provided")
-	}
-
-	var lastErr error
-
-	if err := tryFn(ctx, originalURL); err == nil {
-		return nil
-	} else {
-		lastErr = err
-	}
-
-	for _, domain := range domains {
-		replacedURL := ReplaceDomain(originalURL, domain)
-		if err := tryFn(ctx, replacedURL); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-	}
-
-	if lastErr == nil {
-		lastErr = fmt.Errorf("all domains failed")
-	}
-	return lastErr
-}
-
-// ReplaceDomain swaps the domain portion of a URL with the given domain.
-func ReplaceDomain(originalURL, newDomain string) string {
-	schemeEnd := indexOf(originalURL, "://")
-	if schemeEnd < 0 {
-		return originalURL
-	}
-	rest := originalURL[schemeEnd+3:]
-	pathStart := indexOf(rest, "/")
-	if pathStart < 0 {
-		return originalURL[:schemeEnd+3] + newDomain
-	}
-	return originalURL[:schemeEnd+3] + newDomain + rest[pathStart:]
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

@@ -2,13 +2,10 @@ package orchestrator_test
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
-	"backend/internal/orchestrator/executors"
 	"backend/internal/orchestrator/slot"
 )
 
@@ -388,44 +385,6 @@ func TestDagManagerMarkFailed(t *testing.T) {
 	}
 }
 
-// TestDomainFallback verifies the 260720 domain fallback fix.
-func TestDomainFallback(t *testing.T) {
-	calls := []string{}
-	tryFn := func(_ context.Context, url string) error {
-		calls = append(calls, url)
-		if len(calls) < 3 {
-			return fmt.Errorf("domain unavailable")
-		}
-		return nil
-	}
-
-	originalURL := "https://primary.example.com/path/to/file.zip"
-	domains := []string{"fallback1.example.com", "fallback2.example.com"}
-
-	err := executors.DownloadWithDomainFallback(context.Background(), originalURL, domains, tryFn)
-	if err != nil {
-		t.Fatalf("DownloadWithDomainFallback() error = %v", err)
-	}
-	if len(calls) != 3 {
-		t.Errorf("call count = %d, want 3", len(calls))
-	}
-	if !strings.Contains(calls[0], "primary.example.com") {
-		t.Errorf("first call = %s, want primary", calls[0])
-	}
-	if !strings.Contains(calls[2], "fallback2.example.com") {
-		t.Errorf("third call = %s, want fallback2", calls[2])
-	}
-}
-
-// TestReplaceDomain verifies URL domain replacement.
-func TestReplaceDomain(t *testing.T) {
-	got := executors.ReplaceDomain("https://primary.example.com/path/to/file.zip", "fallback.example.com")
-	want := "https://fallback.example.com/path/to/file.zip"
-	if got != want {
-		t.Errorf("replaceDomain() = %s, want %s", got, want)
-	}
-}
-
 // TestStateReconcilerNeedsRetry verifies the 260720 fix where interrupted
 // scrapes return needs_retry instead of hard-failed.
 func TestStateReconcilerNeedsRetry(t *testing.T) {
@@ -442,46 +401,5 @@ func TestStateReconcilerNeedsRetry(t *testing.T) {
 	result := reconciler.VerifyNode(context.Background(), node)
 	if result.Status != "passed" {
 		t.Errorf("with no galleryId, status = %s, want passed", result.Status)
-	}
-}
-
-// TestSnapshotCacheUpdateClear verifies the snapshot cache lifecycle.
-func TestSnapshotCacheUpdateClear(t *testing.T) {
-	cache := dag.NewSnapshotCache()
-
-	if cache.IsAvailable() {
-		t.Error("IsAvailable() = true on new cache")
-	}
-
-	cache.Update(dag.SnapshotSyncPayload{
-		Dags: []orchestrator.DagSnapshot{
-			{DagID: "gallery-1"},
-			{DagID: "gallery-2"},
-		},
-		DagStats:   orchestrator.DagOrchestratorStats{TotalDags: 2, ActiveDags: 2, TotalNodes: 4},
-		CurrentSeq: 100,
-	})
-
-	if !cache.IsAvailable() {
-		t.Error("IsAvailable() = false after update")
-	}
-	snap := cache.GetDagSnapshot("gallery-1")
-	if snap == nil || snap.DagID != "gallery-1" {
-		t.Error("GetDagSnapshot(gallery-1) failed")
-	}
-	all := cache.GetAllDagSnapshots()
-	if len(all) != 2 {
-		t.Errorf("GetAllDagSnapshots() = %d, want 2", len(all))
-	}
-	stats := cache.GetDagStats()
-	if stats.TotalDags != 2 {
-		t.Errorf("GetDagStats().TotalDags = %d, want 2", stats.TotalDags)
-	}
-	if cache.GetCurrentSeq() != 100 {
-		t.Errorf("GetCurrentSeq() = %d, want 100", cache.GetCurrentSeq())
-	}
-	cache.Clear()
-	if cache.IsAvailable() {
-		t.Error("IsAvailable() = true after clear")
 	}
 }

@@ -29,60 +29,45 @@ func (statusCommand) Execute(ctx CommandContext) error {
 		return nil
 	}
 
-	if data.Stats.TotalDags == 0 && len(data.Dags) == 0 {
+	if len(data.Dags) == 0 {
 		ui.PrintDivider("DAG System Overview")
 		fmt.Printf("  %sNo DAG records%s\n", ui.Dim, ui.Reset)
 		return nil
 	}
 
 	ui.PrintDivider("DAG System Overview")
+	totalDags := len(data.Dags)
+	activeDags := 0
+	totalNodes := 0
+	for _, dag := range data.Dags {
+		if dag.State != "completed" && dag.State != "failed" && dag.State != "cancelled" {
+			activeDags++
+		}
+		totalNodes += dag.NodeCount
+	}
 	fmt.Printf("  %sTotal%s: %d  %sActive%s: %d  %sNodes%s: %d\n",
-		ui.Bold, ui.Reset, data.Stats.TotalDags,
-		ui.Bold, ui.Reset, data.Stats.ActiveDags,
-		ui.Bold, ui.Reset, data.Stats.TotalNodes)
-	fmt.Printf("  %sStrategy%s: %s  %sQueue%s: %d\n",
-		ui.Bold, ui.Reset, data.Stats.Scheduler.Strategy,
-		ui.Bold, ui.Reset, data.Stats.Scheduler.QueueSize)
-	fmt.Println()
-
-	ui.PrintDivider("Slot Pool")
-	for key, slot := range data.Stats.Slots {
-		fmt.Printf("  %-16s %s\n", key, ui.RenderProgressBar(slot.Current, slot.Max, 20))
+		ui.Bold, ui.Reset, totalDags,
+		ui.Bold, ui.Reset, activeDags,
+		ui.Bold, ui.Reset, totalNodes)
+	if data.Stats != nil {
+		fmt.Printf("  %sStrategy%s: %s  %sQueue%s: %d\n",
+			ui.Bold, ui.Reset, data.Stats.Scheduler.Strategy,
+			ui.Bold, ui.Reset, data.Stats.Scheduler.QueueSize)
+		fmt.Println()
+		ui.PrintDivider("Slot Pool")
+		for key, slot := range data.Stats.Slots {
+			fmt.Printf("  %-16s %s\n", key, ui.RenderProgressBar(slot.Current, slot.Max, 20))
+		}
 	}
 	fmt.Println()
-
-	if len(data.Dags) == 0 {
-		fmt.Printf("  %s(no DAG records)%s\n", ui.Dim, ui.Reset)
-		return nil
-	}
 
 	ui.PrintDivider("DAG List")
 	for _, dag := range data.Dags {
-		p := dag.Progress
-		fmt.Printf("  %s%s%s  [%s]  %s\u2705%d%s %s\u26a1%d%s %s\u23f8%d%s %s\u274c%d%s %s\u23f3%d%s\n",
-			ui.Bold, dag.DagID, ui.Reset, dag.TaskType,
-			ui.Green, p.Completed, ui.Reset,
-			ui.Cyan, p.Running, ui.Reset,
-			ui.Yellow, p.Paused, ui.Reset,
-			ui.Red, p.Failed, ui.Reset,
-			ui.Gray, p.Queued, ui.Reset)
-		fmt.Printf("    %sURL: %s  Created: %s%s\n",
-			ui.Dim, ui.Truncate(dag.SourceURL, 60), ui.FormatDateTime(dag.CreatedAt), ui.Reset)
-
-		for _, node := range dag.Nodes {
-			reason := ""
-			if node.LastTrans != nil {
-				reason = node.LastTrans.Reason
-			}
-			fmt.Printf("    %s├──%s %-12s %s %s%s\n",
-				ui.Dim, ui.Reset,
-				node.NodeID,
-				ui.StatePill(string(node.State)),
-				ui.Dim, ui.Reset)
-			if reason != "" {
-				fmt.Printf("      %s%s%s\n", ui.Dim, reason, ui.Reset)
-			}
-		}
+		fmt.Printf("  %s%s%s  %s%s%s\n",
+			ui.Bold, dag.DagID, ui.Reset,
+			ui.StatePill(dag.State), ui.Reset, dag.SourceURL)
+		fmt.Printf("    %sNodes: %d  Created: %s%s\n",
+			ui.Dim, dag.NodeCount, ui.FormatDateTime(dag.CreatedAt), ui.Reset)
 		fmt.Println()
 	}
 

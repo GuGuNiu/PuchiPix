@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"backend/internal/orchestrator"
 )
 
 // TestNewManager verifies that a new manager starts with empty state,
@@ -375,4 +377,16 @@ func TestAddTaskReplacesExisting(t *testing.T) {
 	assert.Equal(t, 2, stats.TaskCount)
 	assert.Equal(t, 1, stats.DependencyCount, "dependency B→A should be preserved")
 	assert.False(t, m.AreDependenciesMet("B"), "B should still depend on A")
+}
+
+// RestoreDagForTest exposes snapshot restore + counter recomputation
+// for integration tests, simulating what Initialize does after loading
+// a persisted snapshot. Defined in a _test.go file to keep production
+// orchestrator.go free of test-only entry points.
+func (o *DagOrchestrator) RestoreDagForTest(snap orchestrator.DagSnapshot) error {
+	if err := o.restoreDag(snap); err != nil {
+		return err
+	}
+	o.recomputeActivationCounters()
+	return nil
 }

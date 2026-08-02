@@ -154,7 +154,7 @@ func (c *Client) GetSchedulerStats() (*SchedulerStats, error) {
 
 func (c *Client) GetSlotStatus() (*SlotStatusResponse, error) {
 	var resp SlotStatusResponse
-	if err := c.get("/api/dag/slots", &resp); err != nil {
+	if err := c.get("/api/slots", &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

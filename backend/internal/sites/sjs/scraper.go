@@ -14,6 +14,7 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/urlutil"
 )
 
 var scraperLogger = infra.NewLogger("SjsProvider")
@@ -31,7 +32,7 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, am *sites.SiteAccoun
 	var pageHTML string
 
 	for _, domain := range orderedDomains {
-		tryURL := ReplaceDomain(pageURL, domain)
+		tryURL := urlutil.ReplaceDomain(pageURL, domain, SiteDomains)
 
 		html, err := fetchHTMLWithCookies(ctx, tryURL, cookieStr, domain+"/")
 		if err != nil {
@@ -92,7 +93,7 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, am *sites.SiteAcc
 	}
 
 	for _, domain := range orderedDomains {
-		tryURL := ReplaceDomain(pageURL, domain)
+		tryURL := urlutil.ReplaceDomain(pageURL, domain, SiteDomains)
 
 		html, err := navigateWithSjsCookies(ctx, tryURL, domain, cookieData)
 		if err != nil {

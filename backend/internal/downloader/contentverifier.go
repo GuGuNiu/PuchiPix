@@ -11,7 +11,6 @@ import (
 
 var (
 	titleCountPattern = regexp.MustCompile(`(?i)(\d+)P\s*(?:(\d+)V)?\s*(?:(\d+)G)?\s*$`)
-	segmentIdxPattern = regexp.MustCompile(`_(\d+)\.ts$`)
 )
 
 var imageExtensions = map[string]bool{

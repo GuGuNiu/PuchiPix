@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -232,9 +231,9 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 			// gallery_download_infos so the download pipeline could skip
 			// page-by-page scraping and download the high-quality ZIP.
 			if result.ZipInfo != nil && result.ZipInfo.DownloadURL != "" && galleryID > 0 {
-				downloadSource := detectDownloadSource(result.ZipInfo.DownloadURL)
+				downloadSource := downloader.DetectDownloadSource(result.ZipInfo.DownloadURL)
 				ouoURL := ""
-				if downloadSource == "ouo" {
+				if downloadSource == downloader.SourceOuo {
 					ouoURL = result.ZipInfo.DownloadURL
 				}
 
@@ -321,7 +320,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		}
 
 		// Create save directory: data/galleries/{galleryId}_{title}/
-		safeTitle := sanitizeFileName(title)
+		safeTitle := downloader.SanitizeFileName(title)
 		if safeTitle == "" {
 			safeTitle = fmt.Sprintf("gallery_%d", galleryID)
 		}
@@ -353,7 +352,9 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// is significantly faster for large galleries. Ported from the TS
 		// downloadAndExtractZip() implementation whose OUO resolution was
 		// lost during the Go migration.
-		if zipDownloaded := tryDownloadGalleryZip(ctx, database, galleryID, saveDir, logger); zipDownloaded {
+		if zipDownloaded := downloader.TryDownloadGalleryZip(ctx, database, galleryID, saveDir, logger, func(ctx context.Context, ouoURL string) (string, error) {
+			return NewOuoOrchestrator().Resolve(ctx, ouoURL)
+		}); zipDownloaded {
 			logger.Info("Gallery ZIP download completed, skipping page-by-page image download",
 				"galleryId", galleryID, "saveDir", saveDir)
 			_, _ = database.Exec(ctx,
@@ -550,7 +551,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					outputPath += ".mp4"
 				}
 
-				dlErr := downloadGalleryVideo(ctx, vid.url, vidSaveDir, outputPath)
+				dlErr := video.GalleryDownloadVideo(ctx, vid.url, vidSaveDir, outputPath)
 				if dlErr != nil {
 					logger.Warn("Gallery video download failed", "vid", vid.id, "url", vid.url, "error", dlErr.Error())
 					_, _ = database.Exec(ctx,
@@ -621,306 +622,6 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 	return exe.WithGalleryDownload(galleryFn)
 }
 
-// downloadGalleryVideo downloads an M3U8 video stream into the specified
-// output directory and merges segments into an MP4 file. This is the
-// gallery-pipeline equivalent of the standalone video pipeline's M3U8
-// download logic, ported from the TS implementation that merged image
-// and video tasks into a single unified concurrency pool.
-func downloadGalleryVideo(ctx context.Context, m3u8URL, saveDir, outputPath string) error {
-	// Fetch M3U8 playlist content.
-	playlist, err := video.FetchM3U8Content(ctx, m3u8URL, m3u8URL)
-	if err != nil {
-		return fmt.Errorf("fetch M3U8 playlist: %w", err)
-	}
-
-	// Resolve the base URL for relative segment URIs.
-	baseURL := m3u8URL
-	if parsed, parseErr := url.Parse(m3u8URL); parseErr == nil {
-		baseURL = parsed.ResolveReference(&url.URL{Path: "./"}).String()
-	}
-
-	parsed := video.ParseM3U8(playlist, baseURL)
-
-	// For master playlists, select the highest bandwidth variant.
-	segments := parsed.Segments
-	if parsed.IsMaster && len(parsed.Variants) > 0 {
-		best := parsed.Variants[0]
-		for _, v := range parsed.Variants[1:] {
-			if v.Bandwidth > best.Bandwidth {
-				best = v
-			}
-		}
-		variantPlaylist, fetchErr := video.FetchM3U8Content(ctx, best.FullURI, best.FullURI)
-		if fetchErr != nil {
-			return fmt.Errorf("fetch variant playlist: %w", fetchErr)
-		}
-		parsed2 := video.ParseM3U8(variantPlaylist, best.FullURI)
-		segments = parsed2.Segments
-	}
-
-	if len(segments) == 0 {
-		return fmt.Errorf("no segments found in M3U8 playlist")
-	}
-
-	// Create segments directory.
-	segDir := filepath.Join(saveDir, "segments")
-	if mkdirErr := os.MkdirAll(segDir, 0755); mkdirErr != nil {
-		return fmt.Errorf("create segments dir: %w", mkdirErr)
-	}
-
-	// Download segments with fault-tolerant concurrency. A WaitGroup +
-	// channel semaphore replaces errgroup.WithContext to prevent fail-fast
-	// cascading cancellation: when one segment times out, other in-flight
-	// segments continue downloading instead of being aborted via ctx.Done().
-	// Segment downloads use video.DownloadSegment for exponential backoff
-	// retry (1s�?s�?s, up to 3 attempts) and built-in resume (os.Stat
-	// check skips already-downloaded files). Concurrency is lowered from
-	// the TS default of 50 to 10 to reduce CDN rate-limiting risk.
-	segConcurrent := 10
-	var segMu sync.Mutex
-	var downloadedSegs int
-	var failedSegs []int
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, segConcurrent)
-
-	for i, seg := range segments {
-		i, seg := i, seg
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			result := video.DownloadSegment(ctx, video.SegmentTask{
-				Segment:  seg,
-				DestDir:  segDir,
-				TSID:     fmt.Sprintf("seg_%04d", i),
-				Referer:  m3u8URL,
-			}, 3)
-
-			segMu.Lock()
-			if result.Error != nil {
-				failedSegs = append(failedSegs, i)
-			} else {
-				downloadedSegs++
-			}
-			segMu.Unlock()
-		}()
-	}
-	wg.Wait()
-
-	// Tolerate partial segment failure: only report an error when more
-	// than 20% of segments failed. This matches the independent video
-	// pipeline behavior where FailedSegments are recorded without aborting
-	// the entire download. Below threshold, the merge step skips missing
-	// segments and produces a valid but truncated output.
-	if len(failedSegs) > 0 && len(failedSegs)*5 > len(segments) {
-		return fmt.Errorf("too many segments failed: %d/%d", len(failedSegs), len(segments))
-	}
-
-	if downloadedSegs == 0 {
-		return fmt.Errorf("all %d segments failed to download", len(segments))
-	}
-
-	// Merge segments into MP4 output.
-	if mergeErr := mergeSegmentsToMP4(segDir, outputPath, len(segments)); mergeErr != nil {
-		return fmt.Errorf("merge segments: %w", mergeErr)
-	}
-
-	return nil
-}
-
-// mergeSegmentsToMP4 concatenates downloaded TS segments into a single
-// MP4 file using binary concatenation (TS format supports this directly).
-// Missing segments are skipped silently to tolerate partial download
-// failures within the 20% threshold enforced by the caller.
-func mergeSegmentsToMP4(segDir, outputPath string, totalSegs int) error {
-	out, err := os.Create(outputPath)
-	if err != nil {
-		return fmt.Errorf("create output file: %w", err)
-	}
-	defer out.Close()
-
-	written := 0
-	for i := 0; i < totalSegs; i++ {
-		segPath := filepath.Join(segDir, fmt.Sprintf("seg_%04d.ts", i))
-		data, readErr := os.ReadFile(segPath)
-		if readErr != nil {
-			continue // skip missing segments from partial failures
-		}
-		if _, writeErr := out.Write(data); writeErr != nil {
-			return fmt.Errorf("write segment %d: %w", i, writeErr)
-		}
-		written++
-	}
-
-	if written == 0 {
-		return fmt.Errorf("no segments available for merge")
-	}
-
-	return nil
-}
-
-// tryDownloadGalleryZip attempts to download and extract a ZIP archive
-// for a gallery when the gallery_download_infos table contains a valid
-// download URL. Returns true if ZIP download + extraction succeeded,
-// false if no ZIP is available or the download failed (caller falls back
-// to page-by-page image download).
-//
-// The full flow mirrors the TS downloadAndExtractZip() implementation:
-//  1. Query gallery_download_infos for the download URL
-//  2. For OUO links: resolve the short link via HTTP redirect chain
-//  3. Download the ZIP file using DownloadFileWithDomainFallback
-//  4. Extract ZIP contents to the gallery save directory
-//  5. Update gallery status with extracted file counts
-func tryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID int, saveDir string, logger *infra.Logger) bool {
-	// Check if ZIP download info exists for this gallery.
-	if database == nil {
-		return false
-	}
-	var dlURL, password, downloadSource, ouoURL string
-	var fileCount int
-	err := database.QueryRow(ctx,
-		`SELECT download_url, password, download_source, ouo_url, COALESCE(file_count, 0)
-		 FROM gallery_download_infos WHERE gallery_id = ? AND status = 'pending'`,
-		galleryID).Scan(&dlURL, &password, &downloadSource, &ouoURL, &fileCount)
-	if err != nil || dlURL == "" {
-		return false
-	}
-
-	logger.Info("ZIP download available, attempting archive download",
-		"galleryId", galleryID, "source", downloadSource, "url", dlURL)
-
-	// Resolve OUO short links. The TS implementation used Playwright
-	// (headless browser) to interact with OUO's "I'm a human" button.
-	// The Go HTTP-only resolution via redirect chain may fail if OUO
-	// requires JavaScript interaction. When it fails, we fall back to
-	// page-by-page image download.
-	downloadURL := dlURL
-	if downloadSource == "ouo" {
-		ouoOrch := NewOuoOrchestrator()
-		resolved, resolveErr := ouoOrch.Resolve(ctx, dlURL)
-		if resolveErr != nil || resolved == dlURL {
-			logger.Warn("OUO resolution failed, falling back to page-by-page download",
-				"galleryId", galleryID, "url", dlURL, "error", resolveErr)
-			// Mark as failed so we don't keep retrying the broken OUO link.
-			database.Exec(ctx,
-				`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
-				 WHERE gallery_id = ?`, galleryID)
-			return false
-		}
-		downloadURL = resolved
-		_, _ = database.Exec(ctx,
-			`UPDATE gallery_download_infos SET resolved_direct_url = ?, updated_at = CURRENT_TIMESTAMP
-			 WHERE gallery_id = ?`, resolved, galleryID)
-		logger.Info("OUO link resolved", "galleryId", galleryID, "resolved", resolved)
-	}
-
-	// Download the ZIP file.
-	zipFileName := fmt.Sprintf("gallery_%d.zip", galleryID)
-	zipPath := filepath.Join(saveDir, zipFileName)
-	opts := &downloader.DownloadOptions{
-		Timeout: 3600_000_000_000, // 1 hour for large archives
-		Atomic:  true,
-	}
-	result := downloader.DownloadFileWithDomainFallback(ctx, downloadURL, zipPath, opts)
-	if !result.Success {
-		errMsg := "download failed"
-		if result.Error != nil {
-			errMsg = result.Error.Error()
-		}
-		logger.Warn("ZIP download failed, falling back to page-by-page download",
-			"galleryId", galleryID, "error", errMsg)
-		database.Exec(ctx,
-			`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
-			 WHERE gallery_id = ?`, galleryID)
-		return false
-	}
-
-	logger.Info("ZIP downloaded, extracting archive",
-		"galleryId", galleryID, "size", result.FileSize, "path", zipPath)
-
-	// Extract the ZIP archive. Password-protected archives use the
-	// password stored in gallery_download_infos (extracted from the
-	// download-info-box during page scraping).
-	extractErr := archiver.ExtractZip(zipPath, saveDir, password)
-	if extractErr != nil {
-		logger.Warn("ZIP extraction failed, falling back to page-by-page download",
-			"galleryId", galleryID, "error", extractErr.Error())
-		database.Exec(ctx,
-			`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
-			 WHERE gallery_id = ?`, galleryID)
-		return false
-	}
-
-	// Count extracted files for the gallery status.
-	actualFiles := countFilesInDir(saveDir)
-	logger.Info("ZIP extraction completed",
-		"galleryId", galleryID, "extractedFiles", actualFiles)
-
-	// Update gallery_download_infos with success.
-	_, _ = database.Exec(ctx,
-		`UPDATE gallery_download_infos SET
-			status = 'downloaded', local_path = ?, extracted_path = ?,
-			actual_size = ?, updated_at = CURRENT_TIMESTAMP
-		 WHERE gallery_id = ?`,
-		zipPath, saveDir, result.FileSize, galleryID)
-
-	return true
-}
-
-// countFilesInDir walks a directory and returns the total number of files
-// (recursive), used to report ZIP extraction results.
-func countFilesInDir(dirPath string) int {
-	if dirPath == "" {
-		return 0
-	}
-	count := 0
-	filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() {
-			count++
-		}
-		return nil
-	})
-	return count
-}
-
-// detectDownloadSource classifies a download URL into its source type,
-// ported from the TS detectDownloadSource() in gallery-content-verifier.ts.
-func detectDownloadSource(rawURL string) string {
-	if rawURL == "" {
-		return "unknown"
-	}
-	lower := strings.ToLower(rawURL)
-	if strings.Contains(lower, "ouo.io") || strings.Contains(lower, "ouo.press") {
-		return "ouo"
-	}
-	if strings.Contains(lower, "mediafire.com") {
-		return "mediafire"
-	}
-	if strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".rar") ||
-		strings.HasSuffix(lower, ".7z") {
-		return "direct"
-	}
-	return "unknown"
-}
-
-// sanitizeFileName replaces characters that are invalid in file names.
-func sanitizeFileName(name string) string {
-	replacer := strings.NewReplacer(
-		"/", "_", "\\", "_", ":", "_", "*", "_",
-		"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
-	)
-	s := replacer.Replace(name)
-	if len(s) > 80 {
-		s = s[:80]
-	}
-	return s
-}
-
 // newVerifyExecutor builds a VerifyExecutor whose verifyFn checks
 // extracted content against the expected file counts and returns the
 // (status, corrected, reason) triple that the orchestrator expects.
@@ -941,7 +642,7 @@ func newVerifyExecutor(database *db.Database) *executors.VerifyExecutor {
 					galleryID = int(v)
 				}
 				if galleryID > 0 {
-					return verifyGallery(ctx, database, galleryID, logger)
+					return downloader.VerifyGallery(ctx, database, galleryID, logger)
 				}
 			}
 		}
@@ -975,57 +676,6 @@ func newVerifyExecutor(database *db.Database) *executors.VerifyExecutor {
 		return "needs_retry", 0, result.Reason
 	}
 	return executors.NewVerifyExecutor(fn)
-}
-
-// verifyGallery queries the database to check whether all gallery
-// images were successfully downloaded. It returns (status, corrected, reason)
-// following the same protocol as the filesystem verifier.
-func verifyGallery(ctx context.Context, database *db.Database, galleryID int, logger *infra.Logger) (string, int, string) {
-	var expectedImages, downloadedImages, failedImages int
-	err := database.QueryRow(ctx,
-		`SELECT
-			COUNT(*) AS total,
-			SUM(CASE WHEN status = 'downloaded' THEN 1 ELSE 0 END) AS downloaded,
-			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
-		FROM gallery_images WHERE gallery_id = ?`,
-		galleryID).Scan(&expectedImages, &downloadedImages, &failedImages)
-	if err != nil {
-		logger.Warn("Gallery verify: failed to query image counts",
-			"galleryId", galleryID, "error", err.Error())
-		return "needs_retry", 0, fmt.Sprintf("verify query failed: %s", err.Error())
-	}
-
-	if expectedImages == 0 {
-		return "needs_retry", 0, "no images found in gallery"
-	}
-
-	if downloadedImages == expectedImages {
-		logger.Info("Gallery verify passed",
-			"galleryId", galleryID,
-			"expected", expectedImages,
-			"downloaded", downloadedImages)
-		return "passed", 0, ""
-	}
-
-	// Allow up to 2 missing images (tolerance for transient failures).
-	missing := expectedImages - downloadedImages
-	if missing <= 2 {
-		logger.Info("Gallery verify passed with tolerance",
-			"galleryId", galleryID,
-			"expected", expectedImages,
-			"downloaded", downloadedImages,
-			"missing", missing)
-		return "passed", 1, fmt.Sprintf("%d images missing (within tolerance)", missing)
-	}
-
-	reason := fmt.Sprintf("image mismatch: expected %d, downloaded %d, failed %d",
-		expectedImages, downloadedImages, failedImages)
-	logger.Warn("Gallery verify needs retry",
-		"galleryId", galleryID,
-		"expected", expectedImages,
-		"downloaded", downloadedImages,
-		"failed", failedImages)
-	return "needs_retry", 0, reason
 }
 
 // newExtractExecutor builds an ExtractExecutor whose extractFn

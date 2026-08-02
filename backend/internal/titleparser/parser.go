@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"backend/internal/xutil"
 )
 
 // ── Public types ──
@@ -79,7 +81,6 @@ type Parser struct {
 	photoCountRE      *regexp.Regexp
 	videoCountRE      *regexp.Regexp
 	dualPersonRE      *regexp.Regexp
-	gameRE            *regexp.Regexp
 	cosplayTagRE      *regexp.Regexp
 }
 
@@ -198,21 +199,6 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 	return result
 }
 
-// ── Stage 2: Segmentation ──
-
-func (p *Parser) segment(title string) []string {
-	parts := p.separatorRE.Split(title, -1)
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		part = strings.TrimRight(part, " \t_-–—")
-		if part != "" {
-			result = append(result, part)
-		}
-	}
-	return result
-}
-
 // ── Stage 3: Segment Classification ──
 
 func (p *Parser) classifySegment(seg string) segInfo {
@@ -306,48 +292,6 @@ func (p *Parser) matchGameChar(seg string) []string {
 	return found
 }
 
-// ── Stage 3d: Model matching ──
-
-func (p *Parser) matchModel(seg string) (string, bool) {
-	lower := strings.ToLower(seg)
-
-	// Level 1: Exact full-segment match
-	if m, ok := p.models[lower]; ok {
-		return m.Name, true
-	}
-	if name, ok := p.modelAliasIndex[lower]; ok {
-		return name, true
-	}
-
-	// Level 2: Substring match — a known model name appears within the segment
-	// This handles cases like "蠢沫沫奇遇记" → "蠢沫沫"
-	// We iterate through all models and check if their name (or alias)
-	// appears as a substring in the segment.
-	// Use rune count to prevent single-CJK-character names/aliases from
-	// matching everywhere (e.g. alias "兔" matching "兔女郎").
-	for key, m := range p.models {
-		if utf8.RuneCountInString(key) >= 2 && strings.Contains(lower, key) {
-			return m.Name, true
-		}
-	}
-	for alias, name := range p.modelAliasIndex {
-		if utf8.RuneCountInString(alias) >= 2 && strings.Contains(lower, alias) {
-			return name, true
-		}
-	}
-
-	// Level 3: Pinyin-based substring match
-	// Check if the model's pinyin without spaces appears in the lowercase segment
-	for _, m := range p.models {
-		pinyinCompact := strings.ReplaceAll(strings.ToLower(m.Pinyin), " ", "")
-		if len(pinyinCompact) >= 3 && strings.Contains(lower, pinyinCompact) {
-			return m.Name, true
-		}
-	}
-
-	return "", false
-}
-
 // ── Stage 3e: Game name detection ──
 
 // containsGameName checks if a segment contains a known game short name.
@@ -426,7 +370,7 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 		}
 	}
 
-	return uniqueStrings(protagonists)
+	return xutil.UniqueStrings(protagonists, false)
 }
 
 // expandModelName checks whether the canonical model name matches the
@@ -647,20 +591,6 @@ func scriptOf(r rune) int {
 
 // ── Directory name normalization ──
 
-func uniqueStrings(in []string) []string {
-	seen := make(map[string]bool)
-	var out []string
-	for _, s := range in {
-		if s == "" {
-			continue
-		}
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
-	}
-	return out
-}
 
 // ── Directory name normalization ──
 

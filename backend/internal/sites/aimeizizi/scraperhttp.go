@@ -16,6 +16,7 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/xutil"
 )
 
 var httpScraperLogger = infra.NewLogger("AimeiziziProvider")
@@ -243,7 +244,7 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 		}
 	}
 
-	allTags := uniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...))
+	allTags := xutil.UniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...), true)
 
 	zipInfoResult := convertZipInfo(zipInfo)
 
@@ -408,18 +409,6 @@ func convertZipInfo(info *ZipInfoFromHtml) *sites.GalleryZipInfo {
 		RequiresLogin:  info.RequiresLogin,
 		RequiresEmail:  info.RequiresEmail,
 	}
-}
-
-func uniqueStrings(input []string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, s := range input {
-		if !seen[s] {
-			seen[s] = true
-			result = append(result, s)
-		}
-	}
-	return result
 }
 
 func itoa(n int) string {

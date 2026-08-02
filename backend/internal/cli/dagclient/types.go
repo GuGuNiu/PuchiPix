@@ -1,6 +1,9 @@
 package dagclient
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // NodeState mirrors the orchestrator NodeState string type so the CLI
 // can parse DAG node states without importing the backend package.
@@ -96,13 +99,14 @@ type LastTransition struct {
 }
 
 type DagSummary struct {
-	DagID      string       `json:"dagId"`
-	TaskType   TaskType     `json:"taskType"`
-	SourceURL  string       `json:"sourceUrl"`
-	CreatedAt  string       `json:"createdAt"`
-	NodeCount  int          `json:"nodeCount"`
-	Progress   DagProgress  `json:"progress"`
-	Nodes      []NodeSummary `json:"nodes"`
+	DagID      string        `json:"dagId"`
+	TaskType   TaskType      `json:"taskType"`
+	State      string        `json:"state"`     // API returns aggregate state directly
+	SourceURL  string        `json:"sourceUrl"`
+	CreatedAt  string        `json:"createdAt"`
+	NodeCount  int           `json:"nodeCount"`
+	Progress   DagProgress   `json:"progress,omitempty"`
+	Nodes      []NodeSummary `json:"nodes,omitempty"`
 }
 
 type DagStats struct {
@@ -125,9 +129,38 @@ type SlotUsage struct {
 	Available int    `json:"available"`
 }
 
+// DagListResponse handles the /api/dag endpoint which may return either
+// a JSON array (legacy) or an object with dags+stats (newer clients).
+// We unmarshal into a flexible structure and normalize in the caller.
 type DagListResponse struct {
-	Dags []DagSummary `json:"dags"`
-	Stats DagListStats `json:"stats"`
+	Dags  []DagSummary    `json:"dags"`
+	Stats *DagListStats   `json:"stats"`
+	// Raw captures the response if it's a plain array.
+	Raw   []DagSummary    `json:"-"`
+}
+
+// UnmarshalJSON implements custom unmarshaling to handle both array and
+// object response formats from the backend.
+func (d *DagListResponse) UnmarshalJSON(data []byte) error {
+	// Try object format first.
+	type aux struct {
+		Dags  []DagSummary   `json:"dags"`
+		Stats *DagListStats  `json:"stats"`
+	}
+	var a aux
+	if err := json.Unmarshal(data, &a); err == nil && (len(a.Dags) > 0 || a.Stats != nil) {
+		d.Dags = a.Dags
+		d.Stats = a.Stats
+		return nil
+	}
+	// Fallback: plain array.
+	var arr []DagSummary
+	if err := json.Unmarshal(data, &arr); err == nil {
+		d.Dags = arr
+		d.Stats = nil
+		return nil
+	}
+	return fmt.Errorf("DagListResponse: cannot unmarshal %s", string(data))
 }
 
 type DagListStats struct {
@@ -169,15 +202,31 @@ type DagDefinition struct {
 	Nodes     []DagNodeDefinition  `json:"nodes"`
 }
 
+// DagDetailResponse matches GET /api/dag/{id}.
+// The backend returns a simplified shape:
+//
+//	{"id": "...", "state": "...", "nodes": [{"nodeId":..., "state":..., "phase":...}]}
+//
+// dagId, taskType, sourceUrl etc. are optional in the response. The CLI
+// derives display fields from what's present.
 type DagDetailResponse struct {
-	DagID      string       `json:"dagId"`
-	TaskType   TaskType     `json:"taskType"`
-	SourceURL  string       `json:"sourceUrl"`
-	ProviderID string       `json:"providerId,omitempty"`
-	CreatedAt  string       `json:"createdAt"`
-	Definition DagDefinition `json:"definition"`
-	Nodes      []NodeDetail `json:"nodes"`
-	WorkerDown bool         `json:"workerDown,omitempty"`
+	DagID      string         `json:"id"`       // API uses "id" not "dagId"
+	State      string         `json:"state"`    // Aggregate state (optional)
+	TaskType   TaskType       `json:"taskType"`
+	SourceURL  string         `json:"sourceUrl"`
+	ProviderID string         `json:"providerId,omitempty"`
+	CreatedAt  string         `json:"createdAt"`
+	Definition DagDefinition  `json:"definition,omitempty"`
+	Nodes      []SimplifiedNodeDetail `json:"nodes"`
+	WorkerDown bool           `json:"workerDown,omitempty"`
+}
+
+// SimplifiedNodeDetail matches the lightweight node info from DagDetail.
+type SimplifiedNodeDetail struct {
+	NodeID    string    `json:"nodeId"`
+	State     NodeState `json:"state"`
+	Phase     TaskPhase `json:"phase"`
+	Error     *NodeError `json:"error,omitempty"`
 }
 
 type DagControlResponse struct {
@@ -310,12 +359,35 @@ type TaskCreateRequest struct {
 }
 
 // TaskCreateResponse matches the POST /api/tasks response body.
-// PascalCase JSON tags match the frontend DownloadTask interface contract.
+// Handles both video task format (ID, DisplayID, Status, SiteID) and
+// gallery task format (type, galleryId, seq, status, dagId).
+// JSON tags accept both PascalCase (TS frontend contract) and lowercase
+// (Go map literal) field names via custom unmarshaling.
 type TaskCreateResponse struct {
-	ID        int    `json:"ID"`
+	ID        int    `json:"ID"`        // Video task ID
+	GalleryID int    `json:"galleryId"` // Gallery task ID (alternative)
 	DisplayID string `json:"DisplayID"`
-	Status    string `json:"Status"`
-	SiteID    string `json:"SiteID"`
+	Seq       string `json:"seq"`       // Gallery task Seq (alternative)
+	Status    string `json:"status"`    // lowercase matches Go map literal response
+	SiteID    string `json:"siteId"`    // lowercase matches Go map literal
+	TaskType  string `json:"type"`      // "gallery" / "video" / "sniff"
+	DagID     string `json:"dagId"`     // Associated DAG ID
+}
+
+// GalleryIDOrID returns the gallery ID for gallery tasks, or ID for video tasks.
+func (t *TaskCreateResponse) GalleryIDOrID() int {
+	if t.GalleryID != 0 {
+		return t.GalleryID
+	}
+	return t.ID
+}
+
+// EffectiveSeq returns the effective sequence ID (seq or DisplayID).
+func (t *TaskCreateResponse) EffectiveSeq() string {
+	if t.Seq != "" {
+		return t.Seq
+	}
+	return t.DisplayID
 }
 
 // DagLinkRequest is the payload for adding a dependency edge.

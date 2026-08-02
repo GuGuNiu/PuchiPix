@@ -216,3 +216,40 @@ func sortQueryParams(rawQuery string) string {
 	}
 	return b.String()
 }
+
+// ReplaceDomain swaps the domain of rawURL to baseDomain when the URL
+// starts with any of the given domain prefixes, preserving the rest of
+// the path. If no prefix matches, the original URL is returned unchanged.
+// This consolidates the per-site ReplaceDomain implementations that were
+// duplicated across sjs, xsnvshen, and aimeizizi providers.
+func ReplaceDomain(rawURL, baseDomain string, domains []string) string {
+	if rawURL == "" || baseDomain == "" {
+		return rawURL
+	}
+	for _, domain := range domains {
+		if strings.HasPrefix(rawURL, domain) {
+			return baseDomain + rawURL[len(domain):]
+		}
+	}
+	return rawURL
+}
+
+// ReplaceHost unconditionally swaps the scheme and host of the original
+// URL to the given domain while preserving the path and query string.
+// If the URL has no scheme, it is returned unchanged. This consolidates
+// the universal scraper's buildURLForDomain implementation.
+func ReplaceHost(originalURL, newDomain string) string {
+	newDomain = strings.TrimPrefix(newDomain, "https://")
+	newDomain = strings.TrimPrefix(newDomain, "http://")
+
+	idx := strings.Index(originalURL, "://")
+	if idx < 0 {
+		return originalURL
+	}
+	rest := originalURL[idx+3:]
+	slashIdx := strings.IndexByte(rest, '/')
+	if slashIdx < 0 {
+		return "https://" + newDomain
+	}
+	return "https://" + newDomain + rest[slashIdx:]
+}

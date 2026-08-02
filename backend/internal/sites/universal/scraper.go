@@ -17,6 +17,8 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/urlutil"
+	"backend/internal/xutil"
 )
 
 var scraperLogger = infra.NewLogger("UniversalProvider")
@@ -203,9 +205,9 @@ func extractMetadata(ctx context.Context) pageMetadata {
 
 	return pageMetadata{
 		Title:      title,
-		Tags:       uniqueStrings(tags),
-		Actors:     uniqueStrings(actors),
-		Categories: uniqueStrings(categories),
+		Tags:       xutil.UniqueStrings(tags, true),
+		Actors:     xutil.UniqueStrings(actors, true),
+		Categories: xutil.UniqueStrings(categories, true),
 		Director:   director,
 	}
 }
@@ -459,17 +461,6 @@ func videoM3U8ScannerJS() string {
 	`
 }
 
-func uniqueStrings(input []string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, s := range input {
-		if !seen[s] {
-			seen[s] = true
-			result = append(result, s)
-		}
-	}
-	return result
-}
 
 // categoriesExtractorJS extracts video categories from the page.
 // Primary source: player_aaaa.vod_data.vod_class (Kanav/MacCMS).
@@ -687,9 +678,9 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		M3U8URL:    m3u8URL,
 		Title:      title,
 		PageURL:    pageURL,
-		Tags:       uniqueStrings(tags),
-		Actors:     uniqueStrings(actors),
-		Categories: uniqueStrings(categories),
+		Tags:       xutil.UniqueStrings(tags, true),
+		Actors:     xutil.UniqueStrings(actors, true),
+		Categories: xutil.UniqueStrings(categories, true),
 		Director:   director,
 	}
 
@@ -723,7 +714,7 @@ func ScrapePageWithFallback(
 
 	var lastErr error
 	for _, domain := range orderedDomains {
-		targetURL := buildURLForDomain(pageURL, domain)
+		targetURL := urlutil.ReplaceHost(pageURL, domain)
 		result, err := scrapeFn(ctx, targetURL)
 		if err == nil {
 			tracker.MarkHealthy(domain)
@@ -739,22 +730,4 @@ func ScrapePageWithFallback(
 	}
 
 	return nil, fmt.Errorf("all domains failed: %w", lastErr)
-}
-
-// buildURLForDomain replaces the scheme and host of the original URL with
-// the target domain while preserving the path and query string.
-func buildURLForDomain(originalURL, newDomain string) string {
-	newDomain = strings.TrimPrefix(newDomain, "https://")
-	newDomain = strings.TrimPrefix(newDomain, "http://")
-
-	idx := strings.Index(originalURL, "://")
-	if idx < 0 {
-		return originalURL
-	}
-	rest := originalURL[idx+3:]
-	slashIdx := strings.IndexByte(rest, '/')
-	if slashIdx < 0 {
-		return "https://" + newDomain
-	}
-	return "https://" + newDomain + rest[slashIdx:]
 }

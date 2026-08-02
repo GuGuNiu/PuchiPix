@@ -3,11 +3,8 @@ package universal
 import (
 	"context"
 
-	"backend/internal/infra"
 	"backend/internal/sites"
 )
-
-var providerLogger = infra.NewLogger("UniversalProvider")
 
 // Provider implements video-page scraping for arbitrary URLs, acting as
 // the fallback when no site-specific provider matches the input URL.

@@ -52,7 +52,6 @@ var (
 	kanavPrefixPattern = regexp.MustCompile(`^在线播放\s*[-—丨]\s*`)
 	kanavSuffixPattern = regexp.MustCompile(`\s*[-—丨]\s*KanAV[^-]*$`)
 	m3u8ExtPattern       = regexp.MustCompile(`\.m3u8|\.m3u`)
-	m3u8UrlPattern       = regexp.MustCompile(`https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
 	resolutionPattern    = regexp.MustCompile(`(?i)(\d{3,4})x(\d{3,4})`)
 	resKeywordPatterns   = []struct {
 		Pattern *regexp.Regexp

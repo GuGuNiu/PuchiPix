@@ -24,17 +24,6 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
-// writeConflict sends a 409 Conflict response with a structured error
-// message, used when the request conflicts with the current server state
-// (e.g. duplicate resource creation, already-running task).
-func writeConflict(w http.ResponseWriter, r *http.Request, message string) {
-	writeJSON(w, http.StatusConflict, map[string]any{
-		"error":  message,
-		"code":   "CONFLICT",
-		"status": http.StatusConflict,
-	})
-}
-
 // decodeJSON decodes the request body into dst, returning false and
 // writing a 400 error if the body is missing or malformed.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
