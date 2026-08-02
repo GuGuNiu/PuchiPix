@@ -88,7 +88,6 @@ export function useSpeedHistory(currentSpeed: number, maxPoints = 60): number[] 
   );
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistory((prev) => {
       const next = [...prev.slice(1), currentSpeed];
       return next;

@@ -11,9 +11,11 @@ import type {
   GalleryImageData,
 } from "@/types";
 
-// ---------------------------------------------------------------------------
-// Shared fetch helpers
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Shared fetch helpers
+ * ---------------------------------------------------------------------------
+ */
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -35,9 +37,11 @@ export class ApiError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Task queries
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Task queries
+ * ---------------------------------------------------------------------------
+ */
 
 export function useTasksQuery(options?: Partial<UseQueryOptions<DownloadTask[]>>) {
   return useQuery<DownloadTask[]>({
@@ -91,9 +95,11 @@ export function useDeleteTaskMutation() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Gallery / Shelf queries
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Gallery / Shelf queries
+ * ---------------------------------------------------------------------------
+ */
 
 export function useShelfQuery(options?: Partial<UseQueryOptions<GalleryData[]>>) {
   return useQuery<GalleryData[]>({
@@ -148,9 +154,11 @@ export function useGalleryActionMutation() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Stats query
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Stats query
+ * ---------------------------------------------------------------------------
+ */
 
 export function useStatsQuery(options?: Partial<UseQueryOptions<Stats>>) {
   return useQuery<Stats>({
@@ -161,9 +169,11 @@ export function useStatsQuery(options?: Partial<UseQueryOptions<Stats>>) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Preferences query
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Preferences query
+ * ---------------------------------------------------------------------------
+ */
 
 export function usePreferencesQuery() {
   return useQuery<Array<{ key: string; value: string; category: string }>>({

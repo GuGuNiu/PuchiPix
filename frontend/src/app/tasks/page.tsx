@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
 import {
@@ -14,7 +14,7 @@ import {
   Settings,
   Wifi,
 } from "lucide-react";
-import type { TaskStatus, DownloadTask } from "@/types";
+import type { DownloadTask } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import ResourceToolbar from "@/components/ui/resource-toolbar";
 import TaskSettingsPanel from "@/components/tasks/task-settings-panel";
@@ -42,7 +42,7 @@ import { TaskDetailPopover } from "./_components/task-detail-popover";
 import { Pagination } from "@/components/ui/pagination";
 
 export default function TasksPage(): React.JSX.Element {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const STATUS_LABEL = useStatusLabel(t);
   const { tasks, loading, fetchTasks, connectSSE } = useTaskStore();
   const { pathname } = useLocation();
@@ -85,8 +85,11 @@ export default function TasksPage(): React.JSX.Element {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [addTab, setAddTab] = useState<"link" | "search">("link");
-  // 用户是否已手动切换过 addTab：切换前允许用服务器持久化值恢复，
-  // 切换后以用户选择为准（避免异步加载的数据覆盖用户操作）。
+  /*
+   * Whether the user has already toggled addTab manually. Before the
+   * first toggle, the server-persisted value may restore; afterwards the
+   * user's choice wins (async-loaded data must never override it).
+   */
   const addTabTouched = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
@@ -112,7 +115,7 @@ export default function TasksPage(): React.JSX.Element {
   const currentSpeedStr = apiStats?.current_speed_str ?? "0 B/s";
   const diskIoStr = apiStats?.disk_io_str ?? "—";
 
-  // 恢复服务器持久化的 addTab（仅首次加载，且用户未手动切换时）
+  /* Restore the server-persisted addTab (first load only, unless the user has already toggled it). */
   useEffect(() => {
     if (addTabTouched.current) return;
     const restored = savedData?.addTab;
@@ -121,7 +124,7 @@ export default function TasksPage(): React.JSX.Element {
     }
   }, [savedData]);
 
-  // 用户手动切换后标记 touched 并持久化，避免 mount 时用默认值覆盖服务器数据
+  /* Mark touched and persist once the user toggles, so the default value never overwrites the server data on mount. */
   const handleSetAddTab = useCallback((tab: "link" | "search") => {
     addTabTouched.current = true;
     setAddTab(tab);
@@ -247,7 +250,6 @@ export default function TasksPage(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
   }, [statusFilter, typeFilter, searchQuery, sortBy]);
 

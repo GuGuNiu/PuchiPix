@@ -27,14 +27,17 @@ interface ProtagonistStats {
 export default function ProtagonistDetailPage(): React.JSX.Element {
   const { t } = useI18n();
   const params = useParams();
-  // React Router v7 的 useParams 已自动解码 URL 参数，
-  // 此处不可再次 decodeURIComponent（含 % 的名字会二次解码出错甚至抛 URIError）。
+  /*
+   * React Router v7 useParams already decodes URL params; decoding again
+   * here would double-decode names containing '%' and can even throw
+   * URIError.
+   */
   const name = params.name ?? '';
 
   const [stats, setStats] = useState<ProtagonistStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  // 请求序号：路由参数快速切换时丢弃过期响应，避免竞态覆盖
+  // Request sequence: drop stale responses when the route param changes fast.
   const requestSeq = useRef(0);
 
   const fetchProtagonistStats = useCallback(async (): Promise<void> => {
@@ -43,7 +46,7 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
       setLoading(true);
       setError('');
       const response = await fetch(`/api/protagonists?name=${encodeURIComponent(name)}`);
-      if (seq !== requestSeq.current) return; // 已被更新的请求取代
+      if (seq !== requestSeq.current) return; // Superseded by a newer request.
       const result = await response.json();
 
       if (result.success) {
@@ -65,12 +68,12 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
     if (name) {
       fetchProtagonistStats();
     } else {
-      // 空 name（如访问 /protagonists/）视为无效：直接进入错误态
+      // Empty name (e.g. visiting /protagonists/ directly) is invalid.
       setLoading(false);
       setError(t('protagonists.loadFailed'));
     }
     return () => {
-      requestSeq.current++; // 卸载时作废在途请求
+      requestSeq.current++; // Invalidate in-flight requests on unmount.
     };
   }, [name, fetchProtagonistStats, t]);
 
@@ -149,8 +152,8 @@ export default function ProtagonistDetailPage(): React.JSX.Element {
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {stats.galleries.map((gallery) => (
-              // /shelf/:id 未定义路由，会落到 404；
-              // 改为 /shelf/photos?id=xxx，在相册页直接展开对应详情
+              // /shelf/:id has no route definition and would 404; link to
+              // /shelf/photos?id=xxx which opens the matching detail panel.
               <Link key={gallery.id} to={`/shelf/photos?id=${gallery.id}`}>
                 <Card className="group cursor-pointer hover:shadow-lg transition-shadow overflow-hidden">
                   <div className="aspect-[3/4] relative bg-muted overflow-hidden">

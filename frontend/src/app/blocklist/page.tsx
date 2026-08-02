@@ -63,13 +63,12 @@ export default function BlocklistPage(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchRules();
   }, [fetchRules]);
 
   const handleAdd = async (): Promise<void> => {
     if (!newRule.keyword.trim()) {
-      toast.error("blocklist.placeholderKeyword");
+      toast.error("blocklist.pleaseInputKeyword");
       return;
     }
 

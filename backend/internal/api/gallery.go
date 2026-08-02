@@ -62,38 +62,53 @@ func (h *Handlers) ShelfList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, galleries)
 }
 
-// SjsShelfList returns gallery entries from the SJS site, used by the
-// frontend /shelf/sjs page. Supports pagination via limit/offset.
+// SjsShelfList returns SJS bookmarks, used by the frontend /shelf/sjs page.
+// Supports keyword (q) and forum-section filtering.
+// NOTE: 此前该接口误查 galleries 表（site_id='sjs'），而
+// SjsShelfCreate/SjsShelfDelete 均操作 sjs_bookmarks 表，导致创建的书签
+// 永远不会出现在列表中。现统一为查询 sjs_bookmarks。
 func (h *Handlers) SjsShelfList(w http.ResponseWriter, r *http.Request) {
-	// Reuse ShelfList but delegate to a site-filtered query for sjs
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	limit := queryInt(r, "limit", 50)
-	offset := queryInt(r, "offset", 0)
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	forum := strings.TrimSpace(r.URL.Query().Get("forum"))
 
-	rows, err := h.DB.Query(r.Context(),
-		`SELECT id, seq, source_url, site_id, scraped_domain, title, protagonist, description, category, tags,
-		 cover_url, cover_local_path, image_count, video_count, page_count, status, error_msg, download_method,
-		 expected_image_count, expected_video_count, content_verified, save_path, total_size, downloaded_size,
-		 game_characters, publish_time, scraped_at, completed_at, created_at, updated_at
-		 FROM galleries WHERE site_id = 'sjs' ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
+	query := `SELECT id, url, thread_id, title, cover_url, author, post_date, forum_section, notes, created_at, updated_at
+		FROM sjs_bookmarks`
+	conds := []string{}
+	args := []any{}
+	if q != "" {
+		like := "%" + q + "%"
+		conds = append(conds, `(title LIKE ? OR url LIKE ? OR author LIKE ?)`)
+		args = append(args, like, like, like)
+	}
+	if forum != "" {
+		conds = append(conds, `forum_section = ?`)
+		args = append(args, forum)
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY created_at DESC"
+
+	rows, err := h.DB.Query(r.Context(), query, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 		return
 	}
 	defer rows.Close()
 
-	galleries := []db.Gallery{}
+	bookmarks := []db.SjsBookmark{}
 	for rows.Next() {
-		var g db.Gallery
-		if err := scanGallery(rows, &g); err != nil {
+		var b db.SjsBookmark
+		if err := rows.Scan(&b.ID, &b.URL, &b.ThreadID, &b.Title, &b.CoverURL, &b.Author, &b.PostDate, &b.ForumSection, &b.Notes, &b.CreatedAt, &b.UpdatedAt); err != nil {
 			continue
 		}
-		galleries = append(galleries, g)
+		bookmarks = append(bookmarks, b)
 	}
-	writeJSON(w, http.StatusOK, galleries)
+	writeJSON(w, http.StatusOK, bookmarks)
 }
 
 // ShelfDetail returns a single gallery by ID, or the cover image

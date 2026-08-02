@@ -91,30 +91,44 @@ export default function SjsPage(): React.JSX.Element {
   const fetchCards = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (searchQuery.trim()) params.set("q", searchQuery.trim());
-      if (forumFilter) params.set("forum", forumFilter);
-
-      const res = await fetch(`/api/shelf/sjs?${params.toString()}`);
+      /*
+       * GET /api/shelf/sjs returns the sjs_bookmarks as a bare array
+       * (no pagination). The dataset is small, so we pull everything and
+       * filter on the client (search + forum) to avoid firing a server
+       * request per keystroke.
+       */
+      const res = await fetch("/api/shelf/sjs");
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
-      setCards(data.cards || []);
-      setForums(data.forums || []);
+      const list: SjsCard[] = Array.isArray(data) ? data : [];
+      setCards(list);
+      setForums(
+        [...new Set(list.map((c) => c.forumSection).filter(Boolean))],
+      );
     } catch {
       toast.error("sjs.shelf.fetchFailed");
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, forumFilter]);
+  }, []);
 
   useEffect(() => {
     fetchCards();
   }, [fetchCards]);
 
   const filteredCards = useMemo(() => {
-    if (!forumFilter) return cards;
-    return cards.filter((c) => c.forumSection === forumFilter);
-  }, [cards, forumFilter]);
+    const q = searchQuery.trim().toLowerCase();
+    return cards.filter((c) => {
+      if (forumFilter && c.forumSection !== forumFilter) return false;
+      if (!q) return true;
+      return (
+        (c.title || "").toLowerCase().includes(q) ||
+        (c.url || "").toLowerCase().includes(q) ||
+        (c.author || "").toLowerCase().includes(q) ||
+        (c.notes || "").toLowerCase().includes(q)
+      );
+    });
+  }, [cards, forumFilter, searchQuery]);
 
   const urlList = useMemo(() => {
     return urlInput

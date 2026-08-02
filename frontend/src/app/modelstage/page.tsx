@@ -1,6 +1,8 @@
 import { Users } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export default function ModelStagePage() {
+  const { t } = useI18n();
   return (
     <div className="tasks-layout">
       <div className="card tasks-list-card">
@@ -8,8 +10,8 @@ export default function ModelStagePage() {
           <div className="empty-state-icon">
             <Users size={48} strokeWidth={1.5} />
           </div>
-          <div className="empty-state-text">模特台</div>
-          <div className="empty-state-subtext">即将上线，敬请期待</div>
+          <div className="empty-state-text">{t("modelstage.title")}</div>
+          <div className="empty-state-subtext">{t("modelstage.comingSoon")}</div>
         </div>
       </div>
     </div>

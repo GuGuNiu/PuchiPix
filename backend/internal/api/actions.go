@@ -587,18 +587,41 @@ func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	count := 0
+	type sjsImportResult struct {
+		URL    string `json:"url"`
+		Status string `json:"status"`
+	}
+	results := make([]sjsImportResult, 0, len(req.URLs))
+	created, skipped := 0, 0
 	for _, u := range req.URLs {
 		if u == "" {
 			continue
 		}
-		_, err := h.DB.Exec(r.Context(),
+		res, err := h.DB.Exec(r.Context(),
 			"INSERT INTO sjs_bookmarks (url, title) VALUES ($1, '') ON CONFLICT (url) DO NOTHING", u)
-		if err == nil {
-			count++
+		if err != nil {
+			continue
+		}
+		// RowsAffected == 1 表示新插入，== 0 表示已存在（跳过）
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			created++
+			results = append(results, sjsImportResult{URL: u, Status: "created"})
+		} else {
+			skipped++
+			results = append(results, sjsImportResult{URL: u, Status: "skipped"})
 		}
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"created": count})
+	// 返回逐条结果与汇总，供前端展示导入明细
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"results": results,
+		"summary": map[string]int{
+			"total":   len(results),
+			"created": created,
+			"skipped": skipped,
+			"failed":  0,
+		},
+	})
 }
 
 // SjsShelfDelete removes SJS shelf items. Query params: ?id= (single) or ?id=all (all).

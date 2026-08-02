@@ -51,7 +51,6 @@ export default function SearchPage(): React.JSX.Element {
   const [scrapingAll, setScrapingAll] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setKeywords(urlValues.q);
   }, [urlValues.q]);
 
@@ -71,8 +70,11 @@ export default function SearchPage(): React.JSX.Element {
         data.status === "failed" ||
         data.status === "cancelled"
       ) {
-        // 任务已到终态：无条件停止轮询（修复此前 scrapingAll=true 时
-        // 完成态仍无限轮询的问题），并复位批量抓取状态
+        /*
+         * Terminal state: always stop polling (fixes the infinite polling
+         * that previously occurred when scrapingAll stayed true), and
+         * reset the batch-scrape flag.
+         */
         setSubmitting(false);
         if (scrapingAll) {
           setScrapingAll(false);
@@ -431,8 +433,11 @@ export default function SearchPage(): React.JSX.Element {
                       key={j.id}
                       style={{ cursor: "pointer" }}
                       onClick={() => {
-                        // 恢复任务时同步 URL 中的关键词（q），
-                        // 避免残留旧 q 参数导致刷新后搜索框内容错位
+                        /*
+                         * When restoring a job, sync the URL keyword (q)
+                         * as well, so a stale q never lingers and causes
+                         * a mismatched search box after refresh.
+                         */
                         updateUrl({ job: j.id, q: j.keywords.join(" ") || null });
                         setJob(j);
                       }}

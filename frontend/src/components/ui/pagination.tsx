@@ -4,6 +4,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export interface PaginationProps {
   /** Current active page (1-based) */
@@ -46,14 +47,15 @@ export function Pagination({
   showTotal = true,
   labels,
 }: PaginationProps) {
+  const { t } = useI18n();
   const l = {
-    first: labels?.first ?? "首页",
-    previous: labels?.previous ?? "上一页",
-    next: labels?.next ?? "下一页",
-    last: labels?.last ?? "末页",
-    page: labels?.page ?? "页",
+    first: labels?.first ?? t("tasks.firstPage"),
+    previous: labels?.previous ?? t("tasks.prevPage"),
+    next: labels?.next ?? t("tasks.nextPage"),
+    last: labels?.last ?? t("tasks.lastPage"),
+    page: labels?.page ?? t("common.pages"),
     of: labels?.of ?? "/",
-    items: labels?.items ?? "条",
+    items: labels?.items ?? t("tasks.statItems"),
   };
 
   const safePage = Math.min(currentPage, Math.max(1, totalPages));

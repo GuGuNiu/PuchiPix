@@ -83,7 +83,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }): React
   useEffect(() => {
     if (loaded) {
       const effective = storeLocale || detectBrowserLocale();
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocaleState(effective);
       document.documentElement.lang = effective;
     }
@@ -91,7 +90,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }): React
 
   useEffect(() => {
     if (locale === DEFAULT_LOCALE) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDict(zhCN);
       return;
     }

@@ -239,7 +239,7 @@ export class DagClient {
         json = text ? JSON.parse(text) : {};
       } catch {
         throw new DagClientError(
-          `响应解析失败: ${text.slice(0, 200)}`,
+          `Response parse failed: ${text.slice(0, 200)}`,
           res.status,
           path,
         );
@@ -258,7 +258,7 @@ export class DagClient {
 
       if (err instanceof Error && err.name === 'AbortError') {
         throw new DagClientError(
-          `请求超时 (${this.timeout}ms)`,
+          `Request timed out (${this.timeout}ms)`,
           undefined,
           path,
         );
@@ -266,7 +266,7 @@ export class DagClient {
 
       if (err instanceof TypeError && err.message.includes('fetch')) {
         throw new DagClientError(
-          `无法连接到服务端 ${this.baseUrl}（服务可能未启动）`,
+          `Cannot connect to server ${this.baseUrl} (service may not be running)`,
           undefined,
           path,
         );

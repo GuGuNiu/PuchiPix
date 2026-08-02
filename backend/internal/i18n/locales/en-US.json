@@ -880,5 +880,16 @@
   "tasks.videoCount": "Videos",
   "tasks.videoInfo": "Video Info",
   "tasks.videoTaskCreated": "Task #{id} created, identifying...",
-  "tasks.videoTaskLabel": "Video Task"
+  "tasks.videoTaskLabel": "Video Task",
+  "api.slots.invalidMax": "Invalid slot max value",
+  "api.slots.missingSlotType": "Missing slotType parameter",
+  "api.slots.slotTypeNotFound": "Slot type not found",
+  "api.sniff.deleteFailed": "Failed to delete sniff task",
+  "api.sniff.missingId": "Missing sniff task ID",
+  "api.tasks.deleteFailed": "Failed to delete task",
+  "api.tasks.pauseFailed": "Failed to pause task",
+  "api.tasks.resumeFailed": "Failed to resume task",
+  "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.startFailed": "Failed to start task",
+  "api.tasks.unknownAction": "Unknown action"
 }

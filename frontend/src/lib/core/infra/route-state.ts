@@ -121,7 +121,6 @@ export function useRouteState(
     // Skip the network request on an in-memory cache hit.
     const cached = memCache.get(routeKey);
     if (cached && Date.now() - cached.savedAt <= ttl) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSavedData(cached.data);
       return;
     }

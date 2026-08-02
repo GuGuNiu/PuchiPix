@@ -22,8 +22,8 @@ export function useEventBus<T = unknown>(eventName: string): UseEventBusReturn<T
   useEffect(() => {
     if (!socket) return;
 
-    const handler = (payload: T): void => {
-      setLastEvent(payload);
+    const handler = (payload: unknown): void => {
+      setLastEvent(payload as T);
       setCount((c) => c + 1);
     };
 

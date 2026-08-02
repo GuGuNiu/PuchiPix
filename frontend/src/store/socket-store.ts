@@ -4,10 +4,10 @@ import type { ProgressMessage } from '@/types';
 // Event types emitted by Go backend WebSocket (gorilla/websocket JSON messages)
 interface WsMessage {
   event: string;
-  data: any;
+  data: unknown;
 }
 
-type EventHandler = (...args: any[]) => void;
+type EventHandler = (...args: unknown[]) => void;
 
 /**
  * Lightweight WebSocket wrapper that mimics the Socket.IO event-style API
@@ -49,10 +49,12 @@ class NativeWsClient {
     this.listeners.get(event)?.delete(handler);
   }
 
-  emit(_event: string, ..._args: any[]): void {
-    // The Go backend doesn't accept client-to-server messages via WS
-    // (events flow only from Go → browser via EventBus).
-    // Keep this stub for Socket.IO API compatibility.
+  emit(_event: string, ..._args: unknown[]): void {
+    /*
+     * The Go backend doesn't accept client-to-server messages via WS
+     * (events flow only from Go → browser via EventBus).
+     * Keep this stub for Socket.IO API compatibility.
+     */
   }
 
   connect(): void {
@@ -88,10 +90,11 @@ class NativeWsClient {
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
       this._fire('connect');
-      this._fire('reconnect'); // also fire reconnect for compatibility
+      this._fire('reconnect'); // Also fire reconnect for compatibility
     };
 
     this.ws.onmessage = (event) => {
+      // Ignore non-JSON messages (heartbeats, etc.).
       try {
         const msg: WsMessage = JSON.parse(event.data);
         // Dispatch as Socket.IO-style event: "task:created" → on('task:created', ...)
@@ -99,7 +102,6 @@ class NativeWsClient {
           this._fire(msg.event, msg.data);
         }
       } catch {
-        // Ignore non-JSON messages (heartbeats, etc.)
       }
     };
 
@@ -144,7 +146,7 @@ class NativeWsClient {
     }
   }
 
-  private _fire(event: string, ...args: any[]): void {
+  private _fire(event: string, ...args: unknown[]): void {
     const handlers = this.listeners.get(event);
     if (handlers) {
       for (const h of handlers) {
@@ -191,28 +193,28 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
       set({ connected: true, reconnecting: false });
     });
 
-    socket.on('disconnect', (reason: string) => {
+    socket.on('disconnect', (reason: unknown) => {
       console.log('[Socket] Disconnected:', reason);
       set({ connected: false });
     });
 
-    socket.on('reconnect', (_attempt: number) => {
+    socket.on('reconnect', () => {
       console.log('[Socket] Reconnected');
       set({ connected: true, reconnecting: false });
     });
 
-    socket.on('reconnect_attempt', (attempt: number) => {
-      console.log('[Socket] Reconnect attempt:', attempt);
+    socket.on('reconnect_attempt', () => {
+      console.log('[Socket] Reconnect attempt');
       set({ reconnecting: true });
     });
 
-    socket.on('connect_error', (err: Error) => {
-      console.error('[Socket] Connect error:', err.message);
+    socket.on('connect_error', (err: unknown) => {
+      console.error('[Socket] Connect error:', err instanceof Error ? err.message : String(err));
       set({ connected: false });
     });
 
-    socket.on('progress', (msg: ProgressMessage) => {
-      set({ lastProgress: msg });
+    socket.on('progress', (msg: unknown) => {
+      set({ lastProgress: msg as ProgressMessage });
     });
 
     socket.connect();

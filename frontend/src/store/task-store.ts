@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DownloadTask } from '@/types';
+import type { DownloadTask, TaskStatus } from '@/types';
 import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
 
 interface TaskStore {
@@ -56,31 +56,33 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const shelfData = await shelfRes.json();
       const videoTasks = Array.isArray(videoData) ? videoData : [];
 
-      // Map gallery shelf items to DownloadTask format.
-      // Gallery struct now uses PascalCase JSON tags (matching
-      // DownloadTask convention), but we keep fallback to camelCase
-      // for backward compatibility with cached/old responses.
+      /*
+       * Map gallery shelf items to DownloadTask format.
+       * Gallery struct now uses PascalCase JSON tags (matching
+       * DownloadTask convention), but we keep fallback to camelCase
+       * for backward compatibility with cached/old responses.
+       */
       const galleryTasks: DownloadTask[] = Array.isArray(shelfData)
-        ? shelfData.map((g: any) => ({
-            ID: g.ID ?? g.id,
-            DisplayID: g.DisplayID ?? g.seq,
-            URL: (g.SourceURL ?? g.sourceUrl) || '',
+        ? shelfData.map((g: Record<string, unknown>) => ({
+            ID: (g.ID ?? g.id) as number,
+            DisplayID: (g.DisplayID ?? g.seq) as string | undefined,
+            URL: ((g.SourceURL ?? g.sourceUrl) as string) || '',
             M3U8URL: '',
-            Status: (g.Status ?? g.status) || 'pending',
+            Status: ((g.Status ?? g.status) as TaskStatus) || 'pending',
             Progress: 0,
-            FilePath: (g.SavePath ?? g.savePath) || '',
+            FilePath: ((g.SavePath ?? g.savePath) as string) || '',
             Format: '',
             Priority: 0,
-            ErrorMsg: (g.ErrorMsg ?? g.errorMsg) || '',
-            CreatedAt: (g.CreatedAt ?? g.createdAt) || '',
-            UpdatedAt: (g.UpdatedAt ?? g.updatedAt) || '',
+            ErrorMsg: ((g.ErrorMsg ?? g.errorMsg) as string) || '',
+            CreatedAt: ((g.CreatedAt ?? g.createdAt) as string) || '',
+            UpdatedAt: ((g.UpdatedAt ?? g.updatedAt) as string) || '',
             TaskType: 'gallery' as const,
-            GalleryTitle: (g.Title ?? g.title) || '',
-            ImageCount: (g.ImageCount ?? g.imageCount) ?? 0,
-            VideoCount: (g.VideoCount ?? g.videoCount) ?? 0,
-            DownloadMethod: (g.DownloadMethod ?? g.downloadMethod) || '',
-            GalleryTotalSize: (g.TotalSize ?? g.totalSize) ?? 0,
-            Person: (g.Protagonist ?? g.protagonist) || '',
+            GalleryTitle: ((g.Title ?? g.title) as string) || '',
+            ImageCount: ((g.ImageCount ?? g.imageCount) as number) ?? 0,
+            VideoCount: ((g.VideoCount ?? g.videoCount) as number) ?? 0,
+            DownloadMethod: ((g.DownloadMethod ?? g.downloadMethod) as string) || '',
+            GalleryTotalSize: ((g.TotalSize ?? g.totalSize) as number) ?? 0,
+            Person: ((g.Protagonist ?? g.protagonist) as string) || '',
           }))
         : [];
 
@@ -123,8 +125,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   connectSSE: () => {
-    // 共享常驻连接：路由切换不再反复断开/重连，
-    // 页面挂载时仅订阅所需事件，卸载时取消订阅。
+    /*
+     * Shared resident connection: route switching no longer tears down
+     * and re-establishes the stream. Pages only subscribe/unsubscribe.
+     */
     const unsubs: Array<() => void> = [];
 
     unsubs.push(
@@ -296,8 +300,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       for (const unsub of unsubs) {
         unsub();
       }
-      // 注意：共享连接在 App 生命周期内常驻，这里仅取消订阅，
-      // 不关闭连接、也不把 sseConnected 置 false（连接状态由共享层广播）。
+      /*
+       * The shared connection lives for the whole App lifetime; here we
+       * only unsubscribe. We neither close it nor reset sseConnected to
+       * false (connection state is broadcast by the shared layer).
+       */
     };
   },
 

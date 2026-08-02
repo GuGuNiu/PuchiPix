@@ -61,54 +61,69 @@ function mapTaskStatusToGallery(status: TaskStatus): string {
 
 const detailInFlight = new Set<number>();
 
-// Go backend returns camelCase JSON; TypeScript types use PascalCase.
-// Normalize at the data boundary so the rest of the app doesn't need changes.
-function normalizeGallery(raw: any): GalleryData {
+/*
+ * Go backend returns camelCase JSON; TypeScript types use PascalCase.
+ * Normalize at the data boundary so the rest of the app doesn't need changes.
+ */
+function normalizeGallery(raw: Record<string, unknown>): GalleryData {
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  const strOrUndef = (v: unknown): string | undefined =>
+    typeof v === 'string' ? v : undefined;
+
   // Go stores tags as a JSON array string, parse it if needed
   let tags: string[] = [];
-  if (Array.isArray(raw.tags ?? raw.Tags)) {
-    tags = raw.tags ?? raw.Tags;
-  } else if (typeof raw.tags === 'string') {
-    try { tags = JSON.parse(raw.tags); } catch { tags = []; }
-  } else if (typeof raw.Tags === 'string') {
-    try { tags = JSON.parse(raw.Tags); } catch { tags = []; }
+  const rawTags = raw.tags ?? raw.Tags;
+  if (Array.isArray(rawTags)) {
+    tags = rawTags;
+  } else if (typeof rawTags === 'string') {
+    try {
+      tags = JSON.parse(rawTags);
+    } catch {
+      tags = [];
+    }
   }
 
   return {
-    ID: raw.id ?? raw.ID,
-    Seq: raw.DisplayID ?? raw.displayID ?? raw.seq ?? raw.Seq,
-    SourceURL: raw.sourceUrl ?? raw.SourceURL ?? '',
-    SiteID: raw.siteId ?? raw.SiteID ?? '',
-    ScrapedDomain: raw.scrapedDomain ?? raw.ScrapedDomain ?? '',
-    Title: raw.title ?? raw.Title ?? '',
-    Protagonist: raw.protagonist ?? raw.Protagonist ?? '',
-    Description: raw.description ?? raw.Description ?? '',
-    Category: raw.category ?? raw.Category ?? '',
+    ID: num(raw.id ?? raw.ID),
+    Seq: str(raw.DisplayID ?? raw.displayID ?? raw.seq ?? raw.Seq),
+    SourceURL: str(raw.sourceUrl ?? raw.SourceURL),
+    SiteID: str(raw.siteId ?? raw.SiteID),
+    ScrapedDomain: str(raw.scrapedDomain ?? raw.ScrapedDomain),
+    Title: str(raw.title ?? raw.Title),
+    Protagonist: str(raw.protagonist ?? raw.Protagonist),
+    Description: str(raw.description ?? raw.Description),
+    Category: str(raw.category ?? raw.Category),
     Tags: tags,
-    CoverURL: raw.coverUrl ?? raw.CoverURL ?? raw.CoverLocalPath ?? raw.coverLocalPath ?? '',
-    CoverLocalPath: raw.coverLocalPath ?? raw.CoverLocalPath ?? '',
-    ImageCount: raw.imageCount ?? raw.ImageCount ?? 0,
-    VideoCount: raw.videoCount ?? raw.VideoCount ?? 0,
-    PageCount: raw.pageCount ?? raw.PageCount ?? 0,
-    Status: raw.status ?? raw.Status ?? 'pending',
-    DownloadMethod: raw.downloadMethod ?? raw.DownloadMethod ?? '',
-    ExpectedImageCount: raw.expectedImageCount ?? raw.ExpectedImageCount ?? 0,
-    ExpectedVideoCount: raw.expectedVideoCount ?? raw.ExpectedVideoCount ?? 0,
-    ContentVerified: raw.contentVerified ?? raw.ContentVerified ?? false,
-    SavePath: raw.savePath ?? raw.SavePath ?? '',
-    TotalSize: raw.totalSize ?? raw.TotalSize ?? 0,
-    DownloadedSize: raw.downloadedSize ?? raw.DownloadedSize ?? 0,
+    CoverURL: str(raw.coverUrl ?? raw.CoverURL ?? raw.CoverLocalPath ?? raw.coverLocalPath),
+    CoverLocalPath: str(raw.coverLocalPath ?? raw.CoverLocalPath),
+    ImageCount: num(raw.imageCount ?? raw.ImageCount),
+    VideoCount: num(raw.videoCount ?? raw.VideoCount),
+    PageCount: num(raw.pageCount ?? raw.PageCount),
+    Status: str(raw.status ?? raw.Status) || 'pending',
+    DownloadMethod: str(raw.downloadMethod ?? raw.DownloadMethod),
+    ExpectedImageCount: num(raw.expectedImageCount ?? raw.ExpectedImageCount),
+    ExpectedVideoCount: num(raw.expectedVideoCount ?? raw.ExpectedVideoCount),
+    ContentVerified: (raw.contentVerified ?? raw.ContentVerified) === true,
+    SavePath: str(raw.savePath ?? raw.SavePath),
+    TotalSize: num(raw.totalSize ?? raw.TotalSize),
+    DownloadedSize: num(raw.downloadedSize ?? raw.DownloadedSize),
     GameCharacters: (() => {
       const rawGc = raw.gameCharacters ?? raw.GameCharacters;
       if (Array.isArray(rawGc)) return rawGc;
       if (typeof rawGc === 'string') {
-        try { return JSON.parse(rawGc) as string[]; } catch { /* ignore */ }
+        // Fall back to undefined when the stored string is not valid JSON.
+        try {
+          return JSON.parse(rawGc) as string[];
+        } catch {
+          return undefined;
+        }
       }
       return undefined;
     })(),
-    PublishTime: raw.publishTime ?? raw.PublishTime ?? undefined,
-    CreatedAt: raw.createdAt ?? raw.CreatedAt ?? '',
-    UpdatedAt: raw.updatedAt ?? raw.UpdatedAt ?? '',
+    PublishTime: strOrUndef(raw.publishTime ?? raw.PublishTime),
+    CreatedAt: str(raw.createdAt ?? raw.CreatedAt),
+    UpdatedAt: str(raw.updatedAt ?? raw.UpdatedAt),
   };
 }
 
@@ -153,15 +168,15 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       if (gallery && imagesRes.ok) {
         const imagesData = await imagesRes.json();
         const images = Array.isArray(imagesData)
-          ? imagesData.map((img: any) => ({
-              ID: img.id ?? img.ID,
-              GalleryID: img.galleryId ?? img.GalleryID ?? id,
-              URL: img.url ?? img.URL ?? '',
-              LocalPath: img.localPath ?? img.LocalPath ?? '',
-              FileName: img.fileName ?? img.FileName ?? '',
-              PageIndex: img.pageIndex ?? img.PageIndex ?? 0,
-              OrderIndex: img.orderIndex ?? img.OrderIndex ?? 0,
-              Status: img.status ?? img.Status ?? 'pending',
+          ? imagesData.map((img: Record<string, unknown>) => ({
+              ID: (img.id ?? img.ID) as number,
+              GalleryID: (img.galleryId ?? img.GalleryID ?? id) as number,
+              URL: ((img.url ?? img.URL) as string) ?? '',
+              LocalPath: ((img.localPath ?? img.LocalPath) as string) ?? '',
+              FileName: ((img.fileName ?? img.FileName) as string) ?? '',
+              PageIndex: (img.pageIndex ?? img.PageIndex ?? 0) as number,
+              OrderIndex: (img.orderIndex ?? img.OrderIndex ?? 0) as number,
+              Status: ((img.status ?? img.Status) as string) ?? 'pending',
             }))
           : [];
         gallery.Images = images;
@@ -263,7 +278,7 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     })),
 
   connectSSE: () => {
-    // 共享常驻连接：路由切换不再反复断开/重连，页面仅订阅所需事件。
+    /* Shared resident connection: route switching no longer tears down and re-establishes the stream. Pages only subscribe/unsubscribe. */
     const unsubs: Array<() => void> = [];
 
     unsubs.push(
@@ -390,7 +405,7 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       for (const unsub of unsubs) {
         unsub();
       }
-      // 共享连接在 App 生命周期内常驻，这里仅取消订阅。
+      /* The shared connection lives for the whole App lifetime; here we only unsubscribe. */
     };
   },
 

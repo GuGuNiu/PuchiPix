@@ -140,14 +140,16 @@ export default function PhotosPage(): React.JSX.Element {
   useEffect(() => {
     if (expandedId === null) return;
     let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDetailLoading(true);
     fetchGalleryDetail(expandedId)
       .then((detail) => {
         if (cancelled) return;
         if (!detail) {
-          // URL 中 id 无效（旧链接/已被删除）：清理残留参数，
-          // 避免每次进入页面都发起一次注定失败的请求
+          /*
+           * The id in the URL is invalid (stale link or already deleted):
+           * clear the lingering param so future visits do not fire a
+           * request that is bound to fail.
+           */
           setExpandedId(null);
         }
       })

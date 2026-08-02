@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
 /**
- * 稳定化 defaults 引用：调用处通常传对象字面量（如 { status: "all" }），
- * 每次渲染都是新引用。若直接作为 useCallback 依赖，会导致 update 每次
- * 渲染重建，进而连锁重建所有基于 update 的回调（setStatusFilter 等），
- * 造成子组件无效重渲染。这里仅在内容实际变化时更新引用。
+ * Stabilize the defaults reference. Callers usually pass an object
+ * literal (e.g. { status: "all" }), which is a fresh reference on every
+ * render. Using it directly as a useCallback dependency would rebuild
+ * `update` on each render, which cascades into rebuilding every callback
+ * derived from it (setStatusFilter etc.) and causes needless child
+ * re-renders. The reference only changes when the content actually does.
  */
 function useStableDefaults<T extends Record<string, string>>(defaults: T): T {
   const ref = useRef(defaults);
@@ -29,7 +31,7 @@ export function useUrlState<T extends Record<string, string>>(
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
-  // 稳定 defaults，避免调用处字面量导致 update 每次渲染重建（性能瓶颈）
+  /* Stable defaults so object literals at call sites do not force the update callback to be rebuilt on every render. */
   const stableDefaults = useStableDefaults(defaults);
 
   const values = {} as Record<string, string>;
@@ -79,7 +81,6 @@ export function useDebouncedUrlParam(
   const [localValue, setLocalValue] = useState(urlValue);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalValue(urlValue);
   }, [urlValue]);
 

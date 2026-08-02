@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
 import { Home, Compass } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export default function NotFound(): React.JSX.Element {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -36,11 +38,11 @@ export default function NotFound(): React.JSX.Element {
           lineHeight: 1.6,
         }}
       >
-        未找到对应的页面。它可能已被移动、删除，或从未存在。
+        {t("error.notFoundTitle")}。{t("error.notFoundDesc")}
       </p>
       <Link to="/" className="btn btn-primary btn-sm">
         <Home size={14} />
-        返回首页
+        {t("common.backHome")}
       </Link>
     </div>
   );

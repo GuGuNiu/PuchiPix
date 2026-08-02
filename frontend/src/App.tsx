@@ -5,7 +5,7 @@ import SocketProvider from "@/components/providers/socket-provider";
 import ThemeProvider from "@/components/providers/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ThemedToaster } from "@/components/providers";
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, useI18n } from "@/lib/i18n";
 import { initSharedSse, destroySharedSse } from "@/lib/sse/shared-sse";
 import GlobalError from "./app/error";
 
@@ -28,6 +28,7 @@ const ModelStagePage = lazy(() => import("./app/modelstage/page"));
 
 /** Global loading fallback for lazy routes — mirrors loading.tsx */
 function RouteLoading(): React.JSX.Element {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -40,14 +41,15 @@ function RouteLoading(): React.JSX.Element {
       }}
     >
       <div className="loading-spinner" />
-      <span style={{ fontSize: 13, color: "var(--text-muted)" }}>加载中…</span>
+      <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{t("common.loading")}</span>
     </div>
   );
 }
 
 /**
  * Route-level error boundary — mirrors Next.js error.tsx.
- * Lazy chunk 加载失败或页面渲染抛出异常时，展示 GlobalError 而非白屏。
+ * On lazy-chunk load failure or page render exceptions, GlobalError is
+ * shown instead of a blank screen.
  */
 interface RouteErrorBoundaryProps {
   children: ReactNode;
@@ -85,8 +87,11 @@ class RouteErrorBoundary extends Component<
 }
 
 export default function App(): React.JSX.Element {
-  // 全局共享 SSE 连接：应用生命周期内常驻，
-  // 路由切换时页面只订阅/取消订阅，不再反复断开重连。
+  /*
+   * App-wide shared SSE connection: it stays resident for the whole
+   * app lifetime, so route switching only subscribes/unsubscribes
+   * instead of repeatedly disconnecting and reconnecting.
+   */
   useEffect(() => {
     initSharedSse();
     return () => {

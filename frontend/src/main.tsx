@@ -3,9 +3,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 
 /*
- * Global style imports — SCSS 模块化架构
- * globals.css 包含 Tailwind 导入与 @theme inline，由 PostCSS 处理
- * main.scss 为 SCSS 入口，通过 @use 按序加载所有样式模块
+ * Global style imports — modular SCSS architecture.
+ * globals.css contains the Tailwind import and @theme inline, processed
+ * by PostCSS. main.scss is the SCSS entry that @use-loads all style
+ * modules in order.
  */
 import "./app/globals.css";
 import "./styles/main.scss";

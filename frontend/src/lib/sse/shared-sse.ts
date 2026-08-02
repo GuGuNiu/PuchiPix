@@ -1,17 +1,21 @@
 /**
- * shared-sse.ts — 全局共享 SSE 连接（单例常驻）
+ * SharedSse - app-wide shared SSE connection (single resident instance).
  *
- * 背景：
- * 此前每个页面（Dashboard / Tasks / Photos）各自 new EventSource('/api/tasks/stream')，
- * 路由切换时旧页面卸载关闭连接、新页面挂载重新建连，导致：
- *  - 每次路由切换都重新拉取全量 `initial` 数据（状态抖动、后端压力）
- *  - 建连窗口内页面数据短暂缺失（状态不一致）
- *  - 同页多 store 订阅时可能建立重复连接
+ * Background:
+ * Previously each page (Dashboard / Tasks / Photos) created its own
+ * EventSource to '/api/tasks/stream'. Route switching closed the old
+ * connection and opened a new one, which caused:
+ *  - Full 'initial' payload being re-pulled on every route change
+ *    (state flicker and extra backend load)
+ *  - A window where the page had no live data during (re)connection
+ *  - Duplicate connections when multiple stores subscribed at once
  *
- * 方案：
- * 应用启动时建立**单个常驻连接**，所有 store / 组件通过 subscribeSseEvent()
- * 订阅事件（同一事件可多 handler 并存）。连接断开后指数退避自动重连，
- * 心跳 watchdog 兜底（45s 无心跳强制重连）。连接状态可广播给订阅者。
+ * Solution:
+ * A single resident connection is established at app startup. Stores and
+ * components subscribe via subscribeSseEvent() (multiple handlers per
+ * event are supported). On disconnect, reconnect uses exponential backoff;
+ * a heartbeat watchdog (45s without heartbeat) forces a reconnect.
+ * Connection state can be broadcast to subscribers.
  */
 
 type ConnectionState = 'connected' | 'disconnected' | 'reconnecting';
@@ -19,14 +23,14 @@ type ConnectionState = 'connected' | 'disconnected' | 'reconnecting';
 type SseHandler = (e: MessageEvent) => void;
 type ConnStateHandler = (state: ConnectionState) => void;
 
-const HEARTBEAT_INTERVAL = 15000; // 后端每 15s 推送一次 heartbeat
-const HEARTBEAT_TIMEOUT = 45000;  // 3x 间隔仍无心跳视为连接死亡
+/** Backend pushes heartbeat every 15s; consider the connection dead beyond 3x that interval and force a reconnect. */
+const HEARTBEAT_TIMEOUT = 45000;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
 interface SharedSseState {
   es: EventSource | null;
-  /** 已注册的订阅：event -> Set<handler>（同一事件可多 handler） */
+  /** Registered subscriptions: event -> Set<handler>. */
   subscribers: Map<string, Set<SseHandler>>;
   connStateListeners: Set<ConnStateHandler>;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
@@ -34,7 +38,7 @@ interface SharedSseState {
   lastHeartbeat: number;
   reconnectAttempt: number;
   connected: boolean;
-  /** 应用显式销毁（App 卸载）后不再自动重连 */
+  /** When destroyed explicitly (App unmount), no further reconnects. */
   destroyed: boolean;
 }
 
@@ -53,10 +57,10 @@ const state: SharedSseState = {
 function notifyConnState(s: ConnectionState): void {
   state.connected = s === 'connected';
   for (const cb of state.connStateListeners) {
+    // Subscriber errors must not break the broadcast loop.
     try {
       cb(s);
     } catch {
-      /* 隔离单个订阅者异常 */
     }
   }
 }
@@ -65,7 +69,7 @@ function resetHeartbeat(): void {
   state.lastHeartbeat = Date.now();
   if (state.heartbeatTimer) clearTimeout(state.heartbeatTimer);
   state.heartbeatTimer = setTimeout(() => {
-    // 心跳超时：强制断开并重连
+    // Heartbeat timeout: force close and reconnect.
     if (state.es) {
       state.es.close();
       state.es = null;
@@ -84,14 +88,14 @@ function cancelHeartbeat(): void {
 
 function scheduleReconnect(): void {
   if (state.destroyed) return;
-  if (state.reconnectTimer) return; // 已排定，避免重复
+  if (state.reconnectTimer) return; // Already scheduled.
 
   state.reconnectAttempt++;
   const base = Math.min(
     RECONNECT_BASE_MS * Math.pow(2, state.reconnectAttempt - 1),
     RECONNECT_MAX_MS,
   );
-  // ±25% jitter，避免后端重启时所有客户端同时重连形成风暴
+  // +/-25% jitter avoids a reconnect storm when the backend restarts.
   const jitter = base * 0.25 * (Math.random() * 2 - 1);
   const delay = Math.max(0, Math.round(base + jitter));
 
@@ -102,14 +106,14 @@ function scheduleReconnect(): void {
   }, delay);
 }
 
-/** 为当前 EventSource 重新注册全部已订阅事件（重连后调用） */
+/** Re-register all subscribed events on a fresh EventSource (after reconnect). */
 function rebindAllHandlers(es: EventSource): void {
   for (const [event, handlers] of state.subscribers) {
     for (const handler of handlers) {
       es.addEventListener(event, handler);
     }
   }
-  // heartbeat 事件不派发给业务订阅者，仅用于重置 watchdog
+  /* Heartbeat events are not dispatched to business subscribers; they only reset the watchdog. */
   es.addEventListener('heartbeat', () => {
     resetHeartbeat();
   });
@@ -118,7 +122,7 @@ function rebindAllHandlers(es: EventSource): void {
 function connect(): void {
   if (state.destroyed) return;
 
-  // 清理旧的连接/定时器，防止重复
+  // Tear down any stale connection / timers before (re)connecting.
   if (state.es) {
     state.es.close();
     state.es = null;
@@ -139,8 +143,8 @@ function connect(): void {
   };
 
   es.onerror = () => {
-    // EventSource 断线时会多次触发 onerror；已有重连排定时则忽略
-    if (state.reconnectTimer) return;
+  // EventSource onerror may fire multiple times during one disconnect.
+  if (state.reconnectTimer) return;
     cancelHeartbeat();
     if (state.es === es) {
       state.es = null;
@@ -168,8 +172,9 @@ function teardown(): void {
 }
 
 /**
- * 订阅指定 SSE 事件。返回取消订阅函数。
- * 同一事件允许多个订阅者；事件名与后端 EventBus 事件名一致。
+ * Subscribe to a named SSE event. Returns an unsubscribe function.
+ * Multiple subscribers per event are allowed; event names match the
+ * backend EventBus event names.
  */
 export function subscribeSseEvent(event: string, handler: SseHandler): () => void {
   let handlers = state.subscribers.get(event);
@@ -179,7 +184,7 @@ export function subscribeSseEvent(event: string, handler: SseHandler): () => voi
   }
   handlers.add(handler);
 
-  // 连接已存在则立即挂载该事件的 listener（含重连后的情况）
+  // Attach the listener immediately when a connection already exists.
   if (state.es) {
     state.es.addEventListener(event, handler);
   }
@@ -197,39 +202,39 @@ export function subscribeSseEvent(event: string, handler: SseHandler): () => voi
   };
 }
 
-/** 订阅连接状态变化。返回取消订阅函数。 */
+/** Subscribe to connection-state changes. Returns an unsubscribe function. */
 export function onSseConnectionState(cb: ConnStateHandler): () => void {
   state.connStateListeners.add(cb);
-  // 回放当前状态，避免订阅方错过初始状态
+  // Replay the current state so late subscribers see the real status.
   const current: ConnectionState = state.connected
     ? 'connected'
     : state.reconnectTimer
       ? 'reconnecting'
       : 'disconnected';
+  // Subscriber errors must not break subscription setup.
   try {
     cb(current);
   } catch {
-    /* ignore */
   }
   return () => {
     state.connStateListeners.delete(cb);
   };
 }
 
-/** 应用挂载时调用：建立常驻连接（幂等）。 */
+/** Call at app mount: establish the resident connection (idempotent). */
 export function initSharedSse(): void {
   state.destroyed = false;
   if (state.es || state.reconnectTimer) return;
   connect();
 }
 
-/** 应用卸载时调用：关闭连接并停止重连（幂等）。 */
+/** Call at app unmount: close the connection and stop reconnecting. */
 export function destroySharedSse(): void {
   state.destroyed = true;
   teardown();
 }
 
-/** 当前是否已连接（供调试/外部查询）。 */
+/** Whether the connection is currently open (for debugging). */
 export function isSharedSseConnected(): boolean {
   return state.connected;
 }
