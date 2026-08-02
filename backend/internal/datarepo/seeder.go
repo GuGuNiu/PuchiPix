@@ -96,7 +96,7 @@ func (s *Seeder) SeedModels(ctx context.Context) error {
 		}
 		_, err := s.database.Exec(ctx,
 			`INSERT INTO models (name, pinyin, aliases, category)
-			 VALUES ($1, $2, $3, $4)
+			 VALUES (?, ?, ?, ?)
 			 ON CONFLICT (name) DO UPDATE SET
 			   pinyin   = EXCLUDED.pinyin,
 			   aliases  = EXCLUDED.aliases,
@@ -154,7 +154,7 @@ func (s *Seeder) SeedGameCharacters(ctx context.Context) error {
 			aliasesJSON, _ := json.Marshal(c.Aliases)
 			_, err := s.database.Exec(ctx,
 				`INSERT INTO game_characters (name, pinyin, aliases, game_name, game_name_en)
-				 VALUES ($1, $2, $3, $4, $5)
+				 VALUES (?, ?, ?, ?, ?)
 				 ON CONFLICT (name, game_name) DO UPDATE SET
 				   pinyin      = EXCLUDED.pinyin,
 				   aliases     = EXCLUDED.aliases,
@@ -278,8 +278,7 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 	// Step 1: Ensure raw_title column exists
 	var exists bool
 	s.database.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
-		 WHERE table_name='galleries' AND column_name='raw_title')`).Scan(&exists)
+		`SELECT EXISTS(SELECT 1 FROM pragma_table_info('galleries') WHERE name='raw_title')`).Scan(&exists)
 	if !exists {
 		if _, err := s.database.Exec(ctx,
 			`ALTER TABLE galleries ADD COLUMN raw_title TEXT NOT NULL DEFAULT ''`); err != nil {
@@ -314,8 +313,9 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 	// accidentally cleaned in a previous fixup run (idempotent guard).
 	restored, _ := s.database.Exec(ctx,
 		`UPDATE galleries SET title = raw_title WHERE raw_title != '' AND raw_title != title`)
-	if restored.RowsAffected() > 0 {
-		log.Printf("[datarepo] Restored %d titles from raw_title", restored.RowsAffected())
+	rowsAff, _ := restored.RowsAffected()
+	if rowsAff > 0 {
+		log.Printf("[datarepo] Restored %d titles from raw_title", rowsAff)
 	}
 
 	// Step 3: Re-parse each gallery
@@ -335,7 +335,7 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 
 		// Fill raw_title if empty (one-time)
 		if _, err := s.database.Exec(ctx,
-			`UPDATE galleries SET raw_title = $1 WHERE id = $2 AND raw_title = ''`,
+			`UPDATE galleries SET raw_title = ? WHERE id = ? AND raw_title = ''`,
 			rawTitle, g.ID); err == nil {
 			rawFilled++
 		}
@@ -343,7 +343,7 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 		// Re-parse using improved title parser
 		result := parser.Parse(rawTitle)
 
-		// Strip protagonist from title if it's still present —
+		// Strip protagonist from title if it's still present �?
 		// only when the title actually contains the protagonist name,
 		// to avoid double-stripping already-clean titles.
 		titleHasProto := result.Protagonist != "" && stringContainsName(rawTitle, result.Protagonist)
@@ -357,7 +357,7 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 		// Update stored title if any cleaning changed it
 		if cleanTitle != rawTitle {
 			if _, err := s.database.Exec(ctx,
-				`UPDATE galleries SET title = $1 WHERE id = $2`,
+				`UPDATE galleries SET title = ? WHERE id = ?`,
 				cleanTitle, g.ID); err == nil {
 				titleFixed++
 			}
@@ -380,7 +380,7 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 				description = descCompact
 			}
 
-			description = strings.TrimLeft(strings.TrimSpace(description), "与- ")
+			description = strings.TrimLeft(strings.TrimSpace(description), "�? ")
 		}
 
 		gameCharsJSON := "[]"
@@ -394,11 +394,11 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 		if needsUpdate {
 			_, err := s.database.Exec(ctx,
 				`UPDATE galleries SET
-				 protagonist = $1,
-				 description = $2,
-				 game_characters = $3,
+				 protagonist = ?,
+				 description = ?,
+				 game_characters = ?,
 				 updated_at = CURRENT_TIMESTAMP
-				 WHERE id = $4`,
+				 WHERE id = ?`,
 				result.Protagonist, description, gameCharsJSON, g.ID)
 			if err != nil {
 				log.Printf("[datarepo] WARN: fixup gallery id=%d: %v", g.ID, err)
@@ -447,7 +447,7 @@ func (s *Seeder) FixupGalleries(ctx context.Context, parser *titleparser.Parser)
 			}
 		}
 		if issues == 0 {
-			log.Printf("[datarepo] VERIFY: All %d galleries clean — 0 issues", total)
+			log.Printf("[datarepo] VERIFY: All %d galleries clean �?0 issues", total)
 		}
 	}
 
@@ -464,10 +464,10 @@ func stripProtagonistFromTitle(title, protagonist string) string {
 	lower := strings.ToLower(title)
 	lowerProto := strings.ToLower(protagonist)
 
-	// Direct prefix match: "星之迟迟 - 作品名" → "作品名"
+	// Direct prefix match: "星之迟迟 - 作品�? �?"作品�?
 	if strings.HasPrefix(lower, lowerProto) {
 		rest := strings.TrimSpace(title[len(protagonist):])
-		rest = strings.TrimLeft(rest, "-–—|｜:： ")
+		rest = strings.TrimLeft(rest, "-–—|�?�?")
 		return strings.TrimSpace(rest)
 	}
 
@@ -490,7 +490,7 @@ func stripProtagonistFromTitle(title, protagonist string) string {
 			pos += len(string(r))
 		}
 		rest := strings.TrimSpace(title[pos:])
-		rest = strings.TrimLeft(rest, "-–—|｜:： ")
+		rest = strings.TrimLeft(rest, "-–—|�?�?")
 		return strings.TrimSpace(rest)
 	}
 

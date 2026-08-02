@@ -1,0 +1,194 @@
+[
+  {
+    "timestamp": "2026-08-01T09:39:02.711Z",
+    "type": "INFO",
+    "message": "开始Coser.io站点逆向分析",
+    "data": {
+      "target": "https://coser.io/latp/69218.html",
+      "galleryId": "69218"
+    }
+  },
+  {
+    "timestamp": "2026-08-01T09:39:02.714Z",
+    "type": "INFO",
+    "message": "步骤1: 获取页面基础信息",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:03.549Z",
+    "type": "INFO",
+    "message": "页面状态: 200",
+    "data": {
+      "contentLength": 18803
+    }
+  },
+  {
+    "timestamp": "2026-08-01T09:39:03.550Z",
+    "type": "INFO",
+    "message": "页面中找到 0 个图片URL",
+    "data": []
+  },
+  {
+    "timestamp": "2026-08-01T09:39:03.550Z",
+    "type": "INFO",
+    "message": "步骤2: 开始API端点探测",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:03.840Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/user/info 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:04.631Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/user/profile 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:05.421Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/user/points 返回 302",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:06.224Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/69218 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:07.015Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/69218/info 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:07.806Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/69218/detail 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:08.595Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/69218/images 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:09.391Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/69218/media 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:10.192Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/69218/content 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:10.985Z",
+    "type": "SUCCESS",
+    "message": "API端点 /web-api/v1/galleries 返回 200",
+    "data": {
+      "endpoint": "/web-api/v1/galleries",
+      "statusCode": 200,
+      "contentType": "application/json; charset=utf-8",
+      "hasBody": true,
+      "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0000\u0003��Mo\u0013G\u0018ǿJ4ggw�_�\u0006\b�HU�C�Jp��\u0017g���:!�8�\nԂ\u0002�@\b�@.@ā 5�x\u0011�����[t6�\u001b\u001b�l\u000f���\u0019?~�����n\u0002�[\u0007\u0012�\u0002��1��\u0007IY\f\\\u000b��Ϻ\u001d�\u0002Ç[��\fݮ��\u0016��� �\u0004��_���&�,H��@����'���j��\u0012��GPD\u0004-��\t�z�w��I�c�5W�TtBy[w:�؈��\u0018���\u0018\t\u0007"
+    }
+  },
+  {
+    "timestamp": "2026-08-01T09:39:11.782Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/gallery/list 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:12.570Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/images 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:13.467Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/media 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:14.266Z",
+    "type": "INFO",
+    "message": "API端点 /api/gallery/69218 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:15.059Z",
+    "type": "INFO",
+    "message": "API端点 /api/v1/gallery/69218 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:15.853Z",
+    "type": "INFO",
+    "message": "API端点 /api/gallery/69218/images 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:16.645Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/folder/586 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:17.441Z",
+    "type": "INFO",
+    "message": "API端点 /web-api/v1/folder/586/galleries 返回 404",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:17.946Z",
+    "type": "INFO",
+    "message": "步骤3: 分析图片URL规律",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:17.946Z",
+    "type": "INFO",
+    "message": "图片URL结构分析",
+    "data": {
+      "cdnDomain": "coserbox.static.iloli.io",
+      "basePath": "/gallery/2026/07/30/",
+      "folderHash": "0535b46d1a0d72b1036970bc489c739b",
+      "filePattern": "[hash16].webp",
+      "queryParams": [
+        "class=normalvip",
+        "class=original"
+      ],
+      "observedFiles": [
+        "971d16b7a4c8.webp",
+        "de25d42733b0.webp"
+      ]
+    }
+  },
+  {
+    "timestamp": "2026-08-01T09:39:17.947Z",
+    "type": "INFO",
+    "message": "步骤4: 获取并分析JS文件",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:18.110Z",
+    "type": "INFO",
+    "message": "JS文件大小: 287 字节",
+    "data": null
+  },
+  {
+    "timestamp": "2026-08-01T09:39:18.110Z",
+    "type": "INFO",
+    "message": "JS中发现 0 个API端点",
+    "data": []
+  }
+]

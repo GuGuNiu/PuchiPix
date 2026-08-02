@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
 import { formatFileSize } from "@/lib/utils";
 import {
@@ -33,7 +33,7 @@ export default function PhotosPage(): React.JSX.Element {
   const { t } = useI18n();
   const { galleries, loading, progressMap, zipProgressMap, zipStatusMap, fetchGalleries, deleteGallery, retryDownload, downloadZip, fetchGalleryDetail, subscribeToSocket } =
     useGalleryStore();
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   useRouteState(pathname, {
     ttl: 5 * 60 * 1000,
     saveScroll: true,

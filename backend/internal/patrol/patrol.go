@@ -83,7 +83,7 @@ func (ps *PatrolScheduler) Start(ctx context.Context, interval time.Duration, in
 		}
 	}()
 
-	log.Printf("[VariantPatrol] Started — interval=%v cooldown=%v", interval, ps.cooldown)
+	log.Printf("[VariantPatrol] Started �?interval=%v cooldown=%v", interval, ps.cooldown)
 }
 
 // Stop gracefully shuts down the patrol scheduler.
@@ -120,7 +120,7 @@ func (ps *PatrolScheduler) runPatrolCycle(ctx context.Context) *PatrolReport {
 
 	duration := time.Since(start).Milliseconds()
 
-	log.Printf("[VariantPatrol] Cycle complete — inc=%d auto=%d queued=%d promoted=%d cleaned=%d duration=%dms",
+	log.Printf("[VariantPatrol] Cycle complete �?inc=%d auto=%d queued=%d promoted=%d cleaned=%d duration=%dms",
 		incReport.CandidatesFound, incReport.AutoIngested, incReport.Queued,
 		proReport.Promoted, cleanReport.CleanedUp, duration)
 
@@ -144,9 +144,9 @@ func (ps *PatrolScheduler) scanIncremental(ctx context.Context) *PatrolReport {
 		`SELECT g.id, g.title, g.protagonist
 		 FROM galleries g
 		 WHERE g.protagonist != ''
-		   AND g.updated_at > $1
+		   AND g.updated_at > ?
 		 ORDER BY g.id
-		 LIMIT $2`, ps.state.LastScanAt, ps.scanBatch)
+		 LIMIT ?`, ps.state.LastScanAt, ps.scanBatch)
 	if err != nil {
 		log.Printf("[VariantPatrol] Incremental scan query error: %v", err)
 		return report
@@ -177,7 +177,7 @@ func (ps *PatrolScheduler) scanIncremental(ctx context.Context) *PatrolReport {
 	report.CandidatesFound = len(scores)
 
 	for _, s := range scores {
-		// Skip exact matches — they provide no new information
+		// Skip exact matches �?they provide no new information
 		if s.Candidate.Type == titleparser.VariantExactMatch {
 			continue
 		}
@@ -231,7 +231,7 @@ func (ps *PatrolScheduler) promoteQueue(ctx context.Context) *PatrolReport {
 			}
 			ps.ingestVariant(ctx, vs)
 			ps.db.Exec(ctx,
-				`UPDATE model_variant_queue SET status='promoted', score=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2`,
+				`UPDATE model_variant_queue SET status='promoted', score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
 				newScore, id)
 			report.Promoted++
 		}
@@ -244,7 +244,7 @@ func (ps *PatrolScheduler) rescoreVariant(ctx context.Context, modelName, varian
 	var freq int
 	ps.db.QueryRow(ctx,
 		`SELECT COUNT(*) FROM galleries
-		 WHERE protagonist = $1 AND title ILIKE '%' || $2 || '%'`,
+		 WHERE protagonist = ? AND title LIKE '%' || ? || '%'`,
 		modelName, variant).Scan(&freq)
 
 	freqNorm := float64(freq) / float64(ps.cfg.MinFrequency)
@@ -260,19 +260,23 @@ func (ps *PatrolScheduler) cleanup(ctx context.Context) *PatrolReport {
 	report := &PatrolReport{ScanType: "cleanup"}
 
 	// Remove old discard logs
-	tag, err := ps.db.Exec(ctx,
+	result, err := ps.db.Exec(ctx,
 		`DELETE FROM model_variant_log
-		 WHERE action = 'discard' AND created_at < NOW() - INTERVAL '30 days'`)
+		 WHERE action = 'discard' AND created_at < datetime('now', '-30 days')`)
 	if err == nil {
-		report.CleanedUp += int(tag.RowsAffected())
+		if rows, _ := result.RowsAffected(); rows > 0 {
+			report.CleanedUp += int(rows)
+		}
 	}
 
 	// Expire old pending reviews
-	tag, err = ps.db.Exec(ctx,
+	result2, err := ps.db.Exec(ctx,
 		`UPDATE model_variant_queue SET status = 'expired'
-		 WHERE status = 'pending' AND created_at < NOW() - INTERVAL '90 days'`)
+		 WHERE status = 'pending' AND created_at < datetime('now', '-90 days')`)
 	if err == nil {
-		report.CleanedUp += int(tag.RowsAffected())
+		if rows, _ := result2.RowsAffected(); rows > 0 {
+			report.CleanedUp += int(rows)
+		}
 	}
 
 	return report
@@ -284,10 +288,12 @@ func (ps *PatrolScheduler) ingestVariant(ctx context.Context, vs titleparser.Var
 	_, err := ps.db.Exec(ctx,
 		`UPDATE models
 		 SET aliases = CASE
-		   WHEN NOT (aliases::jsonb @> to_jsonb($1::text)) THEN aliases::jsonb || to_jsonb($1::text)
-		   ELSE aliases::jsonb
-		 END::text
-		 WHERE name = $2`, vs.Candidate.Variant, vs.Candidate.ModelName)
+	   WHEN NOT EXISTS (SELECT 1 FROM json_each(aliases) WHERE value = ?)
+	   THEN json_insert(aliases, '$[#]', ?)
+	   ELSE aliases
+		 END
+		 WHERE name = ?`,
+		vs.Candidate.Variant, vs.Candidate.Variant, vs.Candidate.ModelName)
 	if err != nil {
 		log.Printf("[VariantPatrol] Ingest error model=%s variant=%s: %v",
 			vs.Candidate.ModelName, vs.Candidate.Variant, err)
@@ -297,16 +303,16 @@ func (ps *PatrolScheduler) ingestVariant(ctx context.Context, vs titleparser.Var
 func (ps *PatrolScheduler) upsertQueue(ctx context.Context, vs titleparser.VariantScore) {
 	ps.db.Exec(ctx,
 		`INSERT INTO model_variant_queue (model_name, variant, variant_type, score, status)
-		 VALUES ($1, $2, $3, $4, 'pending')
+		 VALUES (?, ?, ?, ?, 'pending')
 		 ON CONFLICT (model_name, variant) DO UPDATE
-		 SET score = $4, updated_at = CURRENT_TIMESTAMP`,
+		 SET score = ?, updated_at = CURRENT_TIMESTAMP`,
 		vs.Candidate.ModelName, vs.Candidate.Variant, string(vs.Candidate.Type), vs.Score)
 }
 
 func (ps *PatrolScheduler) logVariant(ctx context.Context, vs titleparser.VariantScore) {
 	ps.db.Exec(ctx,
 		`INSERT INTO model_variant_log (model_name, variant, variant_type, score, action)
-		 VALUES ($1, $2, $3, $4, $5)`,
+		 VALUES (?, ?, ?, ?, ?)`,
 		vs.Candidate.ModelName, vs.Candidate.Variant, string(vs.Candidate.Type), vs.Score, vs.Action)
 }
 
@@ -314,7 +320,7 @@ func (ps *PatrolScheduler) logVariant(ctx context.Context, vs titleparser.Varian
 
 func (ps *PatrolScheduler) loadState(ctx context.Context) {
 	ps.db.QueryRow(ctx,
-		`SELECT COALESCE(last_scan_at, NOW() - INTERVAL '7 days'),
+		`SELECT COALESCE(last_scan_at, datetime('now', '-7 days')),
 		        COALESCE(galleries_scanned, 0),
 		        COALESCE(variants_found, 0),
 		        COALESCE(variants_promoted, 0)
@@ -325,7 +331,7 @@ func (ps *PatrolScheduler) loadState(ctx context.Context) {
 func (ps *PatrolScheduler) saveState(ctx context.Context) {
 	ps.db.Exec(ctx,
 		`INSERT INTO model_variant_scan_state (last_scan_at, galleries_scanned, variants_found, variants_promoted)
-		 VALUES ($1, $2, $3, $4)`,
+		 VALUES (?, ?, ?, ?)`,
 		ps.state.LastScanAt, ps.state.GalleriesScanned, ps.state.VariantsFound, ps.state.Promoted)
 }
 

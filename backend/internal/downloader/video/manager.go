@@ -14,6 +14,7 @@ import (
 	"backend/internal/db"
 	"backend/internal/downloader"
 	"backend/internal/infra"
+	"backend/internal/taskprogress"
 )
 
 // ProgressMessage is the wire format for download progress updates
@@ -78,6 +79,7 @@ type DownloadManager struct {
 	downloadPath string
 	segmentsPath string
 	maxConcurrent int
+	tracker       *taskprogress.VideoProgressTracker
 
 	activeDownloads map[int]*ActiveDownload
 	taskRetries     map[int]int
@@ -120,6 +122,7 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 			return m.maxConcurrent
 		},
 		OnProgress: m.emitProgress,
+		OnSegmentUpdate: m.handleSegmentUpdate,
 		DB:         database,
 		Logger:     m.logger,
 	})
@@ -133,6 +136,29 @@ func (m *DownloadManager) SetProgressCallback(cb func(ProgressMessage)) {
 	m.callbackMu.Lock()
 	m.progressCallback = cb
 	m.callbackMu.Unlock()
+}
+
+// SetTracker injects the VideoProgressTracker for segment-level tracking.
+// This bridges the pipeline gap where the tracker was initialized but
+// never connected to the download pipeline.
+func (m *DownloadManager) SetTracker(t *taskprogress.VideoProgressTracker) {
+	m.mu.Lock()
+	m.tracker = t
+	m.mu.Unlock()
+}
+
+// handleSegmentUpdate is the callback from SegmentQueue that bridges
+// to VideoProgressTracker.UpdateSegment. It translates the
+// completed/failed boolean into the tracker's status enum.
+func (m *DownloadManager) handleSegmentUpdate(taskID, segmentIdx int, completed bool, localPath string, fileSize int64, errMsg string) {
+	if m.tracker == nil {
+		return
+	}
+	status := taskprogress.SegCompleted
+	if !completed {
+		status = taskprogress.SegFailed
+	}
+	m.tracker.UpdateSegment(taskID, segmentIdx, status, localPath, fileSize, errMsg)
 }
 
 func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, total int, status, speed string) {
@@ -184,7 +210,7 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer dbCancel()
 	_, _ = m.db.Exec(dbCtx,
-		"UPDATE download_tasks SET status = 'downloading', progress = 0, error_msg = '' WHERE id = $1",
+		"UPDATE download_tasks SET status = 'downloading', progress = 0, error_msg = '' WHERE id = ?",
 		task.ID)
 
 	safeTitle := downloader.SanitizeFilename(task.Title)
@@ -264,6 +290,26 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"taskId":  task.ID,
 			"count":   len(segments),
 		}})
+
+	// Register segments with the VideoProgressTracker for segment-level
+	// progress tracking. This bridges the pipeline gap where the tracker
+	// was initialized and injected but RegisterSegments was never called
+	// from the download pipeline, leaving the tracker's segments map empty.
+	if m.tracker != nil {
+		m.tracker.RegisterSegments(task.ID, len(segments))
+	}
+
+	// Persist total_segments to DB so the SSE initial query can return
+	// segment counts for tasks that are not currently downloading (e.g.
+	// after a page refresh). This bridges the gap where segment info was
+	// only available via real-time task:progress events.
+	if m.db != nil {
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _ = m.db.Exec(ctx2,
+			"UPDATE download_tasks SET total_segments = ? WHERE id = ?",
+			len(segments), task.ID)
+		cancel2()
+	}
 
 	download := &ActiveDownload{
 		TaskID:            task.ID,
@@ -434,7 +480,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	completeCtx, completeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer completeCancel()
 	_, _ = m.db.Exec(completeCtx,
-		"UPDATE download_tasks SET status = 'completed', progress = 100, file_path = $1, format = 'mp4' WHERE id = $2",
+		"UPDATE download_tasks SET status = 'completed', progress = 100, file_path = ?, format = 'mp4' WHERE id = ?",
 		mp4OutputPath, task.ID)
 
 	CleanupSegments(segDir)
@@ -485,7 +531,7 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 
 		retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, _ = m.db.Exec(retryCtx,
-			"UPDATE download_tasks SET status = 'pending', progress = 0, error_msg = $1 WHERE id = $2",
+			"UPDATE download_tasks SET status = 'pending', progress = 0, error_msg = ? WHERE id = ?",
 			fmt.Sprintf("Auto-retrying (%d/%d)...", retryCount+1, maxTaskRetries), task.ID)
 		retryCancel()
 
@@ -497,7 +543,7 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 			checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			var status string
 			err := m.db.QueryRow(checkCtx,
-				"SELECT status FROM download_tasks WHERE id = $1", task.ID).Scan(&status)
+				"SELECT status FROM download_tasks WHERE id = ?", task.ID).Scan(&status)
 			checkCancel()
 
 			if err != nil || status == "cancelled" || status == "paused" {
@@ -540,7 +586,7 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 	failCtx, failCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer failCancel()
 	_, _ = m.db.Exec(failCtx,
-		"UPDATE download_tasks SET status = 'failed', error_msg = $1 WHERE id = $2",
+		"UPDATE download_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
 		errMsg, task.ID)
 
 	m.emitProgress(task.ID, 0, 0, 0, "failed", "")
@@ -566,7 +612,7 @@ func (m *DownloadManager) PauseDownload(taskID int) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, _ = m.db.Exec(ctx,
-			"UPDATE download_tasks SET status = 'paused' WHERE id = $1", taskID)
+			"UPDATE download_tasks SET status = 'paused' WHERE id = ?", taskID)
 	}()
 
 	progress := float64(completedCount) / float64(totalSegments) * 100
@@ -603,7 +649,7 @@ func (m *DownloadManager) ResumeDownload(taskID int) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, _ = m.db.Exec(ctx,
-			"UPDATE download_tasks SET status = 'downloading' WHERE id = $1", taskID)
+			"UPDATE download_tasks SET status = 'downloading' WHERE id = ?", taskID)
 	}()
 
 	m.segQueue.ProcessQueue()
@@ -637,7 +683,7 @@ func (m *DownloadManager) CancelDownload(taskID int) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, _ = m.db.Exec(ctx,
-			"UPDATE download_tasks SET status = 'cancelled' WHERE id = $1", taskID)
+			"UPDATE download_tasks SET status = 'cancelled' WHERE id = ?", taskID)
 	}()
 
 	m.emitProgress(taskID, 0, 0, 0, "cancelled", "")
@@ -697,7 +743,7 @@ func (m *DownloadManager) Stop() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_, _ = m.db.Exec(ctx,
-				"UPDATE download_tasks SET status = 'cancelled', error_msg = 'Service shutdown, task cancelled' WHERE id = $1",
+				"UPDATE download_tasks SET status = 'cancelled', error_msg = 'Service shutdown, task cancelled' WHERE id = ?",
 				download.TaskID)
 		}()
 	}
@@ -714,7 +760,7 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 
 	_, err := m.db.Exec(ctx, `
 		INSERT INTO video_infos (task_id, title, source_url, file_size, duration, tags, actors, categories, director, resolution)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET
 			title = EXCLUDED.title,
 			source_url = EXCLUDED.source_url,

@@ -11,7 +11,7 @@ import type { DownloadTask, Stats, TaskStatus } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import { useI18n } from "@/lib/i18n";
 import { formatFileSize } from "@/lib/utils";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { DataStream } from "@/components/ops/data-stream";
 import { LogConsole } from "@/components/ops/log-console";
 

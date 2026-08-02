@@ -1,7 +1,5 @@
-'use client';
-
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
 
 export function useUrlState<T extends Record<string, string>>(
@@ -10,9 +8,9 @@ export function useUrlState<T extends Record<string, string>>(
   values: T;
   update: (updates: Partial<Record<keyof T, string | null>>) => void;
 } {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
 
   const values = {} as Record<string, string>;
   for (const key of Object.keys(defaults)) {
@@ -21,7 +19,7 @@ export function useUrlState<T extends Record<string, string>>(
 
   const update = useCallback(
     (updates: Partial<Record<keyof T, string | null>>) => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParams);
       for (const [key, value] of Object.entries(updates)) {
         if (
           value === null ||
@@ -35,28 +33,28 @@ export function useUrlState<T extends Record<string, string>>(
         }
       }
       const queryString = params.toString();
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, {
-        scroll: false,
+      navigate(queryString ? `${pathname}?${queryString}` : pathname, {
+        replace: true,
       });
     },
-    [router, pathname, searchParams, defaults],
+    [navigate, pathname, searchParams, defaults],
   );
 
   return { values: values as T, update };
 }
 
 /**
- *
- * @param defaultValue - Default value
+ * Debounced URL parameter hook. Syncs local state to URL search params
+ * after a delay, avoiding excessive history entries on rapid input.
  */
 export function useDebouncedUrlParam(
   urlKey: string,
   defaultValue: string = '',
   delay: number = 300,
 ): [string, (value: string) => void] {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
   const urlValue = searchParams.get(urlKey) ?? defaultValue;
   const [localValue, setLocalValue] = useState(urlValue);
 
@@ -68,19 +66,19 @@ export function useDebouncedUrlParam(
   useEffect(() => {
     if (localValue === urlValue) return;
     const timer = setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParams);
       if (localValue === '' || localValue === defaultValue) {
         params.delete(urlKey);
       } else {
         params.set(urlKey, localValue);
       }
       const queryString = params.toString();
-      router.replace(queryString ? `${pathname}?${queryString}` : pathname, {
-        scroll: false,
+      navigate(queryString ? `${pathname}?${queryString}` : pathname, {
+        replace: true,
       });
     }, delay);
     return () => clearTimeout(timer);
-  }, [localValue, urlValue, urlKey, delay, router, pathname, searchParams, defaultValue]);
+  }, [localValue, urlValue, urlKey, delay, navigate, pathname, searchParams, defaultValue]);
 
   return [localValue, setLocalValue];
 }

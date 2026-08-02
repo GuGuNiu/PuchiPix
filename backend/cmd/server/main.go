@@ -1,19 +1,15 @@
-package main
+﻿package main
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
-
-	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 
 	"backend/internal/api"
 	"backend/internal/config"
@@ -32,23 +28,13 @@ import (
 	siteSjs "backend/internal/sites/sjs"
 	"backend/internal/sites/universal"
 	"backend/internal/sites/xsnvshen"
+	"backend/internal/taskprogress"
+	"backend/internal/titleparser"
+	"backend/resources"
 )
 
 func main() {
 	infra.InitGlobalConfig("INFO", true)
-
-	// ── Embedded PostgreSQL ──
-	// Starts a project-local PostgreSQL process. Falls back to external
-	// PostgreSQL (or degraded mode) if startup fails ??5432 already in use,
-	// binary download failure, etc.
-	embeddedPg := startEmbeddedPG()
-	if embeddedPg != nil {
-		defer func() {
-			if err := embeddedPg.Stop(); err != nil {
-				fmt.Fprintf(os.Stderr, "embedded-postgres stop: %v\n", err)
-			}
-		}()
-	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -68,12 +54,8 @@ func main() {
 		logger.Info("Dev mode: log level set to INFO")
 	}
 
-	if embeddedPg != nil {
-		logger.Info("Embedded PostgreSQL started", "port", 5432)
-	}
-
 	// ── Database ──
-	database, dbErr := db.NewDatabase(cfg.DatabaseURL, nil)
+	database, dbErr := db.NewDatabase(cfg.DatabasePath, nil)
 	if dbErr != nil {
 		logger.Warn("Database unavailable, starting in degraded mode")
 	}
@@ -82,6 +64,8 @@ func main() {
 	var dagOrch *dag.DagOrchestrator
 	var sched *orchsched.SchedulerEngine
 	var exeReg *executors.Registry
+	var progressEngine *taskprogress.Engine
+	var videoTracker *taskprogress.VideoProgressTracker
 
 	if database != nil {
 		logger.Info("Initializing DAG scheduler")
@@ -93,9 +77,40 @@ func main() {
 		// 2. Site Registry ??provider lookup for scrape executor
 		siteReg := sites.GetSiteRegistry()
 
-		// 3. Executor Registry ??routes node execution by key
+		// 3. Initialize progress tracking engine and video segment tracker.
+		// These are created early so they can be passed to WireExecutors
+		// for gallery pipeline integration, and later to DownloadManager
+		// and VideoDownloadExecutor for video pipeline integration.
+		progressEngine = taskprogress.NewEngine(logger)
+		videoTracker = taskprogress.NewVideoProgressTracker(taskprogress.DefaultVideoRetryStrategy())
+
+		// 3a. Build title parser with embedded model/character data.
+		// The parser is used in the scrape pipeline to extract protagonist
+		// names from gallery titles when the site provider does not return one.
+		titleParser := titleparser.New()
+		if models, err := titleparser.LoadModelsFromJSON(resources.CoserJSON); err == nil {
+			titleParser.LoadModels(models)
+			logger.Info("Title parser loaded models", "count", len(models))
+		}
+		if entries, err := resources.GameFS.ReadDir("game"); err == nil {
+			totalChars := 0
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				if data, err := resources.GameFS.ReadFile("game/" + entry.Name()); err == nil {
+					if chars, err := titleparser.LoadGameCharactersFromJSON(data); err == nil {
+						titleParser.LoadGameCharacters(chars)
+						totalChars += len(chars)
+					}
+				}
+			}
+			logger.Info("Title parser loaded game characters", "count", totalChars)
+		}
+
+		// 4. Executor Registry ??routes node execution by key
 		exeReg = executors.NewRegistry()
-		orchestrator.WireExecutors(exeReg, siteReg, database)
+		orchestrator.WireExecutors(exeReg, siteReg, database, eventBus, titleParser, progressEngine, videoTracker)
 
 		// 4. Slot Pool ??concurrency control
 		slotPool := slot.NewSlotPool()
@@ -140,6 +155,10 @@ func main() {
 		taskTypeRegistry.RegisterTransitionPolicy(orchestrator.TaskTypeGallery, policies.GalleryNodePolicy)
 		dagOrch.SetTaskTypeRegistry(taskTypeRegistry)
 
+		// Wire EventBus into DagOrchestrator so SSE/WS clients receive
+		// dag:nodeProgress events for real-time gallery DAG progress.
+		dagOrch.SetEventBus(eventBus)
+
 		// 6. SchedulerEngine ??node selection and dispatch
 		sched = orchsched.NewSchedulerEngine(slotPool)
 
@@ -172,6 +191,16 @@ func main() {
 		if err := dagOrch.Initialize(ctx); err != nil {
 			logger.Error("DAG orchestrator init failed", err)
 		}
+
+		// 9b. Reactivate READY nodes that were restored from snapshots
+		// but never submitted to the scheduler's ReadyQueue. Without this
+		// call, any DAG whose nodes are in "ready" state after a server
+		// restart will be stuck forever �?the scan timer only dispatches
+		// nodes already in the queue, but the queue is empty because
+		// SubmitDag �?activateReadyNodes only runs for newly created DAGs.
+		// This is the root cause of 11 pending DAGs that never execute
+		// their scrape nodes after restart.
+		dagOrch.ReactivateReadyNodes(ctx)
 
 		// 10. Start periodic scan + queue capacity sync
 		sched.SyncQueueCapacityFromSlotPool()
@@ -216,6 +245,12 @@ func main() {
 		ouoOrch := orchestrator.NewOuoOrchestrator()
 		dm := video.NewDownloadManager(database, eventBus, video.DefaultManagerConfig())
 
+	// Inject the video segment tracker into the download manager so
+	// that RegisterSegments and UpdateSegment are called from the
+	// download pipeline. This bridges the gap where the tracker was
+	// initialized but never connected to the segment queue.
+	dm.SetTracker(videoTracker)
+
 		// Register the video download executor now that DownloadManager
 		// is available. WireExecutors (called during DAG init above) only
 		// registers gallery executors because DownloadManager is created
@@ -225,7 +260,7 @@ func main() {
 			statusFn := func(ctx context.Context, taskID int) (string, string, bool) {
 				var status, errMsg string
 				err := database.QueryRow(ctx,
-					`SELECT status, COALESCE(error_msg, '') FROM download_tasks WHERE id = $1`,
+					`SELECT status, COALESCE(error_msg, '') FROM download_tasks WHERE id = ?`,
 					taskID).Scan(&status, &errMsg)
 				if err != nil {
 					return "", "", false
@@ -247,7 +282,7 @@ func main() {
 			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
 				var pageURL, m3u8URL, storedTitle string
 				err := database.QueryRow(ctx,
-					`SELECT url, COALESCE(m3u8_url, ''), COALESCE(title, '') FROM download_tasks WHERE id = $1`,
+					`SELECT url, COALESCE(m3u8_url, ''), COALESCE(title, '') FROM download_tasks WHERE id = ?`,
 					taskID).Scan(&pageURL, &m3u8URL, &storedTitle)
 				if err != nil {
 					return video.DownloadTaskInput{}, fmt.Errorf("query task %d: %w", taskID, err)
@@ -274,7 +309,7 @@ func main() {
 					return task, nil
 				}
 
-				// M3U8 URL not yet discovered — strategy-driven scrape with
+				// M3U8 URL not yet discovered �?strategy-driven scrape with
 				// domain fallback. First, look up the site module to get
 				// mirror domains and scraping strategy.
 				var siteID string
@@ -362,7 +397,7 @@ func main() {
 
 				// Persist the discovered M3U8 URL for future retries.
 				_, _ = database.Exec(ctx,
-					`UPDATE download_tasks SET m3u8_url = $1, title = $2 WHERE id = $3`,
+					`UPDATE download_tasks SET m3u8_url = ?, title = ? WHERE id = ?`,
 					result.M3U8URL, result.Title, taskID)
 
 				// Pre-write video metadata immediately after scraping.
@@ -380,12 +415,17 @@ func main() {
 				}, nil
 			}
 
-			exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn))
-		}
-
-		h.WithDag(dagOrch, sched, exeReg)
-		h.WithServices(ouoOrch, dm, siteReg)
+		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
 	}
+
+	// Progress engine and video tracker were created earlier during
+	// DAG initialization so they could be passed to WireExecutors.
+	// Here we just inject them into the API handlers.
+
+	h.WithDag(dagOrch, sched, exeReg)
+	h.WithServices(ouoOrch, dm, siteReg)
+	h.WithProgressEngine(progressEngine, videoTracker)
+}
 
 	router := api.NewRouter(h, eventBus)
 
@@ -514,42 +554,6 @@ func (a *orchestratorAdapter) GetNodeForVerification(dagID, nodeID string) inter
 	return a.orch.GetNodeForVerification(dagID, nodeID)
 }
 
-// startEmbeddedPG attempts to start a project-local PostgreSQL 16 instance.
-// Returns nil if startup fails ??the server will fall back to the external
-// PostgreSQL configured in DATABASE_URL, or degraded mode if that also fails.
-func startEmbeddedPG() *embeddedpostgres.EmbeddedPostgres {
-	basePath := filepath.Join("..", "data", "postgres")
-
-	pgCfg := embeddedpostgres.DefaultConfig().
-		Username("puchipix").
-		Password("puchipix").
-		Database("puchipix").
-		Version(embeddedpostgres.V16).
-		Locale("C").
-		Encoding("UTF8").
-		Port(5432).
-		RuntimePath(filepath.Join(basePath, "run")).
-		DataPath(filepath.Join(basePath, "data")).
-		BinariesPath(filepath.Join(basePath, "bin")).
-		StartTimeout(30 * time.Second).
-		StartParameters(map[string]string{
-			"fsync":              "off",
-			"full_page_writes":   "off",
-			"max_wal_senders":    "0",
-			"wal_level":          "minimal",
-			"checkpoint_timeout": "1h",
-			"autovacuum":         "off",
-		}).
-		Logger(io.Discard)
-
-	pg := embeddedpostgres.NewDatabase(pgCfg)
-	if err := pg.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "embedded-postgres start: %v\n", err)
-		return nil
-	}
-	return pg
-}
-
 // isLikelyAntiBot checks whether a scrape error pattern suggests the
 // page is protected by a CloudFlare/WAF challenge that blocks headless
 // Chrome. When true, the caller should escalate to a headful (visible)
@@ -590,7 +594,7 @@ func preWriteVideoInfo(ctx context.Context, database *db.Database, taskID int, r
 
 	_, err := database.Exec(writeCtx, `
 		INSERT INTO video_infos (task_id, title, source_url, tags, actors, categories, director)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET
 			title = EXCLUDED.title,
 			source_url = EXCLUDED.source_url,

@@ -1,0 +1,10 @@
+{
+  "url": "https://coser.io/purchase/gallery",
+  "status": 422,
+  "method": "POST",
+  "body": {
+    "success": false,
+    "message": "您的积分不足!",
+    "code": "INSUFFICIENT_POINTS"
+  }
+}

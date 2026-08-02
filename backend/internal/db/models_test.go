@@ -14,7 +14,7 @@ func TestModelFieldCount(t *testing.T) {
 		typ      any
 		expected int
 	}{
-		{"DownloadTask", DownloadTask{}, 12},
+		{"DownloadTask", DownloadTask{}, 15},
 		{"VideoInfo", VideoInfo{}, 12},
 		{"Gallery", Gallery{}, 30},
 		{"GalleryImage", GalleryImage{}, 16},

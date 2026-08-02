@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-
-export default function ShelfPage(): never {
-  redirect("/shelf/photos");
-}
+/*
+ * Shelf index redirect handled by <Navigate> in App.tsx.
+ */
+export {};

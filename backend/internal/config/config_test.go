@@ -11,7 +11,7 @@ import (
 // TestLoadDefaults verifies that all environment variables have
 // sensible fallbacks so the server can start without a .env file.
 func TestLoadDefaults(t *testing.T) {
-	os.Unsetenv("DATABASE_URL")
+	os.Unsetenv("DB_PATH")
 	os.Unsetenv("SERVER_PORT")
 	os.Unsetenv("LOG_LEVEL")
 	os.Unsetenv("LOG_SINK_CAPACITY")
@@ -20,7 +20,8 @@ func TestLoadDefaults(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	assert.NotEmpty(t, cfg.DatabaseURL)
+	assert.NotEmpty(t, cfg.DatabasePath)
+	assert.Contains(t, cfg.DatabasePath, "puchipix.db")
 	assert.Equal(t, 10541, cfg.ServerPort)
 	assert.Equal(t, "INFO", cfg.LogLevel)
 	assert.Equal(t, 1000, cfg.LogSinkCapacity)
@@ -30,7 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 // TestLoadEnvOverride verifies that environment variables take
 // precedence over defaults, allowing runtime configuration.
 func TestLoadEnvOverride(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/testdb")
+	t.Setenv("DB_PATH", "/tmp/test_puchipix.db")
 	t.Setenv("SERVER_PORT", "8080")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("LOG_SINK_CAPACITY", "500")
@@ -38,7 +39,8 @@ func TestLoadEnvOverride(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	assert.Equal(t, "postgres://test:test@localhost:5432/testdb", cfg.DatabaseURL)
+	// GetDSN returns the DB_PATH value, so the SQLite path is preserved.
+	assert.Equal(t, "/tmp/test_puchipix.db", cfg.DatabasePath)
 	assert.Equal(t, 8080, cfg.ServerPort)
 	assert.Equal(t, "DEBUG", cfg.LogLevel)
 	assert.Equal(t, 500, cfg.LogSinkCapacity)

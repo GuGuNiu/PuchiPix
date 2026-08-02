@@ -4,19 +4,19 @@
 -- When a row exists for a site_id, its values override the JSON defaults.
 
 CREATE TABLE IF NOT EXISTS site_configs (
-    site_id               VARCHAR(50) PRIMARY KEY,
-    cookie_prefix         VARCHAR(100),
-    cdn_domains           JSONB,
-    url_patterns          JSONB,
-    blocked_keywords      JSONB,
-    blocked_categories    JSONB,
-    blocked_protagonists  JSONB,
-    publisher_prefixes    JSONB,
-    age_verify_config     JSONB,
-    category_labels       JSONB,
-    title_clean_patterns  JSONB,
-    title_suffix_patterns JSONB,
-    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    site_id               TEXT PRIMARY KEY,
+    cookie_prefix         TEXT,
+    cdn_domains           TEXT,
+    url_patterns          TEXT,
+    blocked_keywords      TEXT,
+    blocked_categories    TEXT,
+    blocked_protagonists  TEXT,
+    publisher_prefixes    TEXT,
+    age_verify_config     TEXT,
+    category_labels       TEXT,
+    title_clean_patterns  TEXT,
+    title_suffix_patterns TEXT,
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_site_configs_site_id ON site_configs(site_id);

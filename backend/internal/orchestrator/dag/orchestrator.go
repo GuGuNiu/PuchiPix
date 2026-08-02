@@ -97,6 +97,7 @@ type DagOrchestrator struct {
 	dags        map[string]*dagInstance
 	logger      *infra.Logger
 	eventStore  *orchestrator.EventStore
+	eventBus    *infra.EventBus
 	slotPool    SlotPoolInterface
 	scheduler   SchedulerInterface
 	reconciler  *orchestrator.StateReconciler
@@ -146,6 +147,15 @@ func (o *DagOrchestrator) SetTaskTypeRegistry(r *orchestrator.TaskTypeRegistry) 
 	o.dagsMu.Lock()
 	defer o.dagsMu.Unlock()
 	o.registry = r
+}
+
+// SetEventBus connects the EventBus, enabling real-time SSE/WS event
+// emission for DAG lifecycle events (node progress, state changes, etc.).
+// Without an EventBus, SSE clients won't receive dag:nodeProgress events.
+func (o *DagOrchestrator) SetEventBus(eb *infra.EventBus) {
+	o.dagsMu.Lock()
+	defer o.dagsMu.Unlock()
+	o.eventBus = eb
 }
 
 // resolvePolicy returns the TransitionPolicy for a node definition,
@@ -588,11 +598,15 @@ func (o *DagOrchestrator) ReactivateReadyNodes(ctx context.Context) {
 	}
 	o.dagsMu.RUnlock()
 
+	o.logger.Info("ReactivateReadyNodes starting", "dagCount", len(dagIDs))
+
 	for _, dagID := range dagIDs {
 		if err := o.activateReadyNodes(ctx, dagID); err != nil {
 			o.logger.Error("Failed to reactivate READY nodes", err, "dagId", dagID)
 		}
 	}
+
+	o.logger.Info("ReactivateReadyNodes completed")
 }
 
 // OnNodeCompleted is called by the executor when a node finishes,
@@ -701,6 +715,38 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 		Timestamp: time.Now(),
 		Payload:   map[string]any{"result": result},
 	})
+
+	// Emit dag:nodeProgress so SSE/WS clients can track gallery DAG
+	// progress in real-time without polling. Count terminal vs total
+	// nodes to compute a progress percentage on the frontend.
+	if o.eventBus != nil {
+		dag.mu.Lock()
+		terminalCount := 0
+		totalCount := len(dag.nodes)
+		failedCount := 0
+		for _, n := range dag.nodes {
+			state := n.fsm.State()
+			if orchestrator.IsTerminalState(state) {
+				terminalCount++
+				if state == orchestrator.NodeStateFailed {
+					failedCount++
+				}
+			}
+		}
+		// Capture the task type before unlocking for the event payload.
+		taskType := dag.definition.TaskType
+		dag.mu.Unlock()
+
+		o.eventBus.Emit("dag:nodeProgress", map[string]any{
+			"dagId":    dagID,
+			"nodeId":   nodeID,
+			"phase":    "node_completed",
+			"current":  terminalCount,
+			"total":    totalCount,
+			"failed":   failedCount,
+			"taskType": taskType,
+		})
+	}
 
 	// Activate direct successors incrementally (O(d)) rather than
 	// rescanning the whole graph (O(n*d)).

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -18,6 +19,8 @@ import (
 	"backend/internal/infra"
 	"backend/internal/orchestrator/executors"
 	"backend/internal/sites"
+	"backend/internal/taskprogress"
+	"backend/internal/titleparser"
 )
 
 // galleryImageConcurrent controls the maximum number of simultaneous
@@ -35,9 +38,16 @@ const galleryImageConcurrent = 5
 // the SiteRegistry, DownloadManager, ContentVerifier, and Archiver.
 // The database is used by the scrape executor to persist gallery
 // metadata (title, protagonist, images, videos) after scraping.
-func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, database *db.Database) {
-	reg.Register(newScrapeExecutor(siteReg, database))
-	reg.Register(newDownloadExecutor(siteReg, database))
+//
+// titleParser is used in the scrape pipeline to extract protagonist
+// names from gallery titles when the site provider does not return one.
+// progressEngine is used in the download pipeline to register expected
+// files for fine-grained progress tracking. videoTracker is used by the
+// video download pipeline for segment-level tracking (injected into the
+// DownloadManager separately, but passed here for the gallery video path).
+func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, titleParser *titleparser.Parser, progressEngine *taskprogress.Engine, videoTracker *taskprogress.VideoProgressTracker) {
+	reg.Register(newScrapeExecutor(siteReg, database, eventBus, titleParser))
+	reg.Register(newDownloadExecutor(siteReg, database, eventBus, progressEngine))
 	reg.Register(newVerifyExecutor(database))
 	reg.Register(newExtractExecutor())
 	infra.NewLogger("WireExecutors").Info("Executors wired to production implementations")
@@ -49,7 +59,7 @@ func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, databas
 // to the galleries / gallery_images / gallery_videos tables.
 // Uses ScrapeGalleryHTTP first (which handles multi-page pagination),
 // falling back to ScrapeGallery (browser-based) if HTTP fails.
-func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *executors.ScrapeExecutor {
+func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, titleParser *titleparser.Parser) *executors.ScrapeExecutor {
 	logger := infra.NewLogger("ScrapeExecutor")
 	fn := func(ctx context.Context, pageURL string) (map[string]any, error) {
 		provider, ok := siteReg.GetProviderByUrl(pageURL)
@@ -80,6 +90,23 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 			return nil, fmt.Errorf("scrape gallery: %w", err)
 		}
 
+		// If the site provider did not extract a protagonist name,
+		// use the title parser to extract it from the gallery title.
+		// This bridges the gap where some providers return raw titles
+		// without model name extraction. The parser uses a model DB
+		// loaded from embedded JSON resources to recognize known
+		// coser names, game characters, and dual-person patterns.
+		protagonist := result.Protagonist
+		if protagonist == "" && titleParser != nil && result.Title != "" {
+			if parseResult := titleParser.Parse(result.Title); parseResult != nil && parseResult.Protagonist != "" {
+				protagonist = parseResult.Protagonist
+				logger.Info("Title parser extracted protagonist",
+					"url", pageURL, "title", result.Title,
+					"protagonist", protagonist,
+					"confidence", parseResult.Confidence)
+			}
+		}
+
 		// Persist scraped metadata to the galleries table.
 		if database != nil {
 			tagsStr := strings.Join(result.Tags, ", ")
@@ -89,8 +116,8 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 			}
 
 			// Parse expected image/video counts from the gallery title
-			// (e.g. "62P1V" → 62 images, 1 video). The TS implementation
-			// used parseTitleCount() for this — the Go migration had
+			// (e.g. "62P1V" �?62 images, 1 video). The TS implementation
+			// used parseTitleCount() for this �?the Go migration had
 			// ParseTitleCount() available but never called it, instead
 			// storing the actual scraped count as "expected" (circular).
 			// Now we use title-derived counts when available, falling
@@ -107,14 +134,14 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 
 			_, err = database.Exec(ctx,
 				`UPDATE galleries SET
-					title = $1, protagonist = $2, description = $3,
-					category = $4, tags = $5, cover_url = $6,
-					image_count = $7, video_count = $8, page_count = $9,
-					expected_image_count = $10, expected_video_count = $11,
-					scraped_domain = $12, status = 'scraped',
-					scraped_at = NOW(), updated_at = NOW()
-					WHERE source_url = $13`,
-				result.Title, result.Protagonist, description,
+					title = ?, protagonist = ?, description = ?,
+					category = ?, tags = ?, cover_url = ?,
+					image_count = ?, video_count = ?, page_count = ?,
+					expected_image_count = ?, expected_video_count = ?,
+					scraped_domain = ?, status = 'scraped',
+					scraped_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+					WHERE source_url = ?3`,
+				result.Title, protagonist, description,
 				result.Category, tagsStr, result.CoverURL,
 				result.ImageCount, result.VideoCount, result.PageCount,
 				expectedImages, expectedVideos,
@@ -124,33 +151,75 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 			} else {
 				logger.Info("Gallery metadata persisted",
 					"url", pageURL, "title", result.Title,
-					"protagonist", result.Protagonist,
+					"protagonist", protagonist,
 					"images", result.ImageCount, "videos", result.VideoCount)
+
+				// Emit task:progress so SSE clients see the gallery
+				// transition from pending �?scraped in real-time.
+				if eventBus != nil {
+					var gid int
+					if qErr := database.QueryRow(ctx, `SELECT id FROM galleries WHERE source_url = ?`, pageURL).Scan(&gid); qErr == nil {
+						eventBus.Emit("task:progress", map[string]any{
+							"taskId":   gid,
+							"taskType": "gallery",
+							"progress": 0,
+							"status":   "scraped",
+						})
+					}
+				}
 			}
 
 			// Look up the gallery ID for inserting images/videos.
 			var galleryID int
 			err = database.QueryRow(ctx,
-				`SELECT id FROM galleries WHERE source_url = $1`, pageURL).Scan(&galleryID)
+				`SELECT id FROM galleries WHERE source_url = ?`, pageURL).Scan(&galleryID)
 			if err == nil {
-				// Clear any existing images/videos (handles re-scrape).
-				_, _ = database.Exec(ctx, `DELETE FROM gallery_images WHERE gallery_id = $1`, galleryID)
-				_, _ = database.Exec(ctx, `DELETE FROM gallery_videos WHERE gallery_id = $1`, galleryID)
+				// Use a transaction for batch INSERT to reduce I/O round-trips.
+				// Without a tx, each INSERT auto-commits and fsyncs the WAL,
+				// which is catastrophically slow for 100+ image galleries.
+				tx, txErr := database.BeginTx(ctx)
+				if txErr != nil {
+					logger.Warn("Failed to begin batch insert tx, falling back to single inserts",
+						"url", pageURL, "error", txErr.Error())
+					// Fallback: single inserts without transaction.
+					_, _ = database.Exec(ctx, `DELETE FROM gallery_images WHERE gallery_id = ?`, galleryID)
+					_, _ = database.Exec(ctx, `DELETE FROM gallery_videos WHERE gallery_id = ?`, galleryID)
+					for i, img := range result.Images {
+						_, _ = database.Exec(ctx,
+							`INSERT INTO gallery_images (gallery_id, url, file_name, page_index, order_index, status)
+							 VALUES (?, ?, ?, ?, ?, 'pending')`,
+							galleryID, img.URL, filepath.Base(img.URL), img.PageIndex, i)
+					}
+					for _, vid := range result.Videos {
+						_, _ = database.Exec(ctx,
+							`INSERT INTO gallery_videos (gallery_id, url, file_name, status)
+							 VALUES (?, ?, ?, 'pending')`,
+							galleryID, vid.URL, filepath.Base(vid.URL))
+					}
+				} else {
+					defer tx.Rollback()
+					// Clear any existing images/videos (handles re-scrape).
+					_, _ = tx.ExecContext(ctx, `DELETE FROM gallery_images WHERE gallery_id = ?`, galleryID)
+					_, _ = tx.ExecContext(ctx, `DELETE FROM gallery_videos WHERE gallery_id = ?`, galleryID)
 
-				// Insert gallery images.
-				for i, img := range result.Images {
-					_, _ = database.Exec(ctx,
-						`INSERT INTO gallery_images (gallery_id, url, file_name, page_index, order_index, status)
-						 VALUES ($1, $2, $3, $4, $5, 'pending')`,
-						galleryID, img.URL, filepath.Base(img.URL),
-						img.PageIndex, i)
-				}
-				// Insert gallery videos.
-				for _, vid := range result.Videos {
-					_, _ = database.Exec(ctx,
-						`INSERT INTO gallery_videos (gallery_id, url, file_name, status)
-						 VALUES ($1, $2, $3, 'pending')`,
-						galleryID, vid.URL, filepath.Base(vid.URL))
+					// Insert gallery images in batch within the transaction.
+					for i, img := range result.Images {
+						_, _ = tx.ExecContext(ctx,
+							`INSERT INTO gallery_images (gallery_id, url, file_name, page_index, order_index, status)
+							 VALUES (?, ?, ?, ?, ?, 'pending')`,
+							galleryID, img.URL, filepath.Base(img.URL), img.PageIndex, i)
+					}
+					// Insert gallery videos in the same transaction.
+					for _, vid := range result.Videos {
+						_, _ = tx.ExecContext(ctx,
+							`INSERT INTO gallery_videos (gallery_id, url, file_name, status)
+							 VALUES (?, ?, ?, 'pending')`,
+							galleryID, vid.URL, filepath.Base(vid.URL))
+					}
+					if commitErr := tx.Commit(); commitErr != nil {
+						logger.Warn("Batch insert tx commit failed",
+							"url", pageURL, "error", commitErr.Error())
+					}
 				}
 				logger.Info("Gallery images/videos inserted",
 					"galleryId", galleryID,
@@ -175,14 +244,14 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 						(gallery_id, title, file_count, file_size_text, image_dimensions,
 						 password, download_url, download_source, ouo_url, provider,
 						 requires_login, requires_email, status)
-					 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')
+					 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending')
 					 ON CONFLICT (gallery_id) DO UPDATE SET
 						title = EXCLUDED.title,
 						download_url = EXCLUDED.download_url,
 						download_source = EXCLUDED.download_source,
 						ouo_url = EXCLUDED.ouo_url,
 						status = 'pending',
-						updated_at = NOW()`,
+						updated_at = CURRENT_TIMESTAMP`,
 					galleryID,
 					result.ZipInfo.Title,
 					result.ZipInfo.FileCount,
@@ -205,7 +274,7 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 
 		return map[string]any{
 			"title":       result.Title,
-			"protagonist": result.Protagonist,
+			"protagonist": protagonist,
 			"imageCount":  result.ImageCount,
 			"pageCount":   result.PageCount,
 			"coverUrl":    result.CoverURL,
@@ -220,7 +289,7 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database) *exec
 // atomic write semantics. When a galleryId is present in the node
 // config, it switches to gallery batch download mode, reading all
 // gallery_images from the database and downloading each one.
-func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *executors.DownloadExecutor {
+func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, progressEngine *taskprogress.Engine) *executors.DownloadExecutor {
 	logger := infra.NewLogger("GalleryDownloader")
 	fn := func(ctx context.Context, url, savePath string, domains []string) error {
 		opts := &downloader.DownloadOptions{
@@ -245,7 +314,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 		// Fetch gallery record for title and save path.
 		var title, sourceURL string
 		err := database.QueryRow(ctx,
-			`SELECT title, source_url FROM galleries WHERE id = $1`, galleryID).
+			`SELECT title, source_url FROM galleries WHERE id = ?`, galleryID).
 			Scan(&title, &sourceURL)
 		if err != nil {
 			return fmt.Errorf("query gallery %d: %w", galleryID, err)
@@ -263,8 +332,19 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 
 		// Update gallery save_path and status.
 		_, _ = database.Exec(ctx,
-			`UPDATE galleries SET save_path = $1, status = 'downloading', updated_at = NOW() WHERE id = $2`,
+			`UPDATE galleries SET save_path = ?, status = 'downloading', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			saveDir, galleryID)
+
+		// Emit task:progress so SSE clients see the gallery
+		// transition to downloading in real-time.
+		if eventBus != nil {
+			eventBus.Emit("task:progress", map[string]any{
+				"taskId":   galleryID,
+				"taskType": "gallery",
+				"progress": 0,
+				"status":   "downloading",
+			})
+		}
 
 		// ZIP download path: when the gallery has an archive download URL
 		// (e.g. OUO/MediaFire/direct .zip), download the ZIP and extract
@@ -277,14 +357,21 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 			logger.Info("Gallery ZIP download completed, skipping page-by-page image download",
 				"galleryId", galleryID, "saveDir", saveDir)
 			_, _ = database.Exec(ctx,
-				`UPDATE galleries SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+				`UPDATE galleries SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 				galleryID)
+			// Emit task:completed for SSE clients.
+			if eventBus != nil {
+				eventBus.Emit("task:completed", map[string]any{
+					"taskId":   galleryID,
+					"taskType": "gallery",
+				})
+			}
 			return nil
 		}
 
 		// Fetch all pending gallery_images.
 		rows, err := database.Query(ctx,
-			`SELECT id, url, file_name FROM gallery_images WHERE gallery_id = $1 AND status = 'pending' ORDER BY order_index`,
+			`SELECT id, url, file_name FROM gallery_images WHERE gallery_id = ? AND status = 'pending' ORDER BY order_index`,
 			galleryID)
 		if err != nil {
 			return fmt.Errorf("query gallery_images: %w", err)
@@ -307,6 +394,24 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 		logger.Info("Gallery batch download starting",
 			"galleryId", galleryID, "images", len(images), "saveDir", saveDir)
 
+		// Register expected files with the ProgressEngine for fine-grained
+		// progress tracking. This bridges the pipeline gap where the engine
+		// was initialized and injected but never called from the download
+		// pipeline. Each image gets a FileProgress entry so that
+		// UpdateFileStatus can be called as downloads complete.
+		if progressEngine != nil && len(images) > 0 {
+			fileProgress := make([]taskprogress.FileProgress, len(images))
+			for i, img := range images {
+				fileProgress[i] = taskprogress.FileProgress{
+					FileIndex: i,
+					FileType:  taskprogress.FileTypeImage,
+					FileURL:   img.url,
+					Status:    taskprogress.FilePending,
+				}
+			}
+			progressEngine.RegisterFiles(galleryID, fileProgress)
+		}
+
 		// Concurrent image download via errgroup with configurable limit.
 		// Ported from the TS runConcurrent(allTasks, concurrency) pattern
 		// that was lost during the Go migration. Each image downloads
@@ -315,13 +420,47 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 		var (
 			mu           sync.Mutex
 			successCount int
+			failedCount  int
 			totalSize    int64
 		)
+		totalImages := len(images)
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(galleryImageConcurrent)
 
-		for _, img := range images {
-			img := img // capture loop variable
+		// Periodic progress reporter: emit task:progress every 2s so
+		// the SSE-connected frontend can show real-time download progress
+		// instead of staying at 0% until the entire batch finishes.
+		progressDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-progressDone:
+					return
+				case <-ticker.C:
+					mu.Lock()
+					done := successCount + failedCount
+					pct := 0
+					if totalImages > 0 {
+						pct = done * 100 / totalImages
+					}
+					mu.Unlock()
+					if eventBus != nil {
+						eventBus.Emit("task:progress", map[string]any{
+							"taskId":   galleryID,
+							"taskType": "gallery",
+							"progress": pct,
+							"status":   "downloading",
+						})
+					}
+				}
+			}
+		}()
+
+		for imgIdx, img := range images {
+			img := img     // capture loop variable
+			imgIdx := imgIdx // capture loop variable for progress engine
 			g.Go(func() error {
 				select {
 				case <-gctx.Done():
@@ -339,19 +478,30 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 				defer mu.Unlock()
 				if result.Success {
 					_, _ = database.Exec(gctx,
-						`UPDATE gallery_images SET status = 'downloaded', local_path = $1, file_size = $2, completed_at = NOW(), updated_at = NOW() WHERE id = $3`,
+						`UPDATE gallery_images SET status = 'downloaded', local_path = ?, file_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						localPath, result.FileSize, img.id)
 					successCount++
 					totalSize += result.FileSize
+					// Update ProgressEngine with completed file status.
+					if progressEngine != nil {
+						progressEngine.UpdateFileStatus(galleryID, imgIdx,
+							taskprogress.FileCompleted, localPath, result.FileSize, "")
+					}
 				} else {
 					errMsg := ""
 					if result.Error != nil {
 						errMsg = result.Error.Error()
 					}
 					_, _ = database.Exec(gctx,
-						`UPDATE gallery_images SET status = 'failed', error_msg = $1, updated_at = NOW() WHERE id = $2`,
+						`UPDATE gallery_images SET status = 'failed', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						errMsg, img.id)
+					failedCount++
 					logger.Warn("Image download failed", "galleryId", galleryID, "url", img.url, "error", errMsg)
+					// Update ProgressEngine with failed file status.
+					if progressEngine != nil {
+						progressEngine.UpdateFileStatus(galleryID, imgIdx,
+							taskprogress.FileFailed, "", 0, errMsg)
+					}
 				}
 				return nil // tolerate individual image failures
 			})
@@ -361,7 +511,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 		// implementing the dual-channel design where image and video
 		// downloads run in parallel with independent concurrency limits.
 		videoRows, err := database.Query(ctx,
-			`SELECT id, url, file_name FROM gallery_videos WHERE gallery_id = $1 AND status = 'pending'`,
+			`SELECT id, url, file_name FROM gallery_videos WHERE gallery_id = ? AND status = 'pending'`,
 			galleryID)
 		videoDownloaded := 0
 		videoFailed := 0
@@ -390,7 +540,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 				if mkdirErr := os.MkdirAll(vidSaveDir, 0755); mkdirErr != nil {
 					logger.Warn("Failed to create video save dir", "vid", vid.id, "error", mkdirErr.Error())
 					_, _ = database.Exec(ctx,
-						`UPDATE gallery_videos SET status = 'failed', error_msg = $1, updated_at = NOW() WHERE id = $2`,
+						`UPDATE gallery_videos SET status = 'failed', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						mkdirErr.Error(), vid.id)
 					videoFailed++
 					continue
@@ -404,12 +554,12 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 				if dlErr != nil {
 					logger.Warn("Gallery video download failed", "vid", vid.id, "url", vid.url, "error", dlErr.Error())
 					_, _ = database.Exec(ctx,
-						`UPDATE gallery_videos SET status = 'failed', error_msg = $1, updated_at = NOW() WHERE id = $2`,
+						`UPDATE gallery_videos SET status = 'failed', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						dlErr.Error(), vid.id)
 					videoFailed++
 				} else {
 					_, _ = database.Exec(ctx,
-						`UPDATE gallery_videos SET status = 'downloaded', local_path = $1, completed_at = NOW(), updated_at = NOW() WHERE id = $2`,
+						`UPDATE gallery_videos SET status = 'downloaded', local_path = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						outputPath, vid.id)
 					videoDownloaded++
 				}
@@ -418,9 +568,28 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 				"galleryId", galleryID, "downloaded", videoDownloaded, "failed", videoFailed)
 		}
 
-		// Wait for all image downloads to complete.
+		// Wait for all image downloads to complete, then stop the progress
+		// reporter and emit a final progress event so the frontend always
+		// sees 100% (or partial) at completion.
 		if imgErr := g.Wait(); imgErr != nil && imgErr != context.Canceled {
 			logger.Warn("Image batch download interrupted", "galleryId", galleryID, "error", imgErr.Error())
+		}
+		close(progressDone)
+
+		// Final progress emission: always flush current state after
+		// the batch finishes so the frontend displays the final count
+		// even if the periodic ticker hasn't fired recently.
+		if eventBus != nil {
+			finalPct := 100
+			if successCount < totalImages {
+				finalPct = successCount * 100 / totalImages
+			}
+			eventBus.Emit("task:progress", map[string]any{
+				"taskId":   galleryID,
+				"taskType": "gallery",
+				"progress": finalPct,
+				"status":   "downloading",
+			})
 		}
 
 		// Update gallery status.
@@ -429,8 +598,18 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database) *ex
 			status = "partial"
 		}
 		_, _ = database.Exec(ctx,
-			`UPDATE galleries SET status = $1, downloaded_size = $2, completed_at = NOW(), updated_at = NOW() WHERE id = $3`,
+			`UPDATE galleries SET status = ?, downloaded_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			status, totalSize, galleryID)
+
+		// Emit task:completed (or partial) so SSE clients see the
+		// gallery finish in real-time without requiring a refresh.
+		if eventBus != nil {
+			eventBus.Emit("task:completed", map[string]any{
+				"taskId":   galleryID,
+				"taskType": "gallery",
+				"status":   status,
+			})
+		}
 
 		logger.Info("Gallery batch download completed",
 			"galleryId", galleryID, "success", successCount, "total", len(images),
@@ -494,7 +673,7 @@ func downloadGalleryVideo(ctx context.Context, m3u8URL, saveDir, outputPath stri
 	// cascading cancellation: when one segment times out, other in-flight
 	// segments continue downloading instead of being aborted via ctx.Done().
 	// Segment downloads use video.DownloadSegment for exponential backoff
-	// retry (1s→2s→4s, up to 3 attempts) and built-in resume (os.Stat
+	// retry (1s�?s�?s, up to 3 attempts) and built-in resume (os.Stat
 	// check skips already-downloaded files). Concurrency is lowered from
 	// the TS default of 50 to 10 to reduce CDN rate-limiting risk.
 	segConcurrent := 10
@@ -603,7 +782,7 @@ func tryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	var fileCount int
 	err := database.QueryRow(ctx,
 		`SELECT download_url, password, download_source, ouo_url, COALESCE(file_count, 0)
-		 FROM gallery_download_infos WHERE gallery_id = $1 AND status = 'pending'`,
+		 FROM gallery_download_infos WHERE gallery_id = ? AND status = 'pending'`,
 		galleryID).Scan(&dlURL, &password, &downloadSource, &ouoURL, &fileCount)
 	if err != nil || dlURL == "" {
 		return false
@@ -626,14 +805,14 @@ func tryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 				"galleryId", galleryID, "url", dlURL, "error", resolveErr)
 			// Mark as failed so we don't keep retrying the broken OUO link.
 			database.Exec(ctx,
-				`UPDATE gallery_download_infos SET status = 'failed', updated_at = NOW()
-				 WHERE gallery_id = $1`, galleryID)
+				`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
+				 WHERE gallery_id = ?`, galleryID)
 			return false
 		}
 		downloadURL = resolved
 		_, _ = database.Exec(ctx,
-			`UPDATE gallery_download_infos SET resolved_direct_url = $1, updated_at = NOW()
-			 WHERE gallery_id = $2`, resolved, galleryID)
+			`UPDATE gallery_download_infos SET resolved_direct_url = ?, updated_at = CURRENT_TIMESTAMP
+			 WHERE gallery_id = ?`, resolved, galleryID)
 		logger.Info("OUO link resolved", "galleryId", galleryID, "resolved", resolved)
 	}
 
@@ -653,8 +832,8 @@ func tryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 		logger.Warn("ZIP download failed, falling back to page-by-page download",
 			"galleryId", galleryID, "error", errMsg)
 		database.Exec(ctx,
-			`UPDATE gallery_download_infos SET status = 'failed', updated_at = NOW()
-			 WHERE gallery_id = $1`, galleryID)
+			`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
+			 WHERE gallery_id = ?`, galleryID)
 		return false
 	}
 
@@ -669,8 +848,8 @@ func tryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 		logger.Warn("ZIP extraction failed, falling back to page-by-page download",
 			"galleryId", galleryID, "error", extractErr.Error())
 		database.Exec(ctx,
-			`UPDATE gallery_download_infos SET status = 'failed', updated_at = NOW()
-			 WHERE gallery_id = $1`, galleryID)
+			`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
+			 WHERE gallery_id = ?`, galleryID)
 		return false
 	}
 
@@ -682,9 +861,9 @@ func tryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	// Update gallery_download_infos with success.
 	_, _ = database.Exec(ctx,
 		`UPDATE gallery_download_infos SET
-			status = 'downloaded', local_path = $1, extracted_path = $2,
-			actual_size = $3, updated_at = NOW()
-		 WHERE gallery_id = $4`,
+			status = 'downloaded', local_path = ?, extracted_path = ?,
+			actual_size = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE gallery_id = ?`,
 		zipPath, saveDir, result.FileSize, galleryID)
 
 	return true
@@ -806,9 +985,9 @@ func verifyGallery(ctx context.Context, database *db.Database, galleryID int, lo
 	err := database.QueryRow(ctx,
 		`SELECT
 			COUNT(*) AS total,
-			COUNT(*) FILTER (WHERE status = 'downloaded') AS downloaded,
-			COUNT(*) FILTER (WHERE status = 'failed') AS failed
-		FROM gallery_images WHERE gallery_id = $1`,
+			SUM(CASE WHEN status = 'downloaded' THEN 1 ELSE 0 END) AS downloaded,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+		FROM gallery_images WHERE gallery_id = ?`,
 		galleryID).Scan(&expectedImages, &downloadedImages, &failedImages)
 	if err != nil {
 		logger.Warn("Gallery verify: failed to query image counts",

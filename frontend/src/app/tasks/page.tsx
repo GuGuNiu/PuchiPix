@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
 import {
   Play,
@@ -47,7 +47,7 @@ export default function TasksPage(): React.JSX.Element {
   const { t, locale } = useI18n();
   const STATUS_LABEL = useStatusLabel(t);
   const { tasks, loading, fetchTasks, connectSSE } = useTaskStore();
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const { savedData, saveState } = useRouteState(pathname, {
     ttl: 5 * 60 * 1000,
     saveScroll: true,

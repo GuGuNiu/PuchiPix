@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"database/sql"
 	"backend/internal/db"
 	"backend/internal/i18n"
 	"backend/internal/orchestrator"
@@ -27,7 +27,7 @@ func (h *Handlers) ShelfList(w http.ResponseWriter, r *http.Request) {
 	offset := queryInt(r, "offset", 0)
 	status := r.URL.Query().Get("status")
 
-	var rows pgx.Rows
+	var rows *sql.Rows
 	var err error
 	if status != "" {
 		rows, err = h.DB.Query(r.Context(),
@@ -35,14 +35,14 @@ func (h *Handlers) ShelfList(w http.ResponseWriter, r *http.Request) {
 			 cover_url, cover_local_path, image_count, video_count, page_count, status, error_msg, download_method,
 			 expected_image_count, expected_video_count, content_verified, save_path, total_size, downloaded_size,
 			 game_characters, publish_time, scraped_at, completed_at, created_at, updated_at
-			 FROM galleries WHERE status = $1 ORDER BY id DESC LIMIT $2 OFFSET $3`, status, limit, offset)
+			 FROM galleries WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?`, status, limit, offset)
 	} else {
 		rows, err = h.DB.Query(r.Context(),
 			`SELECT id, seq, source_url, site_id, scraped_domain, title, protagonist, description, category, tags,
 			 cover_url, cover_local_path, image_count, video_count, page_count, status, error_msg, download_method,
 			 expected_image_count, expected_video_count, content_verified, save_path, total_size, downloaded_size,
 			 game_characters, publish_time, scraped_at, completed_at, created_at, updated_at
-			 FROM galleries ORDER BY id DESC LIMIT $1 OFFSET $2`, limit, offset)
+			 FROM galleries ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
@@ -77,7 +77,7 @@ func (h *Handlers) SjsShelfList(w http.ResponseWriter, r *http.Request) {
 		 cover_url, cover_local_path, image_count, video_count, page_count, status, error_msg, download_method,
 		 expected_image_count, expected_video_count, content_verified, save_path, total_size, downloaded_size,
 		 game_characters, publish_time, scraped_at, completed_at, created_at, updated_at
-		 FROM galleries WHERE site_id = 'sjs' ORDER BY id DESC LIMIT $1 OFFSET $2`, limit, offset)
+		 FROM galleries WHERE site_id = 'sjs' ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 		return
@@ -111,7 +111,7 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("type") == "cover" {
 		var coverPath string
 		err := h.DB.QueryRow(r.Context(),
-			"SELECT cover_local_path FROM galleries WHERE id = $1", id).Scan(&coverPath)
+			"SELECT cover_local_path FROM galleries WHERE id = ?", id).Scan(&coverPath)
 		if err != nil || coverPath == "" {
 			writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.gallery.notFound"))
 			return
@@ -134,7 +134,7 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 		 cover_url, cover_local_path, image_count, video_count, page_count, status, error_msg, download_method,
 		 expected_image_count, expected_video_count, content_verified, save_path, total_size, downloaded_size,
 		 game_characters, publish_time, scraped_at, completed_at, created_at, updated_at
-		 FROM galleries WHERE id = $1`, id).Scan(
+		 FROM galleries WHERE id = ?`, id).Scan(
 		&g.ID, &g.Seq, &g.SourceURL, &g.SiteID, &g.ScrapedDomain, &g.Title, &g.Protagonist, &g.Description,
 		&g.Category, &g.Tags, &g.CoverURL, &g.CoverLocalPath, &g.ImageCount, &g.VideoCount, &g.PageCount,
 		&g.Status, &g.ErrorMsg, &g.DownloadMethod, &g.ExpectedImageCount, &g.ExpectedVideoCount,
@@ -190,7 +190,7 @@ func (h *Handlers) SjsBookmarksCreate(w http.ResponseWriter, r *http.Request) {
 	var id int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO sjs_bookmarks (url, thread_id, title, cover_url, author, post_date, forum_section, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 RETURNING id`,
 		b.URL, b.ThreadID, b.Title, b.CoverURL, b.Author, b.PostDate, b.ForumSection, b.Notes).Scan(&id)
 	if err != nil {
@@ -207,7 +207,7 @@ func (h *Handlers) SjsBookmarksDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.sjsShelf.missingUrlParam"))
 		return
 	}
-	_, err := h.DB.Exec(r.Context(), "DELETE FROM sjs_bookmarks WHERE url = $1", url)
+	_, err := h.DB.Exec(r.Context(), "DELETE FROM sjs_bookmarks WHERE url = ?", url)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sjsShelf.deleteFailed"))
 		return
@@ -242,7 +242,7 @@ func (h *Handlers) SjsBookmarksUpdate(w http.ResponseWriter, r *http.Request) {
 		var b db.SjsBookmark
 		err := h.DB.QueryRow(r.Context(),
 			`SELECT id, url, thread_id, title, cover_url, author, post_date, forum_section, notes, created_at, updated_at
-			 FROM sjs_bookmarks WHERE id = $1`, req.ID).Scan(
+			 FROM sjs_bookmarks WHERE id = ?`, req.ID).Scan(
 			&b.ID, &b.URL, &b.ThreadID, &b.Title, &b.CoverURL, &b.Author,
 			&b.PostDate, &b.ForumSection, &b.Notes, &b.CreatedAt, &b.UpdatedAt)
 		if err != nil {
@@ -293,7 +293,7 @@ func (h *Handlers) Preview(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.DB.Query(r.Context(),
 		`SELECT id, gallery_id, url, local_path, file_name, file_size, width, height, format, page_index, order_index, status, error_msg, completed_at, created_at, updated_at
-		 FROM gallery_images WHERE gallery_id = $1 ORDER BY order_index`, galleryID)
+		 FROM gallery_images WHERE gallery_id = ? ORDER BY order_index`, galleryID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryImagesFailed"))
 		return
@@ -352,16 +352,16 @@ func (h *Handlers) History(w http.ResponseWriter, r *http.Request) {
 	offset := queryInt(r, "offset", 0)
 	siteID := r.URL.Query().Get("siteId")
 
-	var rows pgx.Rows
+	var rows *sql.Rows
 	var err error
 	if siteID != "" {
 		rows, err = h.DB.Query(r.Context(),
 			`SELECT id, site_id, gallery_id, url, status, image_count, video_count, title, protagonist, save_path, created_at, updated_at
-			 FROM download_history WHERE site_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, siteID, limit, offset)
+			 FROM download_history WHERE site_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, siteID, limit, offset)
 	} else {
 		rows, err = h.DB.Query(r.Context(),
 			`SELECT id, site_id, gallery_id, url, status, image_count, video_count, title, protagonist, save_path, created_at, updated_at
-			 FROM download_history ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+			 FROM download_history ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.history.queryFailed"))
@@ -392,7 +392,7 @@ func (h *Handlers) GalleryImages(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.DB.Query(r.Context(),
 		`SELECT id, gallery_id, url, local_path, file_name, page_index, order_index, status
-		 FROM gallery_images WHERE gallery_id = $1 ORDER BY page_index, order_index`, id)
+		 FROM gallery_images WHERE gallery_id = ? ORDER BY page_index, order_index`, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 		return
@@ -442,17 +442,17 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Verify gallery exists before attempting deletion
 	var exists bool
-	err := h.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = $1)", id).Scan(&exists)
+	err := h.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM galleries WHERE id = ?)", id).Scan(&exists)
 	if err != nil || !exists {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.gallery.notFound"))
 		return
 	}
 
 	// Delete associated records in order (respect FK constraints)
-	h.DB.Exec(r.Context(), "DELETE FROM gallery_videos WHERE gallery_id = $1", id)
-	h.DB.Exec(r.Context(), "DELETE FROM gallery_images WHERE gallery_id = $1", id)
-	h.DB.Exec(r.Context(), "DELETE FROM gallery_download_infos WHERE gallery_id = $1", id)
-	_, err = h.DB.Exec(r.Context(), "DELETE FROM galleries WHERE id = $1", id)
+	h.DB.Exec(r.Context(), "DELETE FROM gallery_videos WHERE gallery_id = ?", id)
+	h.DB.Exec(r.Context(), "DELETE FROM gallery_images WHERE gallery_id = ?", id)
+	h.DB.Exec(r.Context(), "DELETE FROM gallery_download_infos WHERE gallery_id = ?", id)
+	_, err = h.DB.Exec(r.Context(), "DELETE FROM galleries WHERE id = ?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 		return
@@ -500,7 +500,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				// Update gallery status so SSE initial data reflects the change.
-				h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = $1", id)
+				h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
 				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": dagID, "status": "retrying"})
 				return
 			}
@@ -512,7 +512,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 		var sourceURL, siteID string
 		var imageCount, videoCount int
 		err := h.DB.QueryRow(ctx,
-			"SELECT source_url, site_id, COALESCE(image_count,0), COALESCE(video_count,0) FROM galleries WHERE id = $1", id).
+			"SELECT source_url, site_id, COALESCE(image_count,0), COALESCE(video_count,0) FROM galleries WHERE id = ?", id).
 			Scan(&sourceURL, &siteID, &imageCount, &videoCount)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "Gallery not found")
@@ -539,12 +539,12 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
 				return
 			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = $1", id)
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": newDagID, "status": "retrying"})
 			return
 		}
 		// Fallback without DAG: reset status only.
-		h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = $1", id)
+		h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "status": "pending"})
 
 	case "pause":
@@ -553,7 +553,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG pause failed: %v", err))
 				return
 			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'paused' WHERE id = $1", id)
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'paused' WHERE id = ?", id)
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "pause", "status": "paused"})
 			return
 		}
@@ -565,7 +565,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume failed: %v", err))
 				return
 			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping' WHERE id = $1", id)
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping' WHERE id = ?", id)
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "resume", "status": "resumed"})
 			return
 		}
@@ -574,7 +574,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 	case "download":
 		// Legacy: reset gallery status to pending.
 		_, err := h.DB.Exec(ctx,
-			"UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = $1", id)
+			"UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 			return
@@ -594,7 +594,7 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func scanGallery(rows pgx.Rows, g *db.Gallery) error {
+func scanGallery(rows *sql.Rows, g *db.Gallery) error {
 	return rows.Scan(
 		&g.ID, &g.Seq, &g.SourceURL, &g.SiteID, &g.ScrapedDomain, &g.Title, &g.Protagonist,
 		&g.Description, &g.Category, &g.Tags, &g.CoverURL, &g.CoverLocalPath, &g.ImageCount,
@@ -607,7 +607,7 @@ func scanGallery(rows pgx.Rows, g *db.Gallery) error {
 // GalleryFileProgress returns per-file progress for a gallery task.
 // GET /api/shelf/{id}/files/progress
 // This provides the granular breakdown needed for fine-grained retry
-// decisions — which files failed, which succeeded, and the overall
+// decisions �?which files failed, which succeeded, and the overall
 // completion ratio based on actual disk state.
 func (h *Handlers) GalleryFileProgress(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
@@ -642,7 +642,7 @@ func (h *Handlers) GalleryFileProgress(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.QueryRow(r.Context(),
 		`SELECT COALESCE(status, 'pending'), COALESCE(image_count, 0),
 		        COALESCE(video_count, 0), COALESCE(save_path, '')
-		 FROM galleries WHERE id = $1`, id).
+		 FROM galleries WHERE id = ?`, id).
 		Scan(&status, &imageCount, &videoCount, &savePath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "Gallery not found")
@@ -719,7 +719,7 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 		if len(indices) == 0 {
 			writeJSON(w, http.StatusOK, taskprogress.RetryResult{
 				GalleryID: id,
-				Message:   "No files to retry — all files are either completed or have no failed items",
+				Message:   "No files to retry �?all files are either completed or have no failed items",
 			})
 			return
 		}
@@ -737,10 +737,10 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				// DAG not active — re-submit gallery pipeline.
+				// DAG not active �?re-submit gallery pipeline.
 				var sourceURL, siteID string
 				err := h.DB.QueryRow(ctx,
-					"SELECT source_url, site_id FROM galleries WHERE id = $1", id).
+					"SELECT source_url, site_id FROM galleries WHERE id = ?", id).
 					Scan(&sourceURL, &siteID)
 				if err != nil {
 					writeError(w, http.StatusNotFound, "Gallery not found")
@@ -761,7 +761,7 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 
 		// Update gallery status for SSE propagation.
 		if h.DB != nil {
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = $1", id)
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
 		}
 
 		writeJSON(w, http.StatusOK, taskprogress.RetryResult{
@@ -780,7 +780,7 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
 			return
 		}
-		h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = $1", id)
+		h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"galleryId": id,
 			"message":   "Full gallery retry initiated (progress engine not available for fine-grained retry)",

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { Home, Compass } from "lucide-react";
 
 export default function NotFound(): React.JSX.Element {

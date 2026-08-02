@@ -1,38 +1,13 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: puchipix-postgres
-    environment:
-      POSTGRES_USER: puchipix
-      POSTGRES_PASSWORD: puchipix
-      POSTGRES_DB: puchipix
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U puchipix -d puchipix"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   puchipix:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: puchipix
     ports:
-      - "10540:10540"
-    environment:
-      - NODE_ENV=production
-      - GO_BACKEND_PORT=10541
-    volumes:
-      - puchipix-data:/app/data
+      - "10540:80"
     depends_on:
-      postgres:
-        condition: service_healthy
+      - go-backend
     restart: unless-stopped
     healthcheck:
       test:
@@ -42,15 +17,16 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost:10540/api/health",
+          "http://localhost:80/api/health",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-volumes:
-  puchipix-data:
-    driver: local
-  postgres-data:
-    driver: local
+  go-backend:
+    image: puchipix-backend:latest
+    container_name: puchipix-backend
+    ports:
+      - "10541:10541"
+    restart: unless-stopped

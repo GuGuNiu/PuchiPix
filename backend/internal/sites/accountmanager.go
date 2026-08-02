@@ -1,4 +1,4 @@
-package sites
+﻿package sites
 
 import (
 	"context"
@@ -34,9 +34,9 @@ func (m *SiteAccountManager) GetAvailableAccount(ctx context.Context, siteID str
 		       cookie_prefix, last_login_at, last_used_at, fail_count, remark,
 		       created_at, updated_at
 		FROM site_accounts
-		WHERE site_id = $1 AND status = 'active'
-		ORDER BY COALESCE(last_used_at, '1970-01-01'::timestamptz) ASC,
-		         COALESCE(last_login_at, '1970-01-01'::timestamptz) ASC,
+		WHERE site_id = ? AND status = 'active'
+		ORDER BY COALESCE(last_used_at, '1970-01-01') ASC,
+		         COALESCE(last_login_at, '1970-01-01') ASC,
 		         id ASC
 		LIMIT 1`, siteID)
 
@@ -53,7 +53,7 @@ func (m *SiteAccountManager) GetAccountById(ctx context.Context, accountID int) 
 		SELECT id, site_id, username, password, domain, status, auth_cookies,
 		       cookie_prefix, last_login_at, last_used_at, fail_count, remark,
 		       created_at, updated_at
-		FROM site_accounts WHERE id = $1`, accountID)
+		FROM site_accounts WHERE id = ?`, accountID)
 
 	var acc db.SiteAccount
 	if err := scanSiteAccount(row, &acc); err != nil {
@@ -68,7 +68,7 @@ func (m *SiteAccountManager) GetAccountsBySiteId(ctx context.Context, siteID str
 		SELECT id, site_id, username, password, domain, status, auth_cookies,
 		       cookie_prefix, last_login_at, last_used_at, fail_count, remark,
 		       created_at, updated_at
-		FROM site_accounts WHERE site_id = $1 ORDER BY id ASC`, siteID)
+		FROM site_accounts WHERE site_id = ? ORDER BY id ASC`, siteID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -92,8 +92,8 @@ func (m *SiteAccountManager) GetAccountByDomain(ctx context.Context, domain stri
 		       cookie_prefix, last_login_at, last_used_at, fail_count, remark,
 		       created_at, updated_at
 		FROM site_accounts
-		WHERE domain = $1 AND status = 'active'
-		ORDER BY COALESCE(last_used_at, '1970-01-01'::timestamptz) ASC, id ASC
+		WHERE domain = ? AND status = 'active'
+		ORDER BY COALESCE(last_used_at, '1970-01-01') ASC, id ASC
 		LIMIT 1`, domain)
 
 	var acc db.SiteAccount
@@ -140,9 +140,9 @@ func (m *SiteAccountManager) SaveAuthCookies(ctx context.Context, accountID int,
 
 	_, err = m.db.Exec(ctx, `
 		UPDATE site_accounts
-		SET auth_cookies = $1, cookie_prefix = $2, last_login_at = NOW(),
-		    fail_count = 0, status = 'active', updated_at = NOW()
-		WHERE id = $3`,
+		SET auth_cookies = ?, cookie_prefix = ?, last_login_at = CURRENT_TIMESTAMP,
+		    fail_count = 0, status = 'active', updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
 		string(cookiesJSON), cookiePrefix, accountID)
 	if err != nil {
 		return fmt.Errorf("update account cookies: %w", err)
@@ -158,7 +158,7 @@ func (m *SiteAccountManager) SaveAuthCookies(ctx context.Context, accountID int,
 // MarkUsed updates the last_used_at timestamp for an account.
 func (m *SiteAccountManager) MarkUsed(ctx context.Context, accountID int) error {
 	_, err := m.db.Exec(ctx, `
-		UPDATE site_accounts SET last_used_at = NOW(), updated_at = NOW() WHERE id = $1`,
+		UPDATE site_accounts SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		accountID)
 	return err
 }
@@ -187,8 +187,8 @@ func (m *SiteAccountManager) MarkLoginFailed(ctx context.Context, accountID int,
 
 	_, err = m.db.Exec(ctx, `
 		UPDATE site_accounts
-		SET fail_count = $1, status = $2, remark = $3, updated_at = NOW()
-		WHERE id = $4`,
+		SET fail_count = ?, status = ?, remark = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
 		newFailCount, status, remark, accountID)
 	if err != nil {
 		return fmt.Errorf("update fail count: %w", err)
@@ -208,12 +208,12 @@ func (m *SiteAccountManager) MarkLoginFailed(ctx context.Context, accountID int,
 func (m *SiteAccountManager) UpdateStatus(ctx context.Context, accountID int, status AccountStatus, remark string) error {
 	if remark != "" {
 		_, err := m.db.Exec(ctx, `
-			UPDATE site_accounts SET status = $1, remark = $2, updated_at = NOW() WHERE id = $3`,
+			UPDATE site_accounts SET status = ?, remark = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			string(status), remark, accountID)
 		return err
 	}
 	_, err := m.db.Exec(ctx, `
-		UPDATE site_accounts SET status = $1, updated_at = NOW() WHERE id = $2`,
+		UPDATE site_accounts SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		string(status), accountID)
 	return err
 }
@@ -223,7 +223,7 @@ func (m *SiteAccountManager) CreateAccount(ctx context.Context, siteID, username
 	var id int
 	err := m.db.QueryRow(ctx, `
 		INSERT INTO site_accounts (site_id, username, password, domain, cookie_prefix, status, remark, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'active', $6, NOW(), NOW())
+		VALUES (?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		RETURNING id`,
 		siteID, username, password, domain, cookiePrefix, remark).Scan(&id)
 	if err != nil {
@@ -243,7 +243,7 @@ func (m *SiteAccountManager) CreateAccount(ctx context.Context, siteID, username
 
 // DeleteAccount removes an account by its primary key.
 func (m *SiteAccountManager) DeleteAccount(ctx context.Context, accountID int) error {
-	_, err := m.db.Exec(ctx, `DELETE FROM site_accounts WHERE id = $1`, accountID)
+	_, err := m.db.Exec(ctx, `DELETE FROM site_accounts WHERE id = ?`, accountID)
 	return err
 }
 

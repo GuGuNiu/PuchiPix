@@ -7,6 +7,7 @@ import (
 
 	"backend/internal/downloader/video"
 	"backend/internal/infra"
+	"backend/internal/taskprogress"
 )
 
 // StatusQueryFn queries the current status and error message of a video
@@ -28,6 +29,7 @@ type VideoDownloadExecutor struct {
 	downloadMgr   *video.DownloadManager
 	statusQueryFn StatusQueryFn
 	taskLoaderFn  TaskLoaderFn
+	tracker       *taskprogress.VideoProgressTracker
 }
 
 // NewVideoDownloadExecutor creates a video download executor that
@@ -36,12 +38,13 @@ type VideoDownloadExecutor struct {
 // taskLoaderFn is called at the start of Execute to load the full
 // DownloadTaskInput (M3U8URL, Title, PageURL, etc.) from the database.
 // If M3U8URL is empty, the loader should scrape the page to discover it.
-func NewVideoDownloadExecutor(dm *video.DownloadManager, statusFn StatusQueryFn, taskLoaderFn TaskLoaderFn) *VideoDownloadExecutor {
+func NewVideoDownloadExecutor(dm *video.DownloadManager, statusFn StatusQueryFn, taskLoaderFn TaskLoaderFn, tracker *taskprogress.VideoProgressTracker) *VideoDownloadExecutor {
 	return &VideoDownloadExecutor{
 		logger:        infra.NewLogger("VideoDownloadExecutor"),
 		downloadMgr:   dm,
 		statusQueryFn: statusFn,
 		taskLoaderFn:  taskLoaderFn,
+		tracker:       tracker,
 	}
 }
 
@@ -113,6 +116,25 @@ func (e *VideoDownloadExecutor) Execute(ctx context.Context, node ExecutorNode) 
 
 			if e.statusQueryFn != nil {
 				status, errMsg, found = e.statusQueryFn(ctx, taskID)
+			} else if e.tracker != nil {
+				// When no DB status query is available, check the
+				// VideoProgressTracker for segment-level status.
+				vps := e.tracker.GetSummary(taskID)
+				if vps.TotalSegments > 0 {
+					status = vps.Status
+					found = true
+					if status == "failed" {
+						errMsg = fmt.Sprintf("%d/%d segments failed", vps.FailedSegments, vps.TotalSegments)
+					}
+				} else if !e.downloadMgr.IsDownloading(taskID) {
+					// Not downloading and no tracker data; verify via DB
+					// before assuming completion.
+					status = "completed"
+					found = true
+				} else {
+					status = "downloading"
+					found = true
+				}
 			} else {
 				// Fallback: check isDownloading via DownloadManager.
 				if !e.downloadMgr.IsDownloading(taskID) {

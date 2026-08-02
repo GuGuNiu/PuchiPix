@@ -1,0 +1,5 @@
+{
+  "error": "page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"https://coser.io/login.html\", waiting until \"networkidle\"\u001b[22m\n",
+  "stack": "page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"https://coser.io/login.html\", waiting until \"networkidle\"\u001b[22m\n\n    at main (E:\\data\\Github\\PuchiPix\\test\\coser-io-auth-reverse.js:153:16)",
+  "timestamp": "2026-08-01T11:03:51.108Z"
+}

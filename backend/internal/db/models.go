@@ -22,6 +22,10 @@ type DownloadTask struct {
 	Seq       *string   `json:"DisplayID" db:"seq"`
 	CreatedAt time.Time `json:"CreatedAt" db:"created_at"`
 	UpdatedAt time.Time `json:"UpdatedAt" db:"updated_at"`
+	// Title and Person are populated via LEFT JOIN on video_infos.
+	// They are not direct columns in download_tasks.
+	Title  string `json:"GalleryTitle"`
+	Person string `json:"Person"`
 }
 
 // VideoInfo stores metadata extracted from a download task's source URL.

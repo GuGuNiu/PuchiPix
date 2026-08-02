@@ -7,7 +7,7 @@ import {
   useMemo,
   type CSSProperties,
 } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
 import { useI18n } from "@/lib/i18n";
 import { useRouteState } from "@/lib/core/infra/route-state";
@@ -61,7 +61,7 @@ interface BatchImportResult {
 
 export default function SjsPage(): React.JSX.Element {
   const { t } = useI18n();
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   useRouteState(pathname, { ttl: 5 * 60 * 1000, saveScroll: true });
 
   const { values: urlValues, update: updateUrl } = useUrlState({

@@ -151,8 +151,13 @@ func (e *Engine) computeSummaryLocked(galleryID int) GalleryProgressSummary {
 	}
 
 	if summary.TotalFiles > 0 {
-		summary.Progress = math.Round(float64(summary.CompletedFiles)/float64(summary.TotalFiles)*100*100) / 100
-		summary.PartialProgress = math.Round(float64(summary.CompletedFiles+summary.SkippedFiles)/float64(summary.TotalFiles)*100*100) / 100
+		// Progress includes both completed and skipped files — skipped
+		// files are considered "done" for progress purposes. This ensures
+		// the progress bar reaches 100% when all files are either
+		// completed or intentionally skipped.
+		done := summary.CompletedFiles + summary.SkippedFiles
+		summary.Progress = math.Round(float64(done)/float64(summary.TotalFiles)*100*100) / 100
+		summary.PartialProgress = summary.Progress // kept for API backward-compat
 	}
 
 	// Determine aggregate status.
@@ -167,7 +172,11 @@ func computeAggregateStatus(s GalleryProgressSummary) string {
 	if s.TotalFiles == 0 {
 		return "pending"
 	}
-	if s.CompletedFiles == s.TotalFiles {
+	// Skipped files count as "done" for completion purposes.
+	// A gallery is completed when all files are either completed or
+	// skipped (with zero failures).
+	done := s.CompletedFiles + s.SkippedFiles
+	if done == s.TotalFiles && s.FailedFiles == 0 {
 		return "completed"
 	}
 	if s.FailedFiles > 0 && s.CompletedFiles > 0 {

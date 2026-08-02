@@ -1,0 +1,10 @@
+{
+  "lazyImages": 7,
+  "dataSrc": 0,
+  "dataOriginal": 0,
+  "alpineInit": true,
+  "fetchCalls": 1,
+  "xhrCalls": 0,
+  "websocket": false,
+  "sse": false
+}

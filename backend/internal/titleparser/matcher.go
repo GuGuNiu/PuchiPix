@@ -194,9 +194,10 @@ func clampScore(s float64) float64 {
 }
 
 var (
-	plausibleNameRE  = regexp.MustCompile(`[\p{Han}\p{Latin}]`)
-	plausibleCountRE = regexp.MustCompile(`(?i)^\d+[pP](\d+[vV])?$`)
-	plausibleSizeRE  = regexp.MustCompile(`(?i)^\d+(\.\d+)?\s*[KMGT]?B\]?$|^\[\d+(\.\d+)?\s*[KMGT]?B\]$`)
+	plausibleNameRE    = regexp.MustCompile(`[\p{Han}\p{Latin}]`)
+	plausibleCountRE   = regexp.MustCompile(`(?i)^\d+[pP](\d+[vV])?$`)
+	plausibleSizeRE    = regexp.MustCompile(`(?i)^\d+(\.\d+)?\s*[KMGT]?B\]?$|^\[\d+(\.\d+)?\s*[KMGT]?B\]$`)
+	plausibleProductRE = regexp.MustCompile(`(?i)^[A-Za-z]{2,}\.\d{2,}$`)
 )
 
 // isPlausibleModelName checks whether a segment could be an unknown
@@ -224,6 +225,10 @@ func isPlausibleModelName(seg string) bool {
 	}
 
 	if plausibleSizeRE.MatchString(seg) {
+		return false
+	}
+
+	if plausibleProductRE.MatchString(seg) {
 		return false
 	}
 

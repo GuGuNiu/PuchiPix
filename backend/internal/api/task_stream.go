@@ -31,6 +31,8 @@ type unifiedTaskRow struct {
 	TotalSize       int64
 	DownloadedSize  int64
 	ContentVerified bool
+	TotalSegments   int
+	CompletedSegments int
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -50,19 +52,24 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 	// Previously only download_tasks was included, forcing the frontend
 	// to fetch /api/shelf separately for gallery data (P0-3/P0-4 fix).
 	if h.DB != nil {
-		rows, err := h.DB.Query(r.Context(),
-			`SELECT 'video' AS task_type, id, url, status, progress,
-			        COALESCE(file_path, '') AS file_path,
-			        COALESCE(format, '') AS format,
-			        COALESCE(priority, 0) AS priority,
-			        COALESCE(error_msg, '') AS error_msg,
-			        COALESCE(site_id, '') AS site_id,
-			        seq, '' AS title, '' AS protagonist,
-			        0 AS image_count, 0 AS video_count,
-			        0 AS total_size, 0 AS downloaded_size,
-			        false AS content_verified,
-			        created_at, updated_at
-			 FROM download_tasks
+			rows, err := h.DB.Query(r.Context(),
+				`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
+				        COALESCE(dt.file_path, '') AS file_path,
+				        COALESCE(dt.format, '') AS format,
+				        COALESCE(dt.priority, 0) AS priority,
+				        COALESCE(dt.error_msg, '') AS error_msg,
+				        COALESCE(dt.site_id, '') AS site_id,
+				        dt.seq,
+				        COALESCE(vi.title, '') AS title,
+				        COALESCE(vi.actors, '') AS protagonist,
+				        0 AS image_count, 0 AS video_count,
+				        0 AS total_size, 0 AS downloaded_size,
+				        false AS content_verified,
+				        COALESCE(dt.total_segments, 0) AS total_segments,
+				        COALESCE(dt.completed_segments, 0) AS completed_segments,
+				        dt.created_at, dt.updated_at
+				 FROM download_tasks dt
+				 LEFT JOIN video_infos vi ON dt.id = vi.task_id
 			 UNION ALL
 			 SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
 			        COALESCE(status, 'pending') AS status,
@@ -82,22 +89,24 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			        COALESCE(video_count, 0) AS video_count,
 			        COALESCE(total_size, 0) AS total_size,
 			        COALESCE(downloaded_size, 0) AS downloaded_size,
-			        COALESCE(content_verified, false) AS content_verified,
-			        created_at, updated_at
-			 FROM galleries
-			 UNION ALL
-			 SELECT 'sniff' AS task_type, id, COALESCE(url, '') AS url,
-			        COALESCE(status, 'pending') AS status, 0 AS progress,
-			        '' AS file_path, '' AS format, 0 AS priority,
-			        COALESCE(error_msg, '') AS error_msg,
-			        COALESCE(site_id, '') AS site_id,
-			        seq, '' AS title, '' AS protagonist,
-			        0 AS image_count, 0 AS video_count,
-			        0 AS total_size, 0 AS downloaded_size,
-			        false AS content_verified,
-			        created_at, updated_at
-			 FROM sniff_tasks
-			 ORDER BY id DESC`)
+				        COALESCE(content_verified, false) AS content_verified,
+				        0 AS total_segments, 0 AS completed_segments,
+				        created_at, updated_at
+				 FROM galleries
+				 UNION ALL
+				 SELECT 'sniff' AS task_type, id, COALESCE(url, '') AS url,
+				        COALESCE(status, 'pending') AS status, 0 AS progress,
+				        '' AS file_path, '' AS format, 0 AS priority,
+				        COALESCE(error_msg, '') AS error_msg,
+				        COALESCE(site_id, '') AS site_id,
+				        seq, '' AS title, '' AS protagonist,
+				        0 AS image_count, 0 AS video_count,
+				        0 AS total_size, 0 AS downloaded_size,
+				        false AS content_verified,
+				        0 AS total_segments, 0 AS completed_segments,
+				        created_at, updated_at
+				 FROM sniff_tasks
+				 ORDER BY id DESC`)
 		if err == nil {
 			defer rows.Close()
 			tasks := []map[string]any{}
@@ -107,6 +116,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
 					&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
 					&r.DownloadedSize, &r.ContentVerified,
+					&r.TotalSegments, &r.CompletedSegments,
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
 					continue
 				}
@@ -127,6 +137,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				"ImageCount":       r.ImageCount,
 				"VideoCount":       r.VideoCount,
 				"GalleryTotalSize": r.TotalSize,
+				"Segment":          r.CompletedSegments,
+				"TotalSegments":    r.TotalSegments,
 				"CreatedAt":        r.CreatedAt,
 				"UpdatedAt":        r.UpdatedAt,
 			})
@@ -216,6 +228,12 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			sse.SendEvent("gallery:downloadProgress", payload)
 		})
 
+		// gallery:created — forwarded so the frontend can add new gallery
+		// tasks to the list without requiring a page refresh.
+		unsubGalleryCreated := h.EventBus.On("gallery:created", func(payload any) {
+			sse.SendEvent("gallery:created", payload)
+		})
+
 		defer func() {
 			unsubCreated()
 			unsubProgress()
@@ -225,6 +243,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			unsubNodeProg()
 			unsubNodeState()
 			unsubGalleryProg()
+			unsubGalleryCreated()
 		}()
 	}
 

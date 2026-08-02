@@ -1,0 +1,89 @@
+{
+  "features": {
+    "alpinejs": true,
+    "vue": true,
+    "react": false,
+    "angular": true,
+    "svelte": false,
+    "nextjs": false,
+    "nuxtjs": false,
+    "twig": false,
+    "blade": false,
+    "jinja2": false,
+    "ejs": false,
+    "pug": false,
+    "tailwind": true,
+    "bootstrap": false,
+    "bulma": false,
+    "cdn": 10,
+    "nonce": true,
+    "csrf": true,
+    "gzip": true,
+    "poweredBy": false,
+    "generator": false,
+    "cloudflare": false,
+    "aws": false,
+    "aliyun": false,
+    "webp": 18,
+    "lazyLoad": true
+  },
+  "scripts": [
+    "/js/theme.js?v=4.4.4",
+    "/js/frontend/global.js?v=4.4.4",
+    "/js/latp-page.js?v=4.4.4",
+    "/js/frontend/clipboard.js?v=4.4.4",
+    "/js/frontend/share-modal.js?v=4.4.4",
+    "https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js",
+    "https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.14.8/dist/cdn.min.js",
+    "https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js",
+    "/js/comment.js?v=4.4.4",
+    "/js/latp.js?v=4.4.4",
+    "/js/frontend/crisp-button.js?v=4.4.4"
+  ],
+  "links": [
+    "https://cdn.jsdelivr.net",
+    "https://coserbox.static.iloli.io",
+    "/css/base.css?v=4.4.4",
+    "/css/frontend/pages/latp.bundle.css?v=4.4.4",
+    "/js/theme.js?v=4.4.4",
+    "https://coser.io/latp/69218.html",
+    "https://coserbox.static.iloli.io/pic/2026/01/15/4857e6c0846caac349ea81f7/A6dOshoUwL7-.svg",
+    "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css",
+    "/css/tailwind.public.css?v=4.4.4",
+    "https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css"
+  ],
+  "metas": [
+    {
+      "name": "viewport",
+      "content": "width=device-width, initial-scale=1.0"
+    },
+    {
+      "name": "description",
+      "content": "糖果果candy专题图集：Candy糖糖 2026.07.30 内购私拍 紫色丝袜，收录85张高清图片。题材包含长发、吊带袜、内衣。支持在线看与原图打包下载，可在详情页查看下载入口。"
+    },
+    {
+      "name": "keywords",
+      "content": "Candy糖糖 2026.07.30 内购私拍 紫色丝袜,Candy糖糖 2026.07.30 内购私拍 紫色丝袜写真,Candy糖糖 2026.07.30 内购私拍 紫色丝袜图集,糖果果candy,糖果果candy写真合集,长发,吊带袜,内衣,西装,性感,写真合集,高清图集,原图下载"
+    },
+    {
+      "name": "author",
+      "content": "糖果果candy"
+    },
+    {
+      "name": "twitter:card",
+      "content": "summary_large_image"
+    },
+    {
+      "name": "twitter:title",
+      "content": "Candy糖糖 2026.07.30 内购私拍 紫色丝袜写真图集 - 85张高清图片在线看与原图下载 - 就爱COS"
+    },
+    {
+      "name": "twitter:description",
+      "content": "糖果果candy专题图集：Candy糖糖 2026.07.30 内购私拍 紫色丝袜，收录85张高清图片。题材包含长发、吊带袜、内衣。支持在线看与原图打包下载，可在详情页查看下载入口。"
+    },
+    {
+      "name": "twitter:image",
+      "content": "https://coserbox.static.iloli.io/gallery/2026/07/30/0535b46d1a0d72b1036970bc489c739b/971d16b7a4c8.webp"
+    }
+  ]
+}

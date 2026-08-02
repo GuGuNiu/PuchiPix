@@ -413,18 +413,15 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 		}
 	}
 
-	// Heuristic fallback: extract unknown model name from the first
-	// non-classified segment. Cosplay titles use a consistent structure
-	// where the model name appears before the first separator and is
-	// never a tag/count/game-character.
+	// Heuristic fallback: extract unknown model name from the FIRST
+	// non-classified segment only. Cosplay titles use a consistent
+	// structure where the model name appears before the first separator.
+	// Checking later segments (descriptions, costume types) causes
+	// false positives like "秋山兔女郎" being mistaken for a model name.
 	if len(protagonists) == 0 && len(segments) >= 2 {
-		for i, seg := range segments {
-			if infos[i].isGameChar || infos[i].isCount || infos[i].isCosTag {
-				continue
-			}
-			if isPlausibleModelName(seg) {
-				protagonists = append(protagonists, strings.TrimSpace(seg))
-				break
+		if !infos[0].isGameChar && !infos[0].isCount && !infos[0].isCosTag {
+			if isPlausibleModelName(segments[0]) {
+				protagonists = append(protagonists, strings.TrimSpace(segments[0]))
 			}
 		}
 	}
@@ -441,9 +438,11 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 //   canonical="KANEKO咔喵" segment="KANEKO 咔喵" → "KANEKO 咔喵" (space diff)
 //   canonical="星之迟迟"  segment="星之迟迟Hoshilily" → "星之迟迟Hoshilily"
 func (p *Parser) expandModelName(canonical, segment string) string {
-	// Case 1: segment equals canonical when whitespace is collapsed
+	// Case 1: segment equals canonical when whitespace is collapsed.
+	// Return the canonical name so that underscores and spaces are
+	// normalized to the database form (e.g., "KANEKO_咔喵" → "KANEKO咔喵").
 	if collapseSpaces(segment) == collapseSpaces(canonical) {
-		return segment
+		return canonical
 	}
 
 	lowerCanon := strings.ToLower(canonical)

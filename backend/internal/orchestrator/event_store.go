@@ -1,4 +1,4 @@
-package orchestrator
+﻿package orchestrator
 
 import (
 	"context"
@@ -87,18 +87,27 @@ func (es *EventStore) Append(ctx context.Context, event DagEvent) error {
 	snapshotFn := es.snapshotFn
 	es.mu.Unlock()
 
+	// Emit to EventBus BEFORE DB INSERT so that SSE clients receive
+	// events without waiting for DB I/O. The previous serial order
+	// (INSERT then Emit) meant every event's SSE dispatch latency
+	// included the DB write latency, which under embedded PostgreSQL
+	// high load could reach hundreds of milliseconds. DB persistence
+	// still happens synchronously right after, ensuring durability.
+	// If the DB write fails, the event has already been emitted to
+	// in-memory subscribers �?the in-memory log preserves it for
+	// recovery via Replay().
+	es.eventBus.Emit(event.Type, event)
+
 	if es.db != nil {
 		payloadJSON, _ := json.Marshal(event.Payload)
 		_, err := es.db.Exec(ctx,
-			"INSERT INTO "+db.TableDagEvent+" (seq, dag_id, node_id, type, payload, timestamp) VALUES ($1, $2, $3, $4, $5, $6)",
+			"INSERT INTO "+db.TableDagEvent+" (seq, dag_id, node_id, type, payload, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
 			event.Seq, event.DagID, event.NodeID, event.Type, string(payloadJSON), event.Timestamp,
 		)
 		if err != nil {
 			es.logger.Error("DB persistence failed", err, "eventSeq", event.Seq)
 		}
 	}
-
-	es.eventBus.Emit(event.Type, event)
 
 	if takeSnapshot && snapshotFn != nil {
 		go func() {
@@ -156,8 +165,10 @@ func (es *EventStore) asyncWriterLoop() {
 }
 
 // AppendAsync enqueues an event for asynchronous persistence. If the
-// async writer is not running or the queue is full, it falls back to a
-// synchronous Append (counted via asyncFallbacks).
+// async writer is not running, it falls back to a synchronous Append.
+// When the queue is full, it attempts to drain one slot to make room;
+// if that also fails, the event is skipped and a snapshot is triggered
+// to compensate �?this avoids blocking the scheduler thread on DB I/O.
 func (es *EventStore) AppendAsync(ctx context.Context, event DagEvent) error {
 	es.mu.Lock()
 	started := es.asyncStarted
@@ -171,12 +182,37 @@ func (es *EventStore) AppendAsync(ctx context.Context, event DagEvent) error {
 	case es.asyncCh <- event:
 		return nil
 	default:
-		es.mu.Lock()
-		es.asyncFallbacks++
-		fallbacks := es.asyncFallbacks
-		es.mu.Unlock()
-		es.logger.Warn("Async event queue full, writing synchronously", "fallbacks", fallbacks)
-		return es.Append(ctx, event)
+		// Queue is full. Try to drain one slot and retry insert
+		// without blocking the caller.
+		select {
+		case <-es.asyncCh:
+			// Drained one old event; now insert the new one.
+			es.asyncCh <- event
+			es.mu.Lock()
+			es.asyncFallbacks++
+			fallbacks := es.asyncFallbacks
+			es.mu.Unlock()
+			es.logger.Warn("Async queue full, drained old event to make room", "fallbacks", fallbacks)
+			return nil
+		default:
+			// Still full after drain attempt �?skip this event and
+			// trigger an async snapshot so state can be recovered.
+			es.mu.Lock()
+			es.asyncFallbacks++
+			fallbacks := es.asyncFallbacks
+			snapshotFn := es.snapshotFn
+			es.mu.Unlock()
+			es.logger.Warn("Async queue full, event dropped, triggering snapshot", "fallbacks", fallbacks, "eventType", event.Type)
+			if snapshotFn != nil {
+				go func() {
+					snapshots := snapshotFn()
+					if err := es.Snapshot(context.Background(), snapshots); err != nil {
+						es.logger.Error("Compensatory snapshot failed", err)
+					}
+				}()
+			}
+			return nil
+		}
 	}
 }
 
@@ -222,10 +258,10 @@ func (es *EventStore) Replay(ctx context.Context, fromSeq int64, dagID string) (
 		return inMemory, nil
 	}
 
-	query := "SELECT seq, dag_id, node_id, type, payload, timestamp FROM " + db.TableDagEvent + " WHERE seq > $1"
+	query := "SELECT seq, dag_id, node_id, type, payload, timestamp FROM " + db.TableDagEvent + " WHERE seq > ?"
 	args := []any{fromSeq}
 	if dagID != "" {
-		query += " AND dag_id = $2"
+		query += " AND dag_id = ?"
 		args = append(args, dagID)
 	}
 	query += " ORDER BY seq ASC"
@@ -268,7 +304,7 @@ func (es *EventStore) GetDagEvents(ctx context.Context, dagID string) ([]DagEven
 	}
 
 	rows, err := es.db.Query(ctx,
-		"SELECT seq, dag_id, node_id, type, payload, timestamp FROM "+db.TableDagEvent+" WHERE dag_id = $1 ORDER BY seq ASC",
+		"SELECT seq, dag_id, node_id, type, payload, timestamp FROM "+db.TableDagEvent+" WHERE dag_id = ? ORDER BY seq ASC",
 		dagID,
 	)
 	if err != nil {
@@ -310,7 +346,7 @@ func (es *EventStore) Snapshot(ctx context.Context, snapshots []DagSnapshot) err
 			continue
 		}
 		_, err = es.db.Exec(ctx,
-			"INSERT INTO "+db.TableDagSnapshot+" (dag_id, state, last_seq, created_at) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO "+db.TableDagSnapshot+" (dag_id, state, last_seq, created_at) VALUES (?, ?, ?, ?)",
 			s.DagID, string(stateJSON), currentSeq, time.Now(),
 		)
 		if err != nil {
@@ -334,7 +370,7 @@ func (es *EventStore) RestoreFromSnapshot(
 
 	cutoff := time.Now().Add(-24 * time.Hour)
 	rows, err := es.db.Query(ctx,
-		"SELECT dag_id, state, last_seq, created_at FROM "+db.TableDagSnapshot+" WHERE created_at >= $1 ORDER BY created_at DESC",
+		"SELECT dag_id, state, last_seq, created_at FROM "+db.TableDagSnapshot+" WHERE created_at >= ? ORDER BY created_at DESC",
 		cutoff,
 	)
 	if err != nil {

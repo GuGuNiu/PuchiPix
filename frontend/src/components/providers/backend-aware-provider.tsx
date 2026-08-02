@@ -114,39 +114,6 @@ export default function BackendAwareProvider({
         </div>
       )}
       {children}
-      <style jsx>{`
-        .backend-banner {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          z-index: 9999;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          padding: 8px 16px;
-          background: #ef4444;
-          color: white;
-          font-size: 13px;
-          font-weight: 500;
-        }
-        .backend-banner-warn {
-          background: #f59e0b;
-        }
-        .backend-banner-retry {
-          background: rgba(255,255,255,0.2);
-          border: 1px solid rgba(255,255,255,0.3);
-          color: white;
-          padding: 3px 10px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 12px;
-        }
-        .backend-banner-retry:hover {
-          background: rgba(255,255,255,0.3);
-        }
-      `}</style>
     </BackendAwareContext.Provider>
   );
 }

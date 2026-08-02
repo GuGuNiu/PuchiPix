@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="PuchiPix - Browser-automated M3U8 video downloading tool" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <!-- Google Fonts: Dancing Script (replaces next/font/google) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap"
+      rel="stylesheet"
+    />
+    <title>PuchiPix - Puch Puch ~~</title>
+  </head>
+  <body>
+    <!-- Prevent theme flash: read cookie before React hydrates -->
+    <script>
+      (function() {
+        var match = document.cookie.match(/(?:^|;\s*)theme=([^;]*)/);
+        var theme = match ? match[1] : null;
+        if (theme === 'dark' || theme === 'light') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+      })();
+    </script>
+    <div id="root"></div>
+    <!-- HLS.js library (replaces next/script afterInteractive) -->
+    <script src="/vendor/hls.min.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

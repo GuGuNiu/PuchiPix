@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Search as SearchIcon,
@@ -32,7 +32,7 @@ function isUrl(text: string): boolean {
 
 export default function SearchPage(): React.JSX.Element {
   const { t } = useI18n();
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   useRouteState(pathname, {
     ttl: 10 * 60 * 1000,
     saveScroll: true,

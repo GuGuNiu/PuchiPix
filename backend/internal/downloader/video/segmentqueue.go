@@ -61,6 +61,10 @@ type SegmentQueueConfig struct {
 	MaxRetries       int
 	GetMaxConcurrent func() int
 	OnProgress        ProgressFunc
+	// OnSegmentUpdate is called after each segment download completes
+	// or fails, bridging the VideoProgressTracker pipeline. The
+	// completed parameter is true on success, false on failure.
+	OnSegmentUpdate   func(taskID, segmentIdx int, completed bool, localPath string, fileSize int64, errMsg string)
 	DB               *db.Database
 	Logger           *infra.Logger
 }
@@ -231,8 +235,16 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 				}},
 				result.Error)
 		}
+		// Bridge to VideoProgressTracker: report failed segment.
+		if q.cfg.OnSegmentUpdate != nil {
+			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, false, "", 0, result.Error.Error())
+		}
 	} else {
 		download.CompletedSegments[item.Segment.Index] = true
+		// Bridge to VideoProgressTracker: report completed segment.
+		if q.cfg.OnSegmentUpdate != nil {
+			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, true, result.FilePath, 0, "")
+		}
 	}
 
 	completed := download.CompletedCount()
@@ -250,13 +262,13 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 
 	if completed%5 == 0 || completed+failed == download.TotalSegments {
 		if q.cfg.DB != nil {
-			go func(taskID int, p float64) {
+			go func(taskID int, p float64, comp int) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				_, _ = q.cfg.DB.Exec(ctx,
-					"UPDATE download_tasks SET progress = $1 WHERE id = $2",
-					p, taskID)
-			}(item.TaskID, progress)
+					"UPDATE download_tasks SET progress = $1, completed_segments = $2 WHERE id = $3",
+					p, comp, taskID)
+			}(item.TaskID, progress, completed)
 		}
 	}
 

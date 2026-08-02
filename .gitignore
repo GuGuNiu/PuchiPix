@@ -1,16 +1,44 @@
-# Root-level ignores
+# ── Core ──
 /data/
-.DS_Store
+/tmp
 *.pem
 .env*
+.DS_Store
+Thumbs.db
+
+# ── IDE / Tooling ──
 /.catpaw
 /.trae
+/.workbuddy
 .server-log.txt
 
-# IDE / tool directories
-/.workbuddy
+# ── Frontend (pnpm workspace) ──
+.pnpm-store/
+.npm-cache/
+.bin/
+node_modules/
+.cache/
+package-lock.json
+yarn.lock
+frontend/dist/
 
-# Legacy embedded PostgreSQL runtime (now stored under data/postgres/)
-.postgres/
-/backend/data
-/tmp
+# ── Go Backend ──
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+backend/bin/
+*.log
+*.test
+*.out
+backend/coverage/
+backend/vendor/
+*.bak
+*.tmp
+tmp_*.go
+.tmp/
+*.db
+*.sqlite
+backend/data/

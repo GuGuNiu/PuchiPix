@@ -1,0 +1,4 @@
+// Ops — 转发所有运维监控面板模块
+@forward 'ops-ticker';
+@forward 'ops-activity';
+@forward 'ops-log';

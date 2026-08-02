@@ -6,7 +6,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
+	"database/sql"
+
 	"backend/internal/db"
 	"backend/internal/i18n"
 )
@@ -58,7 +59,7 @@ func (h *Handlers) AccountsCreate(w http.ResponseWriter, r *http.Request) {
 	var id int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO site_accounts (site_id, username, password, domain, status, auth_cookies, cookie_prefix, fail_count, remark)
-		 VALUES ($1, $2, $3, $4, $5, '', '', 0, '')
+		 VALUES (?, ?, ?, ?, ?, '', '', 0, '')
 		 RETURNING id`,
 		a.SiteID, a.Username, a.Password, a.Domain, a.Status).Scan(&id)
 	if err != nil {
@@ -79,7 +80,7 @@ func (h *Handlers) AccountsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := h.DB.Exec(r.Context(),
-		`UPDATE site_accounts SET username=$1, password=$2, domain=$3, status=$4, remark=$5 WHERE id=$6`,
+		`UPDATE site_accounts SET username=?, password=?, domain=?, status=?, remark=? WHERE id=?`,
 		a.Username, a.Password, a.Domain, a.Status, a.Remark, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.accounts.updateFailed"))
@@ -94,7 +95,7 @@ func (h *Handlers) AccountsDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, err := h.DB.Exec(r.Context(), "DELETE FROM site_accounts WHERE id=$1", id)
+	_, err := h.DB.Exec(r.Context(), "DELETE FROM site_accounts WHERE id=?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.accounts.deleteFailed"))
 		return
@@ -109,13 +110,13 @@ func (h *Handlers) PersonsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	search := r.URL.Query().Get("search")
-	var rows pgx.Rows
+	var rows *sql.Rows
 	var err error
 	if search != "" {
 		rows, err = h.DB.Query(r.Context(),
 			`SELECT id, name, pinyin, aliases, source, source_game, gallery_count, confirmed, created_at, updated_at
-			 FROM persons WHERE name ILIKE $1 OR pinyin ILIKE $1 OR aliases ILIKE $1 ORDER BY name LIMIT 100`,
-			"%"+search+"%")
+				 FROM persons WHERE name LIKE ? OR pinyin LIKE ? OR aliases LIKE ? ORDER BY name LIMIT 100`,
+			"%"+search+"%", "%"+search+"%", "%"+search+"%")
 	} else {
 		rows, err = h.DB.Query(r.Context(),
 			`SELECT id, name, pinyin, aliases, source, source_game, gallery_count, confirmed, created_at, updated_at
@@ -155,7 +156,7 @@ func (h *Handlers) PersonsCreate(w http.ResponseWriter, r *http.Request) {
 	var id int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO persons (name, pinyin, aliases, source, source_game, gallery_count, confirmed)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 RETURNING id`,
 		p.Name, p.Pinyin, p.Aliases, p.Source, p.SourceGame, p.GalleryCount, p.Confirmed).Scan(&id)
 	if err != nil {
@@ -176,7 +177,7 @@ func (h *Handlers) PersonsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := h.DB.Exec(r.Context(),
-		`UPDATE persons SET name=$1, pinyin=$2, aliases=$3, source_game=$4, gallery_count=$5, confirmed=$6 WHERE id=$7`,
+		`UPDATE persons SET name=?, pinyin=?, aliases=?, source_game=?, gallery_count=?, confirmed=? WHERE id=?`,
 		p.Name, p.Pinyin, p.Aliases, p.SourceGame, p.GalleryCount, p.Confirmed, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.persons.updateFailed"))
@@ -191,7 +192,7 @@ func (h *Handlers) PersonsDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, err := h.DB.Exec(r.Context(), "DELETE FROM persons WHERE id=$1", id)
+	_, err := h.DB.Exec(r.Context(), "DELETE FROM persons WHERE id=?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.persons.deleteFailed"))
 		return
@@ -242,7 +243,7 @@ func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 	var id int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO blocklist_rules (site_id, field_type, keyword, match_mode, enabled, remark)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 RETURNING id`,
 		br.SiteID, br.FieldType, br.Keyword, br.MatchMode, br.Enabled, br.Remark).Scan(&id)
 	if err != nil {
@@ -263,7 +264,7 @@ func (h *Handlers) BlocklistUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := h.DB.Exec(r.Context(),
-		`UPDATE blocklist_rules SET site_id=$1, field_type=$2, keyword=$3, match_mode=$4, enabled=$5, remark=$6 WHERE id=$7`,
+		`UPDATE blocklist_rules SET site_id=?, field_type=?, keyword=?, match_mode=?, enabled=?, remark=? WHERE id=?`,
 		br.SiteID, br.FieldType, br.Keyword, br.MatchMode, br.Enabled, br.Remark, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.updateFailed"))
@@ -292,7 +293,7 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 			return
 		}
-		_, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=$1", id)
+		_, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
 		if execErr != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
 			return
@@ -313,7 +314,7 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			_, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=$1", id)
+			_, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
 			if execErr == nil {
 				deleted++
 			}
@@ -332,7 +333,7 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
-	_, err := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=$1", id)
+	_, err := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
 		return
@@ -378,8 +379,8 @@ func (h *Handlers) ConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := h.DB.Exec(r.Context(),
-		`INSERT INTO app_configs (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+		`INSERT INTO app_configs (key, value) VALUES (?, ?)
+		 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
 		c.Key, c.Value)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
@@ -426,8 +427,8 @@ func (h *Handlers) PreferencesUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := h.DB.Exec(r.Context(),
-		`INSERT INTO user_preferences (key, value, category) VALUES ($1, $2, $3)
-		 ON CONFLICT (key) DO UPDATE SET value = $2, category = $3, updated_at = CURRENT_TIMESTAMP`,
+		`INSERT INTO user_preferences (key, value, category) VALUES (?, ?, ?)
+		 ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = CURRENT_TIMESTAMP`,
 		p.Key, p.Value, p.Category)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.preferences.updateFailed"))

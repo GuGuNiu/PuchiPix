@@ -5,11 +5,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"backend/internal/db/dbconfig"
 )
 
 // Config holds all runtime configuration for the PuchiPix backend.
 type Config struct {
-	DatabaseURL      string
+	DatabasePath     string
 	ServerPort       int
 	LogLevel         string
 	LogSinkCapacity  int
@@ -20,7 +22,7 @@ type Config struct {
 // for any missing values so the server can start without a .env file.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:      getEnv("DATABASE_URL", "postgres://puchipix:puchipix@localhost:5432/puchipix?sslmode=disable"),
+		DatabasePath:     dbconfig.GetDSN(),
 		ServerPort:       getEnvInt("SERVER_PORT", 10541),
 		LogLevel:         strings.ToUpper(getEnv("LOG_LEVEL", "INFO")),
 		LogSinkCapacity:  getEnvInt("LOG_SINK_CAPACITY", 1000),
@@ -48,8 +50,8 @@ func (c *Config) validate() error {
 	if !validLevels[c.LogLevel] {
 		return fmt.Errorf("invalid LOG_LEVEL %q: must be DEBUG, INFO, WARN, or ERROR", c.LogLevel)
 	}
-	if c.DatabaseURL == "" {
-		return fmt.Errorf("DATABASE_URL must not be empty")
+	if c.DatabasePath == "" {
+		return fmt.Errorf("database path must not be empty")
 	}
 	if c.ServerPort < 1 || c.ServerPort > 65535 {
 		return fmt.Errorf("SERVER_PORT must be between 1 and 65535, got %d", c.ServerPort)

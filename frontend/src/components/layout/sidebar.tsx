@@ -4,8 +4,7 @@ import packageInfo from "../../../package.json";
 
 const APP_VERSION = packageInfo.version;
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Home,
@@ -128,7 +127,7 @@ function NavGroupItem({ group, isActive, isOpen, onToggle, collapsed, hoverExpan
 }
 
 export default function Sidebar(): React.JSX.Element {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { t } = useI18n();
   const collapsed = useSidebarCollapsed();
@@ -226,7 +225,7 @@ export default function Sidebar(): React.JSX.Element {
             return (
               <Link
                 key={entry.href}
-                href={entry.href}
+                to={entry.href}
                 className={`nav-item ${isActive(entry.href) ? "active" : ""}`}
                 title={collapsed && !hoverExpand ? label : undefined}
               >

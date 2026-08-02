@@ -1,0 +1,454 @@
+/**
+ * 文件描述：前台评论区发送、回复、删除和分页加载交互脚本。
+ * 日期：2026-07-05
+ * 作者：ike
+ */
+
+// ========== 全局状态 ==========
+
+// 回复相关的全局状态
+let currentReplyTarget = {
+  parentId: null,
+  replyToUserId: null,
+  replyToNickname: '',
+};
+let lastReplyTime = 0;
+
+// ========== 工具函数 ==========
+
+/**
+ * 评论去重工具函数
+ * 遍历评论容器，移除重复的评论节点（基于 data-comment-id）
+ * 用于解决 bfcache 导致的评论重复显示问题
+ */
+function deduplicateComments() {
+  const listBox = document.getElementById('commentListBox');
+  if (!listBox) return;
+
+  const seenIds = new Set();
+  const commentItems = listBox.querySelectorAll('[data-comment-id]');
+
+  commentItems.forEach(el => {
+    const commentId = el.getAttribute('data-comment-id');
+    if (seenIds.has(commentId)) {
+      el.remove();
+    } else {
+      seenIds.add(commentId);
+    }
+  });
+}
+
+/**
+ * 从 HTML 片段中提取评论 ID
+ * @param {string} html HTML 片段
+ * @returns {string|null} 评论 ID 或 null
+ */
+function extractCommentIdFromHtml(html) {
+  const match = html.match(/data-comment-id=["']([^"']+)["']/);
+  return match ? match[1] : null;
+}
+
+// 处理浏览器 bfcache（后退-前进缓存）
+// 当页面从 bfcache 恢复时，进行去重检查
+window.addEventListener('pageshow', function (event) {
+  if (event.persisted) {
+    deduplicateComments();
+  }
+});
+
+// ========== Alpine.js 组件 ==========
+
+/**
+ * 评论区 Alpine.js 组件工厂函数
+ * 需要在模板中传入 galleryId 和 commentTotal
+ * @param {Object} config 配置对象
+ * @param {string} config.galleryId 图集 ID
+ * @param {number} config.commentTotal 评论总数
+ * @returns {Object} Alpine.js 组件对象
+ */
+function createCommentBox(config) {
+  const { galleryId, commentTotal } = config;
+
+  // 使用 Set 追踪已处理的评论 ID，防止并发请求导致重复插入
+  const processedCommentIds = new Set();
+
+  return {
+    galleryId: galleryId,
+    newComment: '',
+    captchaCode: '',
+    captchaUrl: '/captcha/image?type=number&t=' + Date.now(),
+    sending: false,
+    loading: false,
+    page: 1,
+    totalCount: commentTotal || 0,
+    hasMore: commentTotal > 15,
+    lastSendTime: 0,
+
+    init() {
+      // 初始化时进行去重检查（防御性编程）
+      deduplicateComments();
+      // 将已有评论 ID 加入集合
+      document.querySelectorAll('[data-comment-id]').forEach(el => {
+        const id = el.getAttribute('data-comment-id');
+        if (id) processedCommentIds.add(id);
+      });
+    },
+
+    /**
+     * 检查并标记评论 ID（原子操作）
+     * @param {string} commentId 评论 ID
+     * @returns {boolean} 如果是新评论返回 true，已存在返回 false
+     */
+    markCommentProcessed(commentId) {
+      if (!commentId || processedCommentIds.has(commentId)) {
+        return false;
+      }
+      processedCommentIds.add(commentId);
+      return true;
+    },
+
+    /**
+     * 刷新验证码图片
+     */
+    refreshCaptcha() {
+      this.captchaUrl = '/captcha/image?type=number&t=' + Date.now();
+      this.captchaCode = '';
+    },
+
+    async sendComment() {
+      const content = this.newComment.trim();
+      const captcha = this.captchaCode.trim();
+
+      if (!content) {
+        showToast('请输入评论内容', 'warning');
+        return;
+      }
+
+      // 前端长度验证
+      if (content.length > 300) {
+        showToast('评论内容过长，最多 300 字符', 'warning');
+        return;
+      }
+
+      if (!captcha) {
+        showToast('请输入验证码', 'warning');
+        return;
+      }
+
+      // 发送频率限制（5秒）
+      const now = Date.now();
+      if (now - this.lastSendTime < 5000) {
+        showToast('发送频繁，请稍后再试！', 'warning');
+        return;
+      }
+
+      this.sending = true;
+      this.lastSendTime = now;
+
+      try {
+        const response = await fetch('/comments/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({
+            id: parseInt(this.galleryId),
+            content: content,
+            captcha: captcha,
+          }),
+        });
+
+        const result = await response.text();
+
+        // 检查是否是 JSON 错误响应
+        try {
+          const json = JSON.parse(result);
+          if (!json.success) {
+            showToast(json.message || '发送失败', 'error');
+            this.refreshCaptcha();
+            return;
+          }
+        } catch (e) {
+          // 不是 JSON，是 HTML 片段，表示成功
+          const listBox = document.getElementById('commentListBox');
+
+          // 提取新评论 ID，使用 Set 进行幂等性检查
+          const newCommentId = extractCommentIdFromHtml(result);
+          if (this.markCommentProcessed(newCommentId)) {
+            // 移除空状态提示
+            const emptyEl = listBox.querySelector('.empty-comments');
+            if (emptyEl) emptyEl.remove();
+            // 插入新评论到顶部
+            listBox.insertAdjacentHTML('afterbegin', result);
+            this.totalCount++;
+          }
+          this.newComment = '';
+          this.captchaCode = '';
+          this.refreshCaptcha();
+        }
+      } catch (error) {
+        showToast('发送失败，请重试', 'error');
+        this.refreshCaptcha();
+      } finally {
+        this.sending = false;
+      }
+    },
+
+    async loadMore() {
+      if (this.loading || !this.hasMore) return;
+
+      this.loading = true;
+      this.page++;
+
+      try {
+        const response = await fetch(`/comments/list?id=${this.galleryId}&page=${this.page}`);
+        const html = await response.text();
+
+        if (html.trim()) {
+          const listBox = document.getElementById('commentListBox');
+          listBox.insertAdjacentHTML('beforeend', html);
+          // 将新加载的评论 ID 加入 Set
+          listBox.querySelectorAll('[data-comment-id]').forEach(el => {
+            const id = el.getAttribute('data-comment-id');
+            if (id) this.markCommentProcessed(id);
+          });
+          // 加载更多后进行去重检查
+          deduplicateComments();
+        } else {
+          this.hasMore = false;
+        }
+      } catch (error) {
+        console.error('加载评论失败:', error);
+        this.page--;
+      } finally {
+        this.loading = false;
+      }
+    },
+  };
+}
+
+// ========== 回复相关函数 ==========
+
+/**
+ * 显示回复输入框
+ * @param {string} parentId 父评论ID
+ * @param {string} replyToUserId 被回复的用户ID
+ * @param {string} replyToNickname 被回复的用户昵称
+ */
+function showReplyInput(parentId, replyToUserId, replyToNickname) {
+  // 先隐藏所有回复输入框
+  document.querySelectorAll('.reply-input-box').forEach(box => {
+    box.classList.add('hidden');
+  });
+
+  // 显示当前评论的回复输入框
+  const inputBox = document.getElementById(`reply-input-${parentId}`);
+  if (inputBox) {
+    inputBox.classList.remove('hidden');
+    const input = document.getElementById(`reply-content-${parentId}`);
+    if (input) {
+      input.placeholder = `回复 @${replyToNickname}`;
+      input.focus();
+    }
+  }
+
+  // 保存回复目标信息
+  currentReplyTarget = {
+    parentId: parseInt(parentId),
+    replyToUserId: parseInt(replyToUserId),
+    replyToNickname: replyToNickname,
+  };
+}
+
+/**
+ * 隐藏回复输入框
+ * @param {string} parentId 父评论ID
+ */
+function hideReplyInput(parentId) {
+  const inputBox = document.getElementById(`reply-input-${parentId}`);
+  if (inputBox) {
+    inputBox.classList.add('hidden');
+    const input = document.getElementById(`reply-content-${parentId}`);
+    if (input) {
+      input.value = '';
+    }
+  }
+  currentReplyTarget = { parentId: null, replyToUserId: null, replyToNickname: '' };
+}
+
+/**
+ * 提交回复
+ * @param {string} parentId 父评论ID
+ * @param {string} galleryId 图集ID
+ */
+async function submitReply(parentId, galleryId) {
+  const input = document.getElementById(`reply-content-${parentId}`);
+  if (!input) return;
+
+  const content = input.value.trim();
+  if (!content) {
+    showToast('请输入回复内容', 'warning');
+    return;
+  }
+
+  if (content.length > 300) {
+    showToast('回复内容过长，最多 300 字符', 'warning');
+    return;
+  }
+
+  // 发送频率限制（5秒）
+  const now = Date.now();
+  if (now - lastReplyTime < 5000) {
+    showToast('发送频繁，请稍后再试！', 'warning');
+    return;
+  }
+  lastReplyTime = now;
+
+  try {
+    const response = await fetch('/comments/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({
+        id: parseInt(galleryId),
+        content: content,
+        parentId: parseInt(parentId),
+        replyToUserId: currentReplyTarget.replyToUserId,
+      }),
+    });
+
+    const result = await response.text();
+
+    // 检查是否是 JSON 错误响应
+    try {
+      const json = JSON.parse(result);
+      if (!json.success) {
+        showToast(json.message || '发送失败', 'error');
+        return;
+      }
+    } catch (e) {
+      // 不是 JSON，是 HTML 片段，表示成功
+      const replyList = document.getElementById(`reply-list-${parentId}`);
+      if (replyList) {
+        replyList.classList.remove('hidden');
+        replyList.insertAdjacentHTML('beforeend', result);
+      }
+      input.value = '';
+      hideReplyInput(parentId);
+    }
+  } catch (error) {
+    lastReplyTime = 0;
+    showToast('发送失败，请重试', 'error');
+  }
+}
+
+/**
+ * 加载更多回复
+ * @param {string} parentId 父评论ID
+ */
+async function loadMoreReplies(parentId) {
+  const btn = document.getElementById(`load-more-replies-${parentId}`);
+  if (!btn) return;
+
+  const currentPage = parseInt(btn.dataset.page || '1');
+  const nextPage = currentPage + 1;
+
+  btn.disabled = true;
+  btn.textContent = '加载中...';
+
+  try {
+    const response = await fetch(`/comments/replies?id=${parentId}&page=${nextPage}`);
+    const result = await response.text();
+
+    // 检查是否是 JSON 响应（没有更多回复）
+    try {
+      const json = JSON.parse(result);
+      if (json.success && !json.data) {
+        btn.remove();
+        return;
+      }
+    } catch (e) {
+      // 是 HTML 片段，插入到回复列表
+      const replyList = document.getElementById(`reply-list-${parentId}`);
+      if (replyList) {
+        btn.insertAdjacentHTML('beforebegin', result);
+        btn.dataset.page = String(nextPage);
+        btn.textContent = '展开更多回复';
+        btn.disabled = false;
+      }
+    }
+  } catch (error) {
+    console.error('加载回复失败:', error);
+    btn.textContent = '加载失败，点击重试';
+    btn.disabled = false;
+  }
+}
+
+// ========== 删除功能 ==========
+
+/**
+ * 删除顶级评论
+ * @param {string} id 评论ID
+ */
+async function deleteComment(id) {
+  const confirmed = await showConfirm('确定要删除这条评论吗？删除后其下所有回复也会被删除。', {
+    title: '删除评论',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(`/comments/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const data = await response.json();
+
+    if (data.success) {
+      const el = document.getElementById(`comment_${id}`);
+      if (el) {
+        el.style.transition = 'opacity 0.3s';
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 300);
+      }
+      showToast('评论已删除', 'success');
+    } else {
+      showToast(data.message || '删除失败', 'error');
+    }
+  } catch (error) {
+    showToast('删除失败，请重试', 'error');
+  }
+}
+
+/**
+ * 删除回复
+ * @param {string} replyId 回复ID
+ */
+async function deleteReply(replyId) {
+  const confirmed = await showConfirm('确定要删除这条回复吗？', {
+    title: '删除回复',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(`/comments/${replyId}`, {
+      method: 'DELETE',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const data = await response.json();
+
+    if (data.success) {
+      const el = document.getElementById(`reply_${replyId}`);
+      if (el) {
+        el.style.transition = 'opacity 0.3s';
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 300);
+      }
+      showToast('回复已删除', 'success');
+    } else {
+      showToast(data.message || '删除失败', 'error');
+    }
+  } catch (error) {
+    showToast('删除失败，请重试', 'error');
+  }
+}

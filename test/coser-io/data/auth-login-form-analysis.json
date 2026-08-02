@@ -1,0 +1,243 @@
+{
+  "forms": 5,
+  "formActions": [
+    "https://coser.io/search",
+    "https://coser.io/web-api/v1/user/login",
+    "https://coser.io/web-api/v1/user/register",
+    "https://coser.io/login.html",
+    "https://coser.io/search"
+  ],
+  "formMethods": [
+    "get",
+    "post",
+    "post",
+    "get",
+    "get"
+  ],
+  "inputs": [
+    {
+      "type": "text",
+      "name": "q",
+      "id": "",
+      "placeholder": "搜索图集、合集...",
+      "required": false
+    },
+    {
+      "type": "email",
+      "name": "email",
+      "id": "login-email",
+      "placeholder": "请输入邮箱地址",
+      "required": true
+    },
+    {
+      "type": "password",
+      "name": "password",
+      "id": "login-password",
+      "placeholder": "请输入密码",
+      "required": true
+    },
+    {
+      "type": "checkbox",
+      "name": "rememberMe",
+      "id": "remember-me",
+      "placeholder": "",
+      "required": false
+    },
+    {
+      "type": "text",
+      "name": "nickname",
+      "id": "register-nickname",
+      "placeholder": "请输入昵称",
+      "required": true
+    },
+    {
+      "type": "email",
+      "name": "email",
+      "id": "register-email",
+      "placeholder": "请输入 QQ / 163 / Gmail 等常用邮箱",
+      "required": true
+    },
+    {
+      "type": "password",
+      "name": "password",
+      "id": "register-password",
+      "placeholder": "至少8位，包含大小写字母和数字",
+      "required": true
+    },
+    {
+      "type": "text",
+      "name": "",
+      "id": "register-captcha",
+      "placeholder": "请输入图中数字",
+      "required": false
+    },
+    {
+      "type": "text",
+      "name": "emailCode",
+      "id": "register-email-code",
+      "placeholder": "请输入邮箱验证码",
+      "required": true
+    },
+    {
+      "type": "text",
+      "name": "inviteCode",
+      "id": "register-invite",
+      "placeholder": "填写邀请码注册可获得 5 积分奖励",
+      "required": false
+    },
+    {
+      "type": "email",
+      "name": "email",
+      "id": "reset-email",
+      "placeholder": "请输入邮箱地址",
+      "required": true
+    },
+    {
+      "type": "text",
+      "name": "",
+      "id": "reset-captcha",
+      "placeholder": "请输入图中数字",
+      "required": false
+    },
+    {
+      "type": "text",
+      "name": "emailCode",
+      "id": "reset-code",
+      "placeholder": "请输入邮箱验证码",
+      "required": true
+    },
+    {
+      "type": "password",
+      "name": "password",
+      "id": "reset-password",
+      "placeholder": "至少8位，包含大小写字母和数字",
+      "required": true
+    },
+    {
+      "type": "text",
+      "name": "q",
+      "id": "",
+      "placeholder": "搜索图集、合集...",
+      "required": false
+    }
+  ],
+  "buttons": [
+    {
+      "type": "submit",
+      "text": "分类",
+      "class": "nav-link font-medium flex items-center space-x-1"
+    },
+    {
+      "type": "submit",
+      "text": "更多",
+      "class": "nav-link font-medium flex items-center space-x-1"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "p-2 rounded-lg transition-colors"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "p-2 rounded-lg transition-colors flex items-center justify-center"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "flex items-center justify-center focus:outline-none"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "flex items-center justify-center focus:outline-none"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "flex items-center justify-center focus:outline-none"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": ""
+    },
+    {
+      "type": "submit",
+      "text": "分类",
+      "class": "w-full flex items-center justify-between py-2 nav-link font-medium"
+    },
+    {
+      "type": "submit",
+      "text": "登录",
+      "class": "tab-btn active"
+    },
+    {
+      "type": "submit",
+      "text": "注册",
+      "class": "tab-btn"
+    },
+    {
+      "type": "submit",
+      "text": "登录",
+      "class": "btn-submit"
+    },
+    {
+      "type": "button",
+      "text": "发送验证码",
+      "class": "send-code-btn"
+    },
+    {
+      "type": "submit",
+      "text": "注册",
+      "class": "btn-submit"
+    },
+    {
+      "type": "button",
+      "text": "发送验证码",
+      "class": "send-code-btn"
+    },
+    {
+      "type": "button",
+      "text": "返回登录",
+      "class": "btn-secondary"
+    },
+    {
+      "type": "submit",
+      "text": "重置密码",
+      "class": "btn-submit"
+    },
+    {
+      "type": "submit",
+      "text": "分类",
+      "class": "mobile-nav-item flex flex-col items-center justify-center w-16 py-1.5 transition"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "p-1.5 rounded-lg transition-colors text-[var(--text-secondary)] bg-[var(--bg-ter"
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": ""
+    },
+    {
+      "type": "submit",
+      "text": "",
+      "class": "back-to-top fixed bottom-[90px] right-4 md:bottom-8 md:right-8 p-3 rounded-full "
+    },
+    {
+      "type": "submit",
+      "text": "取消",
+      "class": "flex-1 py-2 border border-gray-200 dark:border-[#333333] text-[#666666] dark:tex"
+    },
+    {
+      "type": "submit",
+      "text": "确定",
+      "class": "flex-1 py-2 text-white rounded-full font-bold transition-all duration-200 active"
+    }
+  ],
+  "csrfToken": "1pvs6weX-lXIjpoICJ2kG_nDaiObsxwDfykrBhJcNgrDuYz40fgg",
+  "isLoggedIn": false
+}

@@ -66,12 +66,35 @@ func NewStealthClient(timeout time.Duration) *http.Client {
 type stealthTransport struct {
 	timeout time.Duration
 
+	// plainTransport handles non-TLS URLs. Some tests and mirror domains
+	// intentionally use http://; forcing uTLS there turns a valid request
+	// into a TLS handshake against a plaintext server.
+	plainOnce      sync.Once
+	plainTransport *http.Transport
+
 	// http2Transport is lazily initialized and reused for HTTP/2 requests.
-	h2Once        sync.Once
-	h2Transport   *http2.Transport
+	h2Once      sync.Once
+	h2Transport *http2.Transport
 }
 
 func (t *stealthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Scheme != "https" {
+		t.plainOnce.Do(func() {
+			t.plainTransport = &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   10 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   10,
+				IdleConnTimeout:       90 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				DisableCompression:    false,
+			}
+		})
+		return t.plainTransport.RoundTrip(req)
+	}
+
 	// Connect TCP.
 	host := req.URL.Hostname()
 	port := req.URL.Port()

@@ -1,0 +1,88 @@
+// ============================================================
+// Layout — 布局骨架
+// app-layout / status-bar / content-area / main-area
+// ============================================================
+
+// ===== App Layout =====
+.app-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+// ===== Status Bar =====
+.status-bar {
+  height: var(--header-height);
+  min-height: var(--header-height);
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  font-size: 13px;
+  z-index: 50;
+}
+
+.status-bar-left,
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+
+  &.connected { background: var(--success); }
+  &.disconnected { background: var(--danger); }
+  &.active { background: var(--warning); }
+}
+
+// ===== Content Area =====
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8);
+
+  // 全宽页面：移除 padding 让页面四角贴边
+  &:has(.search-page),
+  &:has(.dashboard-page),
+  &:has(.tasks-layout) {
+    padding: 0;
+  }
+}
+
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.section-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0;
+}
+
+// ===== Main Area =====
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}

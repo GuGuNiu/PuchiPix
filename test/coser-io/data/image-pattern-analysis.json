@@ -1,0 +1,14 @@
+{
+  "cdnDomain": "coserbox.static.iloli.io",
+  "basePath": "/gallery/2026/07/30/",
+  "folderHash": "0535b46d1a0d72b1036970bc489c739b",
+  "filePattern": "[hash16].webp",
+  "queryParams": [
+    "class=normalvip",
+    "class=original"
+  ],
+  "observedFiles": [
+    "971d16b7a4c8.webp",
+    "de25d42733b0.webp"
+  ]
+}

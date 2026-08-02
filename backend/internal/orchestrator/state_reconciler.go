@@ -88,10 +88,10 @@ func (r *StateReconciler) verifyScrapeNode(ctx context.Context, node DagNodeForV
 
 	var imageCount, videoCount int
 	r.db.QueryRow(ctx,
-		"SELECT COUNT(*) FROM "+db.TableGalleryImage+" WHERE gallery_id = $1", galleryID,
+		"SELECT COUNT(*) FROM "+db.TableGalleryImage+" WHERE gallery_id = ?", galleryID,
 	).Scan(&imageCount)
 	r.db.QueryRow(ctx,
-		"SELECT COUNT(*) FROM "+db.TableGalleryVideo+" WHERE gallery_id = $1", galleryID,
+		"SELECT COUNT(*) FROM "+db.TableGalleryVideo+" WHERE gallery_id = ?", galleryID,
 	).Scan(&videoCount)
 
 	if imageCount == 0 && videoCount == 0 {
@@ -136,7 +136,7 @@ func (r *StateReconciler) verifyDownloadNode(ctx context.Context, node DagNodeFo
 			if galleryID > 0 {
 				var dbPath string
 				if scanErr := r.db.QueryRow(ctx,
-					"SELECT COALESCE(save_path, '') FROM galleries WHERE id = $1",
+					"SELECT COALESCE(save_path, '') FROM galleries WHERE id = ?",
 					galleryID).Scan(&dbPath); scanErr == nil && dbPath != "" {
 					savePath = dbPath
 				}

@@ -26,8 +26,14 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	offset := queryInt(r, "offset", 0)
 
 	rows, err := h.DB.Query(r.Context(),
-		`SELECT id, url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq, created_at, updated_at
-		 FROM download_tasks ORDER BY id DESC LIMIT $1 OFFSET $2`, limit, offset)
+		`SELECT dt.id, dt.url, dt.m3u8_url, dt.status, dt.progress,
+		       dt.file_path, dt.format, dt.priority, dt.error_msg,
+		       dt.site_id, dt.seq, dt.created_at, dt.updated_at,
+		       COALESCE(vi.title, '') AS title,
+		       COALESCE(vi.actors, '') AS protagonist
+		 FROM download_tasks dt
+		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
+		 ORDER BY dt.id DESC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
 		return
@@ -37,7 +43,7 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	tasks := []db.DownloadTask{}
 	for rows.Next() {
 		var t db.DownloadTask
-		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt, &t.Title, &t.Person); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
@@ -235,24 +241,28 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 
 	// Emit gallery:created event for SSE clients (PascalCase keys
 	// for consistency with task:created and SSE initial events).
+	// Uses "ID" (not "GalleryID") so the frontend taskKey() can
+	// directly use it without field-name translation.
 	if h.EventBus != nil {
 		h.EventBus.Emit("gallery:created", map[string]any{
-			"GalleryID":  galleryID,
+			"ID":         galleryID,
 			"SourceURL":  normalizedURL,
 			"SiteID":     siteID,
 			"Status":     "pending",
 			"DagID":      dagID,
 			"DisplayID":  *seqPtr,
 			"TaskType":   "gallery",
+			"CreatedAt":  time.Now(),
+			"UpdatedAt":  time.Now(),
 		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"Type":      "gallery",
-		"GalleryID": galleryID,
-		"DisplayID": *seqPtr,
-		"Status":    "pending",
-		"DagID":     dagID,
+		"type":      "gallery",
+		"galleryId": galleryID,
+		"seq":       *seqPtr,
+		"status":    "pending",
+		"dagId":     dagID,
 	})
 }
 
@@ -316,12 +326,12 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"Type":      "sniff",
-		"SniffID":   sniffID,
-		"DisplayID": *seqPtr,
-		"Status":    "pending",
-		"URL":       pageURL,
-		"DagID":     dagID,
+		"type":      "sniff",
+		"sniffId":   sniffID,
+		"seq":       *seqPtr,
+		"status":    "pending",
+		"url":       pageURL,
+		"dagId":     dagID,
 	})
 }
 
@@ -347,12 +357,12 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 			seqStr = *existingSeq
 		}
 		return map[string]any{
-			"Type":           "video",
-			"MatchType":      "exact",
-			"TaskID":         existingID,
-			"ExistingStatus": existingStatus,
-			"ExistingUrl":    normalizedURL,
-			"DisplayID":      seqStr,
+			"type":           "video",
+			"matchType":      "exact",
+			"taskId":         existingID,
+			"existingStatus": existingStatus,
+			"existingUrl":    normalizedURL,
+			"displayId":      seqStr,
 		}
 	}
 
@@ -373,12 +383,12 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 						seqStr = *existingSeq
 					}
 					return map[string]any{
-						"Type":           "video",
-						"MatchType":      "mirror",
-						"TaskID":         existingID,
-						"ExistingStatus": existingStatus,
-						"ExistingUrl":    mirrorURL,
-						"DisplayID":      seqStr,
+						"type":           "video",
+						"matchType":      "mirror",
+						"taskId":         existingID,
+						"existingStatus": existingStatus,
+						"existingUrl":    mirrorURL,
+						"displayId":      seqStr,
 					}
 				}
 			}
@@ -406,12 +416,12 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 						seqStr = *seq
 					}
 					return map[string]any{
-						"Type":           "video",
-						"MatchType":      "path",
-						"TaskID":         id,
-						"ExistingStatus": status,
-						"ExistingUrl":    dbURL,
-						"DisplayID":      seqStr,
+						"type":           "video",
+						"matchType":      "path",
+						"taskId":         id,
+						"existingStatus": status,
+						"existingUrl":    dbURL,
+						"displayId":      seqStr,
 					}
 				}
 			}
@@ -443,13 +453,13 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 			seqStr = *gallerySeq
 		}
 		return map[string]any{
-			"Type":           "gallery",
-			"MatchType":      "exact",
-			"GalleryID":      galleryID,
-			"ExistingStatus": galleryStatus,
-			"ExistingUrl":    normalizedURL,
-			"ExistingTitle":  galleryTitle,
-			"DisplayID":      seqStr,
+			"type":           "gallery",
+			"matchType":      "exact",
+			"galleryId":      galleryID,
+			"existingStatus": galleryStatus,
+			"existingUrl":    normalizedURL,
+			"existingTitle":  galleryTitle,
+			"displayId":      seqStr,
 		}
 	}
 
@@ -470,13 +480,13 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 						seqStr = *gallerySeq
 					}
 					return map[string]any{
-						"Type":           "gallery",
-						"MatchType":      "mirror",
-						"GalleryID":      galleryID,
-						"ExistingStatus": galleryStatus,
-						"ExistingUrl":    mirrorURL,
-						"ExistingTitle":  galleryTitle,
-						"DisplayID":      seqStr,
+						"type":           "gallery",
+						"matchType":      "mirror",
+						"galleryId":      galleryID,
+						"existingStatus": galleryStatus,
+						"existingUrl":    mirrorURL,
+						"existingTitle":  galleryTitle,
+						"displayId":      seqStr,
 					}
 				}
 			}
@@ -504,13 +514,13 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 						seqStr = *seq
 					}
 					return map[string]any{
-						"Type":           "gallery",
-						"MatchType":      "path",
-						"GalleryID":      id,
-						"ExistingStatus": status,
-						"ExistingUrl":    dbURL,
-						"ExistingTitle":  title,
-						"DisplayID":      seqStr,
+						"type":           "gallery",
+						"matchType":      "path",
+						"galleryId":      id,
+						"existingStatus": status,
+						"existingUrl":    dbURL,
+						"existingTitle":  title,
+						"displayId":      seqStr,
 					}
 				}
 			}
@@ -532,9 +542,15 @@ func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	var t db.DownloadTask
 	err := h.DB.QueryRow(r.Context(),
-		`SELECT id, url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq, created_at, updated_at
-		 FROM download_tasks WHERE id = $1`, id).
-		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt)
+		`SELECT dt.id, dt.url, dt.m3u8_url, dt.status, dt.progress,
+		       dt.file_path, dt.format, dt.priority, dt.error_msg,
+		       dt.site_id, dt.seq, dt.created_at, dt.updated_at,
+		       COALESCE(vi.title, '') AS title,
+		       COALESCE(vi.actors, '') AS protagonist
+		FROM download_tasks dt
+		LEFT JOIN video_infos vi ON dt.id = vi.task_id
+		WHERE dt.id = $1`, id).
+		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt, &t.Title, &t.Person)
 	if err != nil {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
 		return
@@ -663,6 +679,7 @@ func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("update failed: %v", err))
 		return
 	}
+	rowsAff, _ := result.RowsAffected()
 
 	var completed, failed, scraping int
 	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries WHERE status = 'completed'").Scan(&completed)
@@ -670,7 +687,7 @@ func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
 	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries WHERE status = 'scraping'").Scan(&scraping)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"reset":     result.RowsAffected(),
+		"reset":     rowsAff,
 		"completed": completed,
 		"failed":    failed,
 		"scraping":  scraping,
@@ -694,7 +711,7 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
 		return
 	}
-	if rows := result.RowsAffected(); rows == 0 {
+	if rows, _ := result.RowsAffected(); rows == 0 {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
 		return
 	}

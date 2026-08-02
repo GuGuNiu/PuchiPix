@@ -39,46 +39,46 @@ func (t *TaskQueueManager) ResetRunningTasksOnStartup(ctx context.Context) error
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	resetCount := 0
 
-	_, err = tx.Exec(ctx, "UPDATE "+db.TableGallery+" SET status = 'pending' WHERE status IN ('scraping', 'downloading', 'scrape_pending', 'download_pending')")
+	_, err = tx.ExecContext(ctx, "UPDATE "+db.TableGallery+" SET status = 'pending' WHERE status IN ('scraping', 'downloading', 'scrape_pending', 'download_pending')")
 	if err != nil {
 		t.logger.Error("Failed to reset gallery running states", err)
 	} else {
 		resetCount++
 	}
 
-	_, err = tx.Exec(ctx, "UPDATE "+db.TableGalleryImage+" SET status = 'pending', local_path = '', file_size = 0, completed_at = NULL WHERE status IN ('downloading', 'downloaded')")
+	_, err = tx.ExecContext(ctx, "UPDATE "+db.TableGalleryImage+" SET status = 'pending', local_path = '', file_size = 0, completed_at = NULL WHERE status IN ('downloading', 'downloaded')")
 	if err != nil {
 		t.logger.Error("Failed to reset gallery image states", err)
 	} else {
 		resetCount++
 	}
 
-	_, err = tx.Exec(ctx, "UPDATE "+db.TableGalleryVideo+" SET status = 'pending', local_path = '', file_size = 0, completed_at = NULL WHERE status IN ('downloading', 'downloaded')")
+	_, err = tx.ExecContext(ctx, "UPDATE "+db.TableGalleryVideo+" SET status = 'pending', local_path = '', file_size = 0, completed_at = NULL WHERE status IN ('downloading', 'downloaded')")
 	if err != nil {
 		t.logger.Error("Failed to reset gallery video states", err)
 	} else {
 		resetCount++
 	}
 
-	_, err = tx.Exec(ctx, "UPDATE "+db.TableDownloadTask+" SET status = 'pending', progress = 0 WHERE status IN ('downloading', 'processing')")
+	_, err = tx.ExecContext(ctx, "UPDATE "+db.TableDownloadTask+" SET status = 'pending', progress = 0 WHERE status IN ('downloading', 'processing')")
 	if err != nil {
 		t.logger.Error("Failed to reset download task states", err)
 	} else {
 		resetCount++
 	}
 
-	_, err = tx.Exec(ctx, "UPDATE "+db.TableSniffTask+" SET status = 'pending' WHERE status IN ('running', 'processing')")
+	_, err = tx.ExecContext(ctx, "UPDATE "+db.TableSniffTask+" SET status = 'pending' WHERE status IN ('running', 'processing')")
 	if err != nil {
 		t.logger.Error("Failed to reset sniff task states", err)
 	} else {
 		resetCount++
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 
@@ -93,7 +93,7 @@ func (t *TaskQueueManager) EnqueueGalleryTask(ctx context.Context, galleryID int
 		return fmt.Errorf("no database connection")
 	}
 	_, err := t.db.Exec(ctx,
-		"UPDATE "+db.TableGallery+" SET status = 'scrape_pending' WHERE id = $1",
+		"UPDATE "+db.TableGallery+" SET status = 'scrape_pending' WHERE id = ?",
 		galleryID,
 	)
 	if err != nil {
@@ -109,7 +109,7 @@ func (t *TaskQueueManager) EnqueueSniffTask(ctx context.Context, sniffTaskID int
 		return fmt.Errorf("no database connection")
 	}
 	_, err := t.db.Exec(ctx,
-		"UPDATE "+db.TableSniffTask+" SET status = 'pending' WHERE id = $1",
+		"UPDATE "+db.TableSniffTask+" SET status = 'pending' WHERE id = ?",
 		sniffTaskID,
 	)
 	if err != nil {
@@ -131,7 +131,7 @@ func (t *TaskQueueManager) CancelTask(ctx context.Context, taskType string, task
 		table = db.TableDownloadTask
 	}
 	_, err := t.db.Exec(ctx,
-		fmt.Sprintf("UPDATE %s SET status = 'cancelled', completed_at = $1 WHERE id = $2", table),
+		fmt.Sprintf("UPDATE %s SET status = 'cancelled', completed_at = ? WHERE id = ?", table),
 		time.Now(), taskID,
 	)
 	if err != nil {
@@ -156,7 +156,7 @@ func (t *TaskQueueManager) RetryTask(ctx context.Context, taskType string, taskI
 		status = "pending"
 	}
 	_, err := t.db.Exec(ctx,
-		fmt.Sprintf("UPDATE %s SET status = $1, error_msg = '' WHERE id = $2", table),
+		fmt.Sprintf("UPDATE %s SET status = ?, error_msg = '' WHERE id = ?", table),
 		status, taskID,
 	)
 	if err != nil {
