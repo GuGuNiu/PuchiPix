@@ -43,6 +43,7 @@ const esES: TranslationDict = {
   "blocklist.toggleFailed": "Error al actualizar",
   "blocklist.pleaseSelectRules": "Por favor, selecciona las reglas a eliminar primero",
   "blocklist.confirmAdd": "Confirmar añadir",
+  "blocklist.pleaseInputKeyword": "Introduzca una palabra clave de bloqueo",
 };
 
 export default esES;

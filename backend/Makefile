@@ -18,10 +18,6 @@ lint:
 	go vet ./...
 	go run honnef.co/go/tools/cmd/staticcheck@latest -checks=U1000 ./...
 
-# SQLite → PostgreSQL data migration (one-time, idempotent)
-migrate:
-	go run ./cmd/migrate
-
 run:
 	go run ./cmd/server
 

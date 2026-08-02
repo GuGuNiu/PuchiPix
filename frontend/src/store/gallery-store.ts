@@ -1,15 +1,18 @@
 import { create } from 'zustand';
 import type { GalleryData, DownloadTask, TaskStatus } from '@/types';
 import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
+import { createLogger } from '@/lib/core/infra';
 
-export interface GalleryProgress {
+const logger = createLogger('GalleryStore');
+
+interface GalleryProgress {
   galleryId: number;
   completed: number;
   total: number;
   failed: number;
 }
 
-export interface ZipProgress {
+interface ZipProgress {
   galleryId: number;
   downloaded: number;
   total: number;
@@ -306,7 +309,51 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             }),
           }));
         } catch (err) {
-          console.warn('[GalleryStore] SSE initial parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE initial parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      subscribeSseEvent('task:progress', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as {
+            taskId: number;
+            taskType: string;
+            progress: number;
+            completed?: number;
+            total?: number;
+            failed?: number;
+            status: string;
+          };
+          if (payload.taskType !== 'gallery') return;
+
+          // Update gallery status from progress events.
+          if (payload.status) {
+            const galleryStatus = mapTaskStatusToGallery(payload.status);
+            set((s) => ({
+              galleries: s.galleries.map((g) =>
+                g.ID === payload.taskId ? { ...g, Status: galleryStatus } : g,
+              ),
+            }));
+          }
+
+          // Populate progressMap with completed/total counts for the progress bar.
+          if (payload.total !== undefined && payload.total > 0) {
+            set((s) => ({
+              progressMap: {
+                ...s.progressMap,
+                [payload.taskId]: {
+                  galleryId: payload.taskId,
+                  completed: payload.completed ?? 0,
+                  total: payload.total,
+                  failed: payload.failed ?? 0,
+                },
+              },
+            }));
+          }
+        } catch (err) {
+          logger.warn('SSE task:progress parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -357,7 +404,7 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             }));
           }
         } catch (err) {
-          console.warn('[GalleryStore] SSE patch parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE patch parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -369,7 +416,7 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
           if (task.TaskType !== 'gallery') return;
           get().fetchGalleryDetail(task.ID);
         } catch (err) {
-          console.warn('[GalleryStore] SSE upsert parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE upsert parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -396,7 +443,7 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             })(),
           }));
         } catch (err) {
-          console.warn('[GalleryStore] SSE delete parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE delete parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );

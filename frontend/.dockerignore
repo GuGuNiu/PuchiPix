@@ -5,7 +5,6 @@
 node_modules
 .pnpm-store
 
-.next
 out
 build
 
@@ -39,4 +38,3 @@ docker-compose*.yml
 Thumbs.db
 tsconfig.tsbuildinfo
 .cache
-next-env.d.ts

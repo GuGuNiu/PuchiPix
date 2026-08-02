@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -622,7 +622,7 @@ func isLikelyAntiBot(err error) bool {
 // preWriteVideoInfo writes scraped metadata (title, tags, actors,
 // categories, director) to the video_infos table immediately after
 // scraping completes and before the download starts. This mirrors the
-// TS scrapeVideoAsync behavior where prisma.downloadTask.update with
+// original TS scrapeVideoAsync behavior where downloadTask.update with
 // videoInfo was called right after scraping, so users can see metadata
 // during the potentially long download phase.
 func preWriteVideoInfo(ctx context.Context, database *db.Database, taskID int, result *sites.ScrapeResult) {

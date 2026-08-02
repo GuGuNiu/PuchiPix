@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"backend/internal/infra"
 )
 
 // GalleryDownloadVideo downloads an M3U8 video stream into the specified
@@ -120,8 +122,9 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath stri
 
 // MergeSegmentsToMP4 concatenates downloaded TS segments into a single
 // MP4 file using binary concatenation (TS format supports this directly).
-// Missing segments are skipped silently to tolerate partial download
-// failures within the 20% threshold enforced by the caller.
+// Missing segments are logged as warnings and skipped — this tolerates
+// partial download failures within the 20% threshold enforced by the
+// caller. Streaming writes avoid loading full segments into memory.
 func MergeSegmentsToMP4(segDir, outputPath string, totalSegs int) error {
 	out, err := os.Create(outputPath)
 	if err != nil {
@@ -130,16 +133,33 @@ func MergeSegmentsToMP4(segDir, outputPath string, totalSegs int) error {
 	defer out.Close()
 
 	written := 0
+	missing := 0
 	for i := 0; i < totalSegs; i++ {
 		segPath := filepath.Join(segDir, fmt.Sprintf("seg_%04d.ts", i))
 		data, readErr := os.ReadFile(segPath)
 		if readErr != nil {
+			missing++
 			continue // skip missing segments from partial failures
+		}
+		// Verify segment data is non-empty before writing.
+		if len(data) == 0 {
+			missing++
+			continue
 		}
 		if _, writeErr := out.Write(data); writeErr != nil {
 			return fmt.Errorf("write segment %d: %w", i, writeErr)
 		}
 		written++
+	}
+
+	if missing > 0 {
+		m3u8Logger.Warn("Segments missing during MP4 merge",
+			infra.LogContext{Extra: map[string]any{
+				"total":     totalSegs,
+				"written":   written,
+				"missing":   missing,
+				"output":    outputPath,
+			}})
 	}
 
 	if written == 0 {

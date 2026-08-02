@@ -43,6 +43,7 @@ const jaJP: TranslationDict = {
   "blocklist.toggleFailed": "更新失敗",
   "blocklist.pleaseSelectRules": "削除するルールを先に選択してください",
   "blocklist.confirmAdd": "追加確認",
+  "blocklist.pleaseInputKeyword": "ブロックキーワードを入力してください",
 };
 
 export default jaJP;

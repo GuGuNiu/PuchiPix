@@ -445,6 +445,14 @@ const enUS: TranslationDict = {
   "dag.nodeState.failed": "Failed",
   "dag.nodeState.cancelled": "Cancelled",
   "dag.nodeState.timeout": "Timeout",
+  "common.backHome": "Back to home",
+  "common.unknownError": "Unknown error",
+  "error.notFoundDesc": "It may have been moved, deleted, or never existed.",
+  "error.notFoundTitle": "Page not found",
+  "error.pageError": "Something went wrong",
+  "error.pageErrorDesc": "The app caught an unexpected error. You can retry the current action or go back to the home page.",
+  "modelstage.comingSoon": "Coming soon, stay tuned",
+  "modelstage.title": "Model Stage",
 };
 
 export default enUS;

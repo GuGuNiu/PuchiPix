@@ -1,4 +1,4 @@
-﻿package aimeizizi
+package aimeizizi
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -303,7 +302,11 @@ func fetchAndParse(ctx context.Context, url, domain string) (*fetchResult, error
 	client := stealth.NewStealthClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] fetchAndParse: domain=%s url=%s err=%v\n", domain, url, err)
+		httpScraperLogger.Debug("fetchAndParse failed", map[string]interface{}{
+			"domain": domain,
+			"url":    url,
+			"error":  err.Error(),
+		})
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -323,8 +326,15 @@ func fetchAndParse(ctx context.Context, url, domain string) (*fetchResult, error
 
 	h1Text := strings.TrimSpace(doc.Find("h1").First().Text())
 	titleText := strings.TrimSpace(doc.Find("title").First().Text())
-	fmt.Fprintf(os.Stderr, "[DEBUG] fetchAndParse OK: domain=%s status=%d wafBlocked=%v wafDetail=%s htmlLen=%d h1=%q title=%q\n",
-		domain, resp.StatusCode, wafResult.Blocked, wafResult.Detail, len(html), h1Text, titleText)
+	httpScraperLogger.Debug("fetchAndParse OK", map[string]interface{}{
+		"domain":     domain,
+		"status":     resp.StatusCode,
+		"wafBlocked": wafResult.Blocked,
+		"wafDetail":  wafResult.Detail,
+		"htmlLen":    len(html),
+		"h1":         h1Text,
+		"title":      titleText,
+	})
 
 	return &fetchResult{
 		doc:        doc,

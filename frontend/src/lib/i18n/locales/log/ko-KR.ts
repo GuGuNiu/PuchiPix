@@ -182,6 +182,18 @@ const koKR: TranslationDict = {
   "log.dagConfig.configLoadComplete": "[DagConfig] 설정 로드 완료: enabled={enabled}, taskTypes=[{taskTypes}]",
   "log.dagConfig.configLoadFailed": "[DagConfig] 설정 로드 실패:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] 기본 설정 사용: enabled=true (로드 실패 후 안전 강등)",
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] 갤러리 {galleryId} 오류 메시지 삭제 실패",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId}를 찾을 수 없어 일시 중지할 수 없습니다",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} 일시 중지됨 ({pausedCount} 노드)",
+  "log.xsnvshen.ageVerifyError": "성인 인증 오류 (도메인: {domain}, 오류: {error})",
+  "log.xsnvshen.ageVerifyFailed": "성인 인증 실패 (도메인: {domain}, 상태: {status})",
+  "log.xsnvshen.ageVerifySuccess": "성인 인증 통과 (도메인: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "갤러리 스크레이핑 차단: \"{title}...\"이유: {reason}",
+  "log.xsnvshen.blockedSearchResult": "검색 결과 차단: \"{title}...\"이유: {reason}",
+  "log.xsnvshen.gameCharDetected": "게임 캐릭터 감지: {chars}",
+  "log.xsnvshen.httpFetchError": "HTTP 요청 실패 (도메인: {domain}, 오류: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson 실패",
+  "log.xsnvshen.listPageFailed": "목록 페이지 {page} 스크레이핑 실패",
 };
 
 export default koKR;

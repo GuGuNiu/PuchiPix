@@ -1,7 +1,7 @@
 import siteModulesData from '../data/site-modules.json';
 
-export type SiteType = string;
-export interface BadgeTheme {
+type SiteType = string;
+interface BadgeTheme {
   gradient: string;
   solidColor: string;
   textColor: string;
@@ -18,9 +18,9 @@ export interface SiteModuleConfig {
   readonly domains?: readonly string[];
 }
 
-export const SITE_MODULES = siteModulesData.modules as Record<string, SiteModuleConfig>;
+const SITE_MODULES = siteModulesData.modules as Record<string, SiteModuleConfig>;
 
-export const ALL_SITE_MODULES: readonly SiteModuleConfig[] = Object.values(SITE_MODULES);
+const ALL_SITE_MODULES: readonly SiteModuleConfig[] = Object.values(SITE_MODULES);
 
 export const ENABLED_SITE_MODULES: readonly SiteModuleConfig[] = ALL_SITE_MODULES.filter(
   (m) => m.enabled

@@ -169,6 +169,18 @@ const viVN: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] Tải cấu hình thất bại:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] Dùng cấu hình mặc định: enabled=true (hạ cấp an toàn sau khi tải thất bại)",
 
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] Xóa thông báo lỗi bộ sưu tập {galleryId} thất bại",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] Không tìm thấy DAG {dagId}, không thể tạm dừng",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} đã tạm dừng ({pausedCount} nút)",
+  "log.xsnvshen.ageVerifyError": "Lỗi xác minh độ tuổi (miền: {domain}, lỗi: {error})",
+  "log.xsnvshen.ageVerifyFailed": "Xác minh độ tuổi thất bại (miền: {domain}, trạng thái: {status})",
+  "log.xsnvshen.ageVerifySuccess": "Xác minh độ tuổi thành công (miền: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "Đã chặn thu thập bộ sưu tập: \"{title}...\"lý do: {reason}",
+  "log.xsnvshen.blockedSearchResult": "Đã chặn kết quả tìm kiếm: \"{title}...\"lý do: {reason}",
+  "log.xsnvshen.gameCharDetected": "Đã phát hiện nhân vật trò chơi: {chars}",
+  "log.xsnvshen.httpFetchError": "Yêu cầu HTTP thất bại (miền: {domain}, lỗi: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson thất bại",
+  "log.xsnvshen.listPageFailed": "Thu thập trang danh sách {page} thất bại",
 };
 
 export default viVN;

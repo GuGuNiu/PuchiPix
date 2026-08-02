@@ -6,7 +6,7 @@ import (
 )
 
 // TestModelFieldCount verifies that each Go struct has the same number
-// of fields as its Prisma schema counterpart, catching accidental
+// of fields as its schema counterpart, catching accidental
 // field additions or omissions during the migration.
 func TestModelFieldCount(t *testing.T) {
 	tests := []struct {
@@ -43,7 +43,7 @@ func TestModelFieldCount(t *testing.T) {
 }
 
 // TestDownloadHistoryIDIsString verifies that DownloadHistory uses a
-// string ID (cuid) rather than auto-increment, matching Prisma schema.
+// string ID (cuid) rather than auto-increment, matching the schema.
 func TestDownloadHistoryIDIsString(t *testing.T) {
 	dh := DownloadHistory{}
 	idField := reflect.TypeOf(dh).Field(0)
@@ -52,7 +52,7 @@ func TestDownloadHistoryIDIsString(t *testing.T) {
 	}
 }
 
-// TestBigIntFieldsAreInt64 verifies that all BigInt Prisma fields
+// TestBigIntFieldsAreInt64 verifies that all BigInt fields
 // map to int64 in Go, preventing silent truncation on large file sizes.
 func TestBigIntFieldsAreInt64(t *testing.T) {
 	tests := []struct {
@@ -84,7 +84,7 @@ func TestBigIntFieldsAreInt64(t *testing.T) {
 	}
 }
 
-// TestNullableFieldsArePointers verifies that Prisma optional fields
+// TestNullableFieldsArePointers verifies that optional fields
 // (marked with ?) map to pointer types in Go, allowing null to be
 // distinguished from zero values.
 func TestNullableFieldsArePointers(t *testing.T) {

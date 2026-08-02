@@ -1,5 +1,5 @@
 import { toast as sonnerToast } from "sonner";
-import type { ExternalToast, ToastT } from "sonner";
+import type { ExternalToast } from "sonner";
 import React from "react";
 
 import { useI18n } from "./index";
@@ -51,5 +51,3 @@ export const toast = {
   warning: createMethod("warning"),
   loading: createMethod("loading"),
 };
-
-export type { ExternalToast, ToastT };

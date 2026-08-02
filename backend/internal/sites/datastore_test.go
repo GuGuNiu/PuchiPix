@@ -195,7 +195,8 @@ func TestDataStoreGetBlockedKeywords(t *testing.T) {
 
 	keywords := ds.GetBlockedKeywords("aimeizizi")
 	assert.NotEmpty(t, keywords)
-	assert.Contains(t, keywords, "AI")
+	assert.Contains(t, keywords, "AI Nudes")
+	assert.Contains(t, keywords, "AI Porn")
 
 	// xsnvshen has empty blocked keywords
 	emptyKeywords := ds.GetBlockedKeywords("xsnvshen")
@@ -209,9 +210,9 @@ func TestDataStoreGetBlockedKeywords(t *testing.T) {
 func TestDataStoreGetBlockedCategories(t *testing.T) {
 	ds := NewSiteDataStore()
 
+	// aimeizizi currently has no blocked categories configured
 	cats := ds.GetBlockedCategories("aimeizizi")
-	assert.NotEmpty(t, cats)
-	assert.Contains(t, cats, "AI")
+	assert.Empty(t, cats)
 
 	assert.Nil(t, ds.GetBlockedCategories("nonexistent"))
 }

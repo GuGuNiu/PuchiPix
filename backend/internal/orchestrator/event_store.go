@@ -1,4 +1,4 @@
-﻿package orchestrator
+package orchestrator
 
 import (
 	"context"
@@ -18,7 +18,7 @@ const maxInMemoryLog = 10000
 const snapshotInterval = 100
 
 // EventStore persists DAG events for audit and recovery, mirroring the
-// TypeScript EventStore with an in-memory ring buffer and PostgreSQL
+// TypeScript EventStore with an in-memory ring buffer and database
 // persistence.
 //
 // Async writes: AppendAsync hands events to a single writer goroutine
@@ -67,7 +67,7 @@ func (es *EventStore) SetSnapshotProvider(fn func() []DagSnapshot) {
 }
 
 // Append adds an event to the log, assigns it a sequence number,
-// persists it to PostgreSQL, and fans out to the EventBus.
+// persists it to the database, and fans out to the EventBus.
 func (es *EventStore) Append(ctx context.Context, event DagEvent) error {
 	es.mu.Lock()
 	es.currentSeq++
@@ -90,8 +90,8 @@ func (es *EventStore) Append(ctx context.Context, event DagEvent) error {
 	// Emit to EventBus BEFORE DB INSERT so that SSE clients receive
 	// events without waiting for DB I/O. The previous serial order
 	// (INSERT then Emit) meant every event's SSE dispatch latency
-	// included the DB write latency, which under embedded PostgreSQL
-	// high load could reach hundreds of milliseconds. DB persistence
+// included the DB write latency, which under high load
+// could reach hundreds of milliseconds. DB persistence
 	// still happens synchronously right after, ensuring durability.
 	// If the DB write fails, the event has already been emitted to
 	// in-memory subscribers �?the in-memory log preserves it for
@@ -329,7 +329,7 @@ func (es *EventStore) GetDagEvents(ctx context.Context, dagID string) ([]DagEven
 	return events, nil
 }
 
-// Snapshot persists the given DAG snapshots to PostgreSQL.
+// Snapshot persists the given DAG snapshots to the database.
 func (es *EventStore) Snapshot(ctx context.Context, snapshots []DagSnapshot) error {
 	if len(snapshots) == 0 || es.db == nil {
 		return nil
@@ -357,7 +357,7 @@ func (es *EventStore) Snapshot(ctx context.Context, snapshots []DagSnapshot) err
 	return nil
 }
 
-// RestoreFromSnapshot loads the latest snapshots from PostgreSQL and
+// RestoreFromSnapshot loads the latest snapshots from the database and
 // invokes the provided callbacks to restore DAG state and replay events.
 func (es *EventStore) RestoreFromSnapshot(
 	ctx context.Context,

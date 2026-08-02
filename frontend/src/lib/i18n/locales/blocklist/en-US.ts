@@ -43,6 +43,7 @@ const enUS: TranslationDict = {
   "blocklist.toggleFailed": "Update failed",
   "blocklist.pleaseSelectRules": "Please select rules to delete first",
   "blocklist.confirmAdd": "Confirm Add",
+  "blocklist.pleaseInputKeyword": "Please enter a block keyword",
 };
 
 export default enUS;

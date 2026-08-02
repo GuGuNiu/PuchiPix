@@ -79,6 +79,7 @@ func DownloadSegment(ctx context.Context, task SegmentTask, maxRetries int) Segm
 		result := downloader.DownloadFileWithDomainFallback(ctx, task.Segment.FullURI, filePath, &downloader.DownloadOptions{
 			Headers: headers,
 			Atomic:  true,
+			Timeout: 60_000_000_000, // 60s per segment (same as gallery image downloads)
 		})
 
 		if result.Success {

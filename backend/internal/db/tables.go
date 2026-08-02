@@ -1,6 +1,6 @@
 package db
 
-// TableNames centralizes PostgreSQL table names matching the Prisma
+// TableNames centralizes database table names matching the schema
 // @@map annotations, avoiding string literals scattered across queries.
 const (
 	TableDownloadTask        = "download_tasks"

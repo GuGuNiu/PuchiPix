@@ -439,6 +439,14 @@ const zhTW: TranslationDict = {
   "dag.nodeState.failed": "已失敗",
   "dag.nodeState.cancelled": "已取消",
   "dag.nodeState.timeout": "已逾時",
+  "common.backHome": "返回首頁",
+  "common.unknownError": "未知錯誤",
+  "error.notFoundDesc": "它可能已被移動、刪除，或從未存在。",
+  "error.notFoundTitle": "找不到對應的頁面",
+  "error.pageError": "頁面發生異常",
+  "error.pageErrorDesc": "應用程式捕獲到未預期的錯誤。您可以嘗試重試目前操作，或返回首頁繼續使用。",
+  "modelstage.comingSoon": "即將上線，敬請期待",
+  "modelstage.title": "模特台",
 };
 
 export default zhTW;

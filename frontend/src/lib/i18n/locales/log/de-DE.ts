@@ -168,6 +168,18 @@ const deDE: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] Konfigurationsladung fehlgeschlagen:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] Standardkonfiguration verwendet: enabled=true (Sicherheits-Fallback nach Ladefehler)",
 
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] Fehlermeldung der Galerie {galleryId} konnte nicht gelöscht werden",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId} nicht gefunden, Pausieren nicht möglich",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} pausiert ({pausedCount} Knoten)",
+  "log.xsnvshen.ageVerifyError": "Fehler bei der Altersverifizierung (Domäne: {domain}, Fehler: {error})",
+  "log.xsnvshen.ageVerifyFailed": "Altersverifizierung fehlgeschlagen (Domäne: {domain}, Status: {status})",
+  "log.xsnvshen.ageVerifySuccess": "Altersverifizierung bestanden (Domäne: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "Galerie-Scraping blockiert: \"{title}...\"Grund: {reason}",
+  "log.xsnvshen.blockedSearchResult": "Suchergebnis blockiert: \"{title}...\"Grund: {reason}",
+  "log.xsnvshen.gameCharDetected": "Spielcharaktere erkannt: {chars}",
+  "log.xsnvshen.httpFetchError": "HTTP-Anfrage fehlgeschlagen (Domäne: {domain}, Fehler: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson fehlgeschlagen",
+  "log.xsnvshen.listPageFailed": "Scraping der Listenseite {page} fehlgeschlagen",
 };
 
 export default deDE;

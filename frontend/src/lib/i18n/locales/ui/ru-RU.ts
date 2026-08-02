@@ -326,6 +326,14 @@ const ruRU: TranslationDict = {
   "dag.nodeState.failed": "Ошибка",
   "dag.nodeState.cancelled": "Отменён",
   "dag.nodeState.timeout": "Тайм-аут",
+  "common.backHome": "На главную",
+  "common.unknownError": "Неизвестная ошибка",
+  "error.notFoundDesc": "Возможно, она была перемещена, удалена или никогда не существовала.",
+  "error.notFoundTitle": "Страница не найдена",
+  "error.pageError": "Произошла ошибка на странице",
+  "error.pageErrorDesc": "Приложение обнаружило непредвиденную ошибку. Вы можете повторить операцию или вернуться на главную страницу.",
+  "modelstage.comingSoon": "Скоро появится, следите за обновлениями",
+  "modelstage.title": "Сцена моделей",
 };
 
 export default ruRU;

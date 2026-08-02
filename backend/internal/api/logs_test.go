@@ -21,17 +21,6 @@ func TestLogsHistory(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestLogsQuery verifies that the logs query endpoint delegates to
-// the history endpoint and returns a valid JSON response.
-func TestLogsQuery(t *testing.T) {
-	h := New(nil, infra.NewEventBus())
-	req := httptest.NewRequest("GET", "/api/logs/query?module=API&level=info", nil)
-	w := httptest.NewRecorder()
-	h.LogsQuery(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
 // TestParseLogFilter verifies that query parameters are correctly
 // parsed into the LogQueryFilter struct.
 func TestParseLogFilter(t *testing.T) {

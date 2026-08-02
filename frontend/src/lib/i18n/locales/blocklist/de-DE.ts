@@ -43,6 +43,7 @@ const deDE: TranslationDict = {
   "blocklist.toggleFailed": "Aktualisierung fehlgeschlagen",
   "blocklist.pleaseSelectRules": "Bitte zuerst zu löschende Regeln auswählen",
   "blocklist.confirmAdd": "Hinzufügen bestätigen",
+  "blocklist.pleaseInputKeyword": "Bitte geben Sie ein Sperr-Keyword ein",
 };
 
 export default deDE;

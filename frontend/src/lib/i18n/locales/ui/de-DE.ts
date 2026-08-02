@@ -342,6 +342,14 @@ const deDE: TranslationDict = {
   "dag.nodeState.failed": "Fehlgeschlagen",
   "dag.nodeState.cancelled": "Abgebrochen",
   "dag.nodeState.timeout": "Zeitüberschreitung",
+  "common.backHome": "Zur Startseite",
+  "common.unknownError": "Unbekannter Fehler",
+  "error.notFoundDesc": "Sie wurde möglicherweise verschoben, gelöscht oder hat nie existiert.",
+  "error.notFoundTitle": "Seite nicht gefunden",
+  "error.pageError": "Auf der Seite ist ein Fehler aufgetreten",
+  "error.pageErrorDesc": "Die App hat einen unerwarteten Fehler abgefangen. Sie können den Vorgang erneut versuchen oder zur Startseite zurückkehren.",
+  "modelstage.comingSoon": "Bald verfügbar, bleiben Sie dran",
+  "modelstage.title": "Modelbühne",
 };
 
 export default deDE;

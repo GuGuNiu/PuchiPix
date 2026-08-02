@@ -8,7 +8,7 @@ import App from "./App";
  * by PostCSS. main.scss is the SCSS entry that @use-loads all style
  * modules in order.
  */
-import "./app/globals.css";
+import "./styles/globals.css";
 import "./styles/main.scss";
 
 const rootElement = document.getElementById("root");

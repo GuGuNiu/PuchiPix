@@ -34,12 +34,6 @@ func (h *Handlers) LogsHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
-// LogsQuery returns log entries filtered by module/dagId/level,
-// matching the /api/logs/query endpoint.
-func (h *Handlers) LogsQuery(w http.ResponseWriter, r *http.Request) {
-	h.LogsHistory(w, r)
-}
-
 // LogsLatest returns the most recent log entries as a JSON array,
 // matching the /api/logs/latest endpoint used by the console-log
 // frontend component. Returns the last 20 entries by default.

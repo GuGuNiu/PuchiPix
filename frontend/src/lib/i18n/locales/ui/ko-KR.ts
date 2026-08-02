@@ -443,6 +443,14 @@ const koKR: TranslationDict = {
   "dag.nodeState.failed": "실패",
   "dag.nodeState.cancelled": "취소됨",
   "dag.nodeState.timeout": "시간 초과",
+  "common.backHome": "홈으로 돌아가기",
+  "common.unknownError": "알 수 없는 오류",
+  "error.notFoundDesc": "이동되거나 삭제되었거나 존재하지 않았을 수 있습니다.",
+  "error.notFoundTitle": "페이지를 찾을 수 없습니다",
+  "error.pageError": "페이지에 오류가 발생했습니다",
+  "error.pageErrorDesc": "앱에서 예기치 않은 오류가 발생했습니다. 현재 작업을 다시 시도하거나 홈페이지로 돌아가 계속할 수 있습니다.",
+  "modelstage.comingSoon": "곧 출시됩니다",
+  "modelstage.title": "모델 스테이지",
 };
 
 export default koKR;

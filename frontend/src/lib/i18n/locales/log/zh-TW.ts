@@ -165,6 +165,18 @@ const zhTW: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] 設定載入失敗:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] 使用預設設定: enabled=true（載入失敗後的安全降級）",
 
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] 清除圖庫 {galleryId} 錯誤訊息失敗",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId} 未找到無法暫停",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} 已暫停 ({pausedCount} 个節點)",
+  "log.xsnvshen.ageVerifyError": "防沉迷驗證異常 (域名: {domain}, 錯誤: {error})",
+  "log.xsnvshen.ageVerifyFailed": "防沉迷驗證失敗 (域名: {domain}, 狀態: {status})",
+  "log.xsnvshen.ageVerifySuccess": "防沉迷驗證通過 (域名: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "屏蔽圖庫爬取: \"{title}...\"原因: {reason}",
+  "log.xsnvshen.blockedSearchResult": "屏蔽搜索结果: \"{title}...\"原因: {reason}",
+  "log.xsnvshen.gameCharDetected": "識別到游戏角色: {chars}",
+  "log.xsnvshen.httpFetchError": "HTTP 請求失敗 (域名: {domain}, 錯誤: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson 失敗",
+  "log.xsnvshen.listPageFailed": "爬取列表頁第 {page} 頁失敗",
 };
 
 export default zhTW;

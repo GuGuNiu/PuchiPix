@@ -47,35 +47,6 @@ export function parseLangTag(lang: string): Locale | null {
   return null;
 }
 
-/**
- * From Accept-Language headerParse Locale。
- *
- *
- * @param acceptLang - Accept-Language headerValue
- */
-export function localeFromAcceptHeader(acceptLang: string | null): Locale {
-  if (!acceptLang) return DEFAULT_LOCALE;
-
-  const langs = acceptLang.split(",").map((s) => s.trim().split(";")[0]);
-
-  for (const lang of langs) {
-    const result = parseLangTag(lang);
-    if (result) return result;
-  }
-
-  return DEFAULT_LOCALE;
-}
-
-/**
- *
- * @param headerValue - x-locale headerValue
- */
-export function localeFromHeader(headerValue: string | null): Locale | null {
-  if (!headerValue) return null;
-  return parseLangTag(headerValue);
-}
-
-
 export function detectBrowserLocale(): Locale {
   if (typeof navigator === "undefined") return DEFAULT_LOCALE;
 

@@ -46,7 +46,7 @@ export function Pagination({
   className = "",
   showTotal = true,
   labels,
-}: PaginationProps) {
+}: PaginationProps): React.JSX.Element {
   const { t } = useI18n();
   const l = {
     first: labels?.first ?? t("tasks.firstPage"),

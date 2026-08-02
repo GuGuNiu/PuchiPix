@@ -10,7 +10,6 @@ import (
 	"backend/internal/db"
 	"backend/internal/downloader/video"
 	"backend/internal/i18n"
-	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
 	"backend/internal/urlutil"
@@ -219,12 +218,7 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	// Submit gallery DAG pipeline for scraping + downloading.
 	dagID := ""
 	if h.DagOrch != nil {
-		var def orchestrator.DagDefinition
-		if h.DagFactory != nil {
-			def = h.DagFactory.NewGalleryPipeline(normalizedURL, siteID, galleryID)
-		} else {
-			def = dag.NewDagFactory().NewGalleryPipeline(normalizedURL, siteID, galleryID)
-		}
+		def := dag.NewDagFactory().NewGalleryPipeline(normalizedURL, siteID, galleryID)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
@@ -293,12 +287,7 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 	// Submit sniff DAG pipeline for crawling (chromedp-based M3U8 capture).
 	dagID := ""
 	if h.DagOrch != nil {
-		var def orchestrator.DagDefinition
-		if h.DagFactory != nil {
-			def = h.DagFactory.NewSniffPipeline(pageURL, sniffID)
-		} else {
-			def = dag.NewDagFactory().NewSniffPipeline(pageURL, sniffID)
-		}
+		def := dag.NewDagFactory().NewSniffPipeline(pageURL, sniffID)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
@@ -653,14 +642,7 @@ func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 		return "", fmt.Errorf("DAG orchestrator not available, using legacy path")
 	}
 
-	var def orchestrator.DagDefinition
-	if h.DagFactory != nil {
-		def = h.DagFactory.NewVideoPipeline(taskID)
-	} else {
-		// Ad-hoc fallback when factory not injected.
-		def = dag.NewDagFactory().NewVideoPipeline(taskID)
-	}
-
+	def := dag.NewDagFactory().NewVideoPipeline(taskID)
 	return h.DagOrch.SubmitDag(r.Context(), def)
 }
 

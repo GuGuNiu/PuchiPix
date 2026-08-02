@@ -68,27 +68,6 @@ export interface M3U8Candidate {
   title: string;
 }
 
-export interface ScrapeResult {
-  m3u8_url: string;
-  m3u8_candidates?: M3U8Candidate[];
-  title: string;
-  page_url: string;
-  tags: string[];
-  actors: string[];
-  categories: string[];
-  director: string;
-}
-
-export interface CapturedURL {
-  url: string;
-  type: string;
-  timestamp: string;
-  page_url: string;
-  filename: string;
-  tags?: string[];
-  actors?: string[];
-}
-
 export interface ProgressMessage {
   type: string;
   task_id: number;
@@ -111,57 +90,6 @@ export interface Stats {
   current_speed: number;
   current_speed_str: string;
   speed_rating: number;
-}
-
-export interface GalleryImageItem {
-  url: string;
-  pageIndex: number;
-  orderIndex: number;
-}
-
-export interface GalleryVideoItem {
-  url: string;
-}
-
-export interface GalleryZipInfo {
-  title: string;
-  fileCount: number;
-  fileSizeText: string;
-  imageDimensions: string;
-  password: string;
-  downloadUrl: string;
-  provider: string;
-  requiresLogin: boolean;
-  requiresEmail: boolean;
-  downloadSource?: string;
-  ouoUrl?: string;
-  _pageId?: string;
-  _eligibilityUrl?: string;
-  /** DownloadCompleteafter Jump URL */
-  _nextUrl?: string;
-  /** Temporarydebugfield */
-  _dbg?: unknown;
-}
-
-export interface GalleryScrapeResult {
-  sourceUrl: string;
-  title: string;
-  protagonist: string;
-  description: string;
-  category: string;
-  tags: string[];
-  coverUrl: string;
-  publishTime?: string;
-  images: GalleryImageItem[];
-  videos: GalleryVideoItem[];
-  pageCount: number;
-  imageCount: number;
-  videoCount: number;
-  scrapedDomain?: string;
-  zipInfo?: GalleryZipInfo;
-  gameCharacters?: string[];
-  needsPurchase?: boolean;
-  downloadLinks?: string[];
 }
 
 export interface GalleryDownloadInfoData {
@@ -243,27 +171,6 @@ export interface GalleryVideoData {
   Status: string;
 }
 
-export interface SystemStatus {
-  memory: {
-    alloc_mb: number;
-    sys_mb: number;
-    total_mb: number;
-    gc_count: number;
-  };
-  goroutines?: number;
-  uptime: number;
-  timestamp: string;
-}
-
-export interface SniffStatus {
-  running: boolean;
-  target_url: string;
-  captured: number;
-  start_time: string;
-}
-
-export type AppConfig = Record<string, string>;
-
 export interface SearchItem {
   pageUrl: string;
   title: string;
@@ -276,41 +183,6 @@ export interface SearchItem {
   error?: string;
   /** Retry count */
   retries: number;
-}
-
-export interface KeywordResult {
-  keyword: string;
-  /** SearchState */
-  status: 'pending' | 'searching' | 'completed' | 'failed';
-  items: SearchItem[];
-  /** Error info */
-  error?: string;
-  /** Retry count */
-  retries: number;
-}
-
-export interface SearchJob {
-  id: string;
-  rawKeywords: string;
-  keywords: string[];
-  siteId: string;
-  /** TaskState */
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  results: KeywordResult[];
-  createdAt: string;
-  completedAt?: string;
-  totalFound: number;
-  totalDownloaded: number;
-  totalFailed: number;
-  currentIndex: number;
-  /** Log */
-  logs: SearchLogEntry[];
-}
-
-export interface SearchLogEntry {
-  time: string;
-  message: string;
-  level: 'info' | 'warn' | 'error';
 }
 
 export interface BatchTitleResult {
@@ -333,6 +205,12 @@ export interface BatchTitleResult {
   /** Retry count */
   retries: number;
   matchScore?: number;
+}
+
+export interface SearchLogEntry {
+  time: string;
+  message: string;
+  level: 'info' | 'warn' | 'error';
 }
 
 export interface BatchSearchJob {

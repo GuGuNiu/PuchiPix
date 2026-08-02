@@ -169,6 +169,18 @@ const ruRU: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] Ошибка загрузки конфигурации:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] Конфигурация по умолчанию: enabled=true (откат после ошибки загрузки)",
 
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] Не удалось очистить сообщение об ошибке галереи {galleryId}",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId} не найден, невозможно приостановить",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} приостановлен ({pausedCount} узлов)",
+  "log.xsnvshen.ageVerifyError": "Ошибка проверки возраста (домен: {domain}, ошибка: {error})",
+  "log.xsnvshen.ageVerifyFailed": "Проверка возраста не пройдена (домен: {domain}, статус: {status})",
+  "log.xsnvshen.ageVerifySuccess": "Проверка возраста пройдена (домен: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "Заблокировано сканирование галереи: \"{title}...\"причина: {reason}",
+  "log.xsnvshen.blockedSearchResult": "Заблокирован результат поиска: \"{title}...\"причина: {reason}",
+  "log.xsnvshen.gameCharDetected": "Обнаружены игровые персонажи: {chars}",
+  "log.xsnvshen.httpFetchError": "Сбой HTTP-запроса (домен: {domain}, ошибка: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson не удалось",
+  "log.xsnvshen.listPageFailed": "Не удалось обработать страницу списка {page}",
 };
 
 export default ruRU;

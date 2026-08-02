@@ -42,6 +42,7 @@ const zhCN: TranslationDict = {
   "blocklist.toggleFailed": "更新失败",
   "blocklist.pleaseSelectRules": "请先选择要删除的规则",
   "blocklist.confirmAdd": "确认添加",
+  "blocklist.pleaseInputKeyword": "请输入屏蔽关键词",
 } satisfies TranslationDict;
 
 /** Blocklist 模块的翻译键联合类型 */

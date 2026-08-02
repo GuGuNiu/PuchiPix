@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import type { ProgressMessage } from '@/types';
+import { createLogger } from '@/lib/core/infra';
+
+const logger = createLogger('SocketStore');
 
 // Event types emitted by Go backend WebSocket (gorilla/websocket JSON messages)
 interface WsMessage {
@@ -12,8 +15,7 @@ type EventHandler = (...args: unknown[]) => void;
 /**
  * Lightweight WebSocket wrapper that mimics the Socket.IO event-style API
  * the rest of the app expects, using native WebSocket underneath.
- * Connects directly to Go backend (port 10541) to avoid Next.js proxy
- * complexity.
+ * Connects directly to the Go backend (port 10541).
  */
 class NativeWsClient {
   private ws: WebSocket | null = null;
@@ -153,7 +155,7 @@ class NativeWsClient {
         try {
           h(...args);
         } catch (e) {
-          console.error(`[WS] Handler error for event "${event}":`, e);
+          logger.error(`Handler error for event "${event}"`, { error: e });
         }
       }
     }
@@ -171,7 +173,16 @@ interface SocketStore {
   disconnect: () => void;
 }
 
-const WS_URL = 'ws://localhost:10541/ws';
+/*
+ * WS endpoint: derive from location so it works in dev (Vite proxy /ws)
+ * and in production (nginx /ws proxy) alike. Previously this was
+ * hardcoded to ws://localhost:10541/ws, which is unreachable when the
+ * frontend is served from a different host.
+ */
+const WS_URL = (() => {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${proto}://${location.host}/ws`;
+})();
 
 export const useSocketStore = create<SocketStore>((set, get) => ({
   socket: null,
@@ -189,27 +200,27 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
     const socket = new NativeWsClient(WS_URL);
 
     socket.on('connect', () => {
-      console.log('[Socket] Connected:', socket.id);
+      logger.info(`Connected: ${socket.id}`);
       set({ connected: true, reconnecting: false });
     });
 
     socket.on('disconnect', (reason: unknown) => {
-      console.log('[Socket] Disconnected:', reason);
+      logger.info(`Disconnected: ${reason}`);
       set({ connected: false });
     });
 
     socket.on('reconnect', () => {
-      console.log('[Socket] Reconnected');
+      logger.info('Reconnected');
       set({ connected: true, reconnecting: false });
     });
 
     socket.on('reconnect_attempt', () => {
-      console.log('[Socket] Reconnect attempt');
+      logger.info('Reconnect attempt');
       set({ reconnecting: true });
     });
 
     socket.on('connect_error', (err: unknown) => {
-      console.error('[Socket] Connect error:', err instanceof Error ? err.message : String(err));
+      logger.error('Connect error', { error: err instanceof Error ? err.message : String(err) });
       set({ connected: false });
     });
 
@@ -231,4 +242,3 @@ export const useSocketStore = create<SocketStore>((set, get) => ({
 }));
 
 // Re-export the client type for components that access socket directly
-export type { NativeWsClient };

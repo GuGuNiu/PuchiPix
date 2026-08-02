@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { Terminal, AlertTriangle, XCircle, Info, Bug, Trash2, Pause, Play, Filter } from "lucide-react";
+import { Terminal, AlertTriangle, XCircle, Info, Bug, Trash2, Pause, Play } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/i18n";

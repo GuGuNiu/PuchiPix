@@ -12,13 +12,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/chromedp/chromedp"
+
+	"backend/internal/infra"
 )
 
 type gameConfig struct {
@@ -64,6 +65,7 @@ var games = map[string]gameConfig{
 }
 
 func main() {
+	logger := infra.NewLogger("WikiScraper")
 	targets := []string{}
 	for _, arg := range os.Args[1:] {
 		if _, ok := games[arg]; ok {
@@ -76,20 +78,20 @@ func main() {
 			targets = append(targets, k)
 		}
 	}
-	log.Printf("Targets: %v", targets)
+	logger.Info("Targets", infra.LogContext{Extra: map[string]any{"targets": targets}})
 
 	outputDir := "resources/game"
 	_ = os.MkdirAll(outputDir, 0755)
 
 	for _, key := range targets {
 		cfg := games[key]
-		log.Printf("=== %s ===", cfg.Name)
+		logger.Info("Scraping game", infra.LogContext{Extra: map[string]any{"game": cfg.Name}})
 		chars, err := scrapeWithChromeDP(cfg)
 		if err != nil {
-			log.Printf("  ERROR: %v", err)
+			logger.Error("Scrape failed", infra.LogContext{Extra: map[string]any{"error": err.Error()}})
 			continue
 		}
-		log.Printf("  Extracted %d characters", len(chars))
+		logger.Info("Characters extracted", infra.LogContext{Extra: map[string]any{"count": len(chars)}})
 
 		output := map[string]any{
 			"name":       cfg.Name,
@@ -101,9 +103,9 @@ func main() {
 		path := outputDir + "/" + cfg.OutFile
 		b, _ := json.MarshalIndent(output, "", "  ")
 		os.WriteFile(path, b, 0644)
-		log.Printf("  Wrote %s", path)
+		logger.Info("File written", infra.LogContext{Extra: map[string]any{"path": path}})
 	}
-	log.Println("Done.")
+	logger.Info("Done")
 }
 
 type charEntry struct {

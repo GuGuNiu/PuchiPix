@@ -23,7 +23,6 @@ type Handlers struct {
 	OuoOrch        *orchestrator.OuoOrchestrator
 	DownloadMgr    *video.DownloadManager
 	SiteReg        *sites.SiteRegistry
-	DagFactory     *dag.DagFactory
 	ProgressEngine *taskprogress.Engine
 	VideoTracker   *taskprogress.VideoProgressTracker
 }
@@ -51,13 +50,6 @@ func (h *Handlers) WithServices(ouoOrch *orchestrator.OuoOrchestrator, dm *video
 	h.OuoOrch = ouoOrch
 	h.DownloadMgr = dm
 	h.SiteReg = sr
-	return h
-}
-
-// WithFactory injects the DAG blueprint factory for centralized
-// pipeline construction, replacing inline DAG assembly in handlers.
-func (h *Handlers) WithFactory(factory *dag.DagFactory) *Handlers {
-	h.DagFactory = factory
 	return h
 }
 

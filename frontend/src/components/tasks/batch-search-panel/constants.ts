@@ -2,7 +2,7 @@ import type { BatchTitleResult } from "@/types";
 import { ENABLED_SITE_MODULES, getSiteModuleName } from "@/lib/sites/site-modules";
 import type { SiteModuleConfig } from "@/lib/sites/site-modules";
 
-export type SiteOption = SiteModuleConfig & { name: string; gallery: boolean };
+type SiteOption = SiteModuleConfig & { name: string; gallery: boolean };
 
 export const getSites = (locale: string): SiteOption[] =>
   ENABLED_SITE_MODULES.map((m) => ({

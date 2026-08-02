@@ -337,6 +337,14 @@ const esES: TranslationDict = {
   "dag.nodeState.failed": "Fallido",
   "dag.nodeState.cancelled": "Cancelado",
   "dag.nodeState.timeout": "Tiempo agotado",
+  "common.backHome": "Volver al inicio",
+  "common.unknownError": "Error desconocido",
+  "error.notFoundDesc": "Puede haber sido movida, eliminada o nunca haber existido.",
+  "error.notFoundTitle": "Página no encontrada",
+  "error.pageError": "Se produjo un error en la página",
+  "error.pageErrorDesc": "La aplicación detectó un error inesperado. Puede reintentar la operación actual o volver a la página de inicio.",
+  "modelstage.comingSoon": "Próximamente, estén atentos",
+  "modelstage.title": "Escenario de modelos",
 };
 
 export default esES;

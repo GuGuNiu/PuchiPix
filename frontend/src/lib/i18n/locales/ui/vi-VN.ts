@@ -337,6 +337,14 @@ const viVN: TranslationDict = {
   "dag.nodeState.failed": "Thất bại",
   "dag.nodeState.cancelled": "Đã hủy",
   "dag.nodeState.timeout": "Hết giờ",
+  "common.backHome": "Về trang chủ",
+  "common.unknownError": "Lỗi không xác định",
+  "error.notFoundDesc": "Trang có thể đã bị di chuyển, xóa hoặc chưa từng tồn tại.",
+  "error.notFoundTitle": "Không tìm thấy trang",
+  "error.pageError": "Đã xảy ra lỗi trên trang",
+  "error.pageErrorDesc": "Ứng dụng đã gặp lỗi không mong muốn. Bạn có thể thử lại thao tác hiện tại hoặc quay về trang chủ.",
+  "modelstage.comingSoon": "Sắp ra mắt, hãy chờ đón",
+  "modelstage.title": "Sân khấu người mẫu",
 };
 
 export default viVN;

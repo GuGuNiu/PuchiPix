@@ -59,7 +59,27 @@ func (h *Handlers) ShelfList(w http.ResponseWriter, r *http.Request) {
 		}
 		galleries = append(galleries, g)
 	}
-	writeJSON(w, http.StatusOK, galleries)
+
+	// Attach progress from ProgressEngine for downloading/scraping galleries.
+	// The frontend progress bar needs completed/total counts which are only
+	// available in the ProgressEngine (not in the galleries table directly).
+	type galleryWithProgress struct {
+		db.Gallery
+		Progress *taskprogress.GalleryProgressSummary `json:"Progress,omitempty"`
+	}
+	enriched := make([]galleryWithProgress, len(galleries))
+	for i, g := range galleries {
+		enriched[i] = galleryWithProgress{Gallery: g}
+		if h.ProgressEngine != nil {
+			if g.Status == "downloading" || g.Status == "scraping" || g.Status == "scraped" {
+				summary := h.ProgressEngine.GetSummary(g.ID)
+				if summary.TotalFiles > 0 {
+					enriched[i].Progress = &summary
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, enriched)
 }
 
 // SjsShelfList returns SJS bookmarks, used by the frontend /shelf/sjs page.
@@ -574,19 +594,11 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var def orchestrator.DagDefinition
-		if h.DagFactory != nil {
-			if imageCount > 0 || videoCount > 0 {
-				// Gallery already scraped: use download-only pipeline.
-				def = h.DagFactory.NewGalleryResumePipeline(id)
-			} else {
-				def = h.DagFactory.NewGalleryPipeline(sourceURL, siteID, id)
-			}
+		if imageCount > 0 || videoCount > 0 {
+			// Gallery already scraped: use download-only pipeline.
+			def = dag.NewDagFactory().NewGalleryResumePipeline(id)
 		} else {
-			if imageCount > 0 || videoCount > 0 {
-				def = dag.NewDagFactory().NewGalleryResumePipeline(id)
-			} else {
-				def = dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
-			}
+			def = dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
 		}
 		newDagID, err := h.DagOrch.SubmitDag(ctx, def)
 			if err != nil {
@@ -884,12 +896,7 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusNotFound, "Gallery not found")
 					return
 				}
-				var def orchestrator.DagDefinition
-				if h.DagFactory != nil {
-					def = h.DagFactory.NewGalleryPipeline(sourceURL, siteID, id)
-				} else {
-					def = dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
-				}
+				def := dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
 				if _, err := h.DagOrch.SubmitDag(ctx, def); err != nil {
 					writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
 					return

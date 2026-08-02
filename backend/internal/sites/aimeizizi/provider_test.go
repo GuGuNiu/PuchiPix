@@ -137,12 +137,12 @@ func TestProviderCheckContentBlocked_BlockedKeyword(t *testing.T) {
 }
 
 // TestProviderCheckContentBlocked_BlockedCategory verifies that a
-// category matching a blocked category keyword is flagged.
+// category-only match is not flagged when the site has no blocked
+// categories configured (aimeizizi's blockedCategories is empty).
 func TestProviderCheckContentBlocked_BlockedCategory(t *testing.T) {
 	p := newTestProvider(t, nil)
 	result := p.CheckContentBlocked("Clean Title", "AI", "")
-	assert.True(t, result.Blocked)
-	assert.Contains(t, result.Reason, "category contains")
+	assert.False(t, result.Blocked)
 }
 
 // TestProviderCheckContentBlocked_NotBlocked verifies that clean

@@ -440,6 +440,14 @@ const zhCN: TranslationDict = {
   "dag.nodeState.failed": "已失败",
   "dag.nodeState.cancelled": "已取消",
   "dag.nodeState.timeout": "已超时",
+  "common.backHome": "返回首页",
+  "common.unknownError": "未知错误",
+  "error.notFoundDesc": "它可能已被移动、删除，或从未存在。",
+  "error.notFoundTitle": "未找到对应的页面",
+  "error.pageError": "页面出现异常",
+  "error.pageErrorDesc": "应用捕获到未预期的错误。你可以尝试重试当前操作，或返回首页继续使用。",
+  "modelstage.comingSoon": "即将上线，敬请期待",
+  "modelstage.title": "模特台",
 } satisfies TranslationDict;
 
 /** Ui 模块的翻译键联合类型 */

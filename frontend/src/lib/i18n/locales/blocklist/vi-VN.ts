@@ -43,6 +43,7 @@ const viVN: TranslationDict = {
   "blocklist.toggleFailed": "Cập nhật thất bại",
   "blocklist.pleaseSelectRules": "Vui lòng chọn quy tắc cần xóa trước",
   "blocklist.confirmAdd": "Xác nhận thêm",
+  "blocklist.pleaseInputKeyword": "Vui lòng nhập từ khóa chặn",
 };
 
 export default viVN;

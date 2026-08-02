@@ -166,6 +166,18 @@ const jaJP: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] 設定ロード失敗:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] デフォルト設定使用: enabled=true (ロード失敗後のセーフフォールバック)",
 
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] ギャラリー {galleryId} のエラーメッセージのクリアに失敗しました",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId} が見つからないため一時停止できません",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} を一時停止しました（{pausedCount} ノード）",
+  "log.xsnvshen.ageVerifyError": "年齢認証エラー（ドメイン: {domain}, エラー: {error}）",
+  "log.xsnvshen.ageVerifyFailed": "年齢認証に失敗しました（ドメイン: {domain}, 状態: {status}）",
+  "log.xsnvshen.ageVerifySuccess": "年齢認証に成功しました（ドメイン: {domain}）",
+  "log.xsnvshen.blockedGalleryScrape": "ギャラリーのスクレイピングをブロック: \"{title}...\"理由: {reason}",
+  "log.xsnvshen.blockedSearchResult": "検索結果をブロック: \"{title}...\"理由: {reason}",
+  "log.xsnvshen.gameCharDetected": "ゲームキャラクターを検出: {chars}",
+  "log.xsnvshen.httpFetchError": "HTTP リクエストに失敗しました（ドメイン: {domain}, エラー: {error}）",
+  "log.xsnvshen.learnPersonFailed": "learnPerson に失敗しました",
+  "log.xsnvshen.listPageFailed": "リストページ {page} のスクレイピングに失敗しました",
 };
 
 export default jaJP;

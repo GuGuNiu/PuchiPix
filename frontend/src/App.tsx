@@ -7,26 +7,23 @@ import { QueryProvider } from "@/components/providers/query-provider";
 import { ThemedToaster } from "@/components/providers";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { initSharedSse, destroySharedSse } from "@/lib/sse/shared-sse";
-import GlobalError from "./app/error";
+import GlobalError from "./pages/error";
 
-/*
- * Lazy-loaded page components — replaces Next.js file-system routing.
- * Each import maps directly to the original app/ directory structure.
- */
-const Dashboard = lazy(() => import("./app/page"));
-const TasksPage = lazy(() => import("./app/tasks/page"));
-const SearchPage = lazy(() => import("./app/search/page"));
-const ShelfPhotos = lazy(() => import("./app/shelf/photos/page"));
-const ShelfSJS = lazy(() => import("./app/shelf/sjs/page"));
-const SniffPage = lazy(() => import("./app/sniff/page"));
-const ConfigPage = lazy(() => import("./app/config/page"));
-const ConfigGames = lazy(() => import("./app/config/games/page"));
-const BlocklistPage = lazy(() => import("./app/blocklist/page"));
-const ProtagonistsList = lazy(() => import("./app/protagonists/page"));
-const ProtagonistDetail = lazy(() => import("./app/protagonists/[name]/page"));
-const ModelStagePage = lazy(() => import("./app/modelstage/page"));
+/* Lazy-loaded route components. */
+const Dashboard = lazy(() => import("./pages/index"));
+const TasksPage = lazy(() => import("./pages/tasks/index"));
+const SearchPage = lazy(() => import("./pages/search/index"));
+const ShelfPhotos = lazy(() => import("./pages/shelf/photos/index"));
+const ShelfSJS = lazy(() => import("./pages/shelf/sjs/index"));
+const SniffPage = lazy(() => import("./pages/sniff/index"));
+const ConfigPage = lazy(() => import("./pages/config/index"));
+const ConfigGames = lazy(() => import("./pages/config/games/index"));
+const BlocklistPage = lazy(() => import("./pages/blocklist/index"));
+const ProtagonistsList = lazy(() => import("./pages/protagonists/index"));
+const ProtagonistDetail = lazy(() => import("./pages/protagonists/[name]/index"));
+const ModelStagePage = lazy(() => import("./pages/modelstage/index"));
 
-/** Global loading fallback for lazy routes — mirrors loading.tsx */
+/** Global loading fallback for lazy routes. */
 function RouteLoading(): React.JSX.Element {
   const { t } = useI18n();
   return (
@@ -47,9 +44,8 @@ function RouteLoading(): React.JSX.Element {
 }
 
 /**
- * Route-level error boundary — mirrors Next.js error.tsx.
- * On lazy-chunk load failure or page render exceptions, GlobalError is
- * shown instead of a blank screen.
+ * Route-level error boundary. On lazy-chunk load failure or page render
+ * exceptions, GlobalError is shown instead of a blank screen.
  */
 interface RouteErrorBoundaryProps {
   children: ReactNode;
@@ -115,7 +111,7 @@ export default function App(): React.JSX.Element {
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/tasks" element={<TasksPage />} />
                           <Route path="/search" element={<SearchPage />} />
-                          {/* /shelf redirects to /shelf/photos (was server-side redirect()) */}
+                          {/* /shelf redirects to /shelf/photos */}
                           <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
                           <Route path="/shelf/photos" element={<ShelfPhotos />} />
                           <Route path="/shelf/sjs" element={<ShelfSJS />} />
@@ -126,7 +122,7 @@ export default function App(): React.JSX.Element {
                           <Route path="/protagonists" element={<ProtagonistsList />} />
                           <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
                           <Route path="/modelstage" element={<ModelStagePage />} />
-                          {/* Custom 404 — replaces not-found.tsx */}
+                          {/* Custom 404 page */}
                           <Route path="*" element={<NotFound />} />
                         </Routes>
                       </Suspense>
@@ -143,5 +139,5 @@ export default function App(): React.JSX.Element {
   );
 }
 
-/** Lazy-loaded 404 page — mirrors not-found.tsx */
-const NotFound = lazy(() => import("./app/not-found"));
+/** Lazy-loaded 404 page. */
+const NotFound = lazy(() => import("./pages/not-found"));

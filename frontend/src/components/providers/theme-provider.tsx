@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { createContext, useContext, useEffect, useCallback, useMemo } from "react";
 import { usePreferenceStore, type Theme } from "@/store/preference-store";
 
 interface ThemeContextValue {
@@ -18,7 +18,6 @@ export function useTheme(): ThemeContextValue {
 export default function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const theme = usePreferenceStore((s) => s.theme);
   const setTheme = usePreferenceStore((s) => s.setTheme);
-  const loaded = usePreferenceStore((s) => s.loaded);
   const loadFromServer = usePreferenceStore((s) => s.loadFromServer);
 
   useEffect(() => {

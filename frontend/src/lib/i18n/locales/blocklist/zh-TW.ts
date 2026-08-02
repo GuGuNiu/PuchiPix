@@ -43,6 +43,7 @@ const zhTW: TranslationDict = {
   "blocklist.toggleFailed": "更新失敗",
   "blocklist.pleaseSelectRules": "請先選擇要刪除的規則",
   "blocklist.confirmAdd": "確認新增",
+  "blocklist.pleaseInputKeyword": "請輸入屏蔽關鍵詞",
 };
 
 export default zhTW;

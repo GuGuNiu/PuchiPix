@@ -1,6 +1,6 @@
 export type Locale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP" | "ko-KR" | "ru-RU" | "de-DE" | "vi-VN" | "es-ES" | "pt-BR" | "fr-FR" | "id-ID";
 
-export interface LocaleMeta {
+interface LocaleMeta {
   code: Locale;
   label: string;
   shortLabel: string;

@@ -53,7 +53,7 @@ const esES: TranslationDict = {
   "log.aimeizizi.listPageFailed": "Error al raspar página de lista {page}",
   "log.scrape.capturedM3u8": "{url} — capturadas {count} URLs M3U8: {urls}",
   "log.protagonist.personCacheInitFailed": "Error al inicializar caché de personajes",
-  "log.search.batchComplete": "¡Raspado por lotes completado! {ok} exitosos, {fallidos}",
+  "log.search.batchComplete": "¡Raspado por lotes completado! {ok} exitosos, {fail}",
   "log.search.terminated": "Search task terminated abnormally: {msg}",
   "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
   "log.taskCreator.downloadStartFailed": "Download task #{taskId} failed to start: {msg}",
@@ -143,6 +143,18 @@ const esES: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] Error al cargar configuración:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] Usando configuración por defecto: enabled=true (degradación segura tras error de carga)",
 
+  "log.dagOrchestrator.clearErrorMsgFailed": "[DagOrchestrator] Error al borrar mensaje de error de la galería {galleryId}",
+  "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId} no encontrado, no se puede pausar",
+  "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} pausado ({pausedCount} nodos)",
+  "log.xsnvshen.ageVerifyError": "Error de verificación de edad (dominio: {domain}, error: {error})",
+  "log.xsnvshen.ageVerifyFailed": "Verificación de edad fallida (dominio: {domain}, estado: {status})",
+  "log.xsnvshen.ageVerifySuccess": "Verificación de edad superada (dominio: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "Extracción de galería bloqueada: \"{title}...\"motivo: {reason}",
+  "log.xsnvshen.blockedSearchResult": "Resultado de búsqueda bloqueado: \"{title}...\"motivo: {reason}",
+  "log.xsnvshen.gameCharDetected": "Personajes de juego detectados: {chars}",
+  "log.xsnvshen.httpFetchError": "Solicitud HTTP fallida (dominio: {domain}, error: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson falló",
+  "log.xsnvshen.listPageFailed": "Error al extraer la página de lista {page}",
 };
 
 export default esES;

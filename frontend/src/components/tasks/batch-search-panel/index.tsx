@@ -1,18 +1,37 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { toast } from "@/lib/i18n/toast";
 import {
   Search,
   Loader2,
-  X,
   ChevronDown,
   ChevronUp,
   Globe,
 } from "lucide-react";
-import type { BatchSearchJob, BatchTitleResult } from "@/types";
+import type { BatchSearchJob, BatchTitleResult, SearchItem } from "@/types";
 import GlassSelect from "@/components/ui/glass-select";
 import { useI18n } from "@/lib/i18n";
 import { getSites, getSiteOptions } from "./constants";
 import { JobResults } from "./job-results";
+
+/*
+ * Backend contract: POST /api/search/batch with { keywords: string[] }
+ * returns a bare array of { id, title, protagonist, tags, coverUrl,
+ * siteId, imageCount, status } matched against the local gallery
+ * database. The previous "batch search job" flow (job polling via
+ * /api/search/{id}?type=batch, DELETE cancel) never existed on the
+ * backend and has been removed — this panel now performs a single
+ * synchronous batch lookup and reports found / not_found per title.
+ */
+interface SearchHit {
+  id: number;
+  title: string;
+  protagonist: string;
+  tags: string;
+  coverUrl: string;
+  siteId: string;
+  imageCount: number;
+  status: string;
+}
 
 interface Props {
   onJobCompleted: () => void;
@@ -31,63 +50,11 @@ export default function BatchSearchPanel({
   const [selectedSiteId, setSelectedSiteId] = useState("kanav");
   const [submitting, setSubmitting] = useState(false);
   const [job, setJob] = useState<BatchSearchJob | null>(null);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "not_found" | "failed">("all");
   const [showLogs, setShowLogs] = useState(false);
   const [copied, setCopied] = useState(false);
-  const completedRef = useRef(false);
 
-  const pollJob = useCallback(
-    async (id: string) => {
-      try {
-        const res = await fetch(`/api/search/${id}?type=batch`);
-        if (!res.ok) return false;
-        const data: BatchSearchJob = await res.json();
-        setJob(data);
-        if (
-          data.status === "completed" ||
-          data.status === "failed" ||
-          data.status === "cancelled"
-        ) {
-          if (!completedRef.current) {
-            completedRef.current = true;
-            setSubmitting(false);
-            onJobCompleted();
-            if (data.status === "completed") {
-              toast.success(
-                t("batchSearch.complete", { downloaded: data.totalDownloaded, notFound: data.totalNotFound, failed: data.totalFailed }),
-              );
-            }
-          }
-          return false;
-        }
-        return true;
-      } catch {
-        return true;
-      }
-    },
-    [onJobCompleted],
-  );
-
-  useEffect(() => {
-    if (!activeJobId) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    completedRef.current = false;
-    const run = async (): Promise<void> => {
-      const shouldContinue = await pollJob(activeJobId);
-      if (!stopped && shouldContinue) {
-        timer = setTimeout(run, 2000);
-      }
-    };
-    run();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [activeJobId, pollJob]);
-
-  const handleSubmit = async (): Promise<void> => {
+  const handleSubmit = useCallback(async (): Promise<void> => {
     const raw = titleInput.trim();
     if (!raw) {
       toast.error("batchSearch.pleaseInputTitle");
@@ -104,33 +71,83 @@ export default function BatchSearchPanel({
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/search", {
+      const res = await fetch("/api/search/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "batch", titles: raw, siteId: selectedSiteId }),
+        body: JSON.stringify({ keywords: titles }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const data: BatchSearchJob = await res.json();
-      setActiveJobId(data.id);
-      setJob(data);
-      toast.success(t("batchSearch.started", { count: titles.length }));
+      const data: unknown = await res.json();
+      const hits: SearchHit[] = Array.isArray(data) ? data : [];
+
+      const results: BatchTitleResult[] = titles.map((title) => {
+        const lower = title.toLowerCase();
+        const hit = hits.find(
+          (h) =>
+            h.title.toLowerCase().includes(lower) ||
+            lower.includes(h.title.toLowerCase()) ||
+            h.protagonist.toLowerCase().includes(lower),
+        );
+        if (hit) {
+          const item: SearchItem = {
+            pageUrl: hit.coverUrl || "",
+            title: hit.title,
+            coverUrl: hit.coverUrl,
+            date: hit.protagonist || undefined,
+            status: "downloaded",
+            retries: 0,
+          };
+          return {
+            title,
+            status: "found",
+            searchResults: [item],
+            selectedItem: item,
+            retries: 0,
+            matchScore: 1,
+          };
+        }
+        return {
+          title,
+          status: "not_found",
+          searchResults: [],
+          retries: 0,
+        };
+      });
+
+      const totalFound = results.filter((r) => r.status === "found").length;
+      const jobData: BatchSearchJob = {
+        id: `batch-${Date.now()}`,
+        rawTitles: raw,
+        titles,
+        siteId: selectedSiteId,
+        status: "completed",
+        results,
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        totalProcessed: titles.length,
+        totalDownloaded: totalFound,
+        totalNotFound: titles.length - totalFound,
+        totalFailed: 0,
+        currentIndex: titles.length,
+        logs: [],
+      };
+      setJob(jobData);
+      onJobCompleted();
+      toast.success(
+        t("batchSearch.complete", {
+          downloaded: totalFound,
+          notFound: titles.length - totalFound,
+          failed: 0,
+        }),
+      );
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
       setSubmitting(false);
     }
-  };
+  }, [titleInput, selectedSiteId, onJobCompleted, t]);
 
-  const handleCancel = async (): Promise<void> => {
-    if (!activeJobId) return;
-    try {
-      await fetch(`/api/search/${activeJobId}?type=batch`, { method: "DELETE" });
-      toast.success("batchSearch.cancelled");
-    } catch {
-      toast.error("batchSearch.cancelFailed");
-    }
-  };
-
-  const handleCopyNotFound = (): void => {
+  const handleCopyNotFound = useCallback((): void => {
     if (!job) return;
     const notFoundTitles = job.results
       .filter((r) => r.status === "not_found" || r.status === "failed")
@@ -144,9 +161,9 @@ export default function BatchSearchPanel({
       toast.success(t("batchSearch.copied", { count: notFoundTitles.length }));
       setTimeout(() => setCopied(false), 2000);
     });
-  };
+  }, [job, t]);
 
-  const handleRetry = (): void => {
+  const handleRetry = useCallback((): void => {
     if (!job) return;
     const failedTitles = job.results
       .filter((r) => r.status === "not_found" || r.status === "failed")
@@ -158,17 +175,11 @@ export default function BatchSearchPanel({
     }
     setTitleInput(failedTitles);
     setJob(null);
-    setActiveJobId(null);
-    setSubmitting(false);
     toast.info("batchSearch.refilled");
-  };
+  }, [job]);
 
-  const isRunning = job && (job.status === "running" || job.status === "pending");
-
-  const progressPct =
-    job && job.titles.length > 0
-      ? (job.totalProcessed / job.titles.length) * 100
-      : 0;
+  const isRunning = false;
+  const progressPct = 100;
 
   const filteredResults: BatchTitleResult[] = job
     ? filter === "all"
@@ -180,6 +191,22 @@ export default function BatchSearchPanel({
     .split(/\n/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0).length;
+
+  const resultsSection = job ? (
+    <JobResults
+      job={job}
+      isRunning={isRunning}
+      progressPct={progressPct}
+      filter={filter}
+      filteredResults={filteredResults}
+      showLogs={showLogs}
+      copied={copied}
+      onFilterChange={setFilter}
+      onToggleLogs={() => setShowLogs((v) => !v)}
+      onCopyNotFound={handleCopyNotFound}
+      onRetry={handleRetry}
+    />
+  ) : null;
 
   if (embedded) {
     return (
@@ -255,7 +282,7 @@ export default function BatchSearchPanel({
                 <button
                   className="btn btn-primary"
                   onClick={handleSubmit}
-                  disabled={submitting || isRunning === true}
+                  disabled={submitting}
                   style={{ height: 40, fontSize: 14, padding: "0 28px" }}
                 >
                   {submitting ? (
@@ -270,16 +297,6 @@ export default function BatchSearchPanel({
                     </>
                   )}
                 </button>
-                {isRunning && (
-                  <button
-                    className="btn btn-danger"
-                    onClick={handleCancel}
-                    style={{ height: 40, fontSize: 14, padding: "0 20px" }}
-                  >
-                    <X size={16} />
-                    {t("common.cancel")}
-                  </button>
-                )}
               </div>
             </div>
 
@@ -295,21 +312,7 @@ export default function BatchSearchPanel({
               </div>
             )}
 
-            {job && (
-              <JobResults
-                job={job}
-                isRunning={isRunning === true}
-                progressPct={progressPct}
-                filter={filter}
-                filteredResults={filteredResults}
-                showLogs={showLogs}
-                copied={copied}
-                onFilterChange={setFilter}
-                onToggleLogs={() => setShowLogs((v) => !v)}
-                onCopyNotFound={handleCopyNotFound}
-                onRetry={handleRetry}
-              />
-            )}
+            {resultsSection}
           </div>
         )}
       </div>
@@ -383,7 +386,7 @@ export default function BatchSearchPanel({
                 <button
                   className="btn btn-primary"
                   onClick={handleSubmit}
-                  disabled={submitting || isRunning === true}
+                  disabled={submitting}
                   style={{ height: 38, fontSize: 13 }}
                 >
                   {submitting ? (
@@ -398,16 +401,6 @@ export default function BatchSearchPanel({
                     </>
                   )}
                 </button>
-                {isRunning && (
-                  <button
-                    className="btn btn-danger"
-                    onClick={handleCancel}
-                    style={{ height: 38, fontSize: 13 }}
-                  >
-                    <X size={14} />
-                    {t("common.cancel")}
-                  </button>
-                )}
               </div>
             </div>
           </div>
@@ -424,21 +417,7 @@ export default function BatchSearchPanel({
             </div>
           )}
 
-          {job && (
-            <JobResults
-              job={job}
-              isRunning={isRunning === true}
-              progressPct={progressPct}
-              filter={filter}
-              filteredResults={filteredResults}
-              showLogs={showLogs}
-              copied={copied}
-              onFilterChange={setFilter}
-              onToggleLogs={() => setShowLogs((v) => !v)}
-              onCopyNotFound={handleCopyNotFound}
-              onRetry={handleRetry}
-            />
-          )}
+          {resultsSection}
         </div>
       )}
     </div>

@@ -169,6 +169,15 @@ const enUS: TranslationDict = {
   "log.dagConfig.configLoadFailed": "[DagConfig] Config load failed:",
   "log.dagConfig.usingDefaultConfig": "[DagConfig] Using default config: enabled=true (safe fallback after load failure)",
 
+  "log.xsnvshen.ageVerifyError": "Anti-addiction verification error (domain: {domain}, error: {error})",
+  "log.xsnvshen.ageVerifyFailed": "Anti-addiction verification failed (domain: {domain}, status: {status})",
+  "log.xsnvshen.ageVerifySuccess": "Anti-addiction verification passed (domain: {domain})",
+  "log.xsnvshen.blockedGalleryScrape": "Blocked gallery scrape: \"{title}...\", reason: {reason}",
+  "log.xsnvshen.blockedSearchResult": "Blocked search result: \"{title}...\", reason: {reason}",
+  "log.xsnvshen.gameCharDetected": "Detected game characters: {chars}",
+  "log.xsnvshen.httpFetchError": "HTTP request failed (domain: {domain}, error: {error})",
+  "log.xsnvshen.learnPersonFailed": "learnPerson failed",
+  "log.xsnvshen.listPageFailed": "Failed to scrape list page {page}",
 };
 
 export default enUS;

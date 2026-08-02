@@ -11,7 +11,6 @@ import (
 	"backend/internal/db"
 	"backend/internal/i18n"
 	"backend/internal/infra"
-	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
 )
@@ -89,15 +88,10 @@ func (h *Handlers) Scrape(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// submitScrapeDag builds a scrape DAG via the centralized DagFactory
+// submitScrapeDag builds a scrape DAG via the DagFactory
 // and submits it to the orchestrator for slot-pool-controlled execution.
 func (h *Handlers) submitScrapeDag(r *http.Request, url, siteID string) (string, error) {
-	var def orchestrator.DagDefinition
-	if h.DagFactory != nil {
-		def = h.DagFactory.NewScrapeTask(url, siteID)
-	} else {
-		def = dag.NewDagFactory().NewScrapeTask(url, siteID)
-	}
+	def := dag.NewDagFactory().NewScrapeTask(url, siteID)
 
 	return h.DagOrch.SubmitDag(r.Context(), def)
 }
@@ -160,8 +154,8 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 	// Submit sniff DAG for execution via the orchestrator.
 	// Falls back gracefully when the DAG system is unavailable.
 	dagID := ""
-	if h.DagOrch != nil && h.DagFactory != nil {
-		def := h.DagFactory.NewSniffPipeline(req.URL, id)
+	if h.DagOrch != nil {
+		def := dag.NewDagFactory().NewSniffPipeline(req.URL, id)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
@@ -402,26 +396,6 @@ func (h *Handlers) CharacterDB(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, persons)
 }
 
-// SearchDetail returns a single search job by ID, supporting both
-// regular search and batch search (?type=batch). Returns 404 when the
-// search job is not found.
-func (h *Handlers) SearchDetail(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidId"))
-		return
-	}
-	isBatch := r.URL.Query().Get("type") == "batch"
-
-	// Search jobs are managed in-memory by the DAG system. Return a
-	// structured response that the frontend can consume.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":     id,
-		"type":   map[bool]string{true: "batch", false: "search"}[isBatch],
-		"status": "completed",
-	})
-}
-
 // GameCharacters returns all game characters from the database,
 // grouped by game, for the frontend "游戏资料" display page.
 func (h *Handlers) GameCharacters(w http.ResponseWriter, r *http.Request) {
@@ -493,21 +467,6 @@ func (h *Handlers) GameCharacters(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
-}
-
-// SearchDelete cancels or deletes a search job by ID. Supports both
-// regular and batch search (?type=batch).
-func (h *Handlers) SearchDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidId"))
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":      id,
-		"deleted": true,
-	})
 }
 
 // ServeFile serves local files from the data/ directory via

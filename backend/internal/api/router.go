@@ -124,8 +124,6 @@ func NewRouter(h *Handlers, eventBus *infra.EventBus) http.Handler {
 			r.Get("/", h.Search)
 			r.Post("/", h.Search)
 			r.Post("/batch", h.SearchBatch)
-			r.Get("/{id}", h.SearchDetail)
-			r.Delete("/{id}", h.SearchDelete)
 		})
 
 		r.Post("/scrape", h.Scrape)

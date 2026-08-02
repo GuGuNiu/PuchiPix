@@ -1,51 +1,70 @@
 import { create } from 'zustand';
-import type { CapturedURL, SniffStatus } from '@/types';
+import { createLogger } from '@/lib/core/infra';
+
+const logger = createLogger('SniffStore');
+
+/*
+ * SniffTask mirrors the backend SniffTask JSON (PascalCase keys from
+ * internal/db/models.go). The /api/sniff endpoints manage sniff tasks:
+ * GET  /api/sniff      - task list
+ * POST /api/sniff      - { url, siteId } creates a task, executed via DAG
+ * DELETE /api/sniff?id= - remove a task
+ */
+export interface SniffTask {
+  ID: number;
+  DisplayID: string | null;
+  URL: string;
+  SiteID: string;
+  Status: string; // Possible values: pending, scraping, running, completed, failed
+  TotalFound: number;
+  TotalCreated: number;
+  TotalSkipped: number;
+  ErrorMsg: string;
+  CompletedAt: string | null;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export const SNIFF_ACTIVE_STATUSES = ['pending', 'scraping', 'running'] as const;
 
 interface SniffStore {
-  status: SniffStatus | null;
-  urls: CapturedURL[];
+  tasks: SniffTask[];
   loading: boolean;
-  fetchStatus: () => Promise<void>;
-  fetchURLs: (type?: string) => Promise<void>;
+  fetchTasks: () => Promise<void>;
   startSniff: (url: string) => Promise<void>;
-  stopSniff: () => Promise<void>;
+  deleteSniff: (id: number) => Promise<void>;
 }
 
 export const useSniffStore = create<SniffStore>((set) => ({
-  status: null,
-  urls: [],
+  tasks: [],
   loading: false,
-  fetchStatus: async () => {
+
+  fetchTasks: async () => {
     try {
       const res = await fetch('/api/sniff');
-      set({ status: await res.json() });
+      if (!res.ok) return;
+      const data = await res.json();
+      set({ tasks: Array.isArray(data) ? data : [], loading: false });
     } catch (err) {
-      console.warn('[SniffStore] fetchStatus failed:', err instanceof Error ? err.message : String(err));
+      logger.warn('fetchTasks failed', { error: err instanceof Error ? err.message : String(err) });
+      set({ loading: false });
     }
   },
-  fetchURLs: async (type?: string) => {
-    try {
-      const res = await fetch(`/api/sniff?type=${type || 'urls'}`);
-      set({ urls: await res.json() });
-    } catch (err) {
-      console.warn('[SniffStore] fetchURLs failed:', err instanceof Error ? err.message : String(err));
-    }
-  },
+
   startSniff: async (url) => {
-    set({ loading: true });
     const res = await fetch('/api/sniff', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'start', url }),
+      body: JSON.stringify({ url }),
     });
-    set({ loading: false });
-    if (!res.ok) throw new Error('Failed to start sniffing');
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || 'Failed to start sniffing');
+    }
   },
-  stopSniff: async () => {
-    await fetch('/api/sniff', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'stop' }),
-    });
+
+  deleteSniff: async (id) => {
+    const res = await fetch(`/api/sniff?id=${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete sniff task');
   },
 }));

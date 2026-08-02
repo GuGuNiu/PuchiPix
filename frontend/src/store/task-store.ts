@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { DownloadTask, TaskStatus } from '@/types';
 import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
+import { createLogger } from '@/lib/core/infra';
+
+const logger = createLogger('TaskStore');
 
 interface TaskStore {
   tasks: DownloadTask[];
@@ -16,7 +19,7 @@ interface TaskStore {
   subscribeToSocket: () => () => void;
 }
 
-export interface SniffTaskEventData {
+interface SniffTaskEventData {
   action: 'galleryCreated';
   sniffId: number;
   galleryId?: number;
@@ -149,7 +152,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             return { tasks: filtered, loading: false };
           });
         } catch (err) {
-          console.warn('[TaskStore] SSE initial parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE initial parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -170,7 +173,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             return { tasks: [task, ...s.tasks] };
           });
         } catch (err) {
-          console.warn('[TaskStore] SSE upsert parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE upsert parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -190,7 +193,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             ),
           }));
         } catch (err) {
-          console.warn('[TaskStore] SSE patch parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE patch parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -208,7 +211,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             tasks: s.tasks.filter((t) => taskKey(t) !== key),
           }));
         } catch (err) {
-          console.warn('[TaskStore] SSE delete parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE delete parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -222,7 +225,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             lastSniffTaskEvent: data,
           }));
         } catch (err) {
-          console.warn('[TaskStore] SSE sniffTask parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE sniffTask parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -252,7 +255,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             }
           });
         } catch (err) {
-          console.warn('[TaskStore] SSE notification parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE notification parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -291,7 +294,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             ),
           }));
         } catch (err) {
-          console.warn('[TaskStore] SSE nodeProgress parse failed:', err instanceof Error ? err.message : String(err));
+          logger.warn('SSE nodeProgress parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );

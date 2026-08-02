@@ -42,6 +42,7 @@ const koKR: TranslationDict = {
   "blocklist.toggleFailed": "업데이트 실패",
   "blocklist.pleaseSelectRules": "삭제할 규칙을 먼저 선택하세요",
   "blocklist.confirmAdd": "추가 확인",
+  "blocklist.pleaseInputKeyword": "차단 키워드를 입력하세요",
 };
 
 export default koKR;

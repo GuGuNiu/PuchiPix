@@ -439,6 +439,14 @@ const jaJP: TranslationDict = {
   "dag.nodeState.failed": "失敗",
   "dag.nodeState.cancelled": "キャンセル済み",
   "dag.nodeState.timeout": "タイムアウト",
+  "common.backHome": "ホームに戻る",
+  "common.unknownError": "不明なエラー",
+  "error.notFoundDesc": "移動または削除されたか、存在しない可能性があります。",
+  "error.notFoundTitle": "ページが見つかりません",
+  "error.pageError": "ページでエラーが発生しました",
+  "error.pageErrorDesc": "アプリで予期しないエラーが発生しました。現在の操作を再試行するか、ホームページに戻って続行できます。",
+  "modelstage.comingSoon": "近日公開予定です",
+  "modelstage.title": "モデルステージ",
 };
 
 export default jaJP;

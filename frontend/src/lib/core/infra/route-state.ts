@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 
-export interface RouteStateEntry {
+interface RouteStateEntry {
   /** Arbitrary serializable state data. */
   data: Record<string, unknown>;
   /** Scroll position in pixels. */
@@ -9,7 +9,7 @@ export interface RouteStateEntry {
   savedAt: number;
 }
 
-export interface RouteStateConfig {
+interface RouteStateConfig {
   /** State TTL in milliseconds; expired entries are not restored. Defaults to 5 minutes. */
   ttl?: number;
   /** Whether to persist scroll position. Defaults to true. */
@@ -85,7 +85,7 @@ function saveToServer(routeKey: string, entry: RouteStateEntry): void {
  * `route_state`), while an in-memory cache enables fast restoration within
  * the same SPA session.
  *
- * @param routeKey - Route identifier (typically from `usePathname()`).
+ * @param routeKey - Route identifier (typically from react-router's `useLocation().pathname`).
  * @param config - Configuration options.
  */
 export function useRouteState(

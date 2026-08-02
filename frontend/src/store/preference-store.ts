@@ -1,9 +1,12 @@
 import { create } from "zustand";
+import { createLogger } from "@/lib/core/infra";
+
+const logger = createLogger("PreferenceStore");
 
 export type Theme = "light" | "dark";
 export type Locale = "zh-CN" | "zh-TW" | "en-US" | "ja-JP" | "ko-KR" | "ru-RU" | "de-DE" | "vi-VN" | "es-ES" | "pt-BR" | "fr-FR" | "id-ID";
 
-export interface UserPreferences {
+interface UserPreferences {
   theme: Theme;
   locale: Locale;
   sidebarCollapsed: boolean;
@@ -118,7 +121,7 @@ export const usePreferenceStore = create<PreferenceStore>()((set, get) => ({
         body: JSON.stringify(payload),
       });
     } catch (err) {
-      console.warn('[PreferenceStore] Save failed:', err instanceof Error ? err.message : String(err));
+      logger.warn('Save failed', { error: err instanceof Error ? err.message : String(err) });
     }
   },
 }));

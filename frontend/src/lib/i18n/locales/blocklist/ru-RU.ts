@@ -43,6 +43,7 @@ const ruRU: TranslationDict = {
   "blocklist.toggleFailed": "Ошибка обновления",
   "blocklist.pleaseSelectRules": "Сначала выберите правила для удаления",
   "blocklist.confirmAdd": "Подтвердить добавление",
+  "blocklist.pleaseInputKeyword": "Введите ключевое слово для блокировки",
 };
 
 export default ruRU;

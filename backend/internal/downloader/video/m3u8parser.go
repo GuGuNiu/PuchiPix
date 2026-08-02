@@ -99,6 +99,7 @@ func ParseM3U8(content, baseURL string) M3U8Playlist {
 	}
 
 	segmentIndex := 0
+	var mediaSequence int   // #EXT-X-MEDIA-SEQUENCE offset
 	var pendingDuration float64
 	var pendingVariant *M3U8Variant
 
@@ -116,6 +117,11 @@ func ParseM3U8(content, baseURL string) M3U8Playlist {
 
 		if strings.HasPrefix(line, "#EXT-X-TARGETDURATION:") {
 			playlist.TargetDuration = parseIntAfterColon(line)
+			continue
+		}
+
+		if strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE:") {
+			mediaSequence = parseIntAfterColon(line)
 			continue
 		}
 
@@ -144,7 +150,7 @@ func ParseM3U8(content, baseURL string) M3U8Playlist {
 				URI:      line,
 				FullURI:  full,
 				Duration: pendingDuration,
-				Index:    segmentIndex,
+				Index:    mediaSequence + segmentIndex,
 			})
 			segmentIndex++
 			pendingDuration = 0

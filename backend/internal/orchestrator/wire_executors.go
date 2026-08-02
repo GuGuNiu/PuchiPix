@@ -176,10 +176,13 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 					var gid int
 					if qErr := database.QueryRow(ctx, `SELECT id FROM galleries WHERE source_url = ?`, pageURL).Scan(&gid); qErr == nil {
 						eventBus.Emit("task:progress", map[string]any{
-							"taskId":   gid,
-							"taskType": "gallery",
-							"progress": 0,
-							"status":   "scraped",
+							"taskId":    gid,
+							"taskType":  "gallery",
+							"progress":  0,
+							"completed": 0,
+							"total":     0,
+							"failed":    0,
+							"status":    "scraped",
 						})
 					}
 				}
@@ -355,10 +358,13 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// transition to downloading in real-time.
 		if eventBus != nil {
 			eventBus.Emit("task:progress", map[string]any{
-				"taskId":   galleryID,
-				"taskType": "gallery",
-				"progress": 0,
-				"status":   "downloading",
+				"taskId":    galleryID,
+				"taskType":  "gallery",
+				"progress":  0,
+				"completed": 0,
+				"total":     0,
+				"failed":    0,
+				"status":    "downloading",
 			})
 		}
 
@@ -466,10 +472,13 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					mu.Unlock()
 					if eventBus != nil {
 						eventBus.Emit("task:progress", map[string]any{
-							"taskId":   galleryID,
-							"taskType": "gallery",
-							"progress": pct,
-							"status":   "downloading",
+							"taskId":    galleryID,
+							"taskType":  "gallery",
+							"progress":  pct,
+							"completed": done,
+							"total":     totalImages,
+							"failed":    failedCount,
+							"status":    "downloading",
 						})
 					}
 				}
@@ -525,21 +534,24 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			})
 		}
 
-		// Download gallery videos before waiting for image completion,
-		// implementing the dual-channel design where image and video
-		// downloads run in parallel with independent concurrency limits.
+		// Download gallery videos concurrently with image downloads.
+		// Video downloads use their own errgroup so they run in parallel
+		// with the image errgroup — both channels share the total download
+		// slot but are independently concurrent. Each video is an M3U8
+		// stream: segments are saved to data/galleries/{id}_title/video_{vid}/
+		// and merged into an MP4 file.
 		videoRows, err := database.Query(ctx,
 			`SELECT id, url, file_name FROM gallery_videos WHERE gallery_id = ? AND status = 'pending'`,
 			galleryID)
 		videoDownloaded := 0
 		videoFailed := 0
+		type vidTask struct {
+			id       int
+			url      string
+			fileName string
+		}
+		var videos []vidTask
 		if err == nil {
-			type vidTask struct {
-				id       int
-				url      string
-				fileName string
-			}
-			var videos []vidTask
 			for videoRows.Next() {
 				var v vidTask
 				if err := videoRows.Scan(&v.id, &v.url, &v.fileName); err != nil {
@@ -548,50 +560,78 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				videos = append(videos, v)
 			}
 			videoRows.Close()
+		}
 
-			// Download each gallery video as an M3U8 stream. Segments are
-			// saved to data/galleries/{id}_title/video_{vid}/ and merged
-			// into an MP4 file. This replaces the migration-era stub that
-			// marked videos as "downloaded" without actually downloading.
-			for _, vid := range videos {
+		// Run video downloads in their own errgroup so they execute
+		// concurrently with image downloads. Each video processes
+		// independently; failures are tolerated (the TS behavior allowed
+		// individual video failures without aborting the batch).
+		var videoMu sync.Mutex
+		videoG, videoGCtx := errgroup.WithContext(ctx)
+		videoG.SetLimit(2) // Max 2 concurrent video downloads
+
+		for _, vid := range videos {
+			vid := vid
+			videoG.Go(func() error {
 				vidSaveDir := filepath.Join(saveDir, fmt.Sprintf("video_%d", vid.id))
 				if mkdirErr := os.MkdirAll(vidSaveDir, 0755); mkdirErr != nil {
 					logger.Warn("Failed to create video save dir", "vid", vid.id, "error", mkdirErr.Error())
-					_, _ = database.Exec(ctx,
+					_, _ = database.Exec(videoGCtx,
 						`UPDATE gallery_videos SET status = 'failed', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						mkdirErr.Error(), vid.id)
+					videoMu.Lock()
 					videoFailed++
-					continue
+					videoMu.Unlock()
+					return nil // Tolerate individual video failure
 				}
 				outputPath := filepath.Join(vidSaveDir, vid.fileName)
 				if !strings.HasSuffix(strings.ToLower(outputPath), ".mp4") {
 					outputPath += ".mp4"
 				}
 
-				dlErr := video.GalleryDownloadVideo(ctx, vid.url, vidSaveDir, outputPath)
-				if dlErr != nil {
-					logger.Warn("Gallery video download failed", "vid", vid.id, "url", vid.url, "error", dlErr.Error())
-					_, _ = database.Exec(ctx,
+				// Per-video timeout (10 min) prevents hanging M3U8 segment
+				// downloads from blocking the errgroup indefinitely. The timeout
+				// is scoped to each video so one slow video doesn't cancel others.
+				videoCtx, videoCancel := context.WithTimeout(videoGCtx, 10*time.Minute)
+				downloadErr := video.GalleryDownloadVideo(videoCtx, vid.url, vidSaveDir, outputPath)
+				videoCancel()
+				videoMu.Lock()
+				defer videoMu.Unlock()
+				if downloadErr != nil {
+					logger.Warn("Gallery video download failed", "vid", vid.id, "url", vid.url, "error", downloadErr.Error())
+					_, _ = database.Exec(videoGCtx,
 						`UPDATE gallery_videos SET status = 'failed', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-						dlErr.Error(), vid.id)
+						downloadErr.Error(), vid.id)
 					videoFailed++
 				} else {
-					_, _ = database.Exec(ctx,
+					_, _ = database.Exec(videoGCtx,
 						`UPDATE gallery_videos SET status = 'downloaded', local_path = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						outputPath, vid.id)
 					videoDownloaded++
 				}
-			}
+				return nil
+			})
+		}
+
+		// Wait for image downloads to complete.
+		var imgErr error
+		if waitImgErr := g.Wait(); waitImgErr != nil && waitImgErr != context.Canceled {
+			logger.Warn("Image batch download interrupted", "galleryId", galleryID, "error", waitImgErr.Error())
+			imgErr = waitImgErr
+		}
+
+		// Wait for video downloads to complete.
+		if vidWaitErr := videoG.Wait(); vidWaitErr != nil && vidWaitErr != context.Canceled {
+			logger.Warn("Video batch download interrupted", "galleryId", galleryID, "error", vidWaitErr.Error())
+		}
+
+		_ = imgErr // Preserve for future use (partial completion reporting)
+
+		if len(videos) > 0 {
 			logger.Info("Gallery videos processed",
 				"galleryId", galleryID, "downloaded", videoDownloaded, "failed", videoFailed)
 		}
 
-		// Wait for all image downloads to complete, then stop the progress
-		// reporter and emit a final progress event so the frontend always
-		// sees 100% (or partial) at completion.
-		if imgErr := g.Wait(); imgErr != nil && imgErr != context.Canceled {
-			logger.Warn("Image batch download interrupted", "galleryId", galleryID, "error", imgErr.Error())
-		}
 		close(progressDone)
 
 		// Final progress emission: always flush current state after
@@ -603,10 +643,13 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				finalPct = successCount * 100 / totalImages
 			}
 			eventBus.Emit("task:progress", map[string]any{
-				"taskId":   galleryID,
-				"taskType": "gallery",
-				"progress": finalPct,
-				"status":   "downloading",
+				"taskId":    galleryID,
+				"taskType":  "gallery",
+				"progress":  finalPct,
+				"completed": successCount,
+				"total":     totalImages,
+				"failed":    failedCount,
+				"status":    "downloading",
 			})
 		}
 
