@@ -30,7 +30,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^4.6.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "eslint": "^9",
     "sass": "^1.102.0",
     "tailwindcss": "^4",
