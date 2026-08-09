@@ -1,7 +1,9 @@
 package slot
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func newTestPool(t *testing.T) *SlotPool {
@@ -206,5 +208,96 @@ func TestCheckTimeoutsReleasesStale(t *testing.T) {
 	p.CheckTimeouts(-1) // everything older than -1ms is stale
 	if u := p.GetUsage("scraping"); u.Current != 0 {
 		t.Fatalf("expected stale slot released, got current %d", u.Current)
+	}
+}
+
+// TestReleaseSelfHealsCounter verifies the P-SLOT-01 guard: when the
+// running counter drifts from len(activeSlots), Release re-syncs it and
+// warns instead of silently leaving ghost slots.
+func TestReleaseSelfHealsCounter(t *testing.T) {
+	p := newTestPool(t)
+	p.Acquire("scraping", "dag-1:n1")
+	p.Acquire("scraping", "dag-1:n2")
+
+	// Simulate the 08-03 ghost-slot state: counter claims 3 while the
+	// activeSlots map holds a single entry (running=3 vs holder count=1).
+	entry := p.pools["scraping"]
+	entry.running = 3
+	delete(entry.activeSlots, "dag-1:n2")
+
+	p.ReleaseAll("dag-1:n1")
+
+	usage := p.GetUsage("scraping")
+	if usage.Current != 0 {
+		t.Fatalf("expected self-healed current 0 after releasing last holder, got %d", usage.Current)
+	}
+}
+
+// TestReleaseAllSelfHealsMultiType verifies the guard across multiple
+// slot types in one ReleaseAll sweep.
+func TestReleaseAllSelfHealsMultiType(t *testing.T) {
+	p := newTestPool(t)
+	p.Acquire("scraping", "dag-1:n1")
+	p.Acquire("download", "dag-1:n1")
+
+	// Drift both counters upward to simulate ghost slots.
+	p.pools["scraping"].running = 2 // actual 1
+	p.pools["download"].running = 3 // actual 1
+
+	p.ReleaseAll("dag-1:n1")
+
+	if u := p.GetUsage("scraping"); u.Current != 0 {
+		t.Fatalf("scraping not self-healed, current=%d", u.Current)
+	}
+	if u := p.GetUsage("download"); u.Current != 0 {
+		t.Fatalf("download not self-healed, current=%d", u.Current)
+	}
+}
+
+// TestHealInconsistenciesSweep verifies the periodic health-check sweep
+// re-syncs a drifted counter even when no release happens.
+func TestHealInconsistenciesSweep(t *testing.T) {
+	p := newTestPool(t)
+	p.Acquire("scraping", "dag-1:n1")
+
+	// Desync the counter directly (no release involved): running=5,
+	// activeSlots=1 -> the sweep must fix it.
+	p.pools["scraping"].running = 5
+
+	fixed := p.healInconsistencies()
+	if fixed != 1 {
+		t.Fatalf("expected 1 fixed slot type, got %d", fixed)
+	}
+	if u := p.GetUsage("scraping"); u.Current != 1 {
+		t.Fatalf("expected current 1 after sweep, got %d", u.Current)
+	}
+	// Second sweep is a no-op.
+	if fixed := p.healInconsistencies(); fixed != 0 {
+		t.Fatalf("expected 0 fixed on second sweep, got %d", fixed)
+	}
+}
+
+// TestStartHealthCheckCancel verifies the periodic health check exits on
+// context cancellation without touching holders when timeout is disabled.
+func TestStartHealthCheckCancel(t *testing.T) {
+	p := newTestPool(t)
+	p.Acquire("scraping", "dag-1:n1")
+
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		p.StartHealthCheck(ctx, 10*time.Millisecond, -1) // fast tick, timeout disabled
+		close(done)
+	}()
+	// Give the ticker a couple of cycles, then cancel and wait exit.
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StartHealthCheck did not exit after cancel")
+	}
+	if u := p.GetUsage("scraping"); u.Current != 1 {
+		t.Fatalf("holder should remain when timeout disabled, got current %d", u.Current)
 	}
 }

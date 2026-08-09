@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"backend/internal/cli/commands"
 	"backend/internal/cli/dagclient"
 	"backend/internal/cli/ui"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -51,6 +53,17 @@ func main() {
 		Ctx:    context.Background(),
 	}
 
+	// Lazily open DB connection only for the "db" command.
+	if commandName == "db" {
+		db, err := openDBReadOnly(cfg.DBPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%sDatabase error: %s%s\n", ui.Red, err.Error(), ui.Reset)
+			os.Exit(1)
+		}
+		defer db.Close()
+		ctx.DB = db
+	}
+
 	if err := cmd.Execute(ctx); err != nil {
 		var dagErr *dagclient.DagClientError
 		if errors.As(err, &dagErr) {
@@ -71,4 +84,15 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+// openDBReadOnly opens a SQLite database in read-only mode for safe CLI querying.
+func openDBReadOnly(dbPath string) (*sql.DB, error) {
+	uri := fmt.Sprintf("file:%s?mode=ro", dbPath)
+	db, err := sql.Open("sqlite", uri)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
 }

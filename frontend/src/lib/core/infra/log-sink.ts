@@ -29,10 +29,10 @@ export class LogSink {
     }
     // Notify listeners
     for (const listener of this.listeners) {
+      // Swallow listener errors
       try {
         listener(entry);
       } catch {
-        // Swallow listener errors
       }
     }
   }
@@ -53,7 +53,8 @@ export class LogSink {
       results = results.filter((e) => e.context.traceId === query.traceId);
     }
     if (query.level) {
-      results = results.filter((e) => e.level === query.level.toUpperCase());
+      const level = query.level.toUpperCase();
+      results = results.filter((e) => e.level === level);
     }
     if (query.limit && query.limit > 0) {
       results = results.slice(-query.limit);

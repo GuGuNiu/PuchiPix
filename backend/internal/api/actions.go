@@ -10,6 +10,7 @@ import (
 
 	"backend/internal/db"
 	"backend/internal/i18n"
+	"backend/internal/idgen"
 	"backend/internal/infra"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
@@ -111,9 +112,10 @@ func (h *Handlers) SniffList(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	tasks := []db.SniffTask{}
+	var completedAt, ca, ua db.SQLTime
 	for rows.Next() {
 		var t db.SniffTask
-		if err := rows.Scan(&t.ID, &t.Seq, &t.URL, &t.SiteID, &t.Status, &t.TotalFound, &t.TotalCreated, &t.TotalSkipped, &t.ErrorMsg, &t.CompletedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Seq, &t.URL, &t.SiteID, &t.Status, &t.TotalFound, &t.TotalCreated, &t.TotalSkipped, &t.ErrorMsg, &completedAt, &ca, &ua); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
@@ -142,9 +144,9 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int
-	seq := newSeq()
+	seq := idgen.GenerateID()
 	err := h.DB.QueryRow(r.Context(),
-		`INSERT INTO sniff_tasks (seq, url, site_id, status) VALUES ($1, $2, $3, 'pending') RETURNING id`,
+		`INSERT INTO sniff_tasks (seq, url, site_id, status) VALUES (?, ?, ?, 'pending') RETURNING id`,
 		seq, req.URL, req.SiteID).Scan(&id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
@@ -159,12 +161,33 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
-			h.DB.Exec(r.Context(),
-				"UPDATE sniff_tasks SET status = 'failed', error_msg = $1 WHERE id = $2",
-				"DAG submission failed: "+submitErr.Error(), id)
-			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
+		h.DB.Exec(r.Context(),
+			"UPDATE sniff_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
+			"DAG submission failed: "+submitErr.Error(), id)
+		if h.EventBus != nil {
+			h.EventBus.Emit("task:failed", map[string]any{
+				"taskId":   id,
+				"taskType": "sniff",
+				"error":    "DAG submission failed: " + submitErr.Error(),
+			})
+		}
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
 			return
 		}
+		// Store the DAG ID for future lookups.
+		h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, id)
+	}
+
+	if h.EventBus != nil {
+		h.EventBus.Emit("task:created", map[string]any{
+			"ID":        id,
+			"DisplayID": seq,
+			"URL":       req.URL,
+			"Status":    "pending",
+			"TaskType":  "sniff",
+			"SiteID":    req.SiteID,
+			"DagID":     dagID,
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -198,8 +221,8 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.DB.Query(r.Context(),
 		`SELECT id, title, protagonist, tags, cover_url, site_id, image_count, status
-		 FROM galleries WHERE title ILIKE $1 OR protagonist ILIKE $1 OR tags ILIKE $1
-		 ORDER BY id DESC LIMIT 50`, "%"+keywords+"%")
+		 FROM galleries WHERE title LIKE ? OR protagonist LIKE ? OR tags LIKE ?
+		 ORDER BY id DESC LIMIT 50`, "%"+keywords+"%", "%"+keywords+"%", "%"+keywords+"%")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.search.failed"))
 		return
@@ -235,12 +258,14 @@ func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build single query with OR conditions: ($1 OR $2 OR ...)
-	args := make([]any, len(req.Keywords))
+	// Build single query with OR conditions: (LIKE ? OR LIKE ? ...)
+	// Each keyword expands to 3 placeholders (title/protagonist/tags).
+	args := make([]any, 0, len(req.Keywords)*3)
 	conditions := make([]string, len(req.Keywords))
 	for i, kw := range req.Keywords {
-		args[i] = "%" + kw + "%"
-		conditions[i] = fmt.Sprintf("(title ILIKE $%d OR protagonist ILIKE $%d OR tags ILIKE $%d)", i+1, i+1, i+1)
+		pat := "%" + kw + "%"
+		args = append(args, pat, pat, pat)
+		conditions[i] = "(title LIKE ? OR protagonist LIKE ? OR tags LIKE ?)"
 	}
 
 	query := fmt.Sprintf(`SELECT id, title, protagonist, tags, cover_url, site_id, image_count, status
@@ -378,8 +403,8 @@ func (h *Handlers) CharacterDB(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.DB.Query(r.Context(),
 		`SELECT id, name, pinyin, aliases, source, source_game, gallery_count, confirmed
-		 FROM persons WHERE name ILIKE $1 OR pinyin ILIKE $1 OR aliases ILIKE $1
-		 ORDER BY gallery_count DESC LIMIT 20`, "%"+name+"%")
+		 FROM persons WHERE name LIKE ? OR pinyin LIKE ? OR aliases LIKE ?
+		 ORDER BY gallery_count DESC LIMIT 20`, "%"+name+"%", "%"+name+"%", "%"+name+"%")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.characterDb.failed"))
 		return
@@ -527,9 +552,15 @@ func (h *Handlers) SniffDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.sniff.missingId"))
 		return
 	}
-	if _, err := h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = $1", idStr); err != nil {
+	if _, err := h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", idStr); err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.deleteFailed"))
 		return
+	}
+	if h.EventBus != nil {
+		h.EventBus.Emit("task:cancelled", map[string]any{
+			"taskId":   idStr,
+			"taskType": "sniff",
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -557,7 +588,7 @@ func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		res, err := h.DB.Exec(r.Context(),
-			"INSERT INTO sjs_bookmarks (url, title) VALUES ($1, '') ON CONFLICT (url) DO NOTHING", u)
+			"INSERT INTO sjs_bookmarks (url, title) VALUES (?, '') ON CONFLICT (url) DO NOTHING", u)
 		if err != nil {
 			continue
 		}
@@ -596,9 +627,16 @@ func (h *Handlers) SjsShelfDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if idStr != "" {
-		if _, err := h.DB.Exec(r.Context(), "DELETE FROM sjs_bookmarks WHERE id = $1", idStr); err != nil {
+		if _, err := h.DB.Exec(r.Context(), "DELETE FROM sjs_bookmarks WHERE id = ?", idStr); err != nil {
 			writeError(w, http.StatusInternalServerError, "delete failed")
 			return
+		}
+		// 书签删除是多用户操作，发射事件通知前端实时移除
+		if h.EventBus != nil {
+			h.EventBus.Emit("task:cancelled", map[string]any{
+				"taskId":   idStr,
+				"taskType": "sjs",
+			})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

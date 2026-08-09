@@ -18,7 +18,7 @@ func newTestServer() *httptest.Server {
 	infra.InitGlobalConfig("DEBUG", true)
 	eventBus := infra.NewEventBus()
 	h := api.New(nil, eventBus)
-	router := api.NewRouter(h, eventBus)
+	router := api.NewRouter(h)
 	return httptest.NewServer(router)
 }
 

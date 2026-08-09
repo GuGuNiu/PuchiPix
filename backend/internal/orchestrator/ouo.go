@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"backend/internal/infra"
@@ -65,36 +64,4 @@ func (o *OuoOrchestrator) Resolve(ctx context.Context, ouoURL string) (string, e
 	}
 	o.logger.Info("OUO link resolved", "original", ouoURL, "resolved", finalURL)
 	return finalURL, nil
-}
-
-// ResolveBatch resolves multiple OUO links concurrently using
-// goroutines, returning a map of input URL to resolved URL or error.
-func (o *OuoOrchestrator) ResolveBatch(ctx context.Context, urls []string) map[string]result {
-	var mu sync.Mutex
-	results := make(map[string]result, len(urls))
-	var wg sync.WaitGroup
-
-	for _, url := range urls {
-		wg.Add(1)
-		go func(u string) {
-			defer wg.Done()
-			resolved, err := o.Resolve(ctx, u)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				results[u] = result{Error: err}
-			} else {
-				results[u] = result{Value: resolved}
-			}
-		}(url)
-	}
-
-	wg.Wait()
-	return results
-}
-
-// result is a simple value-or-error container for batch operations.
-type result struct {
-	Value string
-	Error error
 }

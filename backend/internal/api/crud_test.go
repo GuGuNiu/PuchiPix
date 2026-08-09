@@ -48,7 +48,8 @@ func TestBlocklistListNoDB(t *testing.T) {
 }
 
 // TestConfigListNoDB verifies that the config list endpoint returns
-// an empty array when no database is configured.
+// an empty flat object when no database is configured (the frontend
+// contract is a flat key->value map, not an array).
 func TestConfigListNoDB(t *testing.T) {
 	h := New(nil, infra.NewEventBus())
 	req := httptest.NewRequest("GET", "/api/config", nil)
@@ -56,11 +57,12 @@ func TestConfigListNoDB(t *testing.T) {
 	h.ConfigList(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "[]")
+	assert.Contains(t, w.Body.String(), "{}")
 }
 
 // TestPreferencesListNoDB verifies that the preferences list endpoint
-// returns an empty array when no database is configured.
+// returns an empty flat object when no database is configured (the
+// frontend contract is a flat key->value map, not an array).
 func TestPreferencesListNoDB(t *testing.T) {
 	h := New(nil, infra.NewEventBus())
 	req := httptest.NewRequest("GET", "/api/preferences", nil)
@@ -68,7 +70,7 @@ func TestPreferencesListNoDB(t *testing.T) {
 	h.PreferencesList(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "[]")
+	assert.Contains(t, w.Body.String(), "{}")
 }
 
 // TestAccountsCreateNoDB verifies that creating an account without

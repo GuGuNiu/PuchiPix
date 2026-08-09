@@ -102,19 +102,6 @@ func TestTaskTypeRegistry_RegisterAndGet(t *testing.T) {
 	}
 }
 
-// TestAggregateTaskStatusWithRegistry_Fallback verifies that an
-// unregistered TaskType falls back to the default AggregateTaskStatus.
-func TestAggregateTaskStatusWithRegistry_Fallback(t *testing.T) {
-	reg := NewTaskTypeRegistry()
-	nodes := []NodeSnapshotInfo{{State: NodeStateCompleted, Phase: PhaseScrape}}
-	// No aggregator registered for TaskTypeVideo ??should fall back to
-	// default gallery logic, which returns "completed" for all-completed.
-	got := AggregateTaskStatusWithRegistry(reg, TaskTypeVideo, nodes)
-	if got != "completed" {
-		t.Fatalf("expected completed (fallback), got %s", got)
-	}
-}
-
 // TestResolveTransitionPolicy_DefinitionPrecedence verifies that an
 // explicit policy in the definition takes precedence over the registry.
 func TestResolveTransitionPolicy_DefinitionPrecedence(t *testing.T) {
@@ -135,39 +122,6 @@ func TestResolveTransitionPolicy_DefinitionPrecedence(t *testing.T) {
 	got2 := ResolveTransitionPolicy(reg, def2)
 	if got2 != regPol {
 		t.Fatal("registry policy should be used when definition has none")
-	}
-}
-
-// TestResolveRequirements_DownloadPhase verifies dynamic resource
-// derivation for download nodes.
-func TestResolveRequirements_DownloadPhase(t *testing.T) {
-	def := DagNodeDefinition{Phase: PhaseDownload}
-	reqs := ResolveRequirements(ResolveRequirementsCtx{Definition: def})
-	if len(reqs) != 1 || reqs[0].SlotType != "download" {
-		t.Fatalf("download phase should derive a download slot, got %v", reqs)
-	}
-}
-
-// TestResolveRequirements_ScrapePhase verifies dynamic resource
-// derivation for scrape nodes.
-func TestResolveRequirements_ScrapePhase(t *testing.T) {
-	def := DagNodeDefinition{Phase: PhaseScrape}
-	reqs := ResolveRequirements(ResolveRequirementsCtx{Definition: def})
-	if len(reqs) != 1 || reqs[0].SlotType != "scraping" {
-		t.Fatalf("scrape phase should derive a scraping slot, got %v", reqs)
-	}
-}
-
-// TestResolveRequirements_PreservesExplicitReqs verifies that a
-// definition with pre-set ResourceRequirements is returned as-is.
-func TestResolveRequirements_PreservesExplicitReqs(t *testing.T) {
-	def := DagNodeDefinition{
-		Phase: PhaseDownload,
-		ResourceRequirements: []ResourceRequirement{{SlotType: "sniff", Count: 2}},
-	}
-	reqs := ResolveRequirements(ResolveRequirementsCtx{Definition: def})
-	if len(reqs) != 1 || reqs[0].SlotType != "sniff" {
-		t.Fatalf("explicit requirements should be preserved, got %v", reqs)
 	}
 }
 

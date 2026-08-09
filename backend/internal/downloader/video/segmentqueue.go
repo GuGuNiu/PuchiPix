@@ -266,7 +266,7 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				_, _ = q.cfg.DB.Exec(ctx,
-					"UPDATE download_tasks SET progress = $1, completed_segments = $2 WHERE id = $3",
+					"UPDATE download_tasks SET progress = ?, completed_segments = ? WHERE id = ?",
 					p, comp, taskID)
 			}(item.TaskID, progress, completed)
 		}

@@ -23,13 +23,16 @@ const (
 )
 
 // LogContext carries trace identifiers that flow through every log call.
+// JSON tags are camelCase so SSE log entries expose dagId/nodeId/traceId
+// at the top level — previously the struct had no tags, producing
+// PascalCase keys the frontend never matched (F8).
 type LogContext struct {
-	TraceID  string
-	DagID    string
-	NodeID   string
-	TaskType string
-	Phase    string
-	Extra    map[string]any
+	TraceID  string         `json:"traceId,omitempty"`
+	DagID    string         `json:"dagId,omitempty"`
+	NodeID   string         `json:"nodeId,omitempty"`
+	TaskType string         `json:"taskType,omitempty"`
+	Phase    string         `json:"phase,omitempty"`
+	Extra    map[string]any `json:"extra,omitempty"`
 }
 
 // Merge returns a new LogContext with fields from other overriding self.
@@ -397,39 +400,10 @@ func NewLogger(module string) *Logger {
 	return registry.get(module, globalSink, minLevel, isDev)
 }
 
-// CreateLogger is an alias for NewLogger to mirror the TypeScript
-// createLogger factory name.
-func CreateLogger(module string) *Logger {
-	return NewLogger(module)
-}
-
 // GetGlobalSink returns the singleton LogSink, initializing it if needed.
 func GetGlobalSink() *LogSink {
 	if globalSink == nil {
 		InitGlobalSink(1000)
 	}
 	return globalSink
-}
-
-// RunWithTraceContext stores a LogContext in a context.Context and invokes
-// fn, mirroring the TypeScript runWithTraceContext function.
-func RunWithTraceContext(ctx context.Context, lc LogContext, fn func(context.Context) error) error {
-	merged := lc
-	if merged.TraceID == "" {
-		if existing, ok := TraceFromContext(ctx); ok && existing.TraceID != "" {
-			merged.TraceID = existing.TraceID
-		} else {
-			merged.TraceID = generateTraceID()
-		}
-	}
-	return fn(WithTraceContext(ctx, merged))
-}
-
-// GetTraceID extracts the traceId from a context.Context, if present.
-func GetTraceID(ctx context.Context) string {
-	lc, ok := TraceFromContext(ctx)
-	if !ok {
-		return ""
-	}
-	return lc.TraceID
 }

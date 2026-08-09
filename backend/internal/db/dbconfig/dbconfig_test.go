@@ -43,10 +43,3 @@ func TestGetDSNWithDBPath(t *testing.T) {
 
 	assert.Equal(t, expected, GetDSN())
 }
-
-// TestConnectionString verifies the alias returns the DB path.
-func TestConnectionString(t *testing.T) {
-	t.Setenv("DB_PATH", "/tmp/alias_test.db")
-
-	assert.Equal(t, "/tmp/alias_test.db", ConnectionString())
-}

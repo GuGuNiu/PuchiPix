@@ -20,6 +20,7 @@ var providerLogger = infra.NewLogger("SjsProvider")
 type Provider struct {
 	dataStore      sites.SiteDataStore
 	accountManager *sites.SiteAccountManager
+	domainPool     *stealth.DomainPool
 }
 
 // NewProvider creates an SJS provider with the given data store and
@@ -27,7 +28,25 @@ type Provider struct {
 // SiteDataStore to eliminate hardcoded constants.
 func NewProvider(dataStore sites.SiteDataStore, am *sites.SiteAccountManager) *Provider {
 	initData(dataStore)
-	return &Provider{dataStore: dataStore, accountManager: am}
+
+	publisherURL := dataStore.GetPublisherURL("sjs")
+	pool := stealth.NewDomainPool("sjs", SiteDomains, publisherURL)
+	stealth.RegisterDomainPool("sjs", pool)
+
+	return &Provider{
+		dataStore:      dataStore,
+		accountManager: am,
+		domainPool:     pool,
+	}
+}
+
+// GetDomains returns the merged domain list (static + dynamically discovered).
+// Also updates the package-level SiteDomains for backward compatibility.
+func (p *Provider) GetDomains() []string {
+	if p.domainPool != nil {
+		return p.domainPool.GetDomains()
+	}
+	return SiteDomains
 }
 
 func (p *Provider) SiteID() string { return "sjs" }
@@ -56,7 +75,7 @@ func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*site
 func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.SiteSearchResult, error) {
 	cookieStr, _ := GetAuthCookieString(ctx, p.accountManager)
 	tracker := stealth.GetDomainHealthTracker()
-	orderedDomains := tracker.GetAllDomainsOrdered(SiteDomains)
+	orderedDomains := tracker.GetAllDomainsOrdered(getCurrentDomains())
 
 	encoded := url.QueryEscape(query)
 
@@ -118,7 +137,7 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 }
 
 func (p *Provider) BuildSearchURL(keyword string) string {
-	domain := stealth.GetDomainHealthTracker().GetBestDomain(SiteDomains)
+	domain := stealth.GetDomainHealthTracker().GetBestDomain(getCurrentDomains())
 	return domain + "/search.php?mod=forum&srchtxt=" + url.QueryEscape(keyword) + "&searchsubmit=yes"
 }
 

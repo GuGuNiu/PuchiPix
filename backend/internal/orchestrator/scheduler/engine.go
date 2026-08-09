@@ -2,11 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sync"
 	"time"
 
 	"backend/internal/infra"
+	"backend/internal/orchestrator/executors"
 	"backend/internal/orchestrator/slot"
 )
 
@@ -421,6 +423,18 @@ func (s *SchedulerEngine) executeNode(entry SchedulableNodeEntry, fn ExecutorFun
 		case err != nil:
 			errMsg = err.Error()
 		}
+		// needs_retry (verify phase) is retryable, not a terminal
+		// failure: flag it via the result data so the orchestrator
+		// routes the node to NEEDS_RETRY and re-submits it instead of
+		// hard-failing (previously the retry semantics were lost).
+		var needsRetryErr *executors.NeedsRetryError
+		if errors.As(err, &needsRetryErr) {
+			if data == nil {
+				data = map[string]any{}
+			}
+			data["needsRetry"] = true
+			data["needsRetryReason"] = needsRetryErr.Reason
+		}
 		s.logger.Error("Node execution failed", err, "nodeId", node.NodeID, "dagId", node.DagID, "timeout", timedOut, "cancelled", cancelled)
 	} else {
 		s.logger.Info("Node execution completed", "nodeId", node.NodeID, "dagId", node.DagID)
@@ -586,4 +600,12 @@ func (s *SchedulerEngine) GetActiveSlotHolders() map[string][]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.slotPool.GetActiveHolders()
+}
+
+// ResetSlot clears all usage for a single slot type (emergency ghost-slot
+// recovery). Returns false if the slot type is not registered.
+func (s *SchedulerEngine) ResetSlot(slotType string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.slotPool.ResetType(slotType)
 }

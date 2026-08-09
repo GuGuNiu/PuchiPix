@@ -83,53 +83,21 @@ export function useTaskActions({
           .then((data) => {
             if (data === null) return;
 
-            if (data?.type === "sniff") {
-              const placeholder: DownloadTask = {
-                ID: data.sniffId,
-                DisplayID: data.seq,
-                URL: u,
-                M3U8URL: "",
-                Status: "scraping",
-                Progress: 0,
-                FilePath: "",
-                Format: "",
-                Priority: 0,
-                ErrorMsg: "",
-                CreatedAt: new Date().toISOString(),
-                UpdatedAt: new Date().toISOString(),
-                TaskType: "sniff",
-                SniffTotalFound: 0,
-                SniffTotalCreated: 0,
-                SniffTotalSkipped: 0,
-              };
-              useTaskStore.getState().addTask(placeholder);
-              const sId = data.seq ?? `#${data.sniffId}`;
-              toast.success("tasks.sniffTaskCreated", { id: sId });
-            } else if (data?.type === "gallery") {
-              const placeholder: DownloadTask = {
-                ID: data.galleryId,
-                DisplayID: data.seq,
-                URL: u,
-                M3U8URL: "",
-                Status: "scraping",
-                Progress: 0,
-                FilePath: "",
-                Format: "",
-                Priority: 0,
-                ErrorMsg: "",
-                CreatedAt: new Date().toISOString(),
-                UpdatedAt: new Date().toISOString(),
-                TaskType: "gallery",
-                GalleryTitle: "",
-                ImageCount: 0,
-                VideoCount: 0,
-                DownloadMethod: "pending",
-              };
-              useTaskStore.getState().addTask(placeholder);
-              toast.success("tasks.galleryTaskCreated", { id: data.seq ?? data.galleryId });
-            } else if (data?.ID) {
+            /*
+             * API now returns complete DownloadTask object for all types.
+             * No more placeholder construction needed — SSE gallery:created
+             * event will also arrive for real-time updates.
+             */
+            if (data?.ID) {
               useTaskStore.getState().addTask(data as DownloadTask);
-              toast.success("tasks.videoTaskCreated", { id: data.DisplayID ?? data.ID });
+              const idLabel = data.DisplayID ?? data.ID;
+              if (data.TaskType === "gallery") {
+                toast.success("tasks.galleryTaskCreated", { id: idLabel });
+              } else if (data.TaskType === "sniff") {
+                toast.success("tasks.sniffTaskCreated", { id: idLabel });
+              } else {
+                toast.success("tasks.videoTaskCreated", { id: idLabel });
+              }
             }
           })
           .catch((err: unknown) => {
@@ -173,16 +141,12 @@ export function useTaskActions({
         toast.info("tasks.taskActionSubmitting", { type: label, id: task.DisplayID ?? taskId, action: actionLabel(action, t) });
 
         const fetchOpts: RequestInit = { method };
-        if (isGallery && action !== "delete") {
-          const galleryActionMap: Record<string, string> = {
-            start: task.Status === "failed" ? "retry-failed" : "resume",
-            retry: "retry-failed",
-            pause: "pause",
-            resume: "resume",
-          };
-          fetchOpts.headers = { "Content-Type": "application/json" };
-          fetchOpts.body = JSON.stringify({ action: galleryActionMap[action] });
-        } else if (!isSniff && !isGallery && action !== "delete") {
+        if (!isSniff && action !== "delete") {
+          /*
+           * Generic action name sent directly to backend.
+           * Backend routes to specific operation based on task status.
+           * (Previously frontend translated: start → resume/retry-failed, etc.)
+           */
           fetchOpts.headers = { "Content-Type": "application/json" };
           fetchOpts.body = JSON.stringify({ action });
         }
@@ -222,6 +186,11 @@ export function useTaskActions({
     [fetchTasks, t]
   );
 
+  /*
+   * Batch action: frontend uses server-provided AllowedActions field
+   * to determine applicable tasks, eliminating 40+ lines of hardcoded
+   * status-action qualification logic.
+   */
   const handleBatchAction = useCallback(
     async (action: string) => {
       if (selectedIds.size === 0) {
@@ -233,11 +202,11 @@ export function useTaskActions({
 
       if (isDelete && !confirm(t("tasks.confirmBatchDelete", { count: keys.length }))) return;
 
-      if (isDelete) {
-        const selectedTasks = keys
-          .map((key) => tasks.find((t) => `${t.TaskType || "video"}-${t.ID}` === key))
-          .filter((t): t is DownloadTask => !!t);
+      const selectedTasks = keys
+        .map((key) => tasks.find((t) => `${t.TaskType || "video"}-${t.ID}` === key))
+        .filter((t): t is DownloadTask => !!t);
 
+      if (isDelete) {
         selectedTasks.forEach((task) => {
           const taskType = task.TaskType === "sniff" ? "sniff" : task.TaskType === "gallery" ? "gallery" : "video";
           useTaskStore.getState().removeTask(task.ID, taskType);
@@ -275,66 +244,20 @@ export function useTaskActions({
         return;
       }
 
-      const selectedTasks = keys
-        .map((key) => tasks.find((t) => `${t.TaskType || "video"}-${t.ID}` === key))
-        .filter((t): t is DownloadTask => !!t);
-
+      /*
+       * Use server-provided AllowedActions to determine which tasks
+       * can perform the requested action. Tasks without the action
+       * in their AllowedActions are skipped.
+       */
       const applicable: DownloadTask[] = [];
       let skipped = 0;
 
       for (const task of selectedTasks) {
-        const isGallery = task.TaskType === "gallery";
-        const isSniff = task.TaskType === "sniff";
-
-        if (isSniff) {
-          skipped++;
-          continue;
-        }
-
-        if (isGallery) {
-          if (action === "start") {
-            const startableStatuses = ["pending", "scrape_pending", "download_pending", "paused", "failed", "scraping"];
-            if (!startableStatuses.includes(task.Status || "")) {
-              skipped++;
-            } else {
-              applicable.push(task);
-            }
-          } else if (action === "retry") {
-            if (!["failed", "partial"].includes(task.Status || "")) {
-              skipped++;
-            } else {
-              applicable.push(task);
-            }
-          } else if (action === "pause") {
-            const pauseableStatuses = ["scraping", "downloading", "scrape_pending", "download_pending", "pending"];
-            if (!pauseableStatuses.includes(task.Status || "")) {
-              skipped++;
-            } else {
-              applicable.push(task);
-            }
-          } else if (action === "resume") {
-            if (task.Status !== "paused") {
-              skipped++;
-            } else {
-              applicable.push(task);
-            }
-          } else {
-            skipped++;
-          }
-          continue;
-        }
-
-        const status = task.Status;
-        if (action === "pause" && !["downloading", "scraping"].includes(status || "")) {
-          skipped++;
-        } else if (action === "start" && !["pending", "paused", "failed", "cancelled"].includes(status || "")) {
-          skipped++;
-        } else if (action === "retry" && !["failed", "cancelled"].includes(status || "")) {
-          skipped++;
-        } else if (action === "cancel" && !["downloading", "paused", "pending", "scraping"].includes(status || "")) {
-          skipped++;
-        } else {
+        const allowed = task.AllowedActions ?? [];
+        if (allowed.includes(action)) {
           applicable.push(task);
+        } else {
+          skipped++;
         }
       }
 
@@ -347,35 +270,8 @@ export function useTaskActions({
         applicable.map((task) => {
           const isGallery = task.TaskType === "gallery";
           const id = task.ID;
-          if (isGallery) {
-            const galleryAction =
-              action === "start"
-                ? task.Status === "failed"
-                  ? "retry-failed"
-                  : "resume"
-                : action === "retry"
-                  ? "retry-failed"
-                  : action === "pause"
-                    ? "pause"
-                    : action === "resume"
-                      ? "resume"
-                      : null;
-            if (galleryAction) {
-              return fetch(`/api/shelf/${id}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: galleryAction }),
-              });
-            }
-          }
-          if (action === "start" && ["failed", "cancelled"].includes(task.Status || "")) {
-            return fetch(`/api/tasks/${id}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "retry" }),
-            });
-          }
-          return fetch(`/api/tasks/${id}`, {
+          const endpoint = isGallery ? `/api/shelf/${id}` : `/api/tasks/${id}`;
+          return fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action }),

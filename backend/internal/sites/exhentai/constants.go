@@ -25,13 +25,9 @@ var SiteDomains []string
 var CategoryLabels map[string]int
 var CategoryNames map[int]string
 
-var pkgDataStore sites.SiteDataStore
-
 // initData populates package-level configuration variables from the
 // unified SiteDataStore, replacing former hardcoded constants.
 func initData(ds sites.SiteDataStore) {
-	pkgDataStore = ds
-
 	if mod, ok := ds.GetModuleConfig("exhentai"); ok {
 		SiteDomains = mod.Domains
 	}
@@ -101,23 +97,6 @@ func HasExCookies() bool {
 	return GetExhentaiCookies() != nil
 }
 
-// IsExURL reports whether the URL points to the ExHentai domain
-// (as opposed to e-hentai.org).
-func IsExURL(rawURL string) bool {
-	if BaseExURL == "" {
-		return false
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	exParsed, err := url.Parse(BaseExURL)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(parsed.Hostname(), exParsed.Hostname())
-}
-
 var galleryIDPattern = regexp.MustCompile(`/g/(\d+)/`)
 
 // ExtractGalleryID extracts the numeric gallery ID from a URL path.
@@ -147,15 +126,6 @@ func NormalizeToEhentai(rawURL string) string {
 		return rawURL
 	}
 	return strings.ReplaceAll(rawURL, BaseExURL, BaseEURL)
-}
-
-// MatchesExhentaiURL checks whether a URL belongs to any configured
-// ExHentai domain, including subdomains.
-func MatchesExhentaiURL(rawURL string) bool {
-	if pkgDataStore == nil {
-		return false
-	}
-	return pkgDataStore.CanHandle("exhentai", rawURL)
 }
 
 // CleanExhentaiTitle decodes HTML entities and trims whitespace,

@@ -1,21 +1,103 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"backend/internal/db"
 	"backend/internal/downloader/video"
 	"backend/internal/i18n"
+	"backend/internal/idgen"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
 	"backend/internal/urlutil"
 )
 
-// TaskList returns a paginated list of download tasks.
+// getTaskDagID retrieves the DAG ID associated with a video task.
+// Returns empty string if no DAG has been created for this task.
+func (h *Handlers) getTaskDagID(ctx context.Context, taskID int) string {
+	var dagID string
+	err := h.DB.QueryRow(ctx, "SELECT COALESCE(dag_id, '') FROM download_tasks WHERE id = ?", taskID).Scan(&dagID)
+	if err != nil {
+		return ""
+	}
+	return dagID
+}
+
+// updateTaskDagID stores the DAG ID in the download_tasks table.
+func (h *Handlers) updateTaskDagID(ctx context.Context, taskID int, dagID string) {
+	h.DB.Exec(ctx, "UPDATE download_tasks SET dag_id = ? WHERE id = ?", dagID, taskID)
+}
+
+// unicodeEscapeRe matches literal \uXXXX sequences (backslash-u-hex4)
+// that appear when regex-extracted JSON values bypass json.Unmarshal.
+var unicodeEscapeRe = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
+
+// decodeUnicodeEscapes converts literal \uXXXX sequences in a string to
+// actual Unicode characters. This handles legacy DB rows where the old
+// regex-based scraper stored undecoded escape sequences (e.g. "\u5973\u795e"
+// instead of "女神").
+func decodeUnicodeEscapes(s string) string {
+	return unicodeEscapeRe.ReplaceAllStringFunc(s, func(match string) string {
+		hex := match[2:] // strip leading \u
+		if code, err := strconv.ParseInt(hex, 16, 32); err == nil {
+			return string(rune(code))
+		}
+		return match
+	})
+}
+
+// parsePersonForDisplay converts the DB-stored actors JSON string (e.g.
+// `["女神ジュン"]` or legacy `["\u5973\u795e..."]`) into a human-readable
+// comma-separated display string (e.g. "女神ジュン").
+//
+// This fixes the double-serialization issue where the JSON array string
+// from the DB was re-serialized by writeJSON, producing escaped output
+// like `["\\u5973..."]` instead of the actual actor name.
+//
+// Returns "" for empty/null/[] values.
+func parsePersonForDisplay(raw string) string {
+	if raw == "" || raw == "null" || raw == "[]" {
+		return ""
+	}
+	// Try parsing as a JSON string array.
+	var actors []string
+	if err := json.Unmarshal([]byte(raw), &actors); err == nil {
+		for i, a := range actors {
+			actors[i] = decodeUnicodeEscapes(a)
+		}
+		return strings.Join(actors, ", ")
+	}
+	// Fallback: if it's not valid JSON, decode escapes and return as-is.
+	return decodeUnicodeEscapes(raw)
+}
+
+// TaskList returns a paginated list of video download tasks.
+//
+// NOTE: This endpoint ONLY queries the download_tasks table, which stores
+// video/M3U8 download tasks. It does NOT include gallery (写真包) tasks,
+// which are stored in the galleries table and served via ShelfList.
+//
+// Task type distinction:
+//   - download_tasks: Video tasks (M3U8 streams, video files)
+//   - galleries: Gallery tasks (photo sets/写真包, primarily images with optional videos)
+//
+// TODO: The frontend /tasks page currently calls this endpoint expecting
+// ALL tasks, causing missing gallery tasks on page refresh. Options:
+//   1. Merge gallery results into TaskList (unified task view)
+//   2. Create a new /api/tasks/all endpoint that combines both
+//   3. Have frontend call both /api/tasks and /api/shelf and merge
+//
+// See: gallery.go ShelfList for gallery task queries
 func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -28,11 +110,14 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 		`SELECT dt.id, dt.url, dt.m3u8_url, dt.status, dt.progress,
 		       dt.file_path, dt.format, dt.priority, dt.error_msg,
 		       dt.site_id, dt.seq, dt.created_at, dt.updated_at,
-		       COALESCE(vi.title, '') AS title,
-		       COALESCE(vi.actors, '') AS protagonist
+		       COALESCE(NULLIF(vi.title, ''), '') AS title,
+		       COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
+		       COALESCE(dt.total_segments, 0) AS total_segments,
+		       COALESCE(dt.completed_segments, 0) AS completed_segments,
+		       COALESCE(vi.file_size, 0) AS file_size
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
-		 ORDER BY dt.id DESC LIMIT $1 OFFSET $2`, limit, offset)
+		 ORDER BY dt.id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
 		return
@@ -40,11 +125,21 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	tasks := []db.DownloadTask{}
+	var ca, ua db.SQLTime
 	for rows.Next() {
 		var t db.DownloadTask
-		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt, &t.Title, &t.Person); err != nil {
+		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &ca, &ua, &t.Title, &t.Person, &t.TotalSegments, &t.Segment, &t.FileSize); err != nil {
 			continue
 		}
+		t.Person = parsePersonForDisplay(t.Person)
+		t.CreatedAt = ca.Time
+		t.UpdatedAt = ua.Time
+		// Strip person/model name prefix from title for display.
+		t.Title = StripPersonFromTitle(t.Title, t.Person)
+		// Populate computed fields for frontend consumption.
+		t.EffectiveStatus = computeEffectiveStatus(t.Status, "video", 0, 0)
+		t.ProgressStage = computeProgressStage(t.Status, "video", t.Progress)
+		t.AllowedActions = computeAllowedActions(t.Status, "video")
 		tasks = append(tasks, t)
 	}
 	writeJSON(w, http.StatusOK, tasks)
@@ -77,30 +172,53 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	cleanedURL := urlutil.CleanURL(req.URL)
 	normalizedURL := urlutil.NormalizeURL(cleanedURL)
 
-	// Gallery URL routing: if the URL matches a gallery provider
-	// (e.g. aimeizizi/lovecutes.net), create a gallery record and
-	// submit a gallery DAG pipeline (scrape → download → extract →
-	// verify) instead of a video download task. This mirrors the TS
-	// implementation's getGalleryProvider() routing that was lost
-	// during the Go migration.
+	// Task type pre-processor: determine the correct task pipeline
+	// (gallery / sniff / video) based on the site module's configured
+	// type field, NOT just on whether the provider implements the
+	// GallerySiteProvider interface.
+	//
+	// This fixes the critical bug where video sites like Kanav (which
+	// implement GallerySiteProvider for M3U8 sniffing capabilities)
+	// were incorrectly routed to the gallery pipeline, causing the
+	// frontend to display "图片" type and "图包" toast for video tasks.
+	//
+	// Routing logic:
+	//   1. Match provider via GetProviderByUrl()
+	//   2. Look up the site module config (type: "photo" | "video")
+	//   3. Only route to gallery/sniff pipeline if module type == "photo"
+	//   4. Video-type providers fall through to video task creation
 	if h.SiteReg != nil && !strings.HasSuffix(cleanedURL, ".m3u8") {
 		if provider, ok := h.SiteReg.GetProviderByUrl(cleanedURL); ok {
-			if _, ok := provider.(sites.GallerySiteProvider); ok {
-				// Listing page detection: if the URL is a listing/search page
-				// (not a single gallery detail page), create a sniff task to
-				// crawl all gallery links from that page. This mirrors the TS
-				// implementation's isListingPage() → sniff task routing that
-				// was lost during the Go migration.
-				if listProvider, ok := provider.(interface {
-					IsListingPage(url string) bool
-				}); ok && listProvider.IsListingPage(cleanedURL) {
-					h.createSniffTask(w, r, cleanedURL, provider.SiteID(), req.Seq)
+			// Check the site module's type field to determine the
+			// correct task pipeline. This is the pre-processor that
+			// correctly assigns sub-processors based on site type.
+			siteType := "photo" // default to photo for legacy providers
+			if mod, modOk := h.SiteReg.GetModule(provider.SiteID()); modOk && mod.Type != "" {
+				siteType = mod.Type
+			}
+
+			if siteType == "photo" {
+				if _, ok := provider.(sites.GallerySiteProvider); ok {
+					// Listing page detection: if the URL is a listing/search page
+					// (not a single gallery detail page), create a sniff task to
+					// crawl all gallery links from that page. This mirrors the TS
+					// implementation's isListingPage() → sniff task routing that
+					// was lost during the Go migration.
+					if listProvider, ok := provider.(interface {
+						IsListingPage(url string) bool
+					}); ok && listProvider.IsListingPage(cleanedURL) {
+						h.createSniffTask(w, r, cleanedURL, provider.SiteID(), req.Seq)
+						return
+					}
+					// Gallery detail page: run full scrape → download → verify pipeline.
+					h.createGalleryTask(w, r, cleanedURL, normalizedURL, provider, req.Seq)
 					return
 				}
-				// Gallery detail page: run full scrape → download → verify pipeline.
-				h.createGalleryTask(w, r, cleanedURL, normalizedURL, provider, req.Seq)
-				return
 			}
+			// siteType == "video": fall through to video task creation
+			// below. The provider implements GallerySiteProvider for
+			// M3U8 sniffing, but the task should be treated as a video
+			// download, not a gallery task.
 		}
 	}
 
@@ -140,14 +258,14 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	if req.Seq != "" {
 		seqPtr = &req.Seq
 	} else {
-		generated := newSeq()
+		generated := idgen.GenerateID()
 		seqPtr = &generated
 	}
 
 	var id int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO download_tasks (url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq)
-		 VALUES ($1, '', 'pending', 0, '', $2, $3, '', $4, $5)
+		 VALUES (?, '', 'pending', 0, '', ?, ?, '', ?, ?)
 		 RETURNING id`,
 		normalizedURL, req.Format, req.Priority, siteID, seqPtr).Scan(&id)
 	if err != nil {
@@ -155,13 +273,34 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-start video task: submit DAG pipeline so the task enters
+	// "scraping" status immediately, matching gallery task behavior.
+	dagID := ""
+	if h.DagOrch != nil {
+		def := dag.NewDagFactory().NewVideoPipeline(id)
+		var submitErr error
+		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
+		if submitErr != nil {
+			h.DB.Exec(r.Context(),
+				"UPDATE download_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
+				"DAG submission failed: "+submitErr.Error(), id)
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+			return
+		}
+		h.updateTaskDagID(r.Context(), id, dagID)
+	}
+
+	// Update status to scraping since DAG is now running.
+	_, _ = h.DB.Exec(r.Context(),
+		`UPDATE download_tasks SET status = 'scraping', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+
 	// Emit task:created so SSE clients receive real-time upsert
 	if h.EventBus != nil {
 		now := time.Now()
-			h.EventBus.Emit("task:created", db.DownloadTask{
+		h.EventBus.Emit("task:created", db.DownloadTask{
 			ID:        id,
 			URL:       normalizedURL,
-			Status:    "pending",
+			Status:    "scraping",
 			Progress:  0,
 			Format:    req.Format,
 			Priority:  req.Priority,
@@ -172,7 +311,32 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "pending", "SiteID": siteID})
+	// Return full DownloadTask object (replaces partial {ID, DisplayID, ...} response)
+	var created db.DownloadTask
+	var ca, ua db.SQLTime
+	err = h.DB.QueryRow(r.Context(),
+		`SELECT dt.id, dt.url, dt.m3u8_url, dt.status, dt.progress,
+		       dt.file_path, dt.format, dt.priority, dt.error_msg,
+		       dt.site_id, dt.seq, dt.created_at, dt.updated_at,
+		       '' AS title, '' AS protagonist,
+		       COALESCE(dt.total_segments, 0), COALESCE(dt.completed_segments, 0),
+		       0 AS file_size
+		FROM download_tasks dt WHERE dt.id = ?`, id).
+		Scan(&created.ID, &created.URL, &created.M3U8URL, &created.Status, &created.Progress,
+			&created.FilePath, &created.Format, &created.Priority, &created.ErrorMsg,
+			&created.SiteID, &created.Seq, &ca, &ua, &created.Title, &created.Person,
+			&created.TotalSegments, &created.Segment, &created.FileSize)
+	if err == nil {
+		created.CreatedAt = ca.Time
+		created.UpdatedAt = ua.Time
+		created.EffectiveStatus = computeEffectiveStatus(created.Status, "video", 0, 0)
+		created.ProgressStage = computeProgressStage(created.Status, "video", created.Progress)
+		created.AllowedActions = computeAllowedActions(created.Status, "video")
+		writeJSON(w, http.StatusCreated, created)
+	} else {
+		// Fallback: return minimal response if query fails
+		writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "scraping", "SiteID": siteID, "dagId": dagID})
+	}
 }
 
 // createGalleryTask handles gallery URL submission by creating a
@@ -194,7 +358,7 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	if userSeq != "" {
 		seqPtr = &userSeq
 	} else {
-		generated := newSeq()
+		generated := idgen.GenerateID()
 		seqPtr = &generated
 	}
 
@@ -207,7 +371,7 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	var galleryID int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO galleries (seq, source_url, site_id, scraped_domain, status, download_method)
-		 VALUES ($1, $2, $3, $4, 'pending', 'pending')
+		 VALUES (?, ?, ?, ?, 'pending', 'pending')
 		 RETURNING id`,
 		seqPtr, normalizedURL, siteID, scrapedDomain).Scan(&galleryID)
 	if err != nil {
@@ -226,10 +390,38 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 			// user can retry rather than leaving an orphaned "pending"
 			// record with no pipeline attached.
 			h.DB.Exec(r.Context(),
-				"UPDATE galleries SET status = 'failed', error_msg = $1 WHERE id = $2",
+				"UPDATE galleries SET status = 'failed', error_msg = ? WHERE id = ?",
 				"DAG submission failed: "+submitErr.Error(), galleryID)
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:failed", map[string]any{
+					"taskId":   galleryID,
+					"taskType": "gallery",
+					"error":    "DAG submission failed: " + submitErr.Error(),
+				})
+			}
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
+		}
+		// Store the DAG ID for future lookups.
+		h.updateGalleryDagID(r.Context(), galleryID, dagID)
+
+		// Update gallery status to scraping now that the DAG has been
+		// submitted and the scrape node will be scheduled. Without this,
+		// the gallery stays "pending" for the entire scrape duration
+		// (~10-30s), and the frontend shows "等待中" with no sub-status
+		// even though the scraper is actively running. This matches the
+		// video task handler behavior (tasks.go L269-271).
+		h.DB.Exec(r.Context(),
+			"UPDATE galleries SET status = 'scraping', updated_at = CURRENT_TIMESTAMP WHERE id = ?", galleryID)
+
+		// Emit task:progress so SSE clients see the status transition
+		// from "pending" to "scraping" immediately.
+		if h.EventBus != nil {
+			h.EventBus.Emit("task:progress", map[string]any{
+				"taskId":   galleryID,
+				"taskType": "gallery",
+				"status":   "scraping",
+			})
 		}
 	}
 
@@ -237,12 +429,14 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	// for consistency with task:created and SSE initial events).
 	// Uses "ID" (not "GalleryID") so the frontend taskKey() can
 	// directly use it without field-name translation.
+	// Status is "scraping" (not "pending") because the DAG has been
+	// submitted and the scrape node is queued for execution.
 	if h.EventBus != nil {
 		h.EventBus.Emit("gallery:created", map[string]any{
 			"ID":         galleryID,
 			"SourceURL":  normalizedURL,
 			"SiteID":     siteID,
-			"Status":     "pending",
+			"Status":     "scraping",
 			"DagID":      dagID,
 			"DisplayID":  *seqPtr,
 			"TaskType":   "gallery",
@@ -252,11 +446,17 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"type":      "gallery",
-		"galleryId": galleryID,
-		"seq":       *seqPtr,
-		"status":    "pending",
-		"dagId":     dagID,
+		"TaskType":        "gallery",
+		"ID":              galleryID,
+		"DisplayID":       *seqPtr,
+		"URL":             normalizedURL,
+		"Status":          "scraping",
+		"SiteID":          siteID,
+		"CreatedAt":       time.Now(),
+		"UpdatedAt":       time.Now(),
+		"EffectiveStatus": computeEffectiveStatus("scraping", "gallery", 0, 0),
+		"ProgressStage":   computeProgressStage("scraping", "gallery", 0),
+		"AllowedActions":  computeAllowedActions("scraping", "gallery"),
 	})
 }
 
@@ -269,14 +469,14 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 	if userSeq != "" {
 		seqPtr = &userSeq
 	} else {
-		generated := newSeq()
+		generated := idgen.GenerateID()
 		seqPtr = &generated
 	}
 
 	var sniffID int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO sniff_tasks (seq, url, site_id, status)
-		 VALUES ($1, $2, $3, 'pending')
+		 VALUES (?, ?, ?, 'pending')
 		 RETURNING id`,
 		seqPtr, pageURL, siteID).Scan(&sniffID)
 	if err != nil {
@@ -292,11 +492,20 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
 			h.DB.Exec(r.Context(),
-				"UPDATE sniff_tasks SET status = 'failed', error_msg = $1 WHERE id = $2",
+				"UPDATE sniff_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
 				"DAG submission failed: "+submitErr.Error(), sniffID)
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:failed", map[string]any{
+					"taskId":   sniffID,
+					"taskType": "sniff",
+					"error":    "DAG submission failed: " + submitErr.Error(),
+				})
+			}
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
 		}
+		// Store the DAG ID for future lookups.
+		h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, sniffID)
 	}
 
 	// Emit sniff task creation event for SSE clients.
@@ -315,12 +524,17 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"type":      "sniff",
-		"sniffId":   sniffID,
-		"seq":       *seqPtr,
-		"status":    "pending",
-		"url":       pageURL,
-		"dagId":     dagID,
+		"TaskType":        "sniff",
+		"ID":              sniffID,
+		"DisplayID":       *seqPtr,
+		"URL":             pageURL,
+		"Status":          "pending",
+		"SiteID":          siteID,
+		"CreatedAt":       time.Now(),
+		"UpdatedAt":       time.Now(),
+		"EffectiveStatus": computeEffectiveStatus("pending", "sniff", 0, 0),
+		"ProgressStage":   computeProgressStage("pending", "sniff", 0),
+		"AllowedActions":  computeAllowedActions("pending", "sniff"),
 	})
 }
 
@@ -338,7 +552,7 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 	var existingStatus string
 	var existingSeq *string
 	err := h.DB.QueryRow(ctx,
-		`SELECT id, status, seq FROM download_tasks WHERE url = $1 LIMIT 1`,
+		`SELECT id, status, seq FROM download_tasks WHERE url = ? LIMIT 1`,
 		normalizedURL).Scan(&existingID, &existingStatus, &existingSeq)
 	if err == nil {
 		seqStr := ""
@@ -364,7 +578,7 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 					continue // already checked in tier 1
 				}
 				err := h.DB.QueryRow(ctx,
-					`SELECT id, status, seq FROM download_tasks WHERE url = $1 LIMIT 1`,
+					`SELECT id, status, seq FROM download_tasks WHERE url = ? LIMIT 1`,
 					mirrorURL).Scan(&existingID, &existingStatus, &existingSeq)
 				if err == nil {
 					seqStr := ""
@@ -388,7 +602,7 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 	signature := urlutil.GetURLSignature(normalizedURL)
 	if len(signature) > 1 {
 		rows, err := h.DB.Query(ctx,
-			`SELECT id, status, seq, url FROM download_tasks WHERE url LIKE '%' || $1 LIMIT 5`,
+			`SELECT id, status, seq, url FROM download_tasks WHERE url LIKE '%' || ? LIMIT 5`,
 			signature)
 		if err == nil {
 			defer rows.Close()
@@ -434,7 +648,7 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 	var gallerySeq *string
 	var galleryTitle string
 	err := h.DB.QueryRow(ctx,
-		`SELECT id, status, seq, COALESCE(title, '') FROM galleries WHERE source_url = $1 LIMIT 1`,
+		`SELECT id, status, seq, COALESCE(title, '') FROM galleries WHERE source_url = ? LIMIT 1`,
 		normalizedURL).Scan(&galleryID, &galleryStatus, &gallerySeq, &galleryTitle)
 	if err == nil {
 		seqStr := ""
@@ -461,7 +675,7 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 					continue
 				}
 				err := h.DB.QueryRow(ctx,
-					`SELECT id, status, seq, COALESCE(title, '') FROM galleries WHERE source_url = $1 LIMIT 1`,
+					`SELECT id, status, seq, COALESCE(title, '') FROM galleries WHERE source_url = ? LIMIT 1`,
 					mirrorURL).Scan(&galleryID, &galleryStatus, &gallerySeq, &galleryTitle)
 				if err == nil {
 					seqStr := ""
@@ -482,11 +696,10 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 		}
 	}
 
-	// Tier 3: Path-signature match.
 	signature := urlutil.GetURLSignature(normalizedURL)
 	if len(signature) > 1 {
 		rows, err := h.DB.Query(ctx,
-			`SELECT id, status, seq, COALESCE(title, ''), source_url FROM galleries WHERE source_url LIKE '%' || $1 LIMIT 5`,
+			`SELECT id, status, seq, COALESCE(title, ''), source_url FROM galleries WHERE source_url LIKE '%' || ? LIMIT 5`,
 			signature)
 		if err == nil {
 			defer rows.Close()
@@ -519,7 +732,6 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 	return nil
 }
 
-// TaskDetail returns a single task by ID.
 func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -534,16 +746,26 @@ func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 		`SELECT dt.id, dt.url, dt.m3u8_url, dt.status, dt.progress,
 		       dt.file_path, dt.format, dt.priority, dt.error_msg,
 		       dt.site_id, dt.seq, dt.created_at, dt.updated_at,
-		       COALESCE(vi.title, '') AS title,
-		       COALESCE(vi.actors, '') AS protagonist
+		       COALESCE(NULLIF(vi.title, ''), '') AS title,
+		       COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
+		       COALESCE(dt.total_segments, 0) AS total_segments,
+		       COALESCE(dt.completed_segments, 0) AS completed_segments,
+		       COALESCE(vi.file_size, 0) AS file_size
 		FROM download_tasks dt
 		LEFT JOIN video_infos vi ON dt.id = vi.task_id
-		WHERE dt.id = $1`, id).
-		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt, &t.Title, &t.Person)
+		WHERE dt.id = ?`, id).
+		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt, &t.Title, &t.Person, &t.TotalSegments, &t.Segment, &t.FileSize)
 	if err != nil {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
 		return
 	}
+	t.Person = parsePersonForDisplay(t.Person)
+	// Strip person/model name prefix from title for display.
+	t.Title = StripPersonFromTitle(t.Title, t.Person)
+	// Populate computed fields for frontend consumption.
+	t.EffectiveStatus = computeEffectiveStatus(t.Status, "video", 0, 0)
+	t.ProgressStage = computeProgressStage(t.Status, "video", t.Progress)
+	t.AllowedActions = computeAllowedActions(t.Status, "video")
 	writeJSON(w, http.StatusOK, t)
 }
 
@@ -607,8 +829,8 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		// re-transitions Failed/Timeout/NeedsRetry nodes to Ready within
 		// the same DAG instance, eliminating the race and preventing
 		// duplicate DAGs (§4 Service Layer: "do not create duplicate DAGs").
-		dagID := fmt.Sprintf("video-%d", id)
-		if h.DagOrch != nil && h.DagOrch.GetDagStatus(dagID) != nil {
+		dagID := h.getTaskDagID(r.Context(), id)
+		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
 			if err := h.DagOrch.RetryDag(r.Context(), dagID, ""); err != nil {
 				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
 				return
@@ -626,6 +848,8 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
 			return
 		}
+		// Store the new DAG ID for future lookups.
+		h.updateTaskDagID(r.Context(), id, dagID)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
 
 	default:
@@ -655,6 +879,24 @@ func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+
+	// 先查询受影响的画廊 ID，以便批量更新后逐个发射 SSE 事件
+	rows, err := h.DB.Query(ctx,
+		"SELECT id FROM galleries WHERE status IN ('failed', 'scraping')")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("query failed: %v", err))
+		return
+	}
+	var affectedIDs []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		affectedIDs = append(affectedIDs, id)
+	}
+	rows.Close()
+
 	result, err := h.DB.Exec(ctx,
 		"UPDATE galleries SET status = 'completed', error_msg = '', updated_at = CURRENT_TIMESTAMP WHERE status IN ('failed', 'scraping')")
 	if err != nil {
@@ -662,6 +904,16 @@ func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rowsAff, _ := result.RowsAffected()
+
+	if h.EventBus != nil {
+		for _, gid := range affectedIDs {
+			h.EventBus.Emit("task:completed", map[string]any{
+				"taskId":   gid,
+				"taskType": "gallery",
+				"status":   "completed",
+			})
+		}
+	}
 
 	var completed, failed, scraping int
 	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries WHERE status = 'completed'").Scan(&completed)
@@ -676,7 +928,8 @@ func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TaskDelete removes a download task from the database.
+// TaskDelete removes a download task from the database and cleans up
+// local files (video file + segments directory).
 func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -687,8 +940,22 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Step 1: Read task info before deletion (for file cleanup).
+	var filePath string
+	_ = h.DB.QueryRow(r.Context(),
+		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", id).Scan(&filePath)
+
+	// Step 2: Cancel any active DAG for this video task to stop ongoing downloads.
+	if h.DagOrch != nil {
+		dagID := h.getTaskDagID(r.Context(), id)
+		if dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
+			_ = h.DagOrch.CancelDag(r.Context(), dagID)
+		}
+	}
+
+	// Step 3: Delete from database.
 	result, err := h.DB.Exec(r.Context(),
-		"DELETE FROM download_tasks WHERE id = $1", id)
+		"DELETE FROM download_tasks WHERE id = ?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
 		return
@@ -698,9 +965,21 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Step 4: Clean up local files (best-effort, non-blocking).
+	// Delete video file if it exists.
+	if filePath != "" {
+		_ = os.Remove(filePath)
+	}
+	// Delete segments directory: data/segments/task_{id}/
+	segmentsDir := filepath.Join("..", "data", "segments", fmt.Sprintf("task_%d", id))
+	_ = os.RemoveAll(segmentsDir)
+
 	// Emit task:cancelled so SSE notifies clients
 	if h.EventBus != nil {
-		h.EventBus.Emit("task:cancelled", map[string]any{"taskId": id})
+		h.EventBus.Emit("task:cancelled", map[string]any{
+			"taskId":   id,
+			"taskType": "video",
+		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})

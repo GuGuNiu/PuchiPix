@@ -58,6 +58,30 @@
   50% { background-position: 100% 50%; }
 }
 
+// ===== SSE Live Update Animations =====
+@keyframes sse-row-pulse {
+  0% { background-color: transparent; }
+  15% { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+}
+
+@keyframes sse-table-flash {
+  0% { opacity: 1; }
+  10% { opacity: 0.85; }
+  100% { opacity: 1; }
+}
+
+@keyframes sse-row-slide-in {
+  0% { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sse-status-changed {
+  0% { background-color: transparent; }
+  20% { background-color: rgba(99, 102, 241, 0.1); }
+  100% { background-color: transparent; }
+}
+
 // ===== Surfaces (日间浅色主题) =====
 :root {
   color-scheme: light;

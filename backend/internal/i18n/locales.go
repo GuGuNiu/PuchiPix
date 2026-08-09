@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"sync"
 )
 
@@ -59,45 +58,4 @@ func loadDicts() (map[string]TranslationDict, error) {
 		}
 	})
 	return dicts, dictsErr
-}
-
-// GetDict returns the TranslationDict for the given locale, falling back
-// to the default locale (zh-CN) if the locale is not supported.
-func GetDict(locale string) TranslationDict {
-	loaded, err := loadDicts()
-	if err != nil || loaded == nil {
-		return nil
-	}
-	if d, ok := loaded[locale]; ok {
-		return d
-	}
-	return loaded[DefaultLocale]
-}
-
-// SupportedLocales returns the list of all supported locale codes.
-func SupportedLocales() []string {
-	out := make([]string, len(supportedLocales))
-	copy(out, supportedLocales)
-	return out
-}
-
-// IsSupported reports whether the given locale code is supported.
-func IsSupported(locale string) bool {
-	return supportedSet[locale]
-}
-
-// AllKeys returns the sorted list of translation keys from the default
-// locale dictionary. Used by the verification script to cross-check
-// Go t() calls against the dictionary.
-func AllKeys() []string {
-	d := GetDict(DefaultLocale)
-	if d == nil {
-		return nil
-	}
-	keys := make([]string, 0, len(d))
-	for k := range d {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

@@ -39,6 +39,10 @@ backend/vendor/
 *.tmp
 tmp_*.go
 .tmp/
+backend/.tmp/
+backend/.air.toml
+backend/dev.ps1
+air_errors.log
 *.db
 *.sqlite
 backend/data/

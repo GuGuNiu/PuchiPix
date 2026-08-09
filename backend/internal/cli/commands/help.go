@@ -19,6 +19,7 @@ var commandGroups = []commandGroup{
 	{"DAG Monitoring", []string{"status", "dag", "node", "events", "watch", "logs", "scheduler", "slots", "worker", "trace"}},
 	{"DAG Lifecycle", []string{"create", "link", "trigger", "pause", "resume", "retry", "cancel", "delete"}},
 	{"Task & Gallery Management", []string{"tasks", "galleries"}},
+	{"Database Access", []string{"db"}},
 }
 
 // PrintHelp prints the full help text or command-specific help.
@@ -78,11 +79,13 @@ func PrintHelp(registry *Registry, args []string) {
 	fmt.Printf("%sGlobal options:%s\n", ui.Bold, ui.Reset)
 	fmt.Printf("  %s--host <addr>%s   Server address (default localhost, or PUCHIPIX_HOST env)\n", ui.Dim, ui.Reset)
 	fmt.Printf("  %s--port <port>%s   Server port (default 10540, or PUCHIPIX_PORT env)\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %s--db-path <path>%s Database file path for 'db' command (default ./data/puchipix.db)\n", ui.Dim, ui.Reset)
 	fmt.Printf("  %s--json%s          Output raw JSON instead of formatted text\n", ui.Dim, ui.Reset)
 	fmt.Printf("  %s-h, --help%s      Show help\n\n", ui.Dim, ui.Reset)
 	fmt.Printf("%sEnvironment variables:%s\n", ui.Bold, ui.Reset)
 	fmt.Printf("  %sPUCHIPIX_HOST%s  Server address (default localhost)\n", ui.Dim, ui.Reset)
-	fmt.Printf("  %sPUCHIPIX_PORT%s  Server port (default 10540)\n\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %sPUCHIPIX_PORT%s  Server port (default 10540)\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %sPUCHIPIX_DB_PATH%s Database file path (default ./data/puchipix.db)\n\n", ui.Dim, ui.Reset)
 	fmt.Printf("%sExamples:%s\n", ui.Bold, ui.Reset)
 	fmt.Printf("  %s# Check server health%s\n  puchipix-cli health\n\n", ui.Dim, ui.Reset)
 	fmt.Printf("  %s# View dashboard statistics%s\n  puchipix-cli stats\n\n", ui.Dim, ui.Reset)
@@ -102,5 +105,9 @@ func PrintHelp(registry *Registry, args []string) {
 	fmt.Printf("  %s# Watch DAG event stream in real-time%s\n  puchipix-cli watch\n\n", ui.Dim, ui.Reset)
 	fmt.Printf("  %s# View system logs in real-time (filter by error level)%s\n  puchipix-cli logs --level=error\n\n", ui.Dim, ui.Reset)
 	fmt.Printf("  %s# View worker process status%s\n  puchipix-cli worker status\n\n", ui.Dim, ui.Reset)
-	fmt.Printf("  %s# Connect to remote server%s\n  puchipix-cli --host 192.168.1.100 --port 10540 status\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %s# Connect to remote server%s\n  puchipix-cli --host 192.168.1.100 --port 10540 status\n\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %s# List all database tables%s\n  puchipix-cli db tables\n\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %s# Query galleries with SQL%s\n  puchipix-cli db query \"SELECT id, title, status FROM galleries LIMIT 10\"\n\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %s# Show table schema%s\n  puchipix-cli db schema galleries\n\n", ui.Dim, ui.Reset)
+	fmt.Printf("  %s# Dump table data%s\n  puchipix-cli db dump galleries 50\n", ui.Dim, ui.Reset)
 }

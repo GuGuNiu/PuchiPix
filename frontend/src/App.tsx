@@ -1,12 +1,12 @@
 import { Component, Suspense, lazy, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "@/components/layout/sidebar";
-import SocketProvider from "@/components/providers/socket-provider";
 import ThemeProvider from "@/components/providers/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ThemedToaster } from "@/components/providers";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { initSharedSse, destroySharedSse } from "@/lib/sse/shared-sse";
+import { initSiteModules } from "@/lib/sites/site-modules";
 import GlobalError from "./pages/error";
 
 /* Lazy-loaded route components. */
@@ -20,7 +20,7 @@ const ConfigPage = lazy(() => import("./pages/config/index"));
 const ConfigGames = lazy(() => import("./pages/config/games/index"));
 const BlocklistPage = lazy(() => import("./pages/blocklist/index"));
 const ProtagonistsList = lazy(() => import("./pages/protagonists/index"));
-const ProtagonistDetail = lazy(() => import("./pages/protagonists/[name]/index"));
+const ProtagonistDetail = lazy(() => import("./pages/protagonists/detail/index"));
 const ModelStagePage = lazy(() => import("./pages/modelstage/index"));
 
 /** Global loading fallback for lazy routes. */
@@ -90,6 +90,7 @@ export default function App(): React.JSX.Element {
    */
   useEffect(() => {
     initSharedSse();
+    initSiteModules();
     return () => {
       destroySharedSse();
     };
@@ -100,37 +101,35 @@ export default function App(): React.JSX.Element {
       <ThemeProvider>
         <QueryProvider>
           <I18nProvider>
-            <SocketProvider>
-              <div className="app-layout">
-                <Sidebar />
-                <div className="main-area">
-                  <main className="content-area">
-                    <RouteErrorBoundary>
-                      <Suspense fallback={<RouteLoading />}>
-                        <Routes>
-                          <Route path="/" element={<Dashboard />} />
-                          <Route path="/tasks" element={<TasksPage />} />
-                          <Route path="/search" element={<SearchPage />} />
-                          {/* /shelf redirects to /shelf/photos */}
-                          <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
-                          <Route path="/shelf/photos" element={<ShelfPhotos />} />
-                          <Route path="/shelf/sjs" element={<ShelfSJS />} />
-                          <Route path="/sniff" element={<SniffPage />} />
-                          <Route path="/config" element={<ConfigPage />} />
-                          <Route path="/config/games" element={<ConfigGames />} />
-                          <Route path="/blocklist" element={<BlocklistPage />} />
-                          <Route path="/protagonists" element={<ProtagonistsList />} />
-                          <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
-                          <Route path="/modelstage" element={<ModelStagePage />} />
-                          {/* Custom 404 page */}
-                          <Route path="*" element={<NotFound />} />
-                        </Routes>
-                      </Suspense>
-                    </RouteErrorBoundary>
-                  </main>
-                </div>
+            <div className="app-layout">
+              <Sidebar />
+              <div className="main-area">
+                <main className="content-area">
+                  <RouteErrorBoundary>
+                    <Suspense fallback={<RouteLoading />}>
+                      <Routes>
+                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/tasks" element={<TasksPage />} />
+                        <Route path="/search" element={<SearchPage />} />
+                        {/* /shelf redirects to /shelf/photos */}
+                        <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
+                        <Route path="/shelf/photos" element={<ShelfPhotos />} />
+                        <Route path="/shelf/sjs" element={<ShelfSJS />} />
+                        <Route path="/sniff" element={<SniffPage />} />
+                        <Route path="/config" element={<ConfigPage />} />
+                        <Route path="/config/games" element={<ConfigGames />} />
+                        <Route path="/blocklist" element={<BlocklistPage />} />
+                        <Route path="/protagonists" element={<ProtagonistsList />} />
+                        <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
+                        <Route path="/modelstage" element={<ModelStagePage />} />
+                        {/* Custom 404 page */}
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                    </Suspense>
+                  </RouteErrorBoundary>
+                </main>
               </div>
-            </SocketProvider>
+            </div>
             <ThemedToaster />
           </I18nProvider>
         </QueryProvider>

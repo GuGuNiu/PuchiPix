@@ -94,7 +94,7 @@ func (es *EventStore) Append(ctx context.Context, event DagEvent) error {
 // could reach hundreds of milliseconds. DB persistence
 	// still happens synchronously right after, ensuring durability.
 	// If the DB write fails, the event has already been emitted to
-	// in-memory subscribers �?the in-memory log preserves it for
+	// in-memory subscribers — the in-memory log preserves it for
 	// recovery via Replay().
 	es.eventBus.Emit(event.Type, event)
 
@@ -168,7 +168,7 @@ func (es *EventStore) asyncWriterLoop() {
 // async writer is not running, it falls back to a synchronous Append.
 // When the queue is full, it attempts to drain one slot to make room;
 // if that also fails, the event is skipped and a snapshot is triggered
-// to compensate �?this avoids blocking the scheduler thread on DB I/O.
+// to compensate — this avoids blocking the scheduler thread on DB I/O.
 func (es *EventStore) AppendAsync(ctx context.Context, event DagEvent) error {
 	es.mu.Lock()
 	started := es.asyncStarted
@@ -195,7 +195,7 @@ func (es *EventStore) AppendAsync(ctx context.Context, event DagEvent) error {
 			es.logger.Warn("Async queue full, drained old event to make room", "fallbacks", fallbacks)
 			return nil
 		default:
-			// Still full after drain attempt �?skip this event and
+			// Still full after drain attempt — skip this event and
 			// trigger an async snapshot so state can be recovered.
 			es.mu.Lock()
 			es.asyncFallbacks++
@@ -250,10 +250,21 @@ func (es *EventStore) Replay(ctx context.Context, fromSeq int64, dagID string) (
 	}
 	es.mu.Unlock()
 
-	if len(inMemory) > 0 && inMemory[0].Seq <= fromSeq+1 {
+	// Fast path: the in-memory log is append-only with head-truncation,
+	// so its entries are strictly contiguous. If the first in-memory
+	// entry is EXACTLY fromSeq+1 (the filtering above guarantees it can
+	// never be <= fromSeq), the whole tail is present and complete.
+	// Use == (not <=) so a future non-contiguous buffer layout fails
+	// loudly via the DB path instead of silently returning gaps.
+	if len(inMemory) > 0 && inMemory[0].Seq == fromSeq+1 {
 		return inMemory, nil
 	}
 
+	// The requested range starts before the in-memory head (buffer was
+	// truncated) or the buffer is empty: fall back to the database.
+	// Note: with a nil db this returns whatever survived truncation —
+	// acceptable for in-memory test stores, never used for production
+	// recovery (production always has a database).
 	if es.db == nil {
 		return inMemory, nil
 	}
@@ -277,12 +288,14 @@ func (es *EventStore) Replay(ctx context.Context, fromSeq int64, dagID string) (
 		var e DagEvent
 		var payloadStr string
 		var nodeID *string
-		if err := rows.Scan(&e.Seq, &e.DagID, &nodeID, &e.Type, &payloadStr, &e.Timestamp); err != nil {
+		var tsText string
+		if err := rows.Scan(&e.Seq, &e.DagID, &nodeID, &e.Type, &payloadStr, &tsText); err != nil {
 			return nil, err
 		}
 		if nodeID != nil {
 			e.NodeID = *nodeID
 		}
+		e.Timestamp, _ = db.ParseSQLiteTime(tsText)
 		_ = json.Unmarshal([]byte(payloadStr), &e.Payload)
 		events = append(events, e)
 	}
@@ -317,12 +330,14 @@ func (es *EventStore) GetDagEvents(ctx context.Context, dagID string) ([]DagEven
 		var e DagEvent
 		var payloadStr string
 		var nodeID *string
-		if err := rows.Scan(&e.Seq, &e.DagID, &nodeID, &e.Type, &payloadStr, &e.Timestamp); err != nil {
+		var tsText string
+		if err := rows.Scan(&e.Seq, &e.DagID, &nodeID, &e.Type, &payloadStr, &tsText); err != nil {
 			return nil, err
 		}
 		if nodeID != nil {
 			e.NodeID = *nodeID
 		}
+		e.Timestamp, _ = db.ParseSQLiteTime(tsText)
 		_ = json.Unmarshal([]byte(payloadStr), &e.Payload)
 		events = append(events, e)
 	}
@@ -386,7 +401,10 @@ func (es *EventStore) RestoreFromSnapshot(
 	seen := make(map[string]bool)
 	for rows.Next() {
 		var r snapshotRecord
-		if err := rows.Scan(&r.DagID, &r.State, &r.LastSeq, &cutoff); err != nil {
+		// created_at is only used for the recency filter above; the
+		// driver returns it as TEXT, which cannot scan into time.Time.
+		var createdAt any
+		if err := rows.Scan(&r.DagID, &r.State, &r.LastSeq, &createdAt); err != nil {
 			rows.Close()
 			return err
 		}

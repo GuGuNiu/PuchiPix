@@ -405,6 +405,17 @@ func (c *Client) UpdateSlotMax(slotType string, max int) (*SlotUpdateResponse, e
 	return &resp, nil
 }
 
+// ResetSlot clears all usage for a single slot type (emergency ghost-slot
+// recovery via DELETE /api/slots/{type}).
+func (c *Client) ResetSlot(slotType string) (*SlotResetResponse, error) {
+	var resp SlotResetResponse
+	path := fmt.Sprintf("/api/slots/%s", url.PathEscape(slotType))
+	if err := c.delete(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // GetStreamURL returns the SSE endpoint URL for real-time DAG events.
 func (c *Client) GetStreamURL() string {
 	return c.baseURL + "/api/dag/stream"

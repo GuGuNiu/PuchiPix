@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -398,6 +399,16 @@ func (p *SlotPool) Release(slotType, holderID string) {
 		if entry.running < 0 {
 			entry.running = 0
 		}
+		// Consistency self-heal: the running counter must track the
+		// activeSlots map exactly. If they drifted (e.g. a ReleaseAll
+		// race on the cancel path), re-sync and warn so the ghost-slot
+		// leak (P-SLOT-01) cannot silently accumulate.
+		if actual := len(entry.activeSlots); entry.running != actual {
+			p.logger.Warn("Slot pool inconsistency auto-fixed",
+				"slotType", slotType, "holder", holderID,
+				"running", entry.running, "actual", actual)
+			entry.running = actual
+		}
 		p.bumpDagUsageLocked(dagID, slotType, -released)
 		usage := SlotUsage{SlotType: slotType, Current: entry.running, Max: entry.max, Available: entry.max - entry.running}
 		p.mu.Unlock()
@@ -433,6 +444,15 @@ func (p *SlotPool) ReleaseAll(holderID string) {
 			entry.running -= released
 			if entry.running < 0 {
 				entry.running = 0
+			}
+			// Consistency self-heal (P-SLOT-01): re-sync the running
+			// counter against the actual activeSlots map so a drift on
+			// the cancel/pause path cannot leave ghost slots behind.
+			if actual := len(entry.activeSlots); entry.running != actual {
+				p.logger.Warn("Slot pool inconsistency auto-fixed (ReleaseAll)",
+					"slotType", slotType, "holder", holderID,
+					"running", entry.running, "actual", actual)
+				entry.running = actual
 			}
 			callbacks = append(callbacks, slotType)
 			releasedByType[slotType] = released
@@ -546,6 +566,74 @@ func (p *SlotPool) CheckTimeouts(timeoutMs int64) {
 	if len(toRelease) > 0 {
 		p.logger.Warn("Slot timeout released", "count", len(toRelease))
 	}
+}
+
+// healInconsistencies scans every slot type and re-syncs the running
+// counter to len(activeSlots) whenever they drift. This is the long-term
+// guard against the P-SLOT-01 ghost-slot leak: even if an abnormal path
+// ever desyncs the counter (e.g. a cancel/restart race), a periodic
+// sweep self-heals before new tasks are starved. Returns the number of
+// fixed slot types.
+func (p *SlotPool) healInconsistencies() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fixed := 0
+	for slotType, entry := range p.pools {
+		if entry.running == len(entry.activeSlots) {
+			continue
+		}
+		p.logger.Warn("Slot pool health check detected inconsistency",
+			"slotType", slotType,
+			"running", entry.running, "actual", len(entry.activeSlots))
+		entry.running = len(entry.activeSlots)
+		fixed++
+	}
+	return fixed
+}
+
+// StartHealthCheck runs a periodic consistency sweep plus stale-slot
+// timeout release until ctx is cancelled. It guards against ghost-slot
+// leaks (P-SLOT-01) that ReleaseAll self-heal cannot cover (e.g. a
+// goroutine that died before its defer ran). interval <= 0 falls back to
+// 5 seconds; timeout <= 0 disables stale-slot release.
+func (p *SlotPool) StartHealthCheck(ctx context.Context, interval, timeout time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if fixed := p.healInconsistencies(); fixed > 0 {
+				p.logger.Warn("Slot pool health check auto-fixed",
+					"fixedSlotTypes", fixed)
+			}
+			if timeout > 0 {
+				p.CheckTimeouts(timeout.Milliseconds())
+			}
+		}
+	}
+}
+
+// ResetType clears all usage for a single slot type, used for emergency
+// ghost-slot recovery via the CLI (`slots reset <type>`). The global
+// dagUsage map keeps its entries but they are recomputed on the next
+// Acquire/Release, so an empty re-init is sufficient for the target type.
+func (p *SlotPool) ResetType(slotType string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.pools[slotType]
+	if !ok {
+		return false
+	}
+	entry.running = 0
+	entry.activeSlots = make(map[string]bool)
+	entry.heldSince = make(map[string]int64)
+	p.logger.Warn("Slot type reset", "slotType", slotType)
+	return true
 }
 
 // Reset clears all slot usage, used during startup recovery.

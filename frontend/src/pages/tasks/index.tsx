@@ -1,6 +1,5 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, useReducer } from "react";
 import { useLocation } from "react-router-dom";
-import { toast } from "@/lib/i18n/toast";
 import {
   Play,
   Pause,
@@ -28,7 +27,6 @@ import {
   SORT_OPTION_KEYS,
   STATUS_ORDER,
   STATUS_FILTER_GROUPS,
-  getEffectiveFilterStatus,
   type StatusFilter,
   type TypeFilter,
   type SortBy,
@@ -41,6 +39,82 @@ import { ConsoleLog } from "@/components/console-log";
 import { TaskDetailPopover } from "./_components/task-detail-popover";
 import { Pagination } from "@/components/ui/pagination";
 
+// ===== SSE update animation state =====
+interface SseAnimState {
+  /** Set of task keys that were updated in the last SSE tick */
+  updatedKeys: Set<string>;
+  /** Set of task keys whose status changed */
+  statusChangedKeys: Set<string>;
+  /** Set of task keys that are newly inserted */
+  newKeys: Set<string>;
+  /** Whether the table is currently in "SSE updating" flash state */
+  tableFlashing: boolean;
+}
+
+const initialSseAnimState: SseAnimState = {
+  updatedKeys: new Set(),
+  statusChangedKeys: new Set(),
+  newKeys: new Set(),
+  tableFlashing: false,
+};
+
+type SseAnimAction =
+  | { type: "reset" }
+  | { type: "snapshot"; prevTasks: DownloadTask[]; nextTasks: DownloadTask[] }
+  | { type: "clearTableFlash" };
+
+function sseAnimReducer(state: SseAnimState, action: SseAnimAction): SseAnimState {
+  switch (action.type) {
+    case "reset":
+      return initialSseAnimState;
+    case "snapshot": {
+      const prevMap = new Map<string, DownloadTask>();
+      for (const t of action.prevTasks) {
+        prevMap.set(`${t.TaskType || "video"}-${t.ID}`, t);
+      }
+      const updatedKeys = new Set<string>();
+      const statusChangedKeys = new Set<string>();
+      const newKeys = new Set<string>();
+
+      for (const t of action.nextTasks) {
+        const key = `${t.TaskType || "video"}-${t.ID}`;
+        const prev = prevMap.get(key);
+        if (!prev) {
+          newKeys.add(key);
+        } else {
+          // Compare relevant fields to detect meaningful changes
+          if (
+            prev.Status !== t.Status ||
+            prev.Progress !== t.Progress ||
+            prev.GalleryTitle !== t.GalleryTitle ||
+            prev.Person !== t.Person ||
+            prev.ImageCount !== t.ImageCount ||
+            prev.VideoCount !== t.VideoCount ||
+            prev.ErrorMsg !== t.ErrorMsg
+          ) {
+            updatedKeys.add(key);
+            if (prev.Status !== t.Status) {
+              statusChangedKeys.add(key);
+            }
+          }
+        }
+      }
+
+      const hasChanges = updatedKeys.size > 0 || statusChangedKeys.size > 0 || newKeys.size > 0;
+      return {
+        updatedKeys,
+        statusChangedKeys,
+        newKeys,
+        tableFlashing: hasChanges,
+      };
+    }
+    case "clearTableFlash":
+      return { ...state, tableFlashing: false };
+    default:
+      return state;
+  }
+}
+
 export default function TasksPage(): React.JSX.Element {
   const { t } = useI18n();
   const STATUS_LABEL = useStatusLabel(t);
@@ -50,6 +124,12 @@ export default function TasksPage(): React.JSX.Element {
     ttl: 5 * 60 * 1000,
     saveScroll: true,
   });
+
+  // SSE update animation state — detect changes and apply CSS classes
+  const [sseAnimState, dispatchSseAnim] = useReducer(sseAnimReducer, initialSseAnimState);
+  const prevTasksRef = useRef<DownloadTask[]>([]);
+  const tableFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { values: urlValues, update: updateUrl } = useUrlState({
     status: "all",
@@ -142,19 +222,44 @@ export default function TasksPage(): React.JSX.Element {
     return () => unsub();
   }, [fetchTasks, connectSSE]);
 
-  const { sniffTaskEventId, lastSniffTaskEvent } = useTaskStore();
+  /* SSE update animation: detect task changes and trigger CSS classes */
   useEffect(() => {
-    if (sniffTaskEventId === 0 || !lastSniffTaskEvent) return;
-    const evt = lastSniffTaskEvent;
-    if (evt.action === "galleryCreated") {
-      toast.info("tasks.sniffResults", { found: evt.totalCreated ?? 0, skipped: evt.totalSkipped ?? 0 });
+    // Skip initial mount (no previous snapshot to compare)
+    if (prevTasksRef.current.length === 0 && tasks.length === 0) return;
+
+    // Debounce rapid SSE updates to avoid animation spam
+    if (tableFlashTimerRef.current) {
+      clearTimeout(tableFlashTimerRef.current);
     }
-  }, [sniffTaskEventId, lastSniffTaskEvent]);
+    if (clearAnimTimerRef.current) {
+      clearTimeout(clearAnimTimerRef.current);
+    }
+
+    // Small delay to batch rapid SSE updates into a single animation
+    tableFlashTimerRef.current = setTimeout(() => {
+      dispatchSseAnim({
+        type: "snapshot",
+        prevTasks: prevTasksRef.current,
+        nextTasks: tasks,
+      });
+      prevTasksRef.current = tasks;
+
+      // Clear row-level animations after they finish playing
+      clearAnimTimerRef.current = setTimeout(() => {
+        dispatchSseAnim({ type: "reset" });
+      }, 900);
+    }, 50);
+
+    return () => {
+      if (tableFlashTimerRef.current) clearTimeout(tableFlashTimerRef.current);
+      if (clearAnimTimerRef.current) clearTimeout(clearAnimTimerRef.current);
+    };
+  }, [tasks]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: tasks.length };
     for (const t of tasks) {
-      const effectiveStatus = getEffectiveFilterStatus(t);
+      const effectiveStatus = t.EffectiveStatus ?? t.Status;
       if (effectiveStatus === "scrape_pending") {
         counts["scraping"] = (counts["scraping"] || 0) + 1;
       } else if (effectiveStatus === "download_pending") {
@@ -173,11 +278,11 @@ export default function TasksPage(): React.JSX.Element {
       const groupStatuses = STATUS_FILTER_GROUPS[statusFilter];
       if (groupStatuses) {
         result = result.filter((t) => {
-          const effectiveStatus = getEffectiveFilterStatus(t);
+          const effectiveStatus = t.EffectiveStatus ?? t.Status;
           return groupStatuses.includes(effectiveStatus);
         });
       } else {
-        result = result.filter((t) => getEffectiveFilterStatus(t) === statusFilter);
+        result = result.filter((t) => (t.EffectiveStatus ?? t.Status) === statusFilter);
       }
     }
 
@@ -414,7 +519,7 @@ export default function TasksPage(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          <div className="table-wrapper">
+          <div className={`table-wrapper${sseAnimState.tableFlashing ? " sse-table-updating" : ""}`}>
             <table>
               <thead>
                 <tr>
@@ -448,18 +553,31 @@ export default function TasksPage(): React.JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {paginatedTasks.map((task) => (
-                  <TaskTableRow
-                    key={`${task.TaskType || "video"}-${task.ID}`}
-                    task={task}
-                    isSelected={selectedIds.has(`${task.TaskType || "video"}-${task.ID}`)}
-                    onToggleSelect={toggleSelect}
-                    onToggleExpand={toggleExpand}
-                    onAction={handleAction}
-                    onDelete={handleDelete}
-                    STATUS_LABEL={STATUS_LABEL}
-                  />
-                ))}
+                {paginatedTasks.map((task) => {
+                  const key = `${task.TaskType || "video"}-${task.ID}`;
+                  const animClasses: string[] = [];
+                  if (sseAnimState.statusChangedKeys.has(key)) {
+                    animClasses.push("sse-status-changed");
+                  } else if (sseAnimState.updatedKeys.has(key)) {
+                    animClasses.push("sse-row-updated");
+                  }
+                  if (sseAnimState.newKeys.has(key)) {
+                    animClasses.push("sse-row-new");
+                  }
+                  return (
+                    <TaskTableRow
+                      key={key}
+                      task={task}
+                      isSelected={selectedIds.has(key)}
+                      onToggleSelect={toggleSelect}
+                      onToggleExpand={toggleExpand}
+                      onAction={handleAction}
+                      onDelete={handleDelete}
+                      STATUS_LABEL={STATUS_LABEL}
+                      animClass={animClasses.join(" ")}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>

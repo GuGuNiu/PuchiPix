@@ -178,6 +178,7 @@ type SiteInfo struct {
 	Type    string     `json:"type"`
 	Badge   BadgeTheme `json:"badge"`
 	Gallery bool       `json:"gallery"`
+	Domains []string   `json:"domains,omitempty"`
 }
 
 // SiteModuleConfig defines a site's registration data, loaded from the

@@ -43,7 +43,7 @@ type ResolveOUOFn func(ctx context.Context, ouoURL string) (string, error)
 //  3. Download the ZIP file using DownloadFileWithDomainFallback
 //  4. Extract ZIP contents to the gallery save directory
 //  5. Update gallery status with extracted file counts
-func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID int, saveDir string, logger *infra.Logger, resolveOUO ResolveOUOFn) bool {
+func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID int, saveDir string, logger *infra.Logger, resolveOUO ResolveOUOFn, dlDefaults DownloadDefaults) bool {
 	// Check if ZIP download info exists for this gallery.
 	if database == nil {
 		return false
@@ -96,10 +96,10 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	// Download the ZIP file.
 	zipFileName := fmt.Sprintf("gallery_%d.zip", galleryID)
 	zipPath := filepath.Join(saveDir, zipFileName)
-	opts := &DownloadOptions{
+	opts := dlDefaults.ApplyTo(&DownloadOptions{
 		Timeout: 3600_000_000_000, // 1 hour for large archives
 		Atomic:  true,
-	}
+	})
 	result := DownloadFileWithDomainFallback(ctx, downloadURL, zipPath, opts)
 	if !result.Success {
 		errMsg := "download failed"

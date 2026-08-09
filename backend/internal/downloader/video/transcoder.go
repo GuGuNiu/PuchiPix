@@ -14,19 +14,6 @@ import (
 
 var ffmpegPath = "ffmpeg"
 
-// SetFFmpegPath overrides the default ffmpeg binary path, useful when
-// ffmpeg is not on the system PATH or a specific version is required.
-func SetFFmpegPath(p string) {
-	ffmpegPath = p
-}
-
-// CheckFFmpeg verifies that the ffmpeg binary is reachable and can
-// report its version, preventing silent failures during transcoding.
-func CheckFFmpeg() bool {
-	cmd := exec.Command(ffmpegPath, "-version")
-	return cmd.Run() == nil
-}
-
 // TranscodeTS converts .ts segments in inputDir into a single MP4 file
 // using ffmpeg's concat demuxer with stream copy, avoiding re-encoding
 // for maximum speed. A temporary concat list file is generated and

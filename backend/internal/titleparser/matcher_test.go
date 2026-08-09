@@ -202,3 +202,62 @@ func TestUnknownModelExtraction(t *testing.T) {
 		}
 	}
 }
+
+// TestCrossValidation verifies the disambiguation logic for short aliases.
+// When a short alias (≤2 runes) matches, cross-validation requires the main
+// name or another alias to also appear in the segment.
+func TestCrossValidation(t *testing.T) {
+	p := New()
+	p.LoadModels([]ModelEntry{
+		{Name: "果咩酱w", Pinyin: "guo mian jiang w", Aliases: []string{"w", "果咩酱"}},
+		{Name: "霜月shimo", Pinyin: "shuang yue shimo", Aliases: []string{"shimo"}},
+	})
+
+	tests := []struct {
+		name    string
+		segment string
+		wantOK  bool
+		want    string
+	}{
+		{
+			name:    "short alias 'w' alone → rejected (no corroboration)",
+			segment: "w",
+			wantOK:  false,
+		},
+		{
+			name:    "main name '果咩酱w' appears → accepted",
+			segment: "果咩酱w",
+			wantOK:  true,
+			want:    "果咩酱w",
+		},
+		{
+			name:    "alias '果咩酱' appears → accepted",
+			segment: "果咩酱",
+			wantOK:  true,
+			want:    "果咩酱w",
+		},
+		{
+			name:    "segment contains both 'w' and '果咩酱' → accepted",
+			segment: "果咩酱w写真",
+			wantOK:  true,
+			want:    "果咩酱w",
+		},
+		{
+			name:    "longer alias 'shimo' (≥3 runes) → no cross-validation needed",
+			segment: "shimo",
+			wantOK:  true,
+			want:    "霜月shimo",
+		},
+	}
+
+	for _, tt := range tests {
+		got, ok := p.scoredMatch(tt.segment)
+		if ok != tt.wantOK {
+			t.Errorf("scoredMatch(%q) ok = %v, want %v", tt.segment, ok, tt.wantOK)
+			continue
+		}
+		if ok && got != tt.want {
+			t.Errorf("scoredMatch(%q) = %q, want %q", tt.segment, got, tt.want)
+		}
+	}
+}

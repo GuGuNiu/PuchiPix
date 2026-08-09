@@ -2,95 +2,11 @@ package api
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"backend/internal/i18n"
 )
-
-// SlotStreamSSE streams real-time slot state changes via Server-Sent
-// Events. Clients subscribe to the EventBus "slot:stateChanged" event
-// and receive acquire / release / max_updated / dag_quota_set /
-// dag_quota_cleared notifications as they happen. An optional
-// ?slotType=download query parameter filters to a single slot type.
-// An initial snapshot is sent on connect so clients can render the
-// current occupancy immediately, then 15s heartbeats keep the
-// connection alive (mirroring TaskStreamSSE).
-func (h *Handlers) SlotStreamSSE(w http.ResponseWriter, r *http.Request) {
-	sse := NewSSEStream(w)
-	if sse == nil {
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.common.streamingNotSupported"))
-		return
-	}
-
-	filter := r.URL.Query().Get("slotType")
-
-	// Initial snapshot: current usage for all slot types.
-	if h.Sched != nil {
-		stats := h.Sched.GetSlotSnapshot()
-		if filter != "" {
-			if usage, ok := stats[filter]; ok {
-				sse.SendEvent("initial", []map[string]any{{
-					"slotType":  usage.SlotType,
-					"current":   usage.Current,
-					"max":       usage.Max,
-					"available": usage.Available,
-				}})
-			} else {
-				sse.SendEvent("initial", []any{})
-			}
-		} else {
-			slots := make([]map[string]any, 0, len(stats))
-			for slotType, usage := range stats {
-				slots = append(slots, map[string]any{
-					"slotType":  slotType,
-					"current":   usage.Current,
-					"max":       usage.Max,
-					"available": usage.Available,
-				})
-			}
-			sse.SendEvent("initial", slots)
-		}
-	} else {
-		sse.SendEvent("initial", []any{})
-	}
-
-	// Subscribe to slot state changes with proper cleanup via defer.
-	if h.EventBus != nil {
-		unsub := h.EventBus.On("slot:stateChanged", func(payload any) {
-			// Optional client-side filter by slot type.
-			if m, ok := payload.(map[string]any); ok {
-				if filter != "" {
-					slotType, _ := m["slotType"].(string)
-					if slotType != filter {
-						return
-					}
-				}
-				// Normalize int64 (from JSON-free map passthrough the
-				// values arrive as int; keep as-is for the frontend).
-				if ts, ok := m["ts"].(int64); ok {
-					m["ts"] = ts
-				}
-			}
-			sse.SendEvent("slot:stateChanged", payload)
-		})
-		defer unsub()
-	}
-
-	sse.SendEvent("status", map[string]string{"state": "connected"})
-
-	heartbeat := time.NewTicker(15 * time.Second)
-	defer heartbeat.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-heartbeat.C:
-			sse.SendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
-		}
-	}
-}
 
 // SlotList returns the current snapshot of all slot types with their
 // usage, max, available counts, and utilization rates for real-time
@@ -242,4 +158,33 @@ func (h *Handlers) SlotDetail(w http.ResponseWriter, r *http.Request) {
 // roundTo2 rounds a float64 to 2 decimal places.
 func roundTo2(v float64) float64 {
 	return float64(int(v*100+0.5)) / 100
+}
+
+// SlotReset clears all usage for a single slot type. Emergency tool for
+// ghost-slot recovery (P-SLOT-01): when the running counter drifts from
+// the activeSlots map and tasks are starved, `DELETE /api/slots/{type}`
+// (or `cli slots reset <type>`) restores availability immediately.
+func (h *Handlers) SlotReset(w http.ResponseWriter, r *http.Request) {
+	slotType := chi.URLParam(r, "type")
+	if slotType == "" {
+		writeError(w, http.StatusBadRequest, "missing slot type")
+		return
+	}
+
+	if h.Sched == nil {
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.dag.schedulerRequired"))
+		return
+	}
+
+	if !h.Sched.ResetSlot(slotType) {
+		writeError(w, http.StatusNotFound, "slot type not found: "+slotType)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"slotType":  slotType,
+		"reset":     true,
+		"current":   0,
+		"available": 0,
+	})
 }

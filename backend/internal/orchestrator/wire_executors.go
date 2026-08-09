@@ -15,6 +15,7 @@ import (
 	"backend/internal/db"
 	"backend/internal/downloader"
 	"backend/internal/downloader/video"
+	"backend/internal/idgen"
 	"backend/internal/infra"
 	"backend/internal/orchestrator/executors"
 	"backend/internal/sites"
@@ -23,14 +24,13 @@ import (
 	"backend/internal/titleparser"
 )
 
-// galleryImageConcurrent controls the maximum number of simultaneous
-// image downloads within a gallery batch. Ported from the TS
-// gallery_image_concurrent setting (default 5) that was lost during
-// the Go migration. This limit is independent of the TS segment
-// download concurrency (ts_segment_concurrent, default 50), preserving
-// the dual-channel design where image and video concurrency do not
-// compete for the same pool.
-const galleryImageConcurrent = 5
+// defaultGalleryImageConcurrent is the fallback when
+// DownloadDefaults.GalleryImageConcurrent is zero (unconfigured).
+const defaultGalleryImageConcurrent = 5
+
+// defaultVideoMaxConcurrent is the fallback when
+// DownloadDefaults.VideoMaxConcurrent is zero (unconfigured).
+const defaultVideoMaxConcurrent = 2
 
 // WireExecutors registers the four gallery executors (scrape, download,
 // verify, extract) with actual production implementations, replacing
@@ -45,27 +45,83 @@ const galleryImageConcurrent = 5
 // files for fine-grained progress tracking. videoTracker is used by the
 // video download pipeline for segment-level tracking (injected into the
 // DownloadManager separately, but passed here for the gallery video path).
-func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, titleParser *titleparser.Parser, progressEngine *taskprogress.Engine, videoTracker *taskprogress.VideoProgressTracker) {
+// dlDefaults provides multi-thread download configuration that is
+// applied to every DownloadOptions constructed by the download executor.
+func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, titleParser *titleparser.Parser, progressEngine *taskprogress.Engine, videoTracker *taskprogress.VideoProgressTracker, dataDir string, dlDefaults downloader.DownloadDefaults) {
 	reg.Register(newScrapeExecutor(siteReg, database, eventBus, titleParser))
-	reg.Register(newDownloadExecutor(siteReg, database, eventBus, progressEngine))
+	reg.Register(newDownloadExecutor(siteReg, database, eventBus, progressEngine, dataDir, dlDefaults))
 	reg.Register(newVerifyExecutor(database))
 	reg.Register(newExtractExecutor())
 	// Sniff executor: routes M3U8 sniffing through the universal
-	// scraper's headless-browser network interception. Registered with
-	// a real implementation so sniff DAG nodes no longer fail with
-	// "no executor registered for key: sniff".
+	// scraper's headless-browser network interception. The callback
+	// processes ScrapePage results by creating download tasks for each
+	// discovered M3U8 URL and updating sniff_tasks statistics.
 	reg.Register(executors.NewSniffExecutor(func(ctx context.Context, url string, siteID string) (int, error) {
 		_ = siteID // site routing is implicit via universal scraper
 		result, err := universal.ScrapePage(ctx, url)
 		if err != nil {
 			return 0, err
 		}
-		n := len(result.M3U8Candidates)
+
+		// Deduplicate M3U8 URLs between the selected URL and candidates
+		seen := make(map[string]bool)
+		var candidates []string
 		if result.M3U8URL != "" {
-			n++
+			candidates = append(candidates, result.M3U8URL)
+			seen[result.M3U8URL] = true
 		}
-		return n, nil
-	}))
+		for _, c := range result.M3U8Candidates {
+			if !seen[c.URL] {
+				candidates = append(candidates, c.URL)
+				seen[c.URL] = true
+			}
+		}
+
+		totalFound := len(candidates)
+		totalCreated := 0
+		totalSkipped := 0
+
+		for _, m3u8URL := range candidates {
+			var existing int
+			_ = database.QueryRow(ctx,
+				"SELECT COUNT(*) FROM download_tasks WHERE url = ? OR m3u8_url = ?",
+				m3u8URL, m3u8URL).Scan(&existing)
+			if existing > 0 {
+				totalSkipped++
+				continue
+			}
+
+			seq := idgen.GenerateID()
+			var taskID int
+			insErr := database.QueryRow(ctx,
+				`INSERT INTO download_tasks (url, m3u8_url, status, progress, file_path, format, priority, error_msg, site_id, seq)
+				 VALUES (?, ?, 'pending', 0, '', 'mp4', 1, '', ?, ?)
+				 RETURNING id`,
+				m3u8URL, m3u8URL, siteID, seq).Scan(&taskID)
+			if insErr != nil {
+				totalSkipped++
+				continue
+			}
+			totalCreated++
+
+			if eventBus != nil {
+				eventBus.Emit("task:created", map[string]any{
+					"ID":       taskID,
+					"URL":      m3u8URL,
+					"M3U8URL":  m3u8URL,
+					"Status":   "pending",
+					"TaskType": "video",
+					"SiteID":   siteID,
+				})
+			}
+		}
+
+		database.Exec(ctx,
+			"UPDATE sniff_tasks SET total_found = ?, total_created = ?, total_skipped = ? WHERE url = ?",
+			totalFound, totalCreated, totalSkipped, url)
+
+		return totalCreated, nil
+	}, eventBus))
 	infra.NewLogger("WireExecutors").Info("Executors wired to production implementations")
 }
 
@@ -106,14 +162,14 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 			return nil, fmt.Errorf("scrape gallery: %w", err)
 		}
 
-		// If the site provider did not extract a protagonist name,
-		// use the title parser to extract it from the gallery title.
-		// This bridges the gap where some providers return raw titles
-		// without model name extraction. The parser uses a model DB
-		// loaded from embedded JSON resources to recognize known
-		// coser names, game characters, and dual-person patterns.
+		// Always try the title parser first. When it matches a model
+		// from the preset database, use the canonical database name
+		// (e.g., "纯默默") instead of the raw title text (e.g.,
+		// "纯默默chunmomo") to avoid semantic ambiguity. Only fall
+		// back to the site provider's extraction when the parser
+		// does not find a protagonist.
 		protagonist := result.Protagonist
-		if protagonist == "" && titleParser != nil && result.Title != "" {
+		if titleParser != nil && result.Title != "" {
 			if parseResult := titleParser.Parse(result.Title); parseResult != nil && parseResult.Protagonist != "" {
 				protagonist = parseResult.Protagonist
 				logger.Info("Title parser extracted protagonist",
@@ -132,8 +188,8 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 			}
 
 			// Parse expected image/video counts from the gallery title
-			// (e.g. "62P1V" �?62 images, 1 video). The TS implementation
-			// used parseTitleCount() for this �?the Go migration had
+			// (e.g. "62P1V" → 62 images, 1 video). The TS implementation
+			// used parseTitleCount() for this — the Go migration had
 			// ParseTitleCount() available but never called it, instead
 			// storing the actual scraped count as "expected" (circular).
 			// Now we use title-derived counts when available, falling
@@ -156,7 +212,7 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 					expected_image_count = ?, expected_video_count = ?,
 					scraped_domain = ?, status = 'scraped',
 					scraped_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-					WHERE source_url = ?13`,
+					WHERE source_url = ?`,
 				result.Title, protagonist, description,
 				result.Category, tagsStr, result.CoverURL,
 				result.ImageCount, result.VideoCount, result.PageCount,
@@ -171,7 +227,10 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 					"images", result.ImageCount, "videos", result.VideoCount)
 
 				// Emit task:progress so SSE clients see the gallery
-				// transition from pending �?scraped in real-time.
+				// transition from pending → scraped in real-time.
+				// Also emit task:metadata with the freshly-scraped title,
+				// protagonist, and image/video counts so the frontend
+				// updates these fields without waiting for F5 refresh.
 				if eventBus != nil {
 					var gid int
 					if qErr := database.QueryRow(ctx, `SELECT id FROM galleries WHERE source_url = ?`, pageURL).Scan(&gid); qErr == nil {
@@ -184,6 +243,14 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 							"failed":    0,
 							"status":    "scraped",
 						})
+					eventBus.Emit("task:metadata", map[string]any{
+						"taskId":       gid,
+						"taskType":     "gallery",
+						"GalleryTitle": result.Title,
+						"Person":       protagonist,
+						"ImageCount":   result.ImageCount,
+						"VideoCount":   result.VideoCount,
+					})
 					}
 				}
 			}
@@ -308,13 +375,13 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 // atomic write semantics. When a galleryId is present in the node
 // config, it switches to gallery batch download mode, reading all
 // gallery_images from the database and downloading each one.
-func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, progressEngine *taskprogress.Engine) *executors.DownloadExecutor {
+func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, progressEngine *taskprogress.Engine, dataDir string, dlDefaults downloader.DownloadDefaults) *executors.DownloadExecutor {
 	logger := infra.NewLogger("GalleryDownloader")
 	fn := func(ctx context.Context, url, savePath string, domains []string) error {
-		opts := &downloader.DownloadOptions{
-			Timeout: 0, // use default 30s
+		opts := dlDefaults.ApplyTo(&downloader.DownloadOptions{
+			Timeout: 0,
 			Atomic:  true,
-		}
+		})
 		result := downloader.DownloadFileWithDomainFallback(ctx, url, savePath, opts)
 		if !result.Success {
 			if result.Error != nil {
@@ -327,7 +394,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 	exe := executors.NewDownloadExecutor(fn)
 
 	// Gallery batch download function: reads all gallery_images from
-	// DB, downloads each to data/galleries/{galleryId}/, and updates
+	// DB, downloads each to data/galleries/{title}/, and updates
 	// status. Also downloads gallery_videos.
 	galleryFn := func(ctx context.Context, galleryID int) error {
 		// Fetch gallery record for title and save path.
@@ -339,12 +406,23 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			return fmt.Errorf("query gallery %d: %w", galleryID, err)
 		}
 
-		// Create save directory: data/galleries/{galleryId}_{title}/
+		// Get site domains for CDN anti-hotlink Referer fallback.
+		// These domains are passed to GalleryDownloadVideo so it can
+		// try alternative Referer headers when the CDN rejects the
+		// primary Referer (HTTP 403 anti-hotlink).
+		var siteDomains []string
+		if mod, ok := siteReg.GetModuleByUrl(sourceURL); ok {
+			siteDomains = mod.Domains
+		}
+
+		// Create save directory: data/galleries/{title}/
+		// Folder name comes exclusively from the database title field;
+		// no numeric ID prefix is added.
 		safeTitle := downloader.SanitizeFileName(title)
 		if safeTitle == "" {
 			safeTitle = fmt.Sprintf("gallery_%d", galleryID)
 		}
-		saveDir := filepath.Join("data", "galleries", fmt.Sprintf("%d_%s", galleryID, safeTitle))
+		saveDir := filepath.Join(dataDir, "galleries", safeTitle)
 		if err := os.MkdirAll(saveDir, 0755); err != nil {
 			return fmt.Errorf("create save dir: %w", err)
 		}
@@ -377,7 +455,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// lost during the Go migration.
 		if zipDownloaded := downloader.TryDownloadGalleryZip(ctx, database, galleryID, saveDir, logger, func(ctx context.Context, ouoURL string) (string, error) {
 			return NewOuoOrchestrator().Resolve(ctx, ouoURL)
-		}); zipDownloaded {
+		}, dlDefaults); zipDownloaded {
 			logger.Info("Gallery ZIP download completed, skipping page-by-page image download",
 				"galleryId", galleryID, "saveDir", saveDir)
 			_, _ = database.Exec(ctx,
@@ -448,8 +526,13 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			totalSize    int64
 		)
 		totalImages := len(images)
+
+		galleryConcurrent := dlDefaults.GalleryImageConcurrent
+		if galleryConcurrent <= 0 {
+			galleryConcurrent = defaultGalleryImageConcurrent
+		}
 		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(galleryImageConcurrent)
+		g.SetLimit(galleryConcurrent)
 
 		// Periodic progress reporter: emit task:progress every 2s so
 		// the SSE-connected frontend can show real-time download progress
@@ -486,7 +569,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		}()
 
 		for imgIdx, img := range images {
-			img := img     // capture loop variable
+			img := img       // capture loop variable
 			imgIdx := imgIdx // capture loop variable for progress engine
 			g.Go(func() error {
 				select {
@@ -496,10 +579,10 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				}
 
 				localPath := filepath.Join(saveDir, img.fileName)
-				opts := &downloader.DownloadOptions{
+				opts := dlDefaults.ApplyTo(&downloader.DownloadOptions{
 					Timeout: 60_000_000_000, // 60s per image
 					Atomic:  true,
-				}
+				})
 				result := downloader.DownloadFileWithDomainFallback(gctx, img.url, localPath, opts)
 				mu.Lock()
 				defer mu.Unlock()
@@ -568,7 +651,11 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// individual video failures without aborting the batch).
 		var videoMu sync.Mutex
 		videoG, videoGCtx := errgroup.WithContext(ctx)
-		videoG.SetLimit(2) // Max 2 concurrent video downloads
+		videoConcurrent := dlDefaults.VideoMaxConcurrent
+		if videoConcurrent <= 0 {
+			videoConcurrent = defaultVideoMaxConcurrent
+		}
+		videoG.SetLimit(videoConcurrent)
 
 		for _, vid := range videos {
 			vid := vid
@@ -589,11 +676,17 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					outputPath += ".mp4"
 				}
 
+				// Decode MacCMS-encoded URLs before passing to the downloader.
+				// MacCMS encodes M3U8 URLs as base64(url_encode(actual_url)).
+				// The independent video pipeline decodes in taskLoaderFn; the
+				// gallery pipeline decodes here to ensure parity.
+				decodedURL := universal.DecodeMacCMSURL(vid.url)
+
 				// Per-video timeout (10 min) prevents hanging M3U8 segment
 				// downloads from blocking the errgroup indefinitely. The timeout
 				// is scoped to each video so one slow video doesn't cancel others.
 				videoCtx, videoCancel := context.WithTimeout(videoGCtx, 10*time.Minute)
-				downloadErr := video.GalleryDownloadVideo(videoCtx, vid.url, vidSaveDir, outputPath)
+				downloadErr := video.GalleryDownloadVideo(videoCtx, decodedURL, vidSaveDir, outputPath, sourceURL, siteDomains)
 				videoCancel()
 				videoMu.Lock()
 				defer videoMu.Unlock()
@@ -760,3 +853,4 @@ func newExtractExecutor() *executors.ExtractExecutor {
 	}
 	return executors.NewExtractExecutor(fn)
 }
+

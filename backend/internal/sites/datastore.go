@@ -22,6 +22,7 @@ type AgeVerifyConfig struct {
 // from the unified JSON data source, eliminating hardcoded constants.
 type ProviderData struct {
 	PlaceholderFragment        string            `json:"placeholderFragment"`
+	PublisherURL               string            `json:"publisherUrl"`
 	TitleSuffixPatterns        []string          `json:"titleSuffixPatterns"`
 	PublisherPrefixes          []string          `json:"publisherPrefixes"`
 	BlockedTitleKeywords       []string          `json:"blockedTitleKeywords"`
@@ -84,6 +85,7 @@ type SiteDataStore interface {
 	GetBlockedCategories(siteID string) []string
 	GetBlockedProtagonists(siteID string) []string
 	IsBlockedProtagonistsEnabled(siteID string) bool
+	GetPublisherURL(siteID string) string
 
 	CanHandle(siteID string, rawURL string) bool
 }
@@ -279,6 +281,16 @@ func (s *siteDataStoreImpl) IsBlockedProtagonistsEnabled(siteID string) bool {
 		return false
 	}
 	return entry.Provider.BlockedProtagonistsEnabled
+}
+
+// GetPublisherURL returns the publisher URL for a site, used for
+// fetching the latest available domain list.
+func (s *siteDataStoreImpl) GetPublisherURL(siteID string) string {
+	entry, ok := s.getEntry(siteID)
+	if !ok {
+		return ""
+	}
+	return entry.Provider.PublisherURL
 }
 
 // CanHandle checks whether a URL belongs to the given site by

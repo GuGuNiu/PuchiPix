@@ -101,13 +101,3 @@ func TestQueryInt(t *testing.T) {
 		})
 	}
 }
-
-// TestQueryString verifies that queryString returns the value or
-// the default when absent.
-func TestQueryString(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/test?sort=desc", nil)
-	assert.Equal(t, "desc", queryString(req, "sort", "asc"))
-
-	req2 := httptest.NewRequest("GET", "/api/test", nil)
-	assert.Equal(t, "asc", queryString(req2, "sort", "asc"))
-}

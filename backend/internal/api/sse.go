@@ -56,19 +56,6 @@ func (s *SSEStream) SendEvent(event string, data any) {
 	s.client.flusher.Flush()
 }
 
-// SendData writes an unnamed SSE data line.
-func (s *SSEStream) SendData(data any) {
-	s.client.mu.Lock()
-	defer s.client.mu.Unlock()
-
-	payload, err := json.Marshal(data)
-	if err != nil {
-		return
-	}
-	fmt.Fprintf(s.client.w, "data: %s\n\n", payload)
-	s.client.flusher.Flush()
-}
-
 // SendKeepalive writes a comment line to keep the connection alive
 // through proxies that may timeout on idle connections.
 func (s *SSEStream) SendKeepalive() {
@@ -112,6 +99,11 @@ func StreamLogs(sse *SSEStream, filter infra.LogQueryFilter, ctx <-chan struct{}
 		sse.SendEvent("log", entry)
 	})
 
+	// Heartbeat: a named "heartbeat" event every 15s so the frontend's
+	// connection watchdog can reset its liveness timer. (Previously a
+	// ": keepalive" comment line was sent — but EventSource does not
+	// dispatch any event for comment-only lines, so a watchdog that
+	// keys off incoming events could never observe liveness.)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -120,7 +112,7 @@ func StreamLogs(sse *SSEStream, filter infra.LogQueryFilter, ctx <-chan struct{}
 			unsub()
 			return
 		case <-ticker.C:
-			sse.SendKeepalive()
+			sse.SendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
 		}
 	}
 }

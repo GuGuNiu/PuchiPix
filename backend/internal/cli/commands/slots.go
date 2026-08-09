@@ -14,7 +14,7 @@ type slotsCommand struct{}
 func (slotsCommand) Name() string        { return "slots" }
 func (slotsCommand) Description() string { return "View slot pool usage, holders, and adjust concurrency" }
 func (slotsCommand) Usage() string {
-	return "puchipix-cli slots [holders|update <type> <max>]"
+	return "puchipix-cli slots [holders|update <type> <max>|reset <type>|detail <type>]"
 }
 func (slotsCommand) Aliases() []string { return []string{"slot"} }
 
@@ -26,6 +26,8 @@ func (slotsCommand) Execute(ctx CommandContext) error {
 			return slotsHolders(ctx)
 		case "update":
 			return slotsUpdate(ctx)
+		case "reset":
+			return slotsReset(ctx)
 		case "detail":
 			return slotsDetail(ctx)
 		}
@@ -54,8 +56,52 @@ func (slotsCommand) Execute(ctx CommandContext) error {
 	fmt.Printf("  TS segment concurrency:   %d\n", data.DownloadConcurrency.TsSegmentConcurrent)
 	fmt.Printf("  Gallery image concurrency: %d\n", data.DownloadConcurrency.GalleryImageConcurrent)
 
-	fmt.Printf("\n  %sSubcommands:%s holders, update <type> <max>, detail <type>\n",
+	fmt.Printf("\n  %sSubcommands:%s holders, update <type> <max>, reset <type>, detail <type>\n",
 		ui.Dim, ui.Reset)
+
+	return nil
+}
+
+// slotsReset force-clears all usage for a slot type (emergency recovery
+// from ghost slots / P-SLOT-01 leaks).
+func slotsReset(ctx CommandContext) error {
+	args := ctx.Args
+	if len(args) > 0 && args[0] == "reset" {
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		fmt.Printf("%sUsage: puchipix-cli slots reset <slotType>%s\n",
+			ui.Red, ui.Reset)
+		fmt.Printf("  %sExample:%s puchipix-cli slots reset download\n",
+			ui.Dim, ui.Reset)
+		return nil
+	}
+
+	slotType := args[0]
+
+	fmt.Printf("%sResetting slot '%s' (clears ghost holders)...%s\n",
+		ui.Yellow, slotType, ui.Reset)
+
+	result, err := ctx.Client.ResetSlot(slotType)
+	if err != nil {
+		if dagErr, ok := err.(*dagclient.DagClientError); ok && dagErr.StatusCode == 404 {
+			fmt.Printf("%sSlot type '%s' not found%s\n",
+				ui.Red, slotType, ui.Reset)
+			return nil
+		}
+		return err
+	}
+
+	if ctx.JSON {
+		b, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(b))
+		return nil
+	}
+
+	fmt.Printf("%s Slot '%s' reset%s\n",
+		ui.Green+"\u2705", result.SlotType, ui.Reset)
+	fmt.Printf("  %sCurrent%s:   %d\n", ui.Bold, ui.Reset, result.Current)
+	fmt.Printf("  %sAvailable%s: %d\n", ui.Bold, ui.Reset, result.Available)
 
 	return nil
 }

@@ -4,10 +4,6 @@
 // codebase one source of truth.
 package xutil
 
-import (
-	"slices"
-)
-
 // UniqueStrings returns a new slice with duplicate strings removed,
 // preserving first-occurrence order. Empty strings are kept only if
 // includeEmpty is true; most callers pass false to filter them out.
@@ -27,11 +23,4 @@ func UniqueStrings(input []string, includeEmpty bool) []string {
 		}
 	}
 	return result
-}
-
-// Contains reports whether item exists in slice, using slices.Contains.
-// Kept as a thin wrapper so call sites read naturally and the stdlib
-// implementation stays the single source of truth.
-func Contains(slice []string, item string) bool {
-	return slices.Contains(slice, item)
 }

@@ -12,7 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "playwright": "^1.62.1",
-    "puchipix-frontend": "workspace:*"
+    "axios": "^1.7.0",
+    "cheerio": "^1.0.0",
+    "playwright": "^1.62.1"
   }
 }

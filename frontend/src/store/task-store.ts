@@ -324,7 +324,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
        */
       subscribeSseEvent('dag:nodeProgress', (e: MessageEvent) => {
         try {
-          const { dagId, current, total, failed } = JSON.parse(e.data) as {
+          const { dagId, galleryId, current, total, failed } = JSON.parse(e.data) as {
             dagId: string;
             nodeId: string;
             phase: string;
@@ -332,12 +332,22 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             total: number;
             speed?: string;
             failed?: number;
+            // Backend carries the entity ID directly since DAG IDs were
+            // unified to 6-char random codes (260804); parsing "gallery-"
+            // prefixes from dagId no longer works.
+            galleryId?: number;
+            taskId?: number;
+            sniffId?: number;
           };
-          const galleryId = dagId.startsWith('gallery-')
-            ? parseInt(dagId.replace('gallery-', ''), 10)
-            : NaN;
-          if (isNaN(galleryId)) return;
-          const key = `gallery-${galleryId}`;
+          // Prefer the explicit entity ID carried by the backend.
+          // Fall back to the legacy "gallery-<id>" prefix parse only for
+          // old payloads (pre-260804 DAG ID format).
+          let gallery = galleryId ?? NaN;
+          if (isNaN(gallery) && dagId.startsWith('gallery-')) {
+            gallery = parseInt(dagId.replace('gallery-', ''), 10);
+          }
+          if (isNaN(gallery)) return;
+          const key = `gallery-${gallery}`;
           const progress = total > 0 ? Math.min((current / total) * 100, 99) : 0;
           set((s) => ({
             tasks: s.tasks.map((t) =>

@@ -24,11 +24,3 @@ func RequestID(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-
-// GetRequestID extracts the request ID stored by the RequestID middleware.
-func GetRequestID(ctx context.Context) string {
-	if v, ok := ctx.Value(reqIDKey).(string); ok {
-		return v
-	}
-	return ""
-}

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>角色图片可视化 - 甘雨</title>
+    <style>
+/* 面板图可视化 — 浅色现代简洁风
+   资源相对路径以本文件位置（resources/visualize/）为基准 */
+
+:root {
+  --text-primary: #1e3a8a;
+  --text-secondary: #475569;
+  --title-color: #1e3a8a;
+  --accent: #2563eb;
+  --line-color: rgba(148, 163, 184, 0.18);
+  --line-strong: rgba(148, 163, 184, 0.3);
+  --card-bg: #ffffff;
+  --card-shadow: rgba(30, 41, 59, 0.06);
+  --error-text-color: #dc2626;
+  --error-bg-color: #fef2f2;
+}
+
+/* 本地字体：数字/英文用 tttgbnumber，标题用 NZBZ */
+@font-face {
+  font-family: 'Number';
+  src: url('../common/font/tttgbnumber.woff') format('woff'), url('../common/font/tttgbnumber.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'NZBZ';
+  src: url('../common/font/NZBZ.woff') format('woff'), url('../common/font/NZBZ.ttf') format('truetype');
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  margin: 0 auto;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  width: 1000px;
+  /* 浅色渐变 + 少量柔和光效 */
+  background:
+    radial-gradient(900px 360px at 12% -10%, rgba(147, 197, 253, 0.16), transparent 60%),
+    radial-gradient(900px 360px at 90% 112%, rgba(196, 181, 253, 0.13), transparent 60%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f9 100%);
+}
+
+.container {
+  background-color: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--line-color);
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ============================ header ============================ */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 38px 40px 28px;
+  /* 浅色渐变横幅 + 顶部柔和光效 */
+  background:
+    radial-gradient(620px 260px at 100% -40%, rgba(147, 197, 253, 0.3), transparent 65%),
+    linear-gradient(180deg, #fbfdff 0%, #eef4fc 100%);
+  border-bottom: 1px solid var(--line-color);
+  position: relative;
+  overflow: hidden;
+}
+
+.header-content-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  z-index: 2;
+}
+
+.main-title {
+  position: relative;
+  font-size: 40px;
+  color: var(--title-color);
+  font-family: 'NZBZ', 'Microsoft YaHei', sans-serif;
+  font-weight: 400;
+  letter-spacing: 2px;
+  line-height: 1.2;
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.7);
+}
+
+.title-divider {
+  width: 180px;
+  height: 3px;
+}
+
+.divider-line {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, rgba(37, 99, 235, 0.1) 100%);
+}
+
+.header-stats-area {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  margin-left: auto;
+  z-index: 2;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 10px 26px;
+  box-shadow: 0 4px 16px rgba(30, 64, 175, 0.06);
+}
+
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 3px;
+}
+
+.stat-value {
+  font-family: 'Number', 'Microsoft YaHei', sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--title-color);
+  line-height: 1.2;
+}
+
+.stat-divider {
+  width: 1px;
+  height: 34px;
+  background: var(--line-strong);
+}
+
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-family: 'Number', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 5px 16px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 20px;
+  border: 1px solid var(--line-color);
+}
+
+.page-number {
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* ============================ main ============================ */
+
+.main-content {
+  padding: 30px;
+  /* 淡网格纹理 */
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.09) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.ban-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  list-style: none;
+  margin: 0;
+}
+
+.ban-item {
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  padding: 8px;
+  border: 1px solid var(--line-color);
+  box-shadow: 0 2px 8px var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  position: relative;
+}
+
+.ban-item img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background-color: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.ban-item .error-placeholder {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background-color: var(--error-bg-color);
+  color: var(--error-text-color);
+  font-size: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  padding: 15px;
+  border: 1px dashed var(--error-text-color);
+  text-align: center;
+  word-break: break-all;
+}
+
+.filename-area {
+  margin-top: auto;
+  padding-top: 5px;
+}
+
+.ban-item .filename {
+  font-size: 13px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+/* ============================ footer ============================ */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  margin-top: 20px;
+  padding-bottom: 16px;
+  background: transparent;
+  border-top: none;
+}
+
+.footer-content .copyright {
+  font-size: 14px;
+  font-style: italic;
+  text-align: center;
+  color: #64748b;
+  opacity: 0.55;
+  white-space: nowrap;
+  line-height: 1;
+}
+    </style>
+</head>
+
+<body>
+    <div class="container">
+      <div class="header">
+        <div class="header-content-left">
+          <div class="main-title" data-text="甘雨 面板图可视化">甘雨 面板图可视化</div>
+          <div class="title-divider">
+             <div class="divider-line"></div>
+           </div>
+        </div>
+        <div class="header-stats-area">
+          <div class="stat-card">
+            <div class="stat-block">
+              <span class="stat-label">图片总数</span>
+              <div class="stat-value">12</div>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-block">
+              <span class="stat-label">图库大小</span>
+              <div class="stat-value">45.6MB</div>
+            </div>
+          </div>
+          <div class="pagination-info">
+            PAGE <span class="page-number">1</span> / 3
+          </div>
+        </div>
+      </div>
+        <div class="main-content">
+            <div class="ban-grid">
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu1/400/225" alt="甘雨_封面图_01.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            1. 甘雨_封面图_01.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu2/400/225" alt="甘雨_立绘_02.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            2. 甘雨_立绘_02.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu3/400/225" alt="甘雨_战斗姿态_03.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            3. 甘雨_战斗姿态_03.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu4/400/225" alt="甘雨_Q版_04.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            4. 甘雨_Q版_04.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu5/400/225" alt="甘雨_宣传图_05.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            5. 甘雨_宣传图_05.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu6/400/225" alt="甘雨_技能展示_06.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            6. 甘雨_技能展示_06.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu7/400/225" alt="甘雨_皮肤_07.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            7. 甘雨_皮肤_07.png
+                        </div>
+                    </div>
+                </li>
+                <li class="ban-item">
+                    <img src="https://picsum.photos/seed/ganyu8/400/225" alt="甘雨_日常_08.png"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            8. 甘雨_日常_08.png
+                        </div>
+                    </div>
+                </li>
+            </div>
+        </div>
+        <div class="footer">
+            <div class="footer-content">
+                <div class="copyright">Powered by PuchiPix — 噗呲工作台</div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -18,8 +18,8 @@ func TestAllLocalesLoaded(t *testing.T) {
 
 	for _, locale := range locales {
 		t.Run("loaded_"+locale, func(t *testing.T) {
-			if !i18n.IsSupported(locale) {
-				t.Errorf("locale %s is not loaded", locale)
+			if result := i18n.T(locale, "nav.dashboard", nil); result == "" || result == "nav.dashboard" {
+				t.Errorf("locale %s dictionary is not loaded", locale)
 			}
 		})
 	}

@@ -1,6 +1,8 @@
-package api
+﻿package api
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,7 +36,10 @@ func (h *Handlers) AccountsList(w http.ResponseWriter, r *http.Request) {
 	result := []accountView{}
 	for rows.Next() {
 		var a db.SiteAccount
-		if err := rows.Scan(&a.ID, &a.SiteID, &a.Username, &a.Domain, &a.Status, &a.CookiePrefix, &a.LastLoginAt, &a.LastUsedAt, &a.FailCount, &a.Remark, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		// Scan timestamps into strings (TEXT cannot scan into time.Time
+		// with modernc.org/sqlite — P-TSG time-column pitfall).
+		var lastLogin, lastUsed, ca, ua db.SQLTime
+		if err := rows.Scan(&a.ID, &a.SiteID, &a.Username, &a.Domain, &a.Status, &a.CookiePrefix, &lastLogin, &lastUsed, &a.FailCount, &a.Remark, &ca, &ua); err != nil {
 			continue
 		}
 		result = append(result, accountView{SiteAccount: a})
@@ -131,7 +136,10 @@ func (h *Handlers) PersonsList(w http.ResponseWriter, r *http.Request) {
 	persons := []db.Person{}
 	for rows.Next() {
 		var p db.Person
-		if err := rows.Scan(&p.ID, &p.Name, &p.Pinyin, &p.Aliases, &p.Source, &p.SourceGame, &p.GalleryCount, &p.Confirmed, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		// Scan timestamps into strings (TEXT cannot scan into time.Time
+		// with modernc.org/sqlite — P-TSG time-column pitfall).
+		var ca, ua db.SQLTime
+		if err := rows.Scan(&p.ID, &p.Name, &p.Pinyin, &p.Aliases, &p.Source, &p.SourceGame, &p.GalleryCount, &p.Confirmed, &ca, &ua); err != nil {
 			continue
 		}
 		persons = append(persons, p)
@@ -217,8 +225,12 @@ func (h *Handlers) BlocklistList(w http.ResponseWriter, r *http.Request) {
 
 	rules := []db.BlocklistRule{}
 	for rows.Next() {
+		// Scan timestamps into strings (TEXT cannot scan into time.Time
+		// with modernc.org/sqlite — P-TSG time-column pitfall). The
+		// frontend does not consume createdAt/updatedAt.
 		var br db.BlocklistRule
-		if err := rows.Scan(&br.ID, &br.SiteID, &br.FieldType, &br.Keyword, &br.MatchMode, &br.Enabled, &br.Remark, &br.CreatedAt, &br.UpdatedAt); err != nil {
+		var ca, ua db.SQLTime
+		if err := rows.Scan(&br.ID, &br.SiteID, &br.FieldType, &br.Keyword, &br.MatchMode, &br.Enabled, &br.Remark, &ca, &ua); err != nil {
 			continue
 		}
 		rules = append(rules, br)
@@ -344,7 +356,7 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 // ConfigList returns all application config key-value pairs.
 func (h *Handlers) ConfigList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, []any{})
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	rows, err := h.DB.Query(r.Context(), "SELECT id, key, value, created_at, updated_at FROM app_configs ORDER BY key")
@@ -353,46 +365,94 @@ func (h *Handlers) ConfigList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	configs := []db.AppConfig{}
+	// Flat key->value map matching the frontend contract
+	// (e.g. {chromedriver_path: "..."}); the frontend config page reads
+	// data?.<key> directly. Previously a bare array was returned, which
+	// the frontend could never consume (F6).
+	configs := map[string]any{}
 	for rows.Next() {
-		var c db.AppConfig
-		if err := rows.Scan(&c.ID, &c.Key, &c.Value, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		// Scan timestamps into db.SQLTime (TEXT cannot scan into time.Time
+		// with modernc.org/sqlite — P-TSG time-column pitfall).
+		var id int
+		var key, value string
+		var ca, ua db.SQLTime
+		if err := rows.Scan(&id, &key, &value, &ca, &ua); err != nil {
 			continue
 		}
-		configs = append(configs, c)
+		configs[key] = value
 	}
 	writeJSON(w, http.StatusOK, configs)
 }
 
-// ConfigUpdate upserts a config key-value pair.
+// ConfigUpdate upserts one or more config entries. Accepts the legacy
+// single shape {key, value} and the frontend's flat object shape
+// { <key>: value, ... } (values may be strings, numbers or booleans,
+// serialized to text for storage).
 func (h *Handlers) ConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
-	var c db.AppConfig
-	if !decodeJSON(w, r, &c) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidJSON"))
 		return
 	}
-	if c.Key == "" {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidJSON"))
+		return
+	}
+	type cfgEntry struct{ key, value string }
+	var entries []cfgEntry
+	for k, v := range raw {
+		// Legacy single shape: {"key": "...", "value": "..."}.
+		if k == "key" {
+			var single struct {
+				Key   string `json:"key"`
+				Value string `json:"value"`
+			}
+			if err := json.Unmarshal(bodyBytes, &single); err == nil && single.Key != "" {
+				entries = append(entries, cfgEntry{key: single.Key, value: single.Value})
+			}
+			continue
+		}
+		// Flat object shape: value may be string/number/bool.
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			entries = append(entries, cfgEntry{key: k, value: s})
+			continue
+		}
+		// Number or boolean: serialize compactly (e.g. "5", "true").
+		entries = append(entries, cfgEntry{key: k, value: string(v)})
+	}
+	if len(entries) == 0 {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.keyRequired"))
 		return
 	}
-	_, err := h.DB.Exec(r.Context(),
-		`INSERT INTO app_configs (key, value) VALUES (?, ?)
-		 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
-		c.Key, c.Value)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
-		return
+	for _, e := range entries {
+		if e.key == "" {
+			continue
+		}
+		_, err := h.DB.Exec(r.Context(),
+			`INSERT INTO app_configs (key, value) VALUES (?, ?)
+			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+			e.key, e.value, e.value)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"key": c.Key, "updated": true})
+	writeJSON(w, http.StatusOK, map[string]any{"updated": true, "count": len(entries)})
 }
 
-// PreferencesList returns all user preferences.
+// PreferencesList returns all user preferences as a flat key->value
+// object (the frontend contract: { ui_theme: "dark", ... }). The raw
+// rows are {key, value, category} so the flat map is the natural
+// serialization for the preference store.
 func (h *Handlers) PreferencesList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, []any{})
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	rows, err := h.DB.Query(r.Context(), "SELECT id, key, value, category, created_at, updated_at FROM user_preferences ORDER BY category, key")
@@ -401,40 +461,88 @@ func (h *Handlers) PreferencesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	prefs := []db.UserPreference{}
+	prefs := map[string]any{}
 	for rows.Next() {
-		var p db.UserPreference
-		if err := rows.Scan(&p.ID, &p.Key, &p.Value, &p.Category, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		// Scan timestamps into db.SQLTime: modernc.org/sqlite stores TEXT
+		// and database/sql cannot scan TEXT into *time.Time (P-TSG
+		// time-column pitfall). AppConfig/UserPreference model fields are
+		// time.Time, so bypass them here.
+		var id int
+		var key, value, category string
+		var ca, ua db.SQLTime
+		if err := rows.Scan(&id, &key, &value, &category, &ca, &ua); err != nil {
 			continue
 		}
-		prefs = append(prefs, p)
+		prefs[key] = value
 	}
 	writeJSON(w, http.StatusOK, prefs)
 }
 
-// PreferencesUpdate upserts a user preference.
+// PreferencesUpdate accepts either the legacy single-preference shape
+// {key, value, category} or the frontend's flat object shape
+// { <key>: { value, category }, ... } and upserts each entry.
 func (h *Handlers) PreferencesUpdate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
-	var p db.UserPreference
-	if !decodeJSON(w, r, &p) {
+	// Read the raw body once; the two shapes share no common struct.
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidJSON"))
 		return
 	}
-	if p.Key == "" {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidJSON"))
+		return
+	}
+	type prefEntry struct{ key, value, category string }
+	var entries []prefEntry
+	for k, v := range raw {
+		// Flat-object shape: {"ui_theme": {"value": "dark", "category": "ui"}}.
+		var obj struct {
+			Value    string `json:"value"`
+			Category string `json:"category"`
+		}
+		if err := json.Unmarshal(v, &obj); err == nil && (obj.Value != "" || obj.Category != "") {
+			cat := obj.Category
+			if cat == "" {
+				cat = "ui"
+			}
+			entries = append(entries, prefEntry{key: k, value: obj.Value, category: cat})
+			continue
+		}
+		// Legacy single-preference shape: {"key": "...", "value": "...", "category": "..."}.
+		if k == "key" {
+			var single struct {
+				Key      string `json:"key"`
+				Value    string `json:"value"`
+				Category string `json:"category"`
+			}
+			if err := json.Unmarshal(bodyBytes, &single); err == nil && single.Key != "" {
+				entries = append(entries, prefEntry{key: single.Key, value: single.Value, category: single.Category})
+			}
+		}
+	}
+	if len(entries) == 0 {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.keyRequired"))
 		return
 	}
-	_, err := h.DB.Exec(r.Context(),
-		`INSERT INTO user_preferences (key, value, category) VALUES (?, ?, ?)
-		 ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = CURRENT_TIMESTAMP`,
-		p.Key, p.Value, p.Category)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.preferences.updateFailed"))
-		return
+	for _, e := range entries {
+		if e.key == "" {
+			continue
+		}
+		_, err := h.DB.Exec(r.Context(),
+			`INSERT INTO user_preferences (key, value, category) VALUES (?, ?, ?)
+			 ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = CURRENT_TIMESTAMP`,
+			e.key, e.value, e.category, e.value, e.category)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.preferences.updateFailed"))
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"key": p.Key, "updated": true})
+	writeJSON(w, http.StatusOK, map[string]any{"updated": true, "count": len(entries)})
 }
 
 // TaskSettingsList returns task-related settings from app_config.

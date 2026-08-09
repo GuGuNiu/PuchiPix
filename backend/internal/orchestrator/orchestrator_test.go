@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"backend/internal/orchestrator"
-	"backend/internal/orchestrator/dag"
 	"backend/internal/orchestrator/slot"
 )
 
@@ -203,35 +202,6 @@ func TestAggregateTaskStatus(t *testing.T) {
 	}
 }
 
-// TestMapNodeStateToDBStatus verifies DB status mapping includes needs_retry.
-func TestMapNodeStateToDBStatus(t *testing.T) {
-	tests := []struct {
-		state orchestrator.NodeState
-		phase orchestrator.TaskPhase
-		want  string
-	}{
-		{orchestrator.NodeStatePending, orchestrator.PhaseScrape, "pending"},
-		{orchestrator.NodeStateReady, orchestrator.PhaseScrape, "scrape_pending"},
-		{orchestrator.NodeStateReady, orchestrator.PhaseDownload, "download_pending"},
-		{orchestrator.NodeStateRunning, orchestrator.PhaseScrape, "scraping"},
-		{orchestrator.NodeStateRunning, orchestrator.PhaseDownload, "downloading"},
-		{orchestrator.NodeStateCompleted, orchestrator.PhaseScrape, "completed"},
-		{orchestrator.NodeStateFailed, orchestrator.PhaseScrape, "failed"},
-		{orchestrator.NodeStateCancelled, orchestrator.PhaseScrape, "cancelled"},
-		{orchestrator.NodeStateNeedsRetry, orchestrator.PhaseScrape, "needs_retry"},
-		{orchestrator.NodeStateTimeout, orchestrator.PhaseScrape, "failed"},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.state), func(t *testing.T) {
-			got := orchestrator.MapNodeStateToDBStatus(tt.state, tt.phase)
-			if got != tt.want {
-				t.Errorf("MapNodeStateToDBStatus(%s, %s) = %s, want %s", tt.state, tt.phase, got, tt.want)
-			}
-		})
-	}
-}
-
 // TestSlotPoolAcquireRelease verifies basic slot pool operations.
 func TestSlotPoolAcquireRelease(t *testing.T) {
 	pool := slot.NewSlotPool()
@@ -297,91 +267,6 @@ func TestSlotPoolBatchAcquire(t *testing.T) {
 	usage = pool.GetUsage("download")
 	if usage.Current != 0 {
 		t.Errorf("after release, Current = %d, want 0", usage.Current)
-	}
-}
-
-// TestDagManagerCycleDetection verifies Kahn's algorithm detects cycles.
-func TestDagManagerCycleDetection(t *testing.T) {
-	mgr := dag.NewManager()
-
-	mgr.AddTask(dag.DagCapableTask{ID: "A"})
-	mgr.AddTask(dag.DagCapableTask{ID: "B", DependsOn: []string{"A"}})
-	mgr.AddTask(dag.DagCapableTask{ID: "C", DependsOn: []string{"B"}})
-	mgr.AddTask(dag.DagCapableTask{ID: "D", DependsOn: []string{"C"}})
-	mgr.AddDependency("A", "D")
-
-	err := mgr.DetectCycles()
-	if err == nil {
-		t.Fatal("DetectCycles() = nil, want cycle error")
-	}
-}
-
-// TestDagManagerTopologicalSort verifies topological ordering.
-func TestDagManagerTopologicalSort(t *testing.T) {
-	mgr := dag.NewManager()
-
-	mgr.AddTask(dag.DagCapableTask{ID: "D", DependsOn: []string{"C"}, Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "C", DependsOn: []string{"B"}, Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "B", DependsOn: []string{"A"}, Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "A", Priority: 1})
-
-	result, err := mgr.TopologicalSort()
-	if err != nil {
-		t.Fatalf("TopologicalSort() error = %v", err)
-	}
-	if len(result) != 4 {
-		t.Fatalf("result length = %d, want 4", len(result))
-	}
-	if (*result[0]).ID != "A" || (*result[3]).ID != "D" {
-		t.Errorf("order = %v, want [A, B, C, D]", []string{(*result[0]).ID, (*result[1]).ID, (*result[2]).ID, (*result[3]).ID})
-	}
-}
-
-// TestDagManagerMarkCompleted verifies dependency unblocking.
-func TestDagManagerMarkCompleted(t *testing.T) {
-	mgr := dag.NewManager()
-
-	mgr.AddTask(dag.DagCapableTask{ID: "A", Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "B", DependsOn: []string{"A"}, Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "C", DependsOn: []string{"B"}, Priority: 1})
-
-	if mgr.AreDependenciesMet("B") {
-		t.Error("AreDependenciesMet(B) = true before A completed")
-	}
-	unblocked := mgr.MarkCompleted("A")
-	if len(unblocked) != 1 || unblocked[0] != "B" {
-		t.Errorf("MarkCompleted(A) = %v, want [B]", unblocked)
-	}
-	if !mgr.AreDependenciesMet("B") {
-		t.Error("AreDependenciesMet(B) = false after A completed")
-	}
-	unblocked = mgr.MarkCompleted("B")
-	if len(unblocked) != 1 || unblocked[0] != "C" {
-		t.Errorf("MarkCompleted(B) = %v, want [C]", unblocked)
-	}
-	if !mgr.AreDependenciesMet("C") {
-		t.Error("AreDependenciesMet(C) = false after B completed")
-	}
-}
-
-// TestDagManagerMarkFailed verifies cascade failure propagation.
-func TestDagManagerMarkFailed(t *testing.T) {
-	mgr := dag.NewManager()
-
-	mgr.AddTask(dag.DagCapableTask{ID: "A", Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "B", DependsOn: []string{"A"}, Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "C", DependsOn: []string{"B"}, Priority: 1})
-	mgr.AddTask(dag.DagCapableTask{ID: "D", DependsOn: []string{"C"}, Priority: 1})
-
-	cascaded := mgr.MarkFailed("A")
-	if len(cascaded) != 3 {
-		t.Errorf("cascaded count = %d, want 3", len(cascaded))
-	}
-	if !mgr.IsFailedOrCanceled("B") {
-		t.Error("B should be cascaded")
-	}
-	if !mgr.IsFailedOrCanceled("D") {
-		t.Error("D should be cascaded")
 	}
 }
 

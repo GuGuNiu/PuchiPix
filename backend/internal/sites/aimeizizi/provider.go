@@ -5,12 +5,16 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
 	"backend/internal/urlutil"
 )
+
+// Ensure time is used for GetDomainCacheInfo
+var _ = time.Time{}
 
 var providerLogger = infra.NewLogger("AimeiziziProvider")
 
@@ -26,6 +30,7 @@ type Provider struct {
 	publisherPrefixes []string
 	blockedKeywords   []string
 	blockedCategories []string
+	domainPool        *stealth.DomainPool
 }
 
 // NewProvider creates an Aimeizizi provider with the given data store
@@ -52,13 +57,38 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 		}
 	}
 
+	// Initialize shared domain pool for automatic load-balanced domain discovery
+	publisherURL := dataStore.GetPublisherURL("aimeizizi")
+	p.domainPool = stealth.NewDomainPool("aimeizizi", p.domains, publisherURL)
+	stealth.RegisterDomainPool("aimeizizi", p.domainPool)
+
 	return p
 }
 
 func (p *Provider) SiteID() string { return "aimeizizi" }
 
 func (p *Provider) CanHandle(rawURL string) bool {
-	return p.dataStore.CanHandle("aimeizizi", rawURL)
+	if p.dataStore.CanHandle("aimeizizi", rawURL) {
+		return true
+	}
+	// Also check dynamically discovered domains
+	allDomains := p.GetDomains()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	for _, domain := range allDomains {
+		d, err := url.Parse(domain)
+		if err != nil {
+			continue
+		}
+		targetHost := strings.ToLower(d.Hostname())
+		if hostname == targetHost || strings.HasSuffix(hostname, "."+targetHost) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Provider) ScrapeGallery(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
@@ -102,13 +132,14 @@ func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*site
 }
 
 func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.SiteSearchResult, error) {
+	allDomains := p.GetDomains()
 	searchURL := p.BuildSearchURL(query)
 	if page > 1 {
 		encoded := query
 		searchURL = strings.TrimRight(searchURL, "/") + "/page/" + itoa(page) + "/?s=" + encoded
 	}
 
-	result, err := fetchAndParse(ctx, searchURL, stealth.GetDomainHealthTracker().GetBestDomain(p.domains))
+	result, err := fetchAndParse(ctx, searchURL, stealth.GetDomainHealthTracker().GetBestDomain(allDomains))
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +161,7 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 }
 
 func (p *Provider) BuildSearchURL(keyword string) string {
-	domain := stealth.GetDomainHealthTracker().GetBestDomain(p.domains)
+	domain := stealth.GetDomainHealthTracker().GetBestDomain(p.GetDomains())
 	return domain + "/?s=" + url.QueryEscape(keyword)
 }
 
@@ -143,15 +174,30 @@ func (p *Provider) CheckContentBlocked(title, category, protagonist string) site
 }
 
 func (p *Provider) NormalizeURL(rawURL string) string {
-	return urlutil.ReplaceDomain(rawURL, p.baseURL, p.domains)
+	return urlutil.ReplaceDomain(rawURL, p.baseURL, p.GetDomains())
 }
 
 func (p *Provider) IsListingPage(rawURL string) bool {
 	return !strings.Contains(rawURL, "/article/")
 }
 
-// GetDomains returns the site's configured domain list for scraper use.
-func (p *Provider) GetDomains() []string { return p.domains }
+// GetDomains returns the merged domain list (static + dynamically discovered).
+// When the domain resolver is available, it includes domains fetched from
+// the publisher site for automatic load-balanced domain discovery.
+func (p *Provider) GetDomains() []string {
+	if p.domainPool != nil {
+		return p.domainPool.GetDomains()
+	}
+	return p.domains
+}
+
+// GetDomainCacheInfo returns cache metadata for diagnostics.
+func (p *Provider) GetDomainCacheInfo() (domainCount int, lastFetch time.Time, isExpired bool) {
+	if p.domainPool != nil {
+		return p.domainPool.GetCacheInfo()
+	}
+	return len(p.domains), time.Time{}, false
+}
 
 // GetPlaceholder returns the placeholder image fragment for scraper use.
 func (p *Provider) GetPlaceholder() string { return p.placeholder }

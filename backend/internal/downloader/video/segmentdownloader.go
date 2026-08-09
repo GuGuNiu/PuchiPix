@@ -120,14 +120,6 @@ func DownloadSegment(ctx context.Context, task SegmentTask, maxRetries int) Segm
 	}
 }
 
-// IsSegmentDownloaded checks whether a non-empty segment file exists
-// on disk for the given TSID, enabling skip-already-done logic.
-func IsSegmentDownloaded(destDir, tsid string) bool {
-	filePath := filepath.Join(destDir, tsid+".ts")
-	info, err := os.Stat(filePath)
-	return err == nil && info.Size() > 0
-}
-
 // fnv1aHash computes the 32-bit FNV-1a hash of a string, producing
 // a deterministic identifier for segment deduplication across retries.
 func fnv1aHash(s string) uint32 {
@@ -145,14 +137,4 @@ func fnv1aHash(s string) uint32 {
 func GenerateTSID(uri string, index int) string {
 	hash := fnv1aHash(uri)
 	return fmt.Sprintf("%08x_%05d", hash, index)
-}
-
-// GenerateAllTSIDs produces TSIDs for every segment in a playlist,
-// used to pre-verify which segments are already on disk.
-func GenerateAllTSIDs(segments []M3U8Segment) []string {
-	ids := make([]string, len(segments))
-	for i, seg := range segments {
-		ids[i] = GenerateTSID(seg.URI, seg.Index)
-	}
-	return ids
 }

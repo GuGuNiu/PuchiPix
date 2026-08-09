@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"backend/internal/idgen"
 	"backend/internal/orchestrator"
 )
 
@@ -51,7 +52,7 @@ type dagBlueprint struct {
 // download slot (max 5). Extract and verify are slotless CPU/IO-bound
 // operations.
 func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) orchestrator.DagDefinition {
-	dagID := fmt.Sprintf("gallery-%d", galleryID)
+	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
 			nodeID:   fmt.Sprintf("sc-%d", galleryID),
@@ -143,7 +144,7 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 // Used by ShelfAction retry-failed when the gallery has been scraped
 // but files are incomplete.
 func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDefinition {
-	dagID := fmt.Sprintf("gallery-%d", galleryID)
+	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
 			nodeID:   fmt.Sprintf("dl-%d", galleryID),
@@ -207,7 +208,7 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 // scraping (preview/dry-run). This is the lightweight alternative to
 // the full pipeline used in the /api/scrape endpoint.
 func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefinition {
-	dagID := fmt.Sprintf("scrape-%s-%d", providerID, time.Now().UnixMilli())
+	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
 			nodeID:   fmt.Sprintf("sc-%s-%d", providerID, time.Now().UnixMilli()),
@@ -239,7 +240,7 @@ func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefin
 // legacy download_tasks system, bridging video tasks into the DAG
 // slot pool for proper concurrency control.
 func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
-	dagID := fmt.Sprintf("video-%d-%d", taskID, time.Now().UnixMilli())
+	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
 			nodeID:   fmt.Sprintf("vdl-%d", taskID),
@@ -278,7 +279,7 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 // NewSniffPipeline builds a single-node sniff DAG for M3U8 capture
 // and line selection.
 func (f *DagFactory) NewSniffPipeline(url string, taskID int) orchestrator.DagDefinition {
-	dagID := fmt.Sprintf("sniff-%d", taskID)
+	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
 			nodeID:   fmt.Sprintf("sn-%d", taskID),
@@ -293,6 +294,11 @@ func (f *DagFactory) NewSniffPipeline(url string, taskID int) orchestrator.DagDe
 			retryDelay: 15000,
 		},
 	})
+
+	for i := range nodes {
+		nodes[i].Config["url"] = url
+		nodes[i].Config["sniffId"] = taskID
+	}
 
 	return orchestrator.DagDefinition{
 		ID:       dagID,

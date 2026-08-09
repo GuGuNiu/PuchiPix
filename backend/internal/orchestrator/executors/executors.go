@@ -177,8 +177,8 @@ func (e *DownloadExecutor) Execute(ctx context.Context, node ExecutorNode) (bool
 // VerifyExecutor handles the verify phase, checking downloaded content
 // and triggering needs_retry when verification finds missing data.
 type VerifyExecutor struct {
-	logger      *infra.Logger
-	verifyFn    func(ctx context.Context, node ExecutorNode) (string, int, string)
+	logger   *infra.Logger
+	verifyFn func(ctx context.Context, node ExecutorNode) (string, int, string)
 }
 
 // NewVerifyExecutor creates a verify executor with the given verify callback.
@@ -192,6 +192,18 @@ func NewVerifyExecutor(fn func(ctx context.Context, node ExecutorNode) (string, 
 
 func (e *VerifyExecutor) Key() string { return "verify" }
 
+// NeedsRetryError signals a retryable verification failure. The
+// scheduler/orchestrator recognize it and route the node to NEEDS_RETRY
+// (auto re-submit) instead of FAILED, preserving the 260720 needs_retry
+// semantics that were previously lost (verify failures hard-failed).
+type NeedsRetryError struct {
+	Reason string
+}
+
+func (e *NeedsRetryError) Error() string {
+	return "needs_retry: " + e.Reason
+}
+
 func (e *VerifyExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
 	if e.verifyFn == nil {
 		e.logger.Warn("No verify function registered, simulating success", "nodeId", node.NodeID)
@@ -204,7 +216,7 @@ func (e *VerifyExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, 
 		return true, nil
 	case "needs_retry":
 		e.logger.Warn("Verification needs retry", "nodeId", node.NodeID, "reason", reason)
-		return false, fmt.Errorf("needs_retry: %s", reason)
+		return false, &NeedsRetryError{Reason: reason}
 	default:
 		e.logger.Error("Verification failed", nil, "nodeId", node.NodeID, "reason", reason)
 		return false, fmt.Errorf("verification failed: %s", reason)

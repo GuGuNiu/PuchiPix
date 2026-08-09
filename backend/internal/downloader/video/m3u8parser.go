@@ -39,40 +39,24 @@ type M3U8Playlist struct {
 
 // resolveURI converts a relative URI from an M3U8 playlist into an
 // absolute URL using the playlist's base URL as the reference point.
+// Uses the standard library's url.ResolveReference for RFC 3986 compliant
+// resolution, replacing the previous hand-written 30-line implementation.
 func resolveURI(uri, baseURL string) string {
 	if strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://") {
 		return uri
 	}
 
-	if strings.HasPrefix(uri, "//") {
-		return "https:" + uri
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return uri
 	}
 
-	baseWithoutQuery := baseURL
-	if idx := strings.IndexAny(baseWithoutQuery, "?#"); idx >= 0 {
-		baseWithoutQuery = baseWithoutQuery[:idx]
+	ref, err := url.Parse(uri)
+	if err != nil {
+		return uri
 	}
 
-	lastSlash := strings.LastIndexByte(baseWithoutQuery, '/')
-	if lastSlash > 8 {
-		baseWithoutFile := baseWithoutQuery[:lastSlash+1]
-		if strings.HasPrefix(uri, "/") {
-			parsed, err := url.Parse(baseURL)
-			if err == nil {
-				return parsed.Scheme + "://" + parsed.Host + uri
-			}
-		}
-		return baseWithoutFile + uri
-	}
-
-	if strings.HasPrefix(uri, "/") {
-		parsed, err := url.Parse(baseURL)
-		if err == nil {
-			return parsed.Scheme + "://" + parsed.Host + uri
-		}
-	}
-
-	return baseWithoutQuery + uri
+	return base.ResolveReference(ref).String()
 }
 
 // FetchM3U8Content retrieves M3U8 playlist text from the given URL
@@ -88,6 +72,62 @@ func FetchM3U8Content(ctx context.Context, m3u8URL, referer string) (string, err
 	}
 
 	return downloader.FetchTextWithDomainFallback(ctx, m3u8URL, headers)
+}
+
+// FetchM3U8ContentWithRefererFallback tries the primary referer first,
+// then falls back to alternative referer domains when the CDN returns
+// 403 (anti-hotlink). It returns the content, the effective referer that
+// succeeded, and any error.
+func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer string, fallbackDomains []string) (string, string, error) {
+	// Try the primary referer first.
+	content, err := FetchM3U8Content(ctx, m3u8URL, referer)
+	if err == nil {
+		return content, referer, nil
+	}
+
+	// If no fallback domains, return the original error.
+	if len(fallbackDomains) == 0 {
+		return "", referer, err
+	}
+
+	m3u8Logger.Warn("Primary referer rejected, trying fallback domains",
+		infra.LogContext{Extra: map[string]any{
+			"m3u8URL":       m3u8URL,
+			"primaryReferer": referer,
+			"error":         err.Error(),
+			"fallbackCount": len(fallbackDomains),
+		}})
+
+	// Try each fallback domain as the referer.
+	for _, domain := range fallbackDomains {
+		fallbackReferer := domain
+		// Ensure the referer looks like a full URL.
+		if !strings.HasPrefix(fallbackReferer, "http://") && !strings.HasPrefix(fallbackReferer, "https://") {
+			fallbackReferer = "https://" + fallbackReferer
+		}
+		// Ensure it ends with / for a clean origin referer.
+		if !strings.HasSuffix(fallbackReferer, "/") {
+			fallbackReferer = fallbackReferer + "/"
+		}
+
+		content, err := FetchM3U8Content(ctx, m3u8URL, fallbackReferer)
+		if err == nil {
+			m3u8Logger.Info("Fallback referer accepted by CDN",
+				infra.LogContext{Extra: map[string]any{
+					"m3u8URL":  m3u8URL,
+					"effectiveReferer": fallbackReferer,
+				}})
+			return content, fallbackReferer, nil
+		}
+
+		m3u8Logger.Debug("Fallback referer also rejected",
+			infra.LogContext{Extra: map[string]any{
+				"domain": domain,
+				"error":  err.Error(),
+			}})
+	}
+
+	return "", referer, fmt.Errorf("all referer domains rejected by CDN: %w", err)
 }
 
 // ParseM3U8 parses raw M3U8 text into a structured playlist, resolving

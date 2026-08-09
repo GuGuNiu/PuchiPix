@@ -3,8 +3,6 @@ package aimeizizi
 import (
 	"regexp"
 	"strings"
-
-	"backend/internal/stealth"
 )
 
 // GalleryPageMetadata holds parsed data from a single gallery page.
@@ -55,12 +53,6 @@ func ExtractArticleID(url string) string {
 		return m[1]
 	}
 	return ""
-}
-
-// DomainHealthTracker returns the shared domain health tracker for
-// Aimeizizi domains.
-func DomainHealthTracker() *stealth.DomainHealthTracker {
-	return stealth.GetDomainHealthTracker()
 }
 
 // ExtractDomainFromUrl extracts the scheme+host portion of a URL,

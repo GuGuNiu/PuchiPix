@@ -1,11 +1,11 @@
 import type { BatchTitleResult } from "@/types";
-import { ENABLED_SITE_MODULES, getSiteModuleName } from "@/lib/sites/site-modules";
+import { getEnabledSiteModules, getSiteModuleName } from "@/lib/sites/site-modules";
 import type { SiteModuleConfig } from "@/lib/sites/site-modules";
 
 type SiteOption = SiteModuleConfig & { name: string; gallery: boolean };
 
 export const getSites = (locale: string): SiteOption[] =>
-  ENABLED_SITE_MODULES.map((m) => ({
+  getEnabledSiteModules().map((m) => ({
     ...m,
     name: getSiteModuleName(m, locale),
     gallery: m.type === "photo",

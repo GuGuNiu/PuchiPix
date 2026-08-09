@@ -14,20 +14,6 @@ type SearchEntry struct {
 	Date     string
 }
 
-// ExtMetadata holds the full metadata extracted from a gallery page,
-// mirroring the TypeScript ExtMetadata interface.
-type ExtMetadata struct {
-	H1Title       string
-	Category      string
-	Tags          []string
-	KeywordStr    string
-	CoverURL      string
-	DocumentTitle string
-	PublishTime   string
-	ModelID       string
-	AlbumID       string
-}
-
 // ParseGalleryPageHtml extracts gallery metadata from a parsed album page,
 // collecting image URLs from data-original attributes and deriving
 // model/album identifiers from the first image path segment.
@@ -97,71 +83,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 	}
 
 	return result
-}
-
-// ParseExtMetadata extracts extended metadata including meta keywords,
-// canonical album ID, and breadcrumb category from the document.
-func ParseExtMetadata(doc *goquery.Document) ExtMetadata {
-	var meta ExtMetadata
-
-	meta.H1Title = strings.TrimSpace(doc.Find("h1").First().Text())
-
-	tagSet := make(map[string]bool)
-	meta.Tags = []string{}
-	doc.Find(`a[href*="/album/t"]`).Each(func(_ int, a *goquery.Selection) {
-		text := strings.TrimSpace(a.Text())
-		if text != "" && len(text) < 30 && !tagSet[text] {
-			tagSet[text] = true
-			meta.Tags = append(meta.Tags, text)
-		}
-	})
-
-	meta.KeywordStr = doc.Find(`meta[name="keywords"]`).AttrOr("content", "")
-
-	meta.CoverURL = doc.Find("#bigImg").First().AttrOr("src", "")
-	if meta.CoverURL == "" {
-		meta.CoverURL = doc.Find("#viewbigimg").First().AttrOr("href", "")
-	}
-	if meta.CoverURL == "" {
-		firstImg := doc.Find("img.origin_image.lazy").First()
-		meta.CoverURL = firstImg.AttrOr("data-original", "")
-		if meta.CoverURL == "" {
-			meta.CoverURL = firstImg.AttrOr("src", "")
-		}
-	}
-
-	timeEl := doc.Find("#time").First()
-	if timeEl.Length() > 0 {
-		timeText := strings.TrimSpace(timeEl.Text())
-		if m := datePattern.FindStringSubmatch(timeText); len(m) >= 2 {
-			meta.PublishTime = m[1]
-		}
-	}
-
-	firstImg := doc.Find("img.origin_image.lazy").First()
-	if firstImg.Length() > 0 {
-		imgURL := firstImg.AttrOr("data-original", "")
-		if imgURL == "" {
-			imgURL = firstImg.AttrOr("src", "")
-		}
-		meta.ModelID, meta.AlbumID = ExtractModelIDFromImageUrl(imgURL)
-	}
-
-	if meta.AlbumID == "" {
-		canonical := doc.Find(`link[rel="canonical"]`).AttrOr("href", "")
-		if m := albumIDPattern.FindStringSubmatch(canonical); len(m) >= 2 {
-			meta.AlbumID = m[1]
-		}
-	}
-
-	selectedCat := doc.Find(".menucat a.selected").First()
-	if selectedCat.Length() > 0 {
-		meta.Category = strings.TrimSpace(selectedCat.Text())
-	}
-
-	meta.DocumentTitle = strings.TrimSpace(doc.Find("title").First().Text())
-
-	return meta
 }
 
 // ParseSearchResults extracts album entries from listing or search pages,

@@ -22,10 +22,15 @@ type DownloadTask struct {
 	Seq       *string   `json:"DisplayID" db:"seq"`
 	CreatedAt time.Time `json:"CreatedAt" db:"created_at"`
 	UpdatedAt time.Time `json:"UpdatedAt" db:"updated_at"`
-	// Title and Person are populated via LEFT JOIN on video_infos.
-	// They are not direct columns in download_tasks.
 	Title  string `json:"GalleryTitle"`
 	Person string `json:"Person"`
+	TotalSegments int `json:"TotalSegments" db:"total_segments"`
+	Segment       int `json:"Segment" db:"completed_segments"`
+	FileSize int64 `json:"FileSize" db:"file_size"`
+	// Computed fields (not stored in DB, populated by helper functions at query time).
+	EffectiveStatus string   `json:"EffectiveStatus" db:"-"`
+	ProgressStage   string   `json:"ProgressStage" db:"-"`
+	AllowedActions  []string `json:"AllowedActions" db:"-"`
 }
 
 // VideoInfo stores metadata extracted from a download task's source URL.

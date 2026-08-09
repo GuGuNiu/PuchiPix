@@ -22,8 +22,6 @@ var BlockedCategories []string
 var BlockedProtagonists []string
 var BlockedProtagonistsEnabled bool
 
-var pkgDataStore sites.SiteDataStore
-
 var (
 	albumIDPattern   = regexp.MustCompile(`/album/(\d+)`)
 	modelIDPattern   = regexp.MustCompile(`/album/(\d+)/(\d+)/`)
@@ -57,8 +55,6 @@ type GalleryImageEntry struct {
 // initData populates package-level configuration variables from the
 // unified SiteDataStore, replacing former hardcoded constants.
 func initData(ds sites.SiteDataStore) {
-	pkgDataStore = ds
-
 	if mod, ok := ds.GetModuleConfig("xsnvshen"); ok {
 		SiteDomains = mod.Domains
 	}
@@ -95,14 +91,6 @@ func ExtractModelIDFromImageUrl(rawURL string) (string, string) {
 		return m[1], m[2]
 	}
 	return "", ""
-}
-
-// MatchesXsnvshenURL checks if a URL belongs to xsnvshen.co or .com.
-func MatchesXsnvshenURL(rawURL string) bool {
-	if pkgDataStore == nil {
-		return false
-	}
-	return pkgDataStore.CanHandle("xsnvshen", rawURL)
 }
 
 // CleanTitle removes bracket prefixes, publisher prefixes, and site

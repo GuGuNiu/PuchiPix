@@ -9,26 +9,9 @@ import (
 	"github.com/mozillazg/go-pinyin"
 )
 
-// Similarity scoring matrix for model name matching against title segments.
-//
-// Each match type has a base score. Position bonuses are additive and
-// reflect where in the segment the match occurs — matches at the segment
-// head (prefix) receive a bonus; inline matches are neutral; tail matches
-// receive a slight penalty since model names rarely appear at the end of
-// a mixed segment.
-//
-//	Match type       | Base score
-//	Exact name       |   1.00
-//	Exact alias      |   0.92
-//	Name substring   |   0.78
-//	Alias substring  |   0.72
-//	Pinyin full      |   0.65
-//	Pinyin partial   |   0.48
-//
-//	Position         | Bonus
-//	Head (prefix)    |  +0.08
-//	Inline (middle)  |   0.00
-//	Tail (suffix)    |  -0.06
+// Scoring matrix for model name matching. Base scores decrease from exact
+// name (1.0) through alias, substring, and pinyin matches. Position bonuses
+// reward head-of-segment matches and penalize tail matches.
 const (
 	scoreExactName  = 1.00
 	scoreExactAlias = 0.92
@@ -44,20 +27,26 @@ const (
 	matchThreshold = 0.50
 )
 
-// matchCandidate bundles a model name with its computed similarity score.
 type matchCandidate struct {
-	name  string
-	score float64
+	name       string
+	score      float64
+	sourceKey  string  // the key that matched (name or alias)
+	sourceType string  // matchSourceName, matchSourceAlias, or matchSourcePinyin
 }
 
-// scoredMatch runs the full similarity-matrix pipeline for a single
-// segment against all loaded models. Returns the best candidate whose
-// score exceeds matchThreshold, or ("", false) if none qualify.
+const (
+	matchSourceName   = "name"
+	matchSourceAlias  = "alias"
+	matchSourcePinyin = "pinyin"
+)
+
+// scoredMatch runs the similarity-matrix pipeline for a single segment
+// against all loaded models. Returns the best candidate exceeding
+// matchThreshold, or ("", false) if none qualify.
 //
-// The pipeline evaluates three match dimensions in priority order:
-//   - Exact match: the full segment equals a model name or alias
-//   - Substring match: a model name or alias appears within the segment
-//   - Pinyin match: the model's PinyinPro-computed syllables appear
+// When a short alias (≤2 runes) is the primary match source, cross-validation
+// requires the main name or another alias to also appear in the segment,
+// preventing false positives from generic short aliases.
 func (p *Parser) scoredMatch(seg string) (string, bool) {
 	lower := strings.ToLower(seg)
 	var best matchCandidate
@@ -69,44 +58,132 @@ func (p *Parser) scoredMatch(seg string) (string, bool) {
 	if best.score < matchThreshold {
 		return "", false
 	}
+
+	// Cross-validation for alias matches prevents false positives from
+	// generic aliases like "SU", "Sally", "Yuki" matching as substrings
+	// in unrelated names. Two cases require corroboration:
+	//   1. Substring/pinyin alias matches (score < scoreExactAlias)
+	//   2. Exact alias matches for very short aliases (≤2 runes)
+	// Longer exact alias matches (e.g. "NAGISA", "shimo") are trusted.
+	if best.sourceType == matchSourceAlias {
+		// Cross-validation for alias SUBSTRING matches prevents false
+		// positives from generic aliases like "Sally", "Yuki" matching
+		// as substrings in unrelated names.
+		if best.score < scoreExactAlias {
+			if !p.crossValidate(seg, best.name, best.sourceKey) {
+				return "", false
+			}
+		}
+		// For short exact-alias matches (2 runes) where the segment
+		// is LONGER than the alias, also cross-validate. This catches
+		// cases like "su" matching inside "晚苏susu". When the segment
+		// equals the alias (e.g. "奶桃" == "奶桃"), trust the match.
+		if best.score >= scoreExactAlias && utf8.RuneCountInString(best.sourceKey) == 2 && len(lower) > len(best.sourceKey) {
+			if !p.crossValidate(seg, best.name, best.sourceKey) {
+				return "", false
+			}
+		}
+	}
+
 	return best.name, true
+}
+
+// crossValidate confirms an alias-driven match by checking whether the main
+// name or another alias (≥2 runes) also appears in the segment.
+func (p *Parser) crossValidate(seg, modelName, matchedAlias string) bool {
+	lower := strings.ToLower(seg)
+
+	m, ok := p.models[strings.ToLower(modelName)]
+	if !ok {
+		return false
+	}
+
+	if strings.Contains(lower, strings.ToLower(m.Name)) {
+		return true
+	}
+
+	// Compare case-insensitively to skip the same alias that triggered
+	// the match (index stores lowercase keys, original alias may differ).
+	matchedLower := strings.ToLower(matchedAlias)
+	for _, alias := range m.Aliases {
+		if strings.ToLower(alias) == matchedLower {
+			continue
+		}
+		if utf8.RuneCountInString(alias) < 2 {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(alias)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (p *Parser) evalExactMatch(segLower string, best *matchCandidate) {
 	if m, ok := p.models[segLower]; ok {
-		updateBest(best, matchCandidate{m.Name, scoreExactName})
+		updateBest(best, matchCandidate{m.Name, scoreExactName, m.Name, matchSourceName})
 		return
 	}
 	if name, ok := p.modelAliasIndex[segLower]; ok {
-		updateBest(best, matchCandidate{name, scoreExactAlias})
+		// Reject single-character alias exact matches (e.g. "w",
+		// "M") — too generic to identify a person.
+		if utf8.RuneCountInString(segLower) >= 2 {
+			updateBest(best, matchCandidate{name, scoreExactAlias, segLower, matchSourceAlias})
+		}
 	}
 }
 
 func (p *Parser) evalSubMatch(segLower string, best *matchCandidate) {
-	for key, m := range p.models {
-		if utf8.RuneCountInString(key) < 2 {
-			continue
+	// Inverted index lookup: extract 2-rune substrings to find candidate
+	// keys, then verify with strings.Contains.
+	candidateSet := make(map[string]bool)
+	substrings := extractPrefixes(segLower, 2)
+	for _, sub := range substrings {
+		if candidates, ok := p.modelPrefixIndex[sub]; ok {
+			for _, c := range candidates {
+				candidateSet[c] = true
+			}
 		}
+		if candidates, ok := p.aliasPrefixIndex[sub]; ok {
+			for _, c := range candidates {
+				candidateSet[c] = true
+			}
+		}
+	}
+
+	for key := range candidateSet {
 		if !strings.Contains(segLower, key) {
 			continue
 		}
-		score := scoreSubName + positionBonus(segLower, key)
-		updateBest(best, matchCandidate{m.Name, clampScore(score)})
-	}
-
-	for alias, name := range p.modelAliasIndex {
-		if utf8.RuneCountInString(alias) < 2 {
-			continue
+		if m, ok := p.models[key]; ok {
+			if utf8.RuneCountInString(key) < 2 {
+				continue
+			}
+			score := scoreSubName + positionBonus(segLower, key)
+			updateBest(best, matchCandidate{m.Name, clampScore(score), key, matchSourceName})
+		} else if name, ok := p.modelAliasIndex[key]; ok {
+			if utf8.RuneCountInString(key) < 2 {
+				continue
+			}
+			score := scoreSubAlias + positionBonus(segLower, key)
+			updateBest(best, matchCandidate{name, clampScore(score), key, matchSourceAlias})
 		}
-		if !strings.Contains(segLower, alias) {
-			continue
-		}
-		score := scoreSubAlias + positionBonus(segLower, alias)
-		updateBest(best, matchCandidate{name, clampScore(score)})
 	}
 }
 
 func (p *Parser) evalPinyinMatch(segLower, segOriginal string, best *matchCandidate) {
+	if !containsHan(segLower) {
+		return
+	}
+
+	// Compute once and reuse across all model comparisons to avoid O(N) pinyin calls
+	segPy := pinyin.LazyPinyin(segLower, pinyin.NewArgs())
+	compactSegPy := strings.Join(segPy, "")
+	if len(compactSegPy) < 3 {
+		return
+	}
+
 	for _, m := range p.models {
 		if m.Pinyin == "" {
 			continue
@@ -117,40 +194,21 @@ func (p *Parser) evalPinyinMatch(segLower, segOriginal string, best *matchCandid
 			continue
 		}
 
-		// Stored-pinyin check: the compact form appears in the segment.
 		if strings.Contains(segLower, compactStored) {
 			pos := strings.Index(segLower, compactStored)
 			score := scorePinyinFull + pinyinPosBonus(pos, len(segLower), len(compactStored))
-			updateBest(best, matchCandidate{m.Name, clampScore(score)})
+			updateBest(best, matchCandidate{m.Name, clampScore(score), compactStored, matchSourcePinyin})
 			continue
 		}
 
-		// PinyinPro check: compute pinyin for the segment's Chinese portion
-		// and compare against the model's stored pinyin.
-		if pinyinProMatch(segLower, compactStored) {
-			updateBest(best, matchCandidate{m.Name, scorePinyinPart})
+		if len(compactSegPy) >= 3 && strings.Contains(compactSegPy, compactStored) {
+			updateBest(best, matchCandidate{m.Name, scorePinyinPart, compactStored, matchSourcePinyin})
 		}
 	}
 }
 
-// pinyinProMatch uses the go-pinyin library to convert the segment text
-// to pinyin and checks whether the model's compact pinyin appears within
-// the computed result. This handles cases where the segment contains
-// Chinese characters not present in the stored pinyin field.
-func pinyinProMatch(segLower, compactModelPinyin string) bool {
-	segPy := pinyin.LazyPinyin(segLower, pinyin.NewArgs())
-	if len(segPy) == 0 {
-		return false
-	}
-	compact := strings.Join(segPy, "")
-	return len(compact) >= 3 && strings.Contains(compact, compactModelPinyin)
-}
-
-// positionBonus returns a position-based adjustment for substring matches.
-//
-//	Head (prefix): the matched text starts at byte offset 0 → +headBonus
-//	Tail (suffix): the match ends at the segment boundary → +tailPenalty
-//	Inline:        neither head nor tail → +inlineBonus (zero)
+// positionBonus returns a position-based adjustment for substring matches:
+// head matches get a bonus, tail matches get a penalty.
 func positionBonus(seg, sub string) float64 {
 	idx := strings.Index(seg, sub)
 	if idx < 0 {
@@ -165,8 +223,6 @@ func positionBonus(seg, sub string) float64 {
 	return inlineBonus
 }
 
-// pinyinPosBonus is the position-bonus variant for pinyin matches where
-// the match position is already known as a byte offset.
 func pinyinPosBonus(pos, segLen, matchLen int) float64 {
 	if pos == 0 {
 		return headBonus
@@ -181,6 +237,8 @@ func updateBest(best *matchCandidate, c matchCandidate) {
 	if c.score > best.score {
 		best.name = c.name
 		best.score = c.score
+		best.sourceKey = c.sourceKey
+		best.sourceType = c.sourceType
 	}
 }
 
@@ -195,15 +253,10 @@ var (
 	plausibleProductRE = regexp.MustCompile(`(?i)^[A-Za-z]{2,}\.\d{2,}$`)
 )
 
-// isPlausibleModelName checks whether a segment could be an unknown
-// model name. This enables the parser to discover models that are not
-// yet in the database — a critical capability since the model database
-// covers only a fraction of all possible cosplayers.
-//
-// A segment is considered plausible if it contains Han or Latin
-// characters, is not purely numeric or punctuation, has 2-40 runes,
-// does not match cosplay-tag patterns (including compound prefixes
-// like "JK制服", "Cos福利"), and is not a photo count or file size.
+// isPlausibleModelName checks whether a segment could be an unknown model
+// name, enabling discovery of models not yet in the database. A segment is
+// plausible if it contains Han or Latin characters, has 2-40 runes, and is
+// not a photo count, file size, product code, or cosplay-tag pattern.
 func isPlausibleModelName(seg string) bool {
 	seg = strings.TrimSpace(seg)
 	runes := utf8.RuneCountInString(seg)
@@ -234,32 +287,17 @@ func isPlausibleModelName(seg string) bool {
 	return true
 }
 
-// cosplaySubTerms lists cosplay-related keywords that indicate a
-// segment is metadata/description rather than a model name when
-// they appear alongside metadata markers (underscores, digits, #).
+// cosplaySubTerms are cosplay-related keywords that indicate a segment is
+// metadata rather than a model name when combined with metadata markers.
 var cosplaySubTerms = []string{"私拍", "合集", "写真", "图包", "套图", "福利", "同人"}
 
-// hasMetadataMarkers checks whether a segment contains patterns
-// typical of auto-generated metadata: underscore-digit, underscore-hash,
-// or photo/video count suffixes. These rarely appear in genuine model
-// names and help distinguish description segments from unknown models.
-//
-// Examples:
-//
-//	"白虎私拍合集_#01"  → true  (_# followed by digits)
-//	"NAGISA魔物喵"      → false (no metadata markers)
-//	"北村写真部"        → false (contains "写真" but no metadata markers)
+// metadataMarkerRE matches auto-generated metadata patterns: underscore-digit,
+// underscore-hash, or photo/video count suffixes that rarely appear in model names.
 var metadataMarkerRE = regexp.MustCompile(`[_\s]\d+|_\s*#\d+|(?i)_\d*[pPvV]`)
 
-// matchesCosplayPreamble checks whether the segment starts with a
-// known cosplay-preamble word followed by a non-letter character
-// or end of string. This filters out segments like "Cos福利与日常视图"
-// or "JK制服：少女秩序" that begin with tag-like prefixes.
-//
-// Additionally checks for cosplay-related keywords appearing as
-// substrings when the segment also contains metadata markers
-// (e.g. "白虎私拍合集_#01" → rejected because it contains "私拍"/"合集"
-// AND the metadata pattern "_#01").
+// matchesCosplayPreamble rejects segments that start with a cosplay-preamble
+// word (e.g. "Cos福利", "JK制服") followed by a non-letter character, or
+// segments containing cosplay keywords alongside metadata markers.
 func matchesCosplayPreamble(seg string) bool {
 	lower := strings.ToLower(seg)
 	preambles := []string{"cosplay", "coser", "cos", "jk", "jk制服", "cos福利", "福利", "写真", "私拍", "合集", "图包", "同人", "套图"}
@@ -275,11 +313,8 @@ func matchesCosplayPreamble(seg string) bool {
 		}
 	}
 
-	// Defense-in-depth: reject description-like segments that contain
-	// cosplay keywords AND metadata markers (e.g. "白虎私拍合集_#01").
-	// A segment with metadata markers is almost certainly auto-generated
-	// metadata, not a model name — even if a cosplay keyword appears
-	// mid-segment rather than at the start.
+	// Reject description-like segments containing cosplay keywords AND
+	// metadata markers, even when the keyword appears mid-segment.
 	if metadataMarkerRE.MatchString(lower) {
 		for _, term := range cosplaySubTerms {
 			if strings.Contains(lower, term) {
@@ -293,4 +328,13 @@ func matchesCosplayPreamble(seg string) bool {
 
 func isAlphaNum(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+func containsHan(s string) bool {
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return true
+		}
+	}
+	return false
 }

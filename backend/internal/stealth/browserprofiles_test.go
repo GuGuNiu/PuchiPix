@@ -7,14 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetAllProfiles verifies that the built-in profile list is
-// populated during init, ensuring stealth requests have identity options.
-func TestGetAllProfiles(t *testing.T) {
-	profiles := GetAllProfiles()
-	assert.NotEmpty(t, profiles)
-	assert.GreaterOrEqual(t, len(profiles), 5)
-}
-
 // TestRandomProfile verifies that a returned profile has a non-empty
 // User-Agent string, preventing empty-header requests.
 func TestRandomProfile(t *testing.T) {
@@ -57,11 +49,10 @@ func TestBuildStealthHeadersEmptyProfile(t *testing.T) {
 // profiles include sec-ch-ua client hints, matching modern browser
 // behavior that anti-bot systems check for.
 func TestBuildStealthHeadersChromeSecChUa(t *testing.T) {
-	profiles := GetAllProfiles()
 	var chromeProfile *BrowserProfile
-	for i := range profiles {
-		if profiles[i].Browser == BrowserChrome {
-			chromeProfile = &profiles[i]
+	for i := range browserProfiles {
+		if browserProfiles[i].Browser == BrowserChrome {
+			chromeProfile = &browserProfiles[i]
 			break
 		}
 	}
@@ -77,8 +68,7 @@ func TestBuildStealthHeadersChromeSecChUa(t *testing.T) {
 // profiles include sec-fetch-* headers, matching modern browser
 // navigation behavior.
 func TestBuildStealthHeadersSecFetch(t *testing.T) {
-	profiles := GetAllProfiles()
-	for _, p := range profiles {
+	for _, p := range browserProfiles {
 		if p.Browser == BrowserSafari {
 			continue
 		}

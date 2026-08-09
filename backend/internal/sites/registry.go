@@ -33,13 +33,6 @@ func (r *SiteRegistry) Register(p SiteProvider) {
 	r.providers[p.SiteID()] = p
 }
 
-// Unregister removes a provider by its site ID.
-func (r *SiteRegistry) Unregister(id string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.providers, id)
-}
-
 // GetProvider returns the provider registered under the given site ID.
 func (r *SiteRegistry) GetProvider(id string) (SiteProvider, bool) {
 	r.mu.RLock()
@@ -67,18 +60,6 @@ func (r *SiteRegistry) GetAllProviders() []SiteProvider {
 	result := make([]SiteProvider, 0, len(r.providers))
 	for _, p := range r.providers {
 		result = append(result, p)
-	}
-	return result
-}
-
-// GetEnabledProviders returns only providers whose module is enabled.
-func (r *SiteRegistry) GetEnabledProviders() []SiteProvider {
-	all := r.GetAllProviders()
-	result := make([]SiteProvider, 0, len(all))
-	for _, p := range all {
-		if mod, ok := r.GetModule(p.SiteID()); ok && mod.Enabled {
-			result = append(result, p)
-		}
 	}
 	return result
 }
@@ -117,19 +98,8 @@ func (r *SiteRegistry) GetSiteInfos() []SiteInfo {
 			Type:    mod.Type,
 			Badge:   mod.Badge,
 			Gallery: mod.Type == "photo",
+			Domains: mod.Domains,
 		})
-	}
-	return result
-}
-
-// GetEnabledSiteInfos returns site infos for enabled modules only.
-func (r *SiteRegistry) GetEnabledSiteInfos() []SiteInfo {
-	all := r.GetSiteInfos()
-	result := make([]SiteInfo, 0, len(all))
-	for _, s := range all {
-		if s.Enabled {
-			result = append(result, s)
-		}
 	}
 	return result
 }

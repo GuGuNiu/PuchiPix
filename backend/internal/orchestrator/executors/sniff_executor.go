@@ -12,18 +12,18 @@ import (
 // It wraps the site provider's M3U8 sniffing capability (via chromedp
 // network interception) and polls for completion.
 type SniffExecutor struct {
-	logger     *infra.Logger
-	// sniffFn performs the actual sniff operation. The first return value
-	// is the number of URLs discovered; the second is any error.
-	sniffFn func(ctx context.Context, url string, siteID string) (int, error)
+	logger   *infra.Logger
+	sniffFn  func(ctx context.Context, url string, siteID string) (int, error)
+	eventBus *infra.EventBus
 }
 
 // NewSniffExecutor creates a sniff executor that delegates to the
 // given sniff function (typically the universal scraper's ScrapePage).
-func NewSniffExecutor(fn func(ctx context.Context, url string, siteID string) (int, error)) *SniffExecutor {
+func NewSniffExecutor(fn func(ctx context.Context, url string, siteID string) (int, error), eventBus *infra.EventBus) *SniffExecutor {
 	return &SniffExecutor{
-		logger:  infra.NewLogger("SniffExecutor"),
-		sniffFn: fn,
+		logger:   infra.NewLogger("SniffExecutor"),
+		sniffFn:  fn,
+		eventBus: eventBus,
 	}
 }
 
@@ -40,6 +40,16 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	}
 	siteID, _ := node.Config["siteId"].(string)
 
+	sniffID := 0
+	if id, ok := node.Config["sniffId"]; ok {
+		switch v := id.(type) {
+		case int:
+			sniffID = v
+		case float64:
+			sniffID = int(v)
+		}
+	}
+
 	if e.sniffFn == nil {
 		e.logger.Warn("No sniff function registered, simulating completion",
 			"nodeId", node.NodeID, "dagId", node.DagID)
@@ -49,7 +59,6 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	e.logger.Info("Starting sniff",
 		"nodeId", node.NodeID, "dagId", node.DagID, "url", url)
 
-	// Run sniff with the node's timeout context.
 	sniffCtx, sniffCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer sniffCancel()
 
@@ -57,11 +66,25 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	if err != nil {
 		e.logger.Error("Sniff failed", err,
 			"nodeId", node.NodeID, "dagId", node.DagID)
+		if e.eventBus != nil && sniffID > 0 {
+			e.eventBus.Emit("task:failed", map[string]any{
+				"taskId":   sniffID,
+				"taskType": "sniff",
+				"error":    err.Error(),
+			})
+		}
 		return false, fmt.Errorf("sniff failed: %w", err)
 	}
 
 	e.logger.Info("Sniff completed",
 		"nodeId", node.NodeID, "dagId", node.DagID,
 		"urlsFound", found)
+	if e.eventBus != nil && sniffID > 0 {
+		e.eventBus.Emit("task:completed", map[string]any{
+			"taskId":   sniffID,
+			"taskType": "sniff",
+			"status":   "completed",
+		})
+	}
 	return true, nil
 }

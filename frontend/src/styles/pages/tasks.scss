@@ -42,15 +42,39 @@
   }
 
   .table-wrapper {
+    background: var(--bg-card);
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+
+    table {
+      /*
+       * Fix: Column width jitter when SSE fills metadata.
+       * Auto layout recalculates column widths based on content,
+       * causing visual jump when short "识别中..." text is replaced
+       * by long GalleryTitle. Fixed layout honors the width values
+       * set on th elements, preventing layout shift.
+       */
+      table-layout: fixed;
+      width: 100%;
+    }
+
     thead th {
       padding: 14px 20px;
       border-bottom: 1px solid rgba(226, 232, 240, 0.35);
+      /* Prevent header text from wrapping and shifting heights */
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     tbody {
       td {
         padding: 14px 20px;
         border-bottom: 1px solid rgba(226, 232, 240, 0.25);
+        transition: background-color 0.3s ease, color 0.2s ease;
       }
 
       tr {
@@ -63,16 +87,27 @@
           transform: none;
         }
       }
-    }
-  }
 
-  .table-wrapper {
-    background: var(--bg-card);
-    border: none;
-    border-radius: 0;
-    overflow: hidden;
-    flex: 1;
-    min-height: 0;
+      /* SSE live update — pulse animation for changed rows */
+      tr.sse-row-updated td {
+        animation: sse-row-pulse 0.6s ease-out;
+      }
+
+      /* SSE status change — stronger highlight for status transitions */
+      tr.sse-status-changed td {
+        animation: sse-status-changed 0.8s ease-out;
+      }
+
+      /* Newly inserted rows — subtle slide-in */
+      tr.sse-row-new td {
+        animation: sse-row-slide-in 0.3s ease-out;
+      }
+    }
+
+    /* Global SSE update — brief table flash to mask reorder jitter */
+    &.sse-table-updating tbody {
+      animation: sse-table-flash 0.25s ease-out;
+    }
   }
 }
 

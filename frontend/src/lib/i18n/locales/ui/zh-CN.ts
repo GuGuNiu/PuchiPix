@@ -262,6 +262,11 @@ const zhCN: TranslationDict = {
   "config.loadConfigFailed": "加载配置失败",
   "config.saveConfigFailed": "保存配置失败",
   "config.restoredDefault": "已恢复默认值",
+  "config.multiThreadSettings": "多线程下载",
+  "config.multiThreadDownload": "启用 HTTP Range 分片并发下载",
+  "config.downloadConcurrency": "分片并发数",
+  "config.downloadMaxSpeed": "限速 (MB/s, 0=不限速)",
+  "config.downloadMinFileSize": "最小文件大小 (MB)",
 
   /* ─── 嗅探 ─── */
   "sniff.title": "嗅探 M3U8 链接",

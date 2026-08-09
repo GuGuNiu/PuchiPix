@@ -255,11 +255,6 @@ func init() {
 
 var browserProfiles []BrowserProfile
 
-// GetAllProfiles returns all generated browser profiles.
-func GetAllProfiles() []BrowserProfile {
-	return browserProfiles
-}
-
 // RandomProfile returns a random browser profile for stealth requests.
 func RandomProfile() BrowserProfile {
 	if len(browserProfiles) == 0 {

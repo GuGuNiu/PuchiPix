@@ -1,6 +1,7 @@
 package universal
 
 import (
+	"encoding/base64"
 	"net/url"
 	"regexp"
 	"strings"
@@ -49,8 +50,10 @@ var (
 	// Kanav (MacCMS) title patterns. Kanav titles follow the format
 	// "在线播放 - {title} - KanAV-免费高清中文AV在线看". We strip the
 	// leading "在线播放 - " and the trailing " - {site-name}..." suffix.
+	// NOTE: kanavSuffixPattern uses .* (not [^-]*) to match the full suffix
+	// including "KanAV-免费高清中文AV在线看" (hyphen inside the suffix).
 	kanavPrefixPattern = regexp.MustCompile(`^在线播放\s*[-—丨]\s*`)
-	kanavSuffixPattern = regexp.MustCompile(`\s*[-—丨]\s*KanAV[^-]*$`)
+	kanavSuffixPattern = regexp.MustCompile(`\s*[-—丨]\s*KanAV.*$`)
 	m3u8ExtPattern       = regexp.MustCompile(`\.m3u8|\.m3u`)
 	resolutionPattern    = regexp.MustCompile(`(?i)(\d{3,4})x(\d{3,4})`)
 	resKeywordPatterns   = []struct {
@@ -86,6 +89,54 @@ func CleanTitle(rawTitle string) string {
 		title = pat.ReplaceAllString(title, "")
 	}
 	return title
+}
+
+// base64CharsetPattern matches strings that look like base64-encoded data.
+var base64CharsetPattern = regexp.MustCompile(`^[A-Za-z0-9+/=]{20,}$`)
+
+// DecodeMacCMSURL decodes MacCMS-style encoded M3U8 URLs.
+// MacCMS (used by Kanav and similar sites) encodes URLs as
+// base64(url_encode(actual_url)). This function detects and decodes
+// that pattern, returning the original URL. If the input is not
+// encoded, it returns the input unchanged.
+func DecodeMacCMSURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return rawURL
+	}
+
+	// Already a valid HTTP(S) URL — no decoding needed.
+	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
+		return rawURL
+	}
+
+	// Check if it looks like base64.
+	if !base64CharsetPattern.MatchString(rawURL) {
+		return rawURL
+	}
+
+	// Try base64 decode.
+	decoded, err := base64.StdEncoding.DecodeString(rawURL)
+	if err != nil {
+		return rawURL
+	}
+
+	decodedStr := string(decoded)
+
+	// If the base64-decoded result contains URL-encoded characters,
+	// URL-decode it to get the actual URL.
+	if strings.Contains(decodedStr, "%") {
+		if unescaped, err := url.QueryUnescape(decodedStr); err == nil {
+			return unescaped
+		}
+	}
+
+	// If the decoded result is already a valid URL, return it.
+	if strings.HasPrefix(decodedStr, "http://") || strings.HasPrefix(decodedStr, "https://") {
+		return decodedStr
+	}
+
+	return rawURL
 }
 
 // DeduplicateM3U8 removes M3U8 URLs that differ only in query or

@@ -203,6 +203,63 @@ func main() {
 		// dag:nodeProgress events for real-time gallery DAG progress.
 		dagOrch.SetEventBus(eventBus)
 
+		// 5d. Node-level DB status sync: push terminal FSM states back to
+		// the entity tables (galleries / download_tasks / sniff_tasks).
+		// This closes the gap where the FSM reached failed while the DB
+		// stayed at a transient status (deferred "Phase 4" TODO from
+		// TransitionNode). The entity table is chosen via the node's
+		// config (galleryId/taskId/sniffId), and only transitions TO a
+		// terminal state are written — transient states remain owned by
+		// the executors. Best-effort: failures are logged, never fatal.
+		dagOrch.SetStatusSyncFn(func(ctx context.Context, dagID, nodeID string, nodeDef orchestrator.DagNodeDefinition, state orchestrator.NodeState) {
+			if !orchestrator.IsTerminalState(state) {
+				return
+			}
+			dbStatus := ""
+			switch state {
+			case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout:
+				dbStatus = "failed"
+			case orchestrator.NodeStateCancelled:
+				dbStatus = "cancelled"
+			default:
+				// completed is written by the executors with richer data
+				// (file counts, paths); do not clobber it here.
+				return
+			}
+			switch {
+			case nodeDef.Config["galleryId"] != nil:
+				gid, _ := nodeDef.Config["galleryId"].(int)
+				if gid > 0 {
+					_, err := database.Exec(ctx,
+						`UPDATE galleries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						dbStatus, gid)
+					if err != nil {
+						logger.Warn("Node status sync failed (gallery)", "galleryId", gid, "error", err.Error())
+					}
+				}
+			case nodeDef.Config["taskId"] != nil:
+				tid, _ := nodeDef.Config["taskId"].(int)
+				if tid > 0 {
+					_, err := database.Exec(ctx,
+						`UPDATE download_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						dbStatus, tid)
+					if err != nil {
+						logger.Warn("Node status sync failed (video)", "taskId", tid, "error", err.Error())
+					}
+				}
+			case nodeDef.Config["sniffId"] != nil:
+				sid, _ := nodeDef.Config["sniffId"].(int)
+				if sid > 0 {
+					_, err := database.Exec(ctx,
+						`UPDATE sniff_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						dbStatus, sid)
+					if err != nil {
+						logger.Warn("Node status sync failed (sniff)", "sniffId", sid, "error", err.Error())
+					}
+				}
+			}
+		})
+
 		// 6. SchedulerEngine ??node selection and dispatch
 		sched = orchsched.NewSchedulerEngine(slotPool)
 

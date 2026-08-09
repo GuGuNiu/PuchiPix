@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GalleryData, DownloadTask, TaskStatus } from '@/types';
+import type { GalleryData, DownloadTask } from '@/types';
 import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
 import { createLogger } from '@/lib/core/infra';
 
@@ -41,7 +41,7 @@ interface GalleryStore {
   subscribeToSocket: () => () => void;
 }
 
-function mapTaskStatusToGallery(status: TaskStatus): string {
+function mapTaskStatusToGallery(status: string): string {
   switch (status) {
     case 'completed':
       return 'completed';
@@ -146,7 +146,43 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       // Go backend returns a bare array, TS backend wrapped in { data: [...] }
       const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
       const list: GalleryData[] = raw.map(normalizeGallery);
-      set({ galleries: list, loading: false });
+
+      /*
+       * Populate progressMap from the API response. The backend currently
+       * returns a flat numeric `progress` (0-100) per gallery; the TS-era
+       * contract was a nested Progress {completedFiles, totalFiles, ...}.
+       * Support both so the progress bar initializes without waiting for
+       * the first SSE task:progress event.
+       */
+      const initProgress: Record<number, GalleryProgress> = {};
+      for (const item of raw as Record<string, unknown>[]) {
+        const id = (item.id ?? item.ID) as number;
+        const nested = item.Progress as { completedFiles?: number; totalFiles?: number; failed?: number } | undefined;
+        if (nested && typeof nested === 'object' && (nested.totalFiles ?? 0) > 0) {
+          initProgress[id] = {
+            galleryId: id,
+            completed: nested.completedFiles ?? 0,
+            total: nested.totalFiles ?? 0,
+            failed: nested.failed ?? 0,
+          };
+        } else {
+          /*
+           * Flat numeric progress: map a 0-100 percentage onto a
+           * synthetic {completed, total} pair (total=100).
+           */
+          const flat = item.progress ?? item.Progress;
+          if (typeof flat === 'number' && flat > 0) {
+            initProgress[id] = {
+              galleryId: id,
+              completed: Math.min(Math.round(flat), 100),
+              total: 100,
+              failed: 0,
+            };
+          }
+        }
+      }
+
+      set({ galleries: list, progressMap: initProgress, loading: false });
     } catch {
       set({ loading: false });
     }
@@ -164,8 +200,13 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
 
       if (!detailRes.ok) return null;
       const data = await detailRes.json();
-      // Go backend returns bare object, TS backend wrapped in { data: {...} }
-      const raw = data?.data ?? (data?.id ? data : null);
+      /*
+       * Go backend returns a bare PascalCase object (e.g. {ID, SourceURL});
+       * the TS-era backend wrapped it in { data: {...} }. Normalize both:
+       * unwrap a wrapper ONLY when it actually contains a nested object.
+       */
+      const hasNested = data?.data && typeof data.data === 'object' && !Array.isArray(data.data);
+      const raw = hasNested ? data.data : (data?.ID !== undefined || data?.id !== undefined ? data : null);
       const gallery: GalleryData | null = raw ? normalizeGallery(raw) : null;
 
       if (gallery && imagesRes.ok) {
@@ -340,16 +381,14 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
 
           // Populate progressMap with completed/total counts for the progress bar.
           if (payload.total !== undefined && payload.total > 0) {
+            const progress: GalleryProgress = {
+              galleryId: payload.taskId,
+              completed: payload.completed ?? 0,
+              total: payload.total,
+              failed: payload.failed ?? 0,
+            };
             set((s) => ({
-              progressMap: {
-                ...s.progressMap,
-                [payload.taskId]: {
-                  galleryId: payload.taskId,
-                  completed: payload.completed ?? 0,
-                  total: payload.total,
-                  failed: payload.failed ?? 0,
-                },
-              },
+              progressMap: { ...s.progressMap, [payload.taskId]: progress },
             }));
           }
         } catch (err) {
@@ -359,91 +398,125 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     );
 
     unsubs.push(
-      subscribeSseEvent('patch', (e: MessageEvent) => {
+      /*
+       * Task:completed — gallery emits {taskId, taskType, status} where
+       * status is "completed"|"partial". Was: "patch" (changes.Status).
+       */
+      subscribeSseEvent('task:completed', (e: MessageEvent) => {
         try {
-          const { id, taskType, changes } = JSON.parse(e.data) as {
-            id: number;
-            taskType: string;
-            changes: Partial<DownloadTask>;
+          const payload = JSON.parse(e.data) as {
+            taskId: number;
+            taskType?: string;
+            status?: string;
           };
-          if (taskType !== 'gallery') return;
-
-          if (changes.Status) {
-            const galleryStatus = mapTaskStatusToGallery(changes.Status);
-            set((s) => ({
-              galleries: s.galleries.map((g) =>
-                g.ID === id ? { ...g, Status: galleryStatus } : g,
-              ),
-            }));
-          }
-
-          if (changes.GalleryProgressInfo) {
-            const info = changes.GalleryProgressInfo;
-            set((s) => ({
-              progressMap: {
-                ...s.progressMap,
-                [id]: { galleryId: id, completed: info.completed, total: info.total, failed: info.failed },
-              },
-            }));
-          }
-
-          if (changes.GalleryZipProgressInfo) {
-            const info = changes.GalleryZipProgressInfo;
-            set((s) => ({
-              zipProgressMap: {
-                ...s.zipProgressMap,
-                [id]: { galleryId: id, downloaded: info.downloaded, total: info.total, percent: info.percent },
-              },
-            }));
-          }
-
-          if (changes.GalleryZipStatus) {
-            const zipStatus = changes.GalleryZipStatus as ZipStatus;
-            set((s) => ({
-              zipStatusMap: { ...s.zipStatusMap, [id]: zipStatus },
-            }));
-          }
-        } catch (err) {
-          logger.warn('SSE patch parse failed', { error: err instanceof Error ? err.message : String(err) });
-        }
-      }),
-    );
-
-    unsubs.push(
-      subscribeSseEvent('upsert', (e: MessageEvent) => {
-        try {
-          const task = JSON.parse(e.data) as DownloadTask;
-          if (task.TaskType !== 'gallery') return;
-          get().fetchGalleryDetail(task.ID);
-        } catch (err) {
-          logger.warn('SSE upsert parse failed', { error: err instanceof Error ? err.message : String(err) });
-        }
-      }),
-    );
-
-    unsubs.push(
-      subscribeSseEvent('delete', (e: MessageEvent) => {
-        try {
-          const { id, taskType } = JSON.parse(e.data) as {
-            id: number;
-            taskType: string;
-          };
-          if (taskType !== 'gallery') return;
+          if (payload.taskType && payload.taskType !== 'gallery') return;
+          const galleryStatus = mapTaskStatusToGallery(payload.status || 'completed');
           set((s) => ({
-            galleries: s.galleries.filter((g) => g.ID !== id),
-            progressMap: (() => {
-              const next = { ...s.progressMap };
-              delete next[id];
-              return next;
-            })(),
-            zipStatusMap: (() => {
-              const next = { ...s.zipStatusMap };
-              delete next[id];
-              return next;
-            })(),
+            galleries: s.galleries.map((g) =>
+              g.ID === payload.taskId ? { ...g, Status: galleryStatus } : g,
+            ),
           }));
         } catch (err) {
-          logger.warn('SSE delete parse failed', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE task:completed parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Task:failed — only emitted by the video path {taskId, error};
+       * apply defensively to a matching gallery id so failed galleries
+       * surface without a refresh.
+       */
+      subscribeSseEvent('task:failed', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as { taskId: number; error?: string };
+          set((s) => ({
+            galleries: s.galleries.map((g) =>
+              g.ID === payload.taskId ? { ...g, Status: 'failed' } : g,
+            ),
+          }));
+        } catch (err) {
+          logger.warn('SSE task:failed parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Gallery:created — PascalCase map {ID, SourceURL, SiteID, Status,
+       * DagID, DisplayID}. Fetch full detail so the new gallery appears
+       * in the shelf without a refresh. Was: "upsert".
+       */
+      subscribeSseEvent('gallery:created', (e: MessageEvent) => {
+        try {
+          const raw = JSON.parse(e.data) as { ID: number; TaskType?: string };
+          if (!raw.ID) return;
+          get().fetchGalleryDetail(raw.ID);
+        } catch (err) {
+          logger.warn('SSE gallery:created parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Gallery:stateChanged — DAG 失败/完成时画廊状态变更，
+       * 解析 dagId 提取 galleryId 并实时更新画廊状态。
+       */
+      subscribeSseEvent('gallery:stateChanged', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as {
+            dagId: string;
+            status: string;
+            // Backend carries galleryId directly since DAG IDs were
+            // unified to 6-char random codes (260804); parsing "gallery-"
+            // prefixes from dagId no longer works.
+            galleryId?: number;
+          };
+          let galleryId = payload.galleryId ?? NaN;
+          if (isNaN(galleryId) && payload.dagId.startsWith('gallery-')) {
+            galleryId = parseInt(payload.dagId.replace('gallery-', ''), 10);
+          }
+          if (isNaN(galleryId)) return;
+          set((s) => ({
+            galleries: s.galleries.map((g) =>
+              g.ID === galleryId ? { ...g, Status: mapTaskStatusToGallery(payload.status) } : g,
+            ),
+          }));
+        } catch (err) {
+          logger.warn('SSE gallery:stateChanged parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Task:cancelled — payload is only {taskId} (no taskType). Only
+       * act when a matching gallery exists in the current list.
+       * Was: "delete".
+       */
+      subscribeSseEvent('task:cancelled', (e: MessageEvent) => {
+        try {
+          const { taskId } = JSON.parse(e.data) as { taskId: number };
+          set((s) => {
+            if (!s.galleries.some((g) => g.ID === taskId)) return s;
+            return {
+              galleries: s.galleries.filter((g) => g.ID !== taskId),
+              progressMap: (() => {
+                const next = { ...s.progressMap };
+                delete next[taskId];
+                return next;
+              })(),
+              zipStatusMap: (() => {
+                const next = { ...s.zipStatusMap };
+                delete next[taskId];
+                return next;
+              })(),
+            };
+          });
+        } catch (err) {
+          logger.warn('SSE task:cancelled parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );

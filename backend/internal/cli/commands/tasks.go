@@ -92,12 +92,21 @@ func tasksList(ctx CommandContext) error {
 			displayID = *t.DisplayID
 		}
 		statusPill := taskStatusPill(t.Status)
-		fmt.Printf("  %s#%d%s [%s] %s  %s%.0f%%%s  %s\n",
+		title := t.GalleryTitle
+		if title == "" {
+			title = t.URL
+		}
+		person := t.Person
+		if person == "null" || person == "" {
+			person = "\u2014"
+		}
+		fmt.Printf("  %s#%d%s [%s] %s  %s  %s%.0f%%%s  %s\n",
 			ui.Bold, t.ID, ui.Reset,
 			displayID,
+			person,
 			statusPill,
 			ui.Cyan, t.Progress, ui.Reset,
-			ui.Truncate(t.URL, 50))
+			ui.Truncate(title, 50))
 		if t.ErrorMsg != "" {
 			fmt.Printf("    %sError: %s%s\n", ui.Red, ui.Truncate(t.ErrorMsg, 60), ui.Reset)
 		}
@@ -148,6 +157,14 @@ func tasksDetail(ctx CommandContext) error {
 	fmt.Printf("  %sDisplayID%s:  %s\n", ui.Bold, ui.Reset, displayID)
 	fmt.Printf("  %sStatus%s:     %s\n", ui.Bold, ui.Reset, taskStatusPill(task.Status))
 	fmt.Printf("  %sProgress%s:   %.1f%%\n", ui.Bold, ui.Reset, task.Progress)
+	if task.GalleryTitle != "" {
+		fmt.Printf("  %sTitle%s:      %s\n", ui.Bold, ui.Reset, task.GalleryTitle)
+	}
+	person := task.Person
+	if person == "null" || person == "" {
+		person = "\u2014"
+	}
+	fmt.Printf("  %sPerson%s:     %s\n", ui.Bold, ui.Reset, person)
 	fmt.Printf("  %sURL%s:        %s\n", ui.Bold, ui.Reset, task.URL)
 	if task.M3U8URL != "" {
 		fmt.Printf("  %sM3U8 URL%s:   %s\n", ui.Bold, ui.Reset, task.M3U8URL)

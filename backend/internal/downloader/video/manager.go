@@ -33,14 +33,15 @@ type ProgressMessage struct {
 // decoupled from the database model so callers can construct it from
 // any source.
 type DownloadTaskInput struct {
-	ID         int
-	M3U8URL    string
-	PageURL    string
-	Title      string
-	Tags       []string
-	Actors     []string
-	Categories []string
-	Director   string
+ID             int
+M3U8URL        string
+PageURL        string
+Title          string
+Tags           []string
+Actors         []string
+Categories     []string
+Director       string
+RefererDomains []string // candidate referer domains for CDN anti-hotlink bypass
 }
 
 // ManagerConfig holds the tunable parameters for a DownloadManager.
@@ -56,8 +57,8 @@ type ManagerConfig struct {
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
 		MaxRetries:    5,
-		DownloadPath:  "./data/videos",
-		SegmentsPath:  "./data/segments",
+		DownloadPath:  "../data/videos",
+		SegmentsPath:  "../data/segments",
 		MaxConcurrent: 3,
 	}
 }
@@ -94,10 +95,10 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		cfg.MaxRetries = 5
 	}
 	if cfg.DownloadPath == "" {
-		cfg.DownloadPath = "./data/videos"
+		cfg.DownloadPath = "../data/videos"
 	}
 	if cfg.SegmentsPath == "" {
-		cfg.SegmentsPath = "./data/segments"
+		cfg.SegmentsPath = "../data/segments"
 	}
 	if cfg.MaxConcurrent == 0 {
 		cfg.MaxConcurrent = 3
@@ -234,13 +235,29 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 		referer = ""
 	}
 
+	// Build a list of fallback referer domains for CDN anti-hotlink bypass.
+	// Many CDNs (e.g. 11yun.space used by Kanav) check the Referer header
+	// and reject requests with a Referer from a non-whitelisted domain.
+	// When the original page URL's domain is blocked by the CDN, we try
+	// other known mirror domains from the site's configuration.
+	var refererDomains []string
+	if len(task.RefererDomains) > 0 {
+		for _, d := range task.RefererDomains {
+			// Skip the domain already used as the primary referer.
+			if referer != "" && strings.Contains(referer, d) {
+				continue
+			}
+			refererDomains = append(refererDomains, d)
+		}
+	}
+
 	defer func() {
 		m.mu.Lock()
 		delete(m.activeDownloads, task.ID)
 		m.mu.Unlock()
 	}()
 
-	if perr := m.runDownload(ctx, task, referer, segDir, mp4OutputPath, tsOutputPath); perr != nil {
+	if perr := m.runDownload(ctx, task, referer, refererDomains, segDir, mp4OutputPath, tsOutputPath); perr != nil {
 		m.handleDownloadError(ctx, task, perr)
 		return perr
 	}
@@ -248,47 +265,40 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 	return nil
 }
 
-func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInput, referer, segDir, mp4OutputPath, tsOutputPath string) error {
+func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInput, referer string, refererDomains []string, segDir, mp4OutputPath, tsOutputPath string) error {
 	m.logger.Info("Fetching M3U8 playlist",
 		infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
 
-	m3u8Content, err := FetchM3U8Content(ctx, task.M3U8URL, referer)
+	// Use the unified M3U8 pipeline component for fetch + parse +
+	// variant selection. This replaces the previously inline logic
+	// that was duplicated across the independent video pipeline
+	// (manager.go) and the gallery video pipeline (gallery_download.go).
+	fetchResult, err := FetchAndParseM3U8(ctx, task.M3U8URL, M3U8FetchOptions{
+		Referer:         referer,
+		FallbackDomains: refererDomains,
+	})
 	if err != nil {
-		return fmt.Errorf("fetch M3U8 content: %w", err)
+		return err
 	}
 
-	playlist := ParseM3U8(m3u8Content, task.M3U8URL)
+	// Use the effective referer (may differ from the original if a
+	// fallback domain was accepted by the CDN) for all subsequent
+	// segment downloads.
+	referer = fetchResult.EffectiveReferer
+	segments := fetchResult.Segments
 
-	var segments []M3U8Segment
-	if playlist.IsMaster && len(playlist.Variants) > 0 {
-		variantURL := SelectBestVariant(playlist.Variants)
-		if variantURL == "" {
-			return fmt.Errorf("no valid variant found in master playlist")
-		}
+	if fetchResult.IsMaster {
 		m.logger.Info("Selected variant from master playlist",
 			infra.LogContext{Extra: map[string]any{
-				"taskId":    task.ID,
-				"variant": variantURL,
+				"taskId":  task.ID,
+				"variant": fetchResult.VariantURL,
 			}})
-
-		variantContent, err := FetchM3U8Content(ctx, variantURL, referer)
-		if err != nil {
-			return fmt.Errorf("fetch variant playlist: %w", err)
-		}
-		variantPlaylist := ParseM3U8(variantContent, variantURL)
-		segments = variantPlaylist.Segments
-	} else {
-		segments = playlist.Segments
-	}
-
-	if len(segments) == 0 {
-		return fmt.Errorf("no segments found in M3U8 playlist")
 	}
 
 	m.logger.Info("Segments to download",
 		infra.LogContext{Extra: map[string]any{
-			"taskId":  task.ID,
-			"count":   len(segments),
+			"taskId": task.ID,
+			"count":  len(segments),
 		}})
 
 	// Register segments with the VideoProgressTracker for segment-level
@@ -477,6 +487,18 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			}})
 	}
 
+	// Emit task:metadata so SSE clients receive the final title and
+	// actors as soon as the download completes, without waiting for
+	// the 10s polling fallback.
+	if m.eventBus != nil {
+		m.eventBus.Emit("task:metadata", map[string]any{
+			"taskId":       task.ID,
+			"taskType":     "video",
+			"GalleryTitle": task.Title,
+			"Person":       strings.Join(task.Actors, ", "),
+		})
+	}
+
 	completeCtx, completeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer completeCancel()
 	_, _ = m.db.Exec(completeCtx,
@@ -578,8 +600,9 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 
 	if m.eventBus != nil {
 		m.eventBus.Emit("task:failed", map[string]any{
-			"taskId": task.ID,
-			"error":  errMsg,
+			"taskId":   task.ID,
+			"taskType": "video",
+			"error":    errMsg,
 		})
 	}
 
@@ -689,7 +712,10 @@ func (m *DownloadManager) CancelDownload(taskID int) {
 	m.emitProgress(taskID, 0, 0, 0, "cancelled", "")
 
 	if m.eventBus != nil {
-		m.eventBus.Emit("task:cancelled", map[string]any{"taskId": taskID})
+		m.eventBus.Emit("task:cancelled", map[string]any{
+			"taskId":   taskID,
+			"taskType": "video",
+		})
 	}
 
 	m.mu.Lock()
@@ -750,10 +776,22 @@ func (m *DownloadManager) Stop() {
 	wg.Wait()
 }
 
+// marshalOrEmpty serializes a string slice to JSON, returning "[]" for
+// nil slices instead of "null" (the default json.Marshal(nil) output).
+// This prevents the string "null" from being stored in database columns
+// that expect JSON arrays.
+func marshalOrEmpty(s []string) []byte {
+	if s == nil {
+		return []byte("[]")
+	}
+	b, _ := json.Marshal(s)
+	return b
+}
+
 func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath string, fileSize int64, durationMinutes float64, resolution string) error {
-	tagsJSON, _ := json.Marshal(task.Tags)
-	actorsJSON, _ := json.Marshal(task.Actors)
-	categoriesJSON, _ := json.Marshal(task.Categories)
+	tagsJSON := marshalOrEmpty(task.Tags)
+	actorsJSON := marshalOrEmpty(task.Actors)
+	categoriesJSON := marshalOrEmpty(task.Categories)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

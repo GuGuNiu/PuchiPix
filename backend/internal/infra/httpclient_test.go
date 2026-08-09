@@ -71,15 +71,6 @@ func TestHTTPClientRedirectLimit(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, resp.StatusCode, "should not reach the final handler after >10 redirects")
 }
 
-// TestDefaultHeaders verifies that default headers include a realistic
-// User-Agent and Accept-Language, reducing the chance of basic blocks.
-func TestDefaultHeaders(t *testing.T) {
-	h := DefaultHeaders()
-	assert.NotEmpty(t, h.Get("User-Agent"))
-	assert.Contains(t, h.Get("Accept-Language"), "zh-CN")
-	assert.Contains(t, h.Get("Accept"), "text/html")
-}
-
 // TestHTTPClientTimeoutEnforced verifies that the client timeout
 // actually fires when the server is slow to respond.
 func TestHTTPClientTimeoutEnforced(t *testing.T) {

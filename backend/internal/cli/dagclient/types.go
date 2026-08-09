@@ -269,6 +269,62 @@ type SlotStatusResponse struct {
 	DownloadConcurrency DownloadConcurrency  `json:"downloadConcurrency"`
 }
 
+// apiSlotItem matches the per-type entry returned by GET /api/slots.
+type apiSlotItem struct {
+	SlotType    string  `json:"slotType"`
+	Current     int     `json:"current"`
+	Max         int     `json:"max"`
+	Available   int     `json:"available"`
+	Utilization float64 `json:"utilization"`
+	Status      string  `json:"status"`
+}
+
+// apiSlotListResponse matches the actual GET /api/slots response shape
+// (slots array + scheduler queue stats). The old SlotStatusResponse
+// struct expected {snapshot, stats, downloadConcurrency}, which the Go
+// backend never returned, so the CLI slots command showed empty data.
+// Custom UnmarshalJSON bridges both shapes (260802-style dual-format).
+type apiSlotListResponse struct {
+	Slots              []apiSlotItem     `json:"slots"`
+	QueueSize          int               `json:"queueSize"`
+	ByPriority         map[string]int    `json:"byPriority"`
+	ByTaskType         map[string]int    `json:"byTaskType"`
+	SchedulerStrategy  string            `json:"schedulerStrategy"`
+	// legacy fields, ignored but kept for shape documentation
+	Snapshot           map[string]SlotUsage `json:"snapshot"`
+	Stats              SlotStats            `json:"stats"`
+	DownloadConcurrency DownloadConcurrency `json:"downloadConcurrency"`
+}
+
+// UnmarshalJSON accepts both the Go backend's {slots: [...]} shape and
+// the legacy {snapshot: {...}} shape, normalizing into SlotStatusResponse
+// so CLI consumers work regardless of backend version.
+func (r *SlotStatusResponse) UnmarshalJSON(data []byte) error {
+	var modern apiSlotListResponse
+	if err := json.Unmarshal(data, &modern); err != nil {
+		return err
+	}
+	r.Stats = modern.Stats
+	r.DownloadConcurrency = modern.DownloadConcurrency
+
+	// Modern path: normalize the slots array into the Snapshot map.
+	if modern.Slots != nil {
+		r.Snapshot = make(map[string]SlotUsage, len(modern.Slots))
+		for _, item := range modern.Slots {
+			r.Snapshot[item.SlotType] = SlotUsage{
+				SlotType:  item.SlotType,
+				Current:   item.Current,
+				Max:       item.Max,
+				Available: item.Available,
+			}
+		}
+		return nil
+	}
+	// Legacy path: snapshot map is provided directly.
+	r.Snapshot = modern.Snapshot
+	return nil
+}
+
 // LogEntry matches the Go backend StructuredLogEntry JSON output. The
 // Context field is decoded as a generic map because the backend LogContext
 // struct lacks JSON tags, producing PascalCase keys (TraceID, DagID, etc.)
@@ -469,19 +525,21 @@ type SiteInfo struct {
 // DownloadTask matches the backend db.DownloadTask JSON output.
 // JSON tags use PascalCase to match the backend contract.
 type DownloadTask struct {
-	ID        int     `json:"ID"`
-	URL       string  `json:"URL"`
-	M3U8URL   string  `json:"M3U8URL"`
-	Status    string  `json:"Status"`
-	Progress  float64 `json:"Progress"`
-	FilePath  string  `json:"FilePath"`
-	Format    string  `json:"Format"`
-	Priority  int     `json:"Priority"`
-	ErrorMsg  string  `json:"ErrorMsg"`
-	SiteID    string  `json:"SiteID"`
-	DisplayID *string `json:"DisplayID"`
-	CreatedAt string  `json:"CreatedAt"`
-	UpdatedAt string  `json:"UpdatedAt"`
+	ID           int     `json:"ID"`
+	URL          string  `json:"URL"`
+	M3U8URL      string  `json:"M3U8URL"`
+	Status       string  `json:"Status"`
+	Progress     float64 `json:"Progress"`
+	FilePath     string  `json:"FilePath"`
+	Format       string  `json:"Format"`
+	Priority     int     `json:"Priority"`
+	ErrorMsg     string  `json:"ErrorMsg"`
+	SiteID       string  `json:"SiteID"`
+	DisplayID    *string `json:"DisplayID"`
+	CreatedAt    string  `json:"CreatedAt"`
+	UpdatedAt    string  `json:"UpdatedAt"`
+	GalleryTitle string  `json:"GalleryTitle"`
+	Person       string  `json:"Person"`
 }
 
 // TaskActionRequest is the body for POST /api/tasks/{id}.
@@ -577,6 +635,14 @@ type SlotUpdateResponse struct {
 	SlotType  string `json:"slotType"`
 	Current   int    `json:"current"`
 	Max       int    `json:"max"`
+	Available int    `json:"available"`
+}
+
+// SlotResetResponse matches the DELETE /api/slots/{type} response.
+type SlotResetResponse struct {
+	SlotType  string `json:"slotType"`
+	Reset     bool   `json:"reset"`
+	Current   int    `json:"current"`
 	Available int    `json:"available"`
 }
 

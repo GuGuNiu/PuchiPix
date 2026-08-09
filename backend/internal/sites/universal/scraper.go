@@ -2,6 +2,7 @@ package universal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -320,10 +321,34 @@ func tagsExtractorJS() string {
 	`
 }
 
+// actorsExtractorJS extracts actor/model names from the page.
+// Primary source: player_aaaa.vod_data.vod_actor (Kanav/MacCMS).
+// Fallback: generic DOM CSS selectors (.actor a, .model a, etc.).
 func actorsExtractorJS() string {
 	return `
 		(function() {
 			const actorList = [];
+			// Primary: Kanav/MacCMS player_aaaa.vod_data.vod_actor
+			try {
+				const scripts = document.querySelectorAll('script');
+				for (const script of scripts) {
+					const content = script.textContent || '';
+					const match = content.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\});/);
+					if (match) {
+						try {
+							const pd = JSON.parse(match[1]);
+							if (pd.vod_data && pd.vod_data.vod_actor) {
+								pd.vod_data.vod_actor.split(/[,，、\/\|&]/).forEach(function(a) {
+									a = a.trim();
+									if (a) actorList.push(a);
+								});
+							}
+						} catch {}
+						break;
+					}
+				}
+			} catch {}
+			// Fallback: generic DOM selectors
 			const selectors = [
 				'.actor a', '.actors a', '.star a', '.stars a',
 				'.cast a', '.performer a', '.model a',
@@ -365,6 +390,14 @@ func jsM3U8ScannerJS() string {
 					if (decoded.includes('.m3u8') || decoded.includes('.m3u')) {
 						urls.push(decoded);
 					}
+					// MacCMS double-encoding: base64(url_encode(url))
+					// atob gives URL-encoded string, need decodeURIComponent too
+					try {
+						const doubleDecoded = decodeURIComponent(decoded);
+						if (doubleDecoded !== decoded && (doubleDecoded.includes('.m3u8') || doubleDecoded.includes('.m3u'))) {
+							urls.push(doubleDecoded);
+						}
+					} catch {}
 				} catch {}
 			};
 			try {
@@ -432,6 +465,13 @@ func iframeM3U8ScannerJS() string {
 									if (decoded.includes('.m3u8') || decoded.includes('.m3u')) {
 										urls.push(decoded);
 									}
+									// MacCMS double-encoding: base64(url_encode(url))
+									try {
+										const doubleDecoded = decodeURIComponent(decoded);
+										if (doubleDecoded !== decoded && (doubleDecoded.includes('.m3u8') || doubleDecoded.includes('.m3u'))) {
+											urls.push(doubleDecoded);
+										}
+									} catch {}
 								} catch {}
 							}
 						} catch {}
@@ -592,10 +632,12 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 	var m3u8URLs []string
 
 	// 1. player_aaaa JSON (Kanav/MacCMS).
+	// MacCMS encodes the M3U8 URL as base64(url_encode(actual_url)).
+	// We decode it here so downstream code gets a real HTTP URL.
 	for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
 		if len(m) >= 2 {
 			if urlMatch := regexp.MustCompile(`"url"\s*:\s*"([^"]+)"`).FindStringSubmatch(m[1]); len(urlMatch) >= 2 {
-				m3u8URLs = append(m3u8URLs, urlMatch[1])
+				m3u8URLs = append(m3u8URLs, DecodeMacCMSURL(urlMatch[1]))
 			}
 		}
 	}
@@ -658,18 +700,57 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 	}
 
 	// Actors/Director from player_aaaa JSON in raw HTML.
+	// Use json.Unmarshal instead of regex to properly decode Unicode
+	// escape sequences (\uXXXX) in MacCMS JSON values. The previous
+	// regex approach captured literal \uXXXX text without decoding,
+	// causing double-escaping when the value was later re-serialized.
 	for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
 		if len(m) >= 2 {
 			raw := m[1]
-			if actorMatch := regexp.MustCompile(`"vod_actor"\s*:\s*"([^"]+)"`).FindStringSubmatch(raw); len(actorMatch) >= 2 {
-				for _, a := range strings.Split(actorMatch[1], ",") {
+			var pd struct {
+				VodData struct {
+					Actor    string `json:"vod_actor"`
+					Director string `json:"vod_director"`
+					Name     string `json:"vod_name"`
+				} `json:"vod_data"`
+			}
+			if err := json.Unmarshal([]byte(raw), &pd); err == nil {
+				// json.Unmarshal properly decodes \uXXXX sequences.
+				for _, a := range strings.Split(pd.VodData.Actor, ",") {
 					if a = strings.TrimSpace(a); a != "" {
 						actors = append(actors, a)
 					}
 				}
-			}
-			if dirMatch := regexp.MustCompile(`"vod_director"\s*:\s*"([^"]+)"`).FindStringSubmatch(raw); len(dirMatch) >= 2 {
-				director = strings.TrimSpace(dirMatch[1])
+				if director == "" {
+					director = strings.TrimSpace(pd.VodData.Director)
+				}
+				// Use vod_name as title fallback if title is empty.
+				if title == "" && pd.VodData.Name != "" {
+					title = CleanTitle(strings.TrimSpace(pd.VodData.Name))
+				}
+			} else {
+				// Fallback: regex extraction if JSON parsing fails.
+				// Wrap the captured value in quotes and json.Unmarshal
+				// it as a JSON string to properly decode \uXXXX escapes.
+				if actorMatch := regexp.MustCompile(`"vod_actor"\s*:\s*"([^"]+)"`).FindStringSubmatch(raw); len(actorMatch) >= 2 {
+					for _, a := range strings.Split(actorMatch[1], ",") {
+						if a = strings.TrimSpace(a); a != "" {
+							var decoded string
+							if err := json.Unmarshal([]byte("\""+a+"\""), &decoded); err == nil {
+								a = decoded
+							}
+							actors = append(actors, a)
+						}
+					}
+				}
+				if dirMatch := regexp.MustCompile(`"vod_director"\s*:\s*"([^"]+)"`).FindStringSubmatch(raw); len(dirMatch) >= 2 {
+					var decoded string
+					if err := json.Unmarshal([]byte("\""+dirMatch[1]+"\""), &decoded); err == nil {
+						director = strings.TrimSpace(decoded)
+					} else {
+						director = strings.TrimSpace(dirMatch[1])
+					}
+				}
 			}
 		}
 	}

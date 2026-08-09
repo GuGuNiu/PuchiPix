@@ -3,6 +3,7 @@ import { Terminal, AlertTriangle, XCircle, Info, Bug, Trash2, Pause, Play } from
 import { formatTime } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import type { TranslationKey } from "@/lib/i18n";
+import { SseConnection } from "@/lib/sse/sse-connection";
 
 interface LogEntry {
   id?: string;
@@ -21,6 +22,29 @@ interface LogEntry {
 
 interface LogConsoleProps {
   maxHeight?: number;
+}
+
+/*
+ * Go backend serializes LogContext as a nested {context: {dagId, nodeId,
+ * traceId, ...}} object; the frontend reads these at the top level.
+ * Flatten the nested context onto the entry so dag/node/trace tags render
+ * (F8).
+ */
+function flattenLogContext(raw: Record<string, unknown>): Record<string, unknown> {
+  const ctx = raw.context;
+  if (ctx && typeof ctx === 'object') {
+    const { dagId, nodeId, traceId, taskType, phase, ...rest } = ctx as Record<string, unknown>;
+    return {
+      ...raw,
+      ...(dagId !== undefined ? { dagId } : {}),
+      ...(nodeId !== undefined ? { nodeId } : {}),
+      ...(traceId !== undefined ? { traceId } : {}),
+      ...(taskType !== undefined ? { taskType } : {}),
+      ...(phase !== undefined ? { phase } : {}),
+      ...(Object.keys(rest).length > 0 ? { contextExtra: rest } : {}),
+    };
+  }
+  return raw;
 }
 
 const LEVEL_CONFIG = {
@@ -69,20 +93,25 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
     const qs = params.toString();
     const url = qs ? `/api/logs?${qs}` : "/api/logs";
 
-    const es = new EventSource(url);
+    /*
+     * 共享 SseConnection 提供指数退避重连 + 心跳看门狗 + 连接状态广播
+     * （与 /api/tasks/stream 全局单例同一套保护，F 项修复）。
+     * 后端 /api/logs 每 15s 推送命名 heartbeat 事件，看门狗据此判定存活。
+     */
+    const conn = new SseConnection(url);
 
-    es.addEventListener("history", (e) => {
+    const unsubHistory = conn.subscribe("history", (e) => {
       try {
-        const data = JSON.parse(e.data) as LogEntry[];
-        setLogs(data);
-        setConnected(true);
+        const raw = JSON.parse(e.data) as Array<Record<string, unknown>>;
+        setLogs(raw.map(flattenLogContext) as unknown as LogEntry[]);
       } catch {
       }
     });
 
-    es.addEventListener("log", (e) => {
+    const unsubLog = conn.subscribe("log", (e) => {
       try {
-        const entry = JSON.parse(e.data) as LogEntry;
+        const raw = JSON.parse(e.data) as Record<string, unknown>;
+        const entry = flattenLogContext(raw) as unknown as LogEntry;
         if (paused) {
           bufferRef.current.push(entry);
           setBufferCount(bufferRef.current.length);
@@ -93,18 +122,19 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
       }
     });
 
-    es.onerror = () => {
-      setConnected(false);
-    };
+    const unsubState = conn.onStateChange((state) => {
+      setConnected(state === "connected");
+    });
 
-    es.onopen = () => {
-      setConnected(true);
-    };
+    conn.connect();
 
     const timer = setInterval(flushBuffer, 500);
 
     return () => {
-      es.close();
+      unsubHistory();
+      unsubLog();
+      unsubState();
+      conn.destroy();
       clearInterval(timer);
     };
   }, [paused, flushBuffer, moduleFilter, dagIdFilter]);

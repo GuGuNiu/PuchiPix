@@ -10,7 +10,16 @@ export function ConsoleLog(): React.JSX.Element {
       try {
         const res = await fetch("/api/logs/latest");
         const data = await res.json();
-        setLog(data.log ?? t("console.noTaskLogs"));
+        /*
+         * Go backend returns an array of log entries
+         * [{timestamp, level, module, message, ...}]; the TS-era backend
+         * returned {log: "..."}. Support both.
+         */
+        if (Array.isArray(data)) {          const last = data[data.length - 1];
+          setLog(typeof last?.message === 'string' && last.message ? last.message : t("console.noTaskLogs"));
+        } else {
+          setLog(data.log ?? t("console.noTaskLogs"));
+        }
       } catch {
         setLog(t("console.fetchFailed"));
       }

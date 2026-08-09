@@ -14,11 +14,14 @@ CREATE TABLE IF NOT EXISTS download_tasks (
     error_msg   TEXT        NOT NULL DEFAULT '',
     site_id     TEXT        NOT NULL DEFAULT '',
     seq         TEXT,
+    dag_id      TEXT        NOT NULL DEFAULT '',
     total_segments    INTEGER     NOT NULL DEFAULT 0,
     completed_segments INTEGER  NOT NULL DEFAULT 0,
     created_at  TEXT        NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT        NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_download_tasks_dag_id ON download_tasks(dag_id);
 
 -- VideoInfo: metadata extracted from download task source
 CREATE TABLE IF NOT EXISTS video_infos (
@@ -64,6 +67,7 @@ CREATE TABLE IF NOT EXISTS galleries (
     downloaded_size      INTEGER     NOT NULL DEFAULT 0,
     game_characters      TEXT,
     publish_time         TEXT,
+    dag_id               TEXT        NOT NULL DEFAULT '',
     scraped_at           TEXT,
     completed_at         TEXT,
     created_at           TEXT        NOT NULL DEFAULT (datetime('now')),
@@ -75,6 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_galleries_site_protagonist ON galleries(site_id, 
 CREATE INDEX IF NOT EXISTS idx_galleries_status ON galleries(status);
 CREATE INDEX IF NOT EXISTS idx_galleries_category ON galleries(category);
 CREATE INDEX IF NOT EXISTS idx_galleries_created_at ON galleries(created_at);
+CREATE INDEX IF NOT EXISTS idx_galleries_dag_id ON galleries(dag_id);
 
 -- GalleryImage: individual image within a gallery
 CREATE TABLE IF NOT EXISTS gallery_images (
@@ -159,6 +164,7 @@ CREATE TABLE IF NOT EXISTS sniff_tasks (
     total_created INTEGER     NOT NULL DEFAULT 0,
     total_skipped INTEGER     NOT NULL DEFAULT 0,
     error_msg     TEXT        NOT NULL DEFAULT '',
+    dag_id        TEXT        NOT NULL DEFAULT '',
     completed_at  TEXT,
     created_at    TEXT        NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT        NOT NULL DEFAULT (datetime('now'))
@@ -166,6 +172,7 @@ CREATE TABLE IF NOT EXISTS sniff_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_sniff_tasks_status ON sniff_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_sniff_tasks_created_at ON sniff_tasks(created_at);
+CREATE INDEX IF NOT EXISTS idx_sniff_tasks_dag_id ON sniff_tasks(dag_id);
 
 -- AppConfig: key-value application settings
 CREATE TABLE IF NOT EXISTS app_configs (

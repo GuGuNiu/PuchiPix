@@ -1,19 +1,16 @@
 package titleparser
 
 import (
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
 
-// pairedDelim represents a matched pair of delimiters for bracket-aware
-// segmentation. Each entry pairs an opening rune with its corresponding
-// closing rune.
 type pairedDelim struct {
 	open  rune
 	close rune
 }
 
-// defaultPairedDelims lists the paired delimiters currently supported.
 // CJK book title marks 《》 are the primary target; additional brackets
 // such as 【】「」『』 can be added here as needed.
 var defaultPairedDelims = []pairedDelim{
@@ -42,10 +39,7 @@ func containsPairedDelim(title string) bool {
 	return false
 }
 
-// segmentLegacy splits text on the given regex separator and trims
-// whitespace and trailing punctuation from each resulting segment.
-// Empty segments are discarded.
-func segmentLegacy(title string, sepRE interface{ Split(string, int) []string }) []string {
+func segmentLegacy(title string, sepRE *regexp.Regexp) []string {
 	parts := sepRE.Split(title, -1)
 	result := make([]string, 0, len(parts))
 	for _, part := range parts {
@@ -60,13 +54,9 @@ func segmentLegacy(title string, sepRE interface{ Split(string, int) []string })
 
 // segmentPaired extracts paired-delimiter content, splits the remaining
 // text on explicit separators, then reinserts the extracted content.
-//
-// Pass 1: find all 《...》 pairs via stack matching and replace them with
-// indexed placeholder tokens that survive the regex split.
-// Pass 2: split the placeholder-replaced text on separatorRE.
-// Pass 3: replace placeholder tokens with the original extracted content
-// and trim whitespace / trailing punctuation.
-func segmentPaired(title string, sepRE interface{ Split(string, int) []string }) []string {
+// Paired content is replaced with indexed placeholder tokens that survive
+// the regex split, then expanded back to original text in the final pass.
+func segmentPaired(title string, sepRE *regexp.Regexp) []string {
 	placeholders, replaced := extractPairedContent(title, defaultPairedDelims)
 	segments := segmentLegacy(replaced, sepRE)
 	return expandPlaceholders(segments, placeholders)
@@ -75,8 +65,6 @@ func segmentPaired(title string, sepRE interface{ Split(string, int) []string })
 const placeholderPrefix = "##SEG_"
 const placeholderSuffix = "##"
 
-// bracketRegion records the byte offsets and inner content of a paired
-// delimiter match such as 《content》.
 type bracketRegion struct {
 	start   int
 	end     int
@@ -113,10 +101,8 @@ func extractPairedContent(text string, delims []pairedDelim) (map[string]string,
 	return placeholders, result.String()
 }
 
-// findPairedRegions scans text rune-by-rune, maintaining a stack of
-// opening delimiter positions. When a closing delimiter is encountered
-// and the stack is non-empty, the topmost opener is popped and a region
-// is recorded. Unmatched delimiters are silently treated as regular text.
+// findPairedRegions scans text rune-by-rune using a stack of opening
+// delimiter positions. Unmatched delimiters are treated as regular text.
 func findPairedRegions(text string, open, close rune) []bracketRegion {
 	type stackEntry struct {
 		pos int
@@ -205,8 +191,8 @@ func expandInlinePlaceholders(seg string, placeholders map[string]string) []stri
 			}
 		}
 
-		// Skip over the placeholder prefix before searching for suffix
-		// to avoid matching the prefix's own "__" double-underscore.
+		// Search for suffix after the prefix to avoid matching the "##"
+		// at the start of placeholderPrefix
 		afterPrefix := remaining[idx+len(placeholderPrefix):]
 		endIdx := strings.Index(afterPrefix, placeholderSuffix)
 		if endIdx < 0 {
@@ -242,13 +228,8 @@ func padInt(n int) string {
 
 // splitCrossScriptSpaces splits segments at whitespace boundaries where
 // the characters on either side belong to different Unicode scripts
-// (typically CJK ↔ Latin). This enables extraction of model names from
-// titles like "奈莉酱帆风 Belle Ta 48P" where spaces are the only
-// delimiter between a CJK model name and a Latin description.
-//
-// Segments that are already single-script or have no script transition
-// at the space boundary are left intact to avoid splitting legitimate
-// mixed-script model names like "NAGISA魔物喵".
+// (typically CJK ↔ Latin). Segments without a script transition at the
+// space boundary are left intact to avoid splitting mixed-script names.
 func splitCrossScriptSpaces(segments []string) []string {
 	result := make([]string, 0, len(segments))
 	for _, seg := range segments {
@@ -274,7 +255,6 @@ func splitCrossScript(seg string) []string {
 			nextR := firstRune(seg[i+utf8.RuneLen(r):])
 			nextScript := scriptOf(nextR)
 			if nextScript != 0 && nextScript != prevScript {
-				// Found cross-script space boundary — split here
 				if start < prevSpacePos+1 || start <= i {
 					part := strings.TrimSpace(seg[start:i])
 					if part != "" {

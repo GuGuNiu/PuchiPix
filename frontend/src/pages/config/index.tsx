@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "@/lib/i18n/toast";
 import { Save, RotateCcw } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
+import { LogConsole } from "@/components/ops/log-console";
 
 interface ConfigState {
   chromedriver_path: string;
@@ -9,7 +10,13 @@ interface ConfigState {
   download_path: string;
   concurrency: number;
   default_transcode: boolean;
+  download_multi_thread: boolean;
+  download_concurrency: number;
+  download_max_speed: number;
+  download_min_file_size: number;
 }
+
+const BYTES_PER_MB = 1024 * 1024;
 
 export default function ConfigPage(): React.JSX.Element {
   const { t } = useI18n();
@@ -19,6 +26,10 @@ export default function ConfigPage(): React.JSX.Element {
     download_path: "",
     concurrency: 3,
     default_transcode: false,
+    download_multi_thread: false,
+    download_concurrency: 4,
+    download_max_speed: 0,
+    download_min_file_size: 1,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,6 +45,10 @@ export default function ConfigPage(): React.JSX.Element {
           download_path: data?.download_path ?? "",
           concurrency: data?.concurrency ?? data?.max_concurrent ?? 3,
           default_transcode: data?.default_transcode ?? data?.transcode_to_mp4 ?? false,
+          download_multi_thread: data?.download_multi_thread === "true" || data?.download_multi_thread === true,
+          download_concurrency: parseInt(data?.download_concurrency, 10) || 4,
+          download_max_speed: Math.round((parseInt(data?.download_max_speed, 10) || 0) / BYTES_PER_MB),
+          download_min_file_size: Math.round((parseInt(data?.download_min_file_size, 10) || BYTES_PER_MB) / BYTES_PER_MB),
         });
       } catch {
         toast.error("config.loadConfigFailed");
@@ -52,6 +67,10 @@ export default function ConfigPage(): React.JSX.Element {
         download_path: config.download_path || undefined,
         concurrency: config.concurrency,
         default_transcode: config.default_transcode,
+        download_multi_thread: config.download_multi_thread ? "true" : "false",
+        download_concurrency: String(config.download_concurrency),
+        download_max_speed: String(config.download_max_speed * BYTES_PER_MB),
+        download_min_file_size: String(config.download_min_file_size * BYTES_PER_MB),
       };
       const res = await fetch("/api/config", {
         method: "PUT",
@@ -82,6 +101,10 @@ export default function ConfigPage(): React.JSX.Element {
         download_path: data?.download_path ?? "",
         concurrency: data?.concurrency ?? data?.max_concurrent ?? 3,
         default_transcode: data?.default_transcode ?? data?.transcode_to_mp4 ?? false,
+        download_multi_thread: data?.download_multi_thread === "true" || data?.download_multi_thread === true,
+        download_concurrency: parseInt(data?.download_concurrency, 10) || 4,
+        download_max_speed: Math.round((parseInt(data?.download_max_speed, 10) || 0) / BYTES_PER_MB),
+        download_min_file_size: Math.round((parseInt(data?.download_min_file_size, 10) || BYTES_PER_MB) / BYTES_PER_MB),
       });
       toast.success("config.restoredDefault");
     } catch (err: unknown) {
@@ -199,6 +222,77 @@ export default function ConfigPage(): React.JSX.Element {
           </div>
         </div>
 
+        <div className="config-section">
+          <div className="config-section-title">{t("config.multiThreadSettings")}</div>
+          <div className="form-group">
+            <div className="checkbox-group">
+              <input
+                type="checkbox"
+                id="download-multi-thread"
+                checked={config.download_multi_thread}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    download_multi_thread: e.target.checked,
+                  }))
+                }
+              />
+              <label htmlFor="download-multi-thread">{t("config.multiThreadDownload")}</label>
+            </div>
+          </div>
+          <div className="form-group">
+            <label>{t("config.downloadConcurrency")}</label>
+            <input
+              type="range"
+              min={2}
+              max={8}
+              step={1}
+              value={config.download_concurrency}
+              onChange={(e) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  download_concurrency: parseInt(e.target.value, 10),
+                }))
+              }
+            />
+            <span className="value-display">{config.download_concurrency}</span>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>{t("config.downloadMaxSpeed")}</label>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={config.download_max_speed}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setConfig((prev) => ({
+                    ...prev,
+                    download_max_speed: isNaN(v) ? 0 : Math.max(0, v),
+                  }));
+                }}
+              />
+            </div>
+            <div className="form-group">
+              <label>{t("config.downloadMinFileSize")}</label>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={config.download_min_file_size}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setConfig((prev) => ({
+                    ...prev,
+                    download_min_file_size: isNaN(v) ? 1 : Math.max(0, v),
+                  }));
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="config-actions">
           <button
             className="btn btn-primary"
@@ -219,6 +313,12 @@ export default function ConfigPage(): React.JSX.Element {
             {t("config.restoreDefault")}
           </button>
         </div>
+      </div>
+
+      {/* 系统控制台 — 从首页迁入，作为配置页子功能 */}
+      <div className="config-section">
+        <div className="config-section-title">{t("ops.systemConsole")}</div>
+        <LogConsole />
       </div>
     </div>
   );

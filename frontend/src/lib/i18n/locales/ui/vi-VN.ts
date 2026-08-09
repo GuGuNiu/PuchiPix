@@ -261,6 +261,11 @@ const viVN: TranslationDict = {
   "config.loadConfigFailed": "Tải cấu hình thất bại",
   "config.saveConfigFailed": "Lưu cấu hình thất bại",
   "config.restoredDefault": "Đã khôi phục mặc định",
+  "config.multiThreadSettings": "Tải đa luồng",
+  "config.multiThreadDownload": "Bật tải song song HTTP Range",
+  "config.downloadConcurrency": "Số lượng song song",
+  "config.downloadMaxSpeed": "Giới hạn tốc độ (MB/s, 0=không giới hạn)",
+  "config.downloadMinFileSize": "Kích thước tệp tối thiểu (MB)",
 
   /* ─── Sniff ─── */
   "sniff.title": "Sniff liên kết M3U8",

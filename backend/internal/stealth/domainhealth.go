@@ -28,15 +28,6 @@ func NewDomainHealthTracker() *DomainHealthTracker {
 	}
 }
 
-// NewDomainHealthTrackerWithCooldown creates a tracker with a custom cooldown.
-func NewDomainHealthTrackerWithCooldown(cooldown time.Duration) *DomainHealthTracker {
-	return &DomainHealthTracker{
-		rateLimitedAt: make(map[string]time.Time),
-		cooldown:      cooldown,
-		logger:        infra.NewLogger("DomainHealth"),
-	}
-}
-
 // MarkRateLimited records that a domain has been rate-limited, starting
 // its cooldown period.
 func (t *DomainHealthTracker) MarkRateLimited(domain string) {
@@ -56,33 +47,6 @@ func (t *DomainHealthTracker) MarkHealthy(domain string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.rateLimitedAt, domain)
-}
-
-// IsHealthy reports whether a domain is not currently rate-limited or
-// its cooldown has expired.
-func (t *DomainHealthTracker) IsHealthy(domain string) bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	limitedAt, ok := t.rateLimitedAt[domain]
-	if !ok {
-		return true
-	}
-	return time.Since(limitedAt) >= t.cooldown
-}
-
-// GetRemainingCooldown returns the remaining cooldown duration for a domain.
-func (t *DomainHealthTracker) GetRemainingCooldown(domain string) time.Duration {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	limitedAt, ok := t.rateLimitedAt[domain]
-	if !ok {
-		return 0
-	}
-	remaining := t.cooldown - time.Since(limitedAt)
-	if remaining < 0 {
-		return 0
-	}
-	return remaining
 }
 
 // GetAllDomainsOrdered returns domains sorted by health: healthy domains
@@ -128,17 +92,6 @@ func (t *DomainHealthTracker) GetAllDomainsOrdered(domains []string) []string {
 	return result
 }
 
-// GetHealthyDomains returns only healthy domains, shuffled.
-func (t *DomainHealthTracker) GetHealthyDomains(domains []string) []string {
-	var healthy []string
-	for _, d := range domains {
-		if t.IsHealthy(d) {
-			healthy = append(healthy, d)
-		}
-	}
-	return ShuffleDomains(healthy)
-}
-
 // GetBestDomain returns the highest-priority domain, falling back to the
 // first input if none are healthy.
 func (t *DomainHealthTracker) GetBestDomain(domains []string) string {
@@ -150,39 +103,6 @@ func (t *DomainHealthTracker) GetBestDomain(domains []string) string {
 		return domains[0]
 	}
 	return ""
-}
-
-// Clear removes all rate-limit records.
-func (t *DomainHealthTracker) Clear() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.rateLimitedAt = make(map[string]time.Time)
-}
-
-// GetRateLimitedDomains returns domains currently in cooldown with
-// their remaining time.
-func (t *DomainHealthTracker) GetRateLimitedDomains() []struct {
-	Domain     string
-	Remaining  time.Duration
-} {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	now := time.Now()
-	var result []struct {
-		Domain    string
-		Remaining time.Duration
-	}
-	for domain, limitedAt := range t.rateLimitedAt {
-		remaining := t.cooldown - now.Sub(limitedAt)
-		if remaining > 0 {
-			result = append(result, struct {
-				Domain    string
-				Remaining time.Duration
-			}{domain, remaining})
-		}
-	}
-	return result
 }
 
 // ShuffleDomains rotates the slice from a random start index, providing

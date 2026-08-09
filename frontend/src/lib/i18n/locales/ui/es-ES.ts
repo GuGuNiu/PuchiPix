@@ -261,6 +261,11 @@ const esES: TranslationDict = {
   "config.loadConfigFailed": "Error al cargar ajustes",
   "config.saveConfigFailed": "Error al guardar ajustes",
   "config.restoredDefault": "Valores predeterminados restaurados",
+  "config.multiThreadSettings": "Descarga multiflujo",
+  "config.multiThreadDownload": "Habilitar descarga paralela HTTP Range",
+  "config.downloadConcurrency": "Concurrencia de fragmentos",
+  "config.downloadMaxSpeed": "Límite de velocidad (MB/s, 0=sin límite)",
+  "config.downloadMinFileSize": "Tamaño mínimo de archivo (MB)",
 
   /* ─── Sniffing ─── */
   "sniff.title": "Sniffing de enlaces M3U8",

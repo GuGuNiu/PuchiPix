@@ -7,34 +7,36 @@ import (
 	"path/filepath"
 	"time"
 
+	"backend/internal/db"
 	"backend/internal/i18n"
+	"backend/internal/infra"
 )
 
 // unifiedTaskRow is the flat row shape returned by the UNION ALL query
 // that combines download_tasks, galleries, and sniff_tasks.
 type unifiedTaskRow struct {
-	TaskType        string
-	ID              int
-	URL             string
-	Status          string
-	Progress        float64
-	FilePath        string
-	Format          string
-	Priority        int
-	ErrorMsg        string
-	SiteID          string
-	Seq             *string
-	Title           string
-	Protagonist     string
-	ImageCount      int
-	VideoCount      int
-	TotalSize       int64
-	DownloadedSize  int64
-	ContentVerified bool
-	TotalSegments   int
+	TaskType          string
+	ID                int
+	URL               string
+	Status            string
+	Progress          float64
+	FilePath          string
+	Format            string
+	Priority          int
+	ErrorMsg          string
+	SiteID            string
+	Seq               *string
+	Title             string
+	Protagonist       string
+	ImageCount        int
+	VideoCount        int
+	TotalSize         int64
+	DownloadedSize    int64
+	ContentVerified   bool
+	TotalSegments     int
 	CompletedSegments int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	CreatedAt         db.SQLTime
+	UpdatedAt         db.SQLTime
 }
 
 // TaskStreamSSE streams real-time task updates via Server-Sent Events.
@@ -60,8 +62,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				        COALESCE(dt.error_msg, '') AS error_msg,
 				        COALESCE(dt.site_id, '') AS site_id,
 				        dt.seq,
-				        COALESCE(vi.title, '') AS title,
-				        COALESCE(vi.actors, '') AS protagonist,
+				        COALESCE(NULLIF(vi.title, ''), '') AS title,
+				        COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
 				        0 AS image_count, 0 AS video_count,
 				        0 AS total_size, 0 AS downloaded_size,
 				        false AS content_verified,
@@ -77,7 +79,10 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			            WHEN COALESCE(status, 'pending') = 'completed' THEN 100
 			            WHEN COALESCE(content_verified, false) AND (COALESCE(image_count, 0) + COALESCE(video_count, 0)) > 0 THEN 99
 			            WHEN COALESCE(total_size, 0) > 0 THEN
-			                LEAST(ROUND(COALESCE(downloaded_size, 0)::numeric / NULLIF(total_size, 0)::numeric * 100, 1), 99)
+			                CASE
+			                    WHEN ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1) > 99 THEN 99
+			                    ELSE ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1)
+			                END
 			            ELSE 0
 			        END AS progress,
 			        COALESCE(save_path, '') AS file_path, '' AS format,
@@ -120,28 +125,28 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
 					continue
 				}
-			tasks = append(tasks, map[string]any{
-				"TaskType":         r.TaskType,
-				"ID":               r.ID,
-				"URL":              r.URL,
-				"Status":           r.Status,
-				"Progress":         r.Progress,
-				"FilePath":         r.FilePath,
-				"Format":           r.Format,
-				"Priority":         r.Priority,
-				"ErrorMsg":        r.ErrorMsg,
-				"SiteID":          r.SiteID,
-				"DisplayID":        r.Seq,
-				"GalleryTitle":     r.Title,
-				"Person":           r.Protagonist,
-				"ImageCount":       r.ImageCount,
-				"VideoCount":       r.VideoCount,
-				"GalleryTotalSize": r.TotalSize,
-				"Segment":          r.CompletedSegments,
-				"TotalSegments":    r.TotalSegments,
-				"CreatedAt":        r.CreatedAt,
-				"UpdatedAt":        r.UpdatedAt,
-			})
+		tasks = append(tasks, enrichTaskMap(map[string]any{
+			"TaskType":         r.TaskType,
+			"ID":               r.ID,
+			"URL":              r.URL,
+			"Status":           r.Status,
+			"Progress":         r.Progress,
+			"FilePath":         r.FilePath,
+			"Format":           r.Format,
+			"Priority":         r.Priority,
+			"ErrorMsg":        r.ErrorMsg,
+			"SiteID":          r.SiteID,
+			"DisplayID":        r.Seq,
+			"GalleryTitle":     r.Title,
+			"Person":           parsePersonForDisplay(r.Protagonist),
+			"ImageCount":       r.ImageCount,
+			"VideoCount":       r.VideoCount,
+			"GalleryTotalSize": r.TotalSize,
+			"Segment":          r.CompletedSegments,
+			"TotalSegments":    r.TotalSegments,
+			"CreatedAt":        r.CreatedAt,
+			"UpdatedAt":        r.UpdatedAt,
+		}))
 			}
 			// Post-process gallery progress: count actual files on disk.
 			// The SQL-based progress uses downloaded_size/total_size ratio,
@@ -179,6 +184,16 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			sse.SendEvent("initial", tasks)
+		} else {
+			// The initial snapshot query failed — do NOT silently swallow
+			// it (this was the root pattern behind the 260803 initial
+			// snapshot loss: PG-syntax residue made the query fail and
+			// `if err == nil` masked it, so the frontend got no snapshot).
+			// Send an empty snapshot AND log loudly so operators can see
+			// the failure instead of chasing phantom frontend issues.
+			logger := infra.NewLogger("TaskStreamSSE")
+			logger.Error("SSE initial snapshot query failed", err)
+			sse.SendEvent("initial", []any{})
 		}
 	} else {
 		sse.SendEvent("initial", []any{})
@@ -223,23 +238,47 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			sse.SendEvent("dag:nodeStateChanged", json.RawMessage(raw))
 		})
 
-		// gallery:downloadProgress → gallery:downloadProgress (was: patch)
-		unsubGalleryProg := h.EventBus.On("gallery:downloadProgress", func(payload any) {
-			sse.SendEvent("gallery:downloadProgress", payload)
-		})
-
 		// gallery:created — forwarded so the frontend can add new gallery
 		// tasks to the list without requiring a page refresh.
 		unsubGalleryCreated := h.EventBus.On("gallery:created", func(payload any) {
 			sse.SendEvent("gallery:created", payload)
 		})
 
+		// gallery:stateChanged — DAG 失败/完成时画廊状态变更转发，
+		// 使前端无需刷新即可感知画廊状态更新
+		unsubGalleryState := h.EventBus.On("gallery:stateChanged", func(payload any) {
+			raw, _ := json.Marshal(payload)
+			sse.SendEvent("gallery:stateChanged", json.RawMessage(raw))
+		})
+
 		// slot:stateChanged — forwarded so dashboards render slot
 		// occupancy in real-time (acquire/release/max/quota updates)
-		// without polling /api/slots. A dedicated /api/slots/stream
-		// endpoint is also available for slotType-filtered subscriptions.
+		// without polling /api/slots. (The dedicated /api/slots/stream
+		// endpoint was removed 260806 — this is the single live channel.)
 		unsubSlotState := h.EventBus.On("slot:stateChanged", func(payload any) {
 			sse.SendEvent("slot:stateChanged", payload)
+		})
+
+		// task:metadata — pushed when scraping completes or video info
+		// is finalized, carrying title/person/imageCount/videoCount so
+		// the frontend Tasks page reflects metadata changes in real-time
+		// without requiring F5 refresh.
+		//
+		// We apply StripPersonFromTitle here at the SSE forwarding layer
+		// so that all task:metadata events (from wire_executors.go for
+		// galleries, from main.go and manager.go for videos) get their
+		// titles cleaned uniformly without needing lower-level packages
+		// to import the api package.
+		unsubMetadata := h.EventBus.On("task:metadata", func(payload any) {
+			// Apply person-stripping to the title before forwarding.
+			if m, ok := payload.(map[string]any); ok {
+				title, _ := m["GalleryTitle"].(string)
+				person, _ := m["Person"].(string)
+				if title != "" && person != "" {
+					m["GalleryTitle"] = StripPersonFromTitle(title, person)
+				}
+			}
+			sse.SendEvent("task:metadata", payload)
 		})
 
 		defer func() {
@@ -250,13 +289,12 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			unsubCancelled()
 			unsubNodeProg()
 			unsubNodeState()
-			unsubGalleryProg()
 			unsubGalleryCreated()
+			unsubGalleryState()
 			unsubSlotState()
+			unsubMetadata()
 		}()
 	}
-
-	sse.SendEvent("status", map[string]string{"state": "connected"})
 
 	// Heartbeat: send a ping every 15s so the frontend can detect
 	// dead connections and trigger proactive reconnection.

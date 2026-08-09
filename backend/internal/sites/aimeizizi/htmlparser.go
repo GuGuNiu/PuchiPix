@@ -165,65 +165,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 	return result
 }
 
-// ExtMetadata holds extracted metadata for extended metadata views.
-type ExtMetadata struct {
-	H1Title       string
-	Category      string
-	Tags          []string
-	KeywordStr    string
-	CoverURL      string
-	DocumentTitle string
-}
-
-// ParseExtMetadata extracts extended metadata from a goquery document.
-func ParseExtMetadata(doc *goquery.Document, placeholder string) ExtMetadata {
-	var result ExtMetadata
-	result.H1Title = strings.TrimSpace(doc.Find("h1").First().Text())
-
-	breadcrumb := doc.Find(`nav[aria-label="Breadcrumb"]`)
-	if breadcrumb.Length() > 0 {
-		links := breadcrumb.Find("a")
-		if links.Length() >= 2 {
-			result.Category = strings.TrimSpace(links.Last().Text())
-		}
-	}
-
-	tagSet := make(map[string]bool)
-	doc.Find(`a[href*="/tag/"]`).Each(func(_ int, a *goquery.Selection) {
-		text := strings.TrimSpace(a.Text())
-		if text != "" && text != "标签" && len(text) < 30 && !tagSet[text] {
-			tagSet[text] = true
-			result.Tags = append(result.Tags, text)
-		}
-	})
-
-	result.KeywordStr = doc.Find(`meta[name="keywords"]`).AttrOr("content", "")
-
-	// Extract the first non-placeholder image from the article as the
-	// cover/thumbnail for search results and preview cards. This is
-	// distinct from the gallery detail-page cover logic (which uses
-	// the first uploaded image from the image collection).
-	article := doc.Find("article").First()
-	if article.Length() > 0 {
-		article.Find("img").Each(func(_ int, img *goquery.Selection) {
-			if result.CoverURL != "" {
-				return
-			}
-			url := firstNonEmpty(img.AttrOr("data-src", ""),
-				img.AttrOr("data-original-src", ""),
-				img.AttrOr("data-original", ""),
-				img.AttrOr("src", ""))
-			if url != "" && !strings.Contains(url, placeholder) &&
-				!strings.Contains(url, "/static/images/Loading") {
-				result.CoverURL = url
-			}
-		})
-	}
-
-	result.DocumentTitle = strings.TrimSpace(doc.Find("title").First().Text())
-	return result
-}
-
 // SearchEntry represents a single search result from a listing page.
 type SearchEntry struct {
 	URL      string

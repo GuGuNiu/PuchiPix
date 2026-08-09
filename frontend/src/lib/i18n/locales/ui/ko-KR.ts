@@ -264,6 +264,11 @@ const koKR: TranslationDict = {
   "config.loadConfigFailed": "설정 로드 실패",
   "config.saveConfigFailed": "설정 저장 실패",
   "config.restoredDefault": "기본값으로 복원됨",
+  "config.multiThreadSettings": "멀티스레드 다운로드",
+  "config.multiThreadDownload": "HTTP Range 병렬 다운로드 활성화",
+  "config.downloadConcurrency": "청크 동시성",
+  "config.downloadMaxSpeed": "속도 제한 (MB/s, 0=무제한)",
+  "config.downloadMinFileSize": "최소 파일 크기 (MB)",
 
   /* ─── 탐색 ─── */
   "sniff.title": "M3U8 링크 탐색",

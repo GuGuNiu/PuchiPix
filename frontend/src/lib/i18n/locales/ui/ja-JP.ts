@@ -261,6 +261,11 @@ const jaJP: TranslationDict = {
   "config.loadConfigFailed": "設定の読み込みに失敗",
   "config.saveConfigFailed": "設定の保存に失敗",
   "config.restoredDefault": "デフォルト値に戻しました",
+  "config.multiThreadSettings": "マルチスレッドダウンロード",
+  "config.multiThreadDownload": "HTTP Range 並行ダウンロードを有効化",
+  "config.downloadConcurrency": "チャンク並行数",
+  "config.downloadMaxSpeed": "速度制限 (MB/s, 0=無制限)",
+  "config.downloadMinFileSize": "最小ファイルサイズ (MB)",
 
   /* ─── スニッフ ─── */
   "sniff.title": "M3U8 リンクスニッフ",

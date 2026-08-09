@@ -1,0 +1,470 @@
+﻿我将系统地分析"解析清洗标题与模特数据"模块的实现归属。让我先启动多维度并行调查。
+
+现在开始追踪"解析清洗标题与模特数据"模块的实现归属。让我并行启动多维度搜索。
+
+现在让我深入查看 titleparser 包的设计和 kanav provider 的实现。
+
+让我继续调查 CLI 工具的使用方式，查看 #Z7N2NS 任务状态和 Unicode 编码问题。
+
+现在让我调用 CLI 工具查看任务 #Z7N2NS 的状态，以及 kanav 站点标题的 Unicode 问题。
+
+找到了 #Z7N2NS 任务！模特名 `["\\u5973\\u795e\\u30b8\\u30e5\\u30f3"]` 确认 Unicode 编码问题。让我获取更多细节并验证 kanav 站点的数据结构。
+
+现在我获取到了关键数据。任务 #Z7N2NS 的 Person 字段确实是双重转义 Unicode `[\"\\\\u5973\\\\u795e\\\\u30b8\\\\u30e5\\\\u30f3\"]`（解码后应为"女神ジュン"）。让我继续追踪标题解析的调用链路。
+
+让我继续查看 video download 管段中 Person 字段的存储逻辑。
+
+让我查看 Person 字段双重转义的根本原因。
+
+让我查看 actors 字段在存储时的序列化逻辑。
+
+现在我已经收集了足够的数据来生成完整的分析报告。让我整理所有发现。
+
+现在我已经收集了完整的数据来生成分析报告。以下是完整的分析结果：
+
+---
+
+## 📊 "解析清洗标题与模特数据"模块实现归属分析报告
+
+### 一、核心结论：混合架构（公共底层 + 站点专属表层）
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    三层架构分层图                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────�   │
+│  │  ① 全站公共共享层 (Infrastructure Layer)                      │   │
+│  │     backend/internal/titleparser/                            │   │
+│  │     �─────────────� �──────────────┐ ┌──────────────────┐   │   │
+│  │     │  Parser     │ │  Matcher     │ │  Segmenter       │   │   │
+│  │     │  (5阶段管道) │ │  (相似度矩阵) │ │  (智能分词)      │   │   │
+│  │     └─────────────┘ └──────────────┘ └──────────────────�   │   │
+│  │     模型库: jav.json / game_characters.json                   │   │
+│  │     能力: 主角提取 / 游戏角色识别 / 双主角检测                │   │
+│  └─────────────────────────────────────────────────────────────�   │
+│                              ▲                                      │
+│                              │ 依赖注入                             │
+│  ┌─────────────────────────────────────────────────────────────�   │
+│  │  ② 编排层 (Orchestrator Layer)                                │   │
+│  │     backend/internal/orchestrator/wire_executors.go          │   │
+│  │     scrape executor: 调用 titleParser.Parse() 提取 protagonist│   │
+│  │     video executor:  调用 universal scraper 提取 actors       │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              ▲                                      │
+│                              │ 站点路由                             │
+│  ┌─────────────────────────────────────────────────────────────�   │
+│  │  ③ 站点专属层 (Site Provider Layer)                           │   │
+│  │     ┌──────────┐ ┌──────────┐ �──────────� ┌──────────┐    │   │
+│  │     │ aimeizizi│ │  kanav   │ │ fourkhd  │ │  sjs     │    │   │
+│  │     │ .CleanTitle│ │.CleanTitle│ │.CleanTitle│ │.CleanTitle│    │   │
+│  │     └──────────┘ └──────────┘ └──────────┘ └──────────┘    │   │
+│  │     各站独立实现站点特定前缀/后缀清理逻辑                       │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 二、模块归属详解
+
+#### 2.1 公共共享组件：`titleparser` 包
+
+**路径**: `backend/internal/titleparser/`
+
+**包注释** (parser.go 第1-12行):
+> *Package titleparser provides a multi-stage title parsing pipeline for extracting protagonist names, descriptions, and game characters from cosplay gallery titles. It is designed as a **shared base-tool layer**, usable by all site providers.*
+
+**核心能力**：
+| 阶段 | 功能 | 实现文件 |
+|------|------|----------|
+| Stage 1 | 预处理：去除出版商前缀/后缀、括号 | `parser.go` |
+| Stage 2 | 智能分词：按已知分隔符切分 | `segmenter.go` |
+| Stage 3 | 分类匹配：对模型/角色数据库进行匹配 | `matcher.go` |
+| Stage 4 | 多人检测：识别"与/和"双主角模式 | `parser.go` |
+| Stage 5 | 组装输出：生成 protagonist + description + gameChars | `parser.go` |
+
+**数据结构**：
+```go
+type ParseResult struct {
+    Protagonist    string   // 识别的模特/角色名（多人与连接）
+    Description    string    // 去除主角后的描述文本
+    GameCharacters []string // 发现的游戏角色名
+    Segments       []string // 原始分段
+    Confidence     float64  // 匹配置信度 0.0-1.0
+}
+```
+
+#### 2.2 站点专属组件：各 Provider 的 `CleanTitle()` 方法
+
+**接口定义** (`backend/internal/sites/provider.go:148`):
+```go
+type SiteProvider interface {
+    GallerySiteProvider
+    CleanTitle(rawTitle string) string  // 站点专属清理
+    // ...
+}
+```
+
+**各站实现**：
+
+| 站点 | 文件路径 | 清理逻辑 |
+|------|---------|----------|
+| **kanav** | `sites/kanav/provider.go:199` | 去除 " - KanAV", "[中文字幕]", "[高清]" 后缀 |
+| **aimeizizi** | `sites/aimeizizi/provider.go:168` | 去除 "[爱妹子]", "【爱妹子吧】" 等前缀 |
+| **fourkhd** | `sites/fourkhd/provider.go:168` | 去除 "[258MB-81photos]" 大小/数量后缀 |
+| **xsnvshen** | `sites/xsnvshen/provider.go:139` | 去除括号前缀、出版商前缀 |
+| **universal** | `sites/universal/provider.go:53` | 通用清理逻辑 |
+| **exhentai** | `sites/exhentai/provider.go:125` | 通用清理逻辑 |
+| **sjs** | `sites/sjs/provider.go:144` | 站点专属 |
+
+#### 2.3 编排层调用链路
+
+**`wire_executors.go:115-124`** — scrape executor 中的调用：
+```go
+protagonist := result.Protagonist
+if protagonist == "" && titleParser != nil && result.Title != "" {
+    if parseResult := titleParser.Parse(result.Title); parseResult != nil && parseResult.Protagonist != "" {
+        protagonist = parseResult.Protagonist
+        // ...
+    }
+}
+```
+
+### 三、现存任务 #Z7N2NS Unicode 编码异常分析
+
+#### 3.1 CLI 查询结果
+
+```bash
+$ cli tasks list --limit 50
+  #8 [Z7N2NS] ["\\u5973\\u795e\\u30b8\\u30e5\\u30f3"]  downloading  72%  FNS-014 我最终和有母亲情结的处男下属同住一间房间...
+```
+
+**JSON 详情**:
+```json
+{
+  "ID": 8,
+  "DisplayID": "Z7N2NS",
+  "URL": "https://v1.kanav.work/index.php/vod/play/id/76737/sid/1/nid/1.html",
+  "GalleryTitle": "FNS-014 我最终和有母亲情结的处男下属同住一间房间......他无情地挑逗和玩弄我的乳房，整晚狠狠地操我。女神君 - KanAV",
+  "Person": "[\"\\\\u5973\\\\u795e\\\\u30b8\\\\u30e5\\\\u30f3\"]",
+  "Status": "downloading"
+}
+```
+
+#### 3.2 根本原因：双重 JSON 序列化
+
+```
+�─────────────────────────────────────────────────────────────────────────�
+│                      双重 JSON 序列化问题                                │
+├─────────────────────────────────────────────────────────────────────────�
+│                                                                         │
+│  第1次序列化 (cmd/server/main.go:844):                                  │
+│  ┌─────────────────┐    json.Marshal()    ┌──────────────────────┐     │
+│  │ result.Actors   │ ──────────────────→  │ `["女神ジュン"]`     │     │
+│  │ []string{...}   │                      │ (JSON字符串存入DB)   │     │
+│  └─────────────────┘                      └──────────────────────┘     │
+│                                                         │               │
+│  存入 DB video_infos.actors (TEXT 列)                   │               │
+│                                                         ▼               │
+│  ┌──────────────────────────────────────────────────────────────┐      │
+│  │ DB 存储: ["女神ジュン"]                                       │      │
+│  └──────────────────────────────────────────────────────────────┘      │
+│                                                         │               │
+│  第2次序列化 (api/tasks.go:79):                                         │
+│  �──────────────┐     Scan(&t.Person)      ┌────────────────────┐      │
+│  │ DB actors列  │ ─────────────────────→   │ t.Person string    │      │
+│  └──────────────┘                          └────────────────────┘      │
+│                                                         │               │
+│                                                         ▼               │
+│  �──────────────────────────────────────────────────────────────�      │
+│  │ writeJSON(w, http.StatusOK, tasks)                           │      │
+│  │ → json.Marshal(task) 再次序列化 t.Person 字符串              │      │
+│  │ → "[\"\\\\u5973\\\\u795e\\\\u30b8\\\\u30e5\\\\u30f3\"]"   │      │
+│  └──────────────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────────────�
+```
+
+#### 3.3 问题定位
+
+**存储阶段** (`cmd/server/main.go:839-859`):
+```go
+func preWriteVideoInfo(ctx, database, taskID, result) {
+    actorsJSON := marshalStrSlice(result.Actors)  // []string → JSON 字符串
+    database.Exec(ctx, `
+        INSERT INTO video_infos (task_id, ..., actors, ...)
+        VALUES (?, ?, ?, ...)
+    `, taskID, ..., string(actorsJSON), ...)  // 存储 JSON 字符串
+}
+```
+
+**读取阶段** (`api/tasks.go:65,79`):
+```go
+// SQL 查询: COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist
+rows.Scan(..., &t.Person)  // 直接扫描为 string，保留 JSON 格式
+
+// 返回时: writeJSON 再次序列化
+// Person 字段从 `["女神ジュン"]` 变成 `[\"\\u5973\\u795e\\u30b8\\u30e5\\u30f3\"]`
+```
+
+### 四、架构评估与建议
+
+#### 4.1 现状评估
+
+| 维度 | 评价 | 说明 |
+|------|------|------|
+| **模块化** | ✅ 良好 | titleparser 作为共享库解耦清晰 |
+| **复用性** | ✅ 良好 | 统一 Parser 接口，各站只需注入模型库 |
+| **扩展性** | ⚠️ 中等 | 新增站点需实现 CleanTitle 接口 |
+| **数据一致性** | ❌ 缺陷 | Person 字段双重序列化问题 |
+
+#### 4.2 改进建议
+
+**高优先级：修复 Unicode 双重转义**
+
+方案 A（推荐）— 在 API 读取时反序列化：
+```go
+// api/tasks.go 读取时
+var actors []string
+json.Unmarshal([]byte(dbActorsJSON), &actors)
+t.Person = actors  // 返回 []string 而非 string
+```
+
+方案 B — 在 CLI 展示层处理：
+```go
+// cli/commands/tasks.go:99
+person := t.Person
+if strings.HasPrefix(person, "[") {
+    var actors []string
+    if err := json.Unmarshal([]byte(person), &actors); err == nil {
+        person = strings.Join(actors, ", ")
+    }
+}
+```
+
+**低优先级：增强 titleparser 站点适配**
+
+当前 titleparser 仅被 scrape executor 调用（用于图库场景）。视频场景的 actors 提取由 universal scraper 通过 JavaScript 完成。建议统一为：
+- 视频场景也复用 titleparser 做标题解析
+- 保留 universal JS 提取作为兜底机制
+
+### 五、总结
+
+| 问题 | 结论 |
+|------|------|
+| **模块归属** | **公共共享组件** + **站点专属 CleanTitle** 的混合架构 |
+| **调用链路** | scrape executor → `titleParser.Parse()` → `ParseResult.Protagonist` |
+| **站点扩展** | 各站实现 `CleanTitle()` 接口，公共层无需修改 |
+| **#Z7N2NS 异常** | **双重 JSON 序列化**：DB 存储 JSON 字符串后，外层 writeJSON 再次序列化 |
+| **受影响范围** | 所有 kanav 视频任务的女优名字字段（日语名字被 Unicode 转义） |
+---
+
+## 六、MCP 电子取证实证报告
+
+### 6.1 取证目标
+
+- **目标站点**: https://v1.kanav.onl/index.php/vod/play/id/76737/sid/1/nid/1.html
+- **对应任务**: #Z7N2NS (数据库 ID: 8)
+- **取证时间**: 2026-08-04 19:25 (CST)
+- **取证工具**: js-reverse MCP (CDP 浏览器自动化)
+
+### 6.2 页面实际数据结构
+
+#### 6.2.1 关键发现：player_aaaa JSON
+
+页面内联脚本中定义了 `player_aaaa` JavaScript 对象，包含完整的视频元数据：
+
+```javascript
+var player_aaaa={
+  "flag":"play",
+  "encrypt":2,
+  "trysee":0,
+  "points":0,
+  "vod_data":{
+    "vod_name":"FNS-014 \\u6211\\u6700\\u7ec8...\\u5973\\u795e\\u541b",
+    "vod_actor":"\\u5973\\u795e\\u30b8\\u30e5\\u30f3",
+    "vod_director":"\\u592a\\u5bb0\\u73cd\\u6b69",
+    "vod_class":""
+  },
+  ...
+}
+```
+
+**关键证据**：`vod_actor` 的值是 `\\u5973\\u795e\\u30b8\\u30e5\\u30f3`（双重 Unicode 转义）
+
+#### 6.2.2 HTML 元数据区域
+
+```html
+<div class="video-countext-tags col-md-12" style="display:none">
+  FNS-014 マザコン童貞の部下とまさかの相部屋に… 女神ジュン~女神ジュン
+</div>
+```
+
+- 原始日语标题包含演员名重复两次（用 `~` 分隔）
+- 中文翻译标题为"女神君"（"ジュン"的中文翻译）
+
+#### 6.2.3 标签搜索链接
+
+```html
+<a href="/index.php/vod/search.html?wd=女神ジュン&by=time_add" 
+   target="_blank" class="btn btn-danger btn-md">女神ジュン</a>
+```
+
+### 6.3 Unicode 双重转义根因分析
+
+#### 6.3.1 完整转义链路
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     Unicode 双重转义链路（已实证）                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ① Kanav/MacCMS 服务器生成阶段（HTML 源代码）                                │
+│     �──────────────────────────────────────────────────────────────�       │
+│     │ "vod_actor":"\\u5973\\u795e\\u30b8\\u30e5\\u30f3"            │       │
+│     │ (双重转义：每个 Unicode 字符前有两个反斜杠)                      │       │
+│     └──────────────────────────────────────────────────────────────�       │
+│                              │                                              │
+│                              ▼                                              │
+│  ② Go 正则表达式提取（scraper.go:705）                                       │
+│     ┌──────────────────────────────────────────────────────────────┐       │
+│     │ 正则: "vod_actor"\s*:\s*"([^"]+)"                            │       │
+│     │ 捕获: \\u5973\\u795e\\u30b8\\u30e5\\u30f3                    │       │
+│     │ (字面量字符串，不解析 Unicode 转义)                              │       │
+│     └──────────────────────────────────────────────────────────────�       │
+│                              │                                              │
+│                              ▼                                              │
+│  ③ marshalStrSlice JSON 序列化存储（main.go:844）                            │
+│     ┌──────────────────────────────────────────────────────────────┐       │
+│     │ actorsJSON = json.Marshal([]string{"\\u5973\\u795e..."})       │       │
+│     │ 存储到 DB: ["\u5973\u795e\u30b8\u30e5\u30f3"]                  │       │
+│     └──────────────────────────────────────────────────────────────┘       │
+│                              │                                              │
+│                              ▼                                              │
+│  ④ API 读取 + 外层 JSON 序列化（api/tasks.go:79）                            │
+│     ┌──────────────────────────────────────────────────────────────┐       │
+│     │ json.Marshal(task) 将 Person 字段再次序列化                     │       │
+│     │ 输出: ["\\u5973\\u795e\\u30b8\\u30e5\\u30f3"]                │       │
+│     └──────────────────────────────────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 6.3.2 实证验证
+
+通过 CDP `evaluate_script` 使用 `JSON.parse` 解析 `player_aaaa` JSON：
+
+```javascript
+// 输入（HTML 源代码）
+"vod_actor":"\\u5973\\u795e\\u30b8\\u30e5\\u30f3"
+
+// JSON.parse 输出（JavaScript 运行时）
+actorValue: "女神ジュン"
+actorHex: "5973 795e 30b8 30e5 30f3"
+actorCodes: [22899, 31070, 12472, 12517, 12531]
+```
+
+**证明**：如果使用正确的 JSON 解析，Unicode 字符可以被正确解码。问题出在 Go 代码使用正则表达式直接从 HTML 提取，绕过了 JSON 解析器。
+
+### 6.4 问题定位总结
+
+| 层级 | 文件 | 行号 | 问题描述 |
+|------|------|------|----------|
+| **提取层** | `universal/scraper.go` | 702-716 | 使用正则表达式从 HTML 提取 `vod_actor`，而非 JSON.parse |
+| **存储层** | `cmd/server/main.go` | 844 | `marshalStrSlice` 对包含转义字符的字符串进行 JSON 序列化 |
+| **读取层** | `api/tasks.go` | 65,79 | 将 DB 中的 JSON 字符串作为普通 string 扫描到 `Person` 字段 |
+| **输出层** | `api/tasks.go` | 84 | `writeJSON` 再次序列化 `Person` 字段 |
+
+### 6.5 修复建议（基于实证）
+
+**方案 A（推荐）- 在提取层正确解析 Unicode**
+
+```go
+// universal/scraper.go:702 附近
+// 替换正则表达式提取为 JSON 解析
+for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
+    if len(m) >= 2 {
+        raw := m[1]
+        // 使用 encoding/json 正确解析 Unicode 转义
+        var pd struct {
+            VodData struct {
+                Actor string `json:"vod_actor"`
+                Name  string `json:"vod_name"`
+            } `json:"vod_data"`
+        }
+        if err := json.Unmarshal([]byte(raw), &pd); err == nil {
+            // 此时 pd.VodData.Actor 已经是正确解码的 Unicode
+            for _, a := range strings.Split(pd.VodData.Actor, ",") {
+                if a = strings.TrimSpace(a); a != "" {
+                    actors = append(actors, a)
+                }
+            }
+        }
+    }
+}
+```
+
+**方案 B（兜底）- 在存储层解码**
+
+```go
+// cmd/server/main.go preWriteVideoInfo 中
+import "strconv"
+func decodeUnicodeEscapes(s string) string {
+    // 将 \\uXXXX 转换为实际 Unicode 字符
+    re := regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
+    return re.ReplaceAllStringFunc(s, func(match string) string {
+        hex := match[2:] // 去掉 \u
+        if code, err := strconv.ParseInt(hex, 16, 32); err == nil {
+            return string(rune(code))
+        }
+        return match
+    })
+}
+```
+
+### 6.6 MCP 取证命令记录
+
+```javascript
+// 导航到目标页面
+js-reverse_navigate_page({url: "https://v1.kanav.onl/index.php/vod/play/id/76737/sid/1/nid/1.html"})
+
+// 提取页面标题和演员数据
+js-reverse_evaluate_script({
+  function: `() => {
+    const title = document.title;
+    const actorEls = document.querySelectorAll('.actor a, .star a');
+    const actors = Array.from(actorEls).map(el => el.textContent.trim()).filter(Boolean);
+    return {pageTitle: title, actors: actors};
+  }`,
+  confirm: true
+})
+
+// 解析 player_aaaa JSON 验证 Unicode
+js-reverse_evaluate_script({
+  function: `() => {
+    const scripts = document.querySelectorAll('script');
+    let scriptText = '';
+    for (let s of scripts) {
+      if (s.textContent.includes('player_aaaa=')) {
+        scriptText = s.textContent;
+        break;
+      }
+    }
+    const jsonMatch = scriptText.match(/player_aaaa=(\{.*\})/s);
+    const parsed = JSON.parse(jsonMatch[1]);
+    return {
+      actorValue: parsed.vod_data.vod_actor,
+      actorHex: Array.from(parsed.vod_data.vod_actor).map(c => 
+        c.charCodeAt(0).toString(16).padStart(4, '0')
+      ).join(' ')
+    };
+  }`,
+  confirm: true
+})
+```
+
+### 6.7 取证结论
+
+1. **Kanav/MacCMS 系统确实使用双重 Unicode 转义**：`\\uXXXX` 格式存储演员名字
+2. **universal scraper 的正则提取绕过了 JSON 解析器**：导致转义序列未被解码
+3. **正确的 JSON.parse 可以正确解码**：实证显示 `JSON.parse` 后得到 `女神ジュン`
+4. **修复点明确**：在 `universal/scraper.go:702-716` 区域，将正则替换为 JSON 解析即可解决
+
+

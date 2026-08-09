@@ -1,6 +1,7 @@
 ﻿package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,8 +18,37 @@ import (
 	"backend/internal/taskprogress"
 )
 
-// ShelfList returns galleries with pagination, matching the
-// /api/shelf endpoint used by the resource shelf dashboard.
+// getGalleryDagID retrieves the DAG ID associated with a gallery.
+// Returns empty string if no DAG has been created for this gallery.
+func (h *Handlers) getGalleryDagID(ctx context.Context, galleryID int) string {
+	var dagID string
+	err := h.DB.QueryRow(ctx, "SELECT COALESCE(dag_id, '') FROM galleries WHERE id = ?", galleryID).Scan(&dagID)
+	if err != nil {
+		return ""
+	}
+	return dagID
+}
+
+// updateGalleryDagID stores the DAG ID in the galleries table.
+func (h *Handlers) updateGalleryDagID(ctx context.Context, galleryID int, dagID string) {
+	h.DB.Exec(ctx, "UPDATE galleries SET dag_id = ? WHERE id = ?", dagID, galleryID)
+}
+
+// ShelfList returns gallery (写真包) tasks with pagination.
+//
+// Gallery tasks are photo-centric downloads (primarily images, may include
+// optional videos). They are stored in the galleries table, separate from
+// video tasks (download_tasks table).
+//
+// Task type distinction:
+//   - galleries: Gallery tasks (photo sets/写真包, primarily images with optional videos)
+//   - download_tasks: Video tasks (M3U8 streams, video files)
+//
+// This endpoint serves the /api/shelf endpoint for the resource shelf dashboard.
+// For the unified task list, see tasks.go TaskList (video only) or the
+// proposed unified task endpoint.
+//
+// See: tasks.go TaskList for video task queries
 func (h *Handlers) ShelfList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -61,22 +91,70 @@ func (h *Handlers) ShelfList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Attach progress from ProgressEngine for downloading/scraping galleries.
-	// The frontend progress bar needs completed/total counts which are only
-	// available in the ProgressEngine (not in the galleries table directly).
-	type galleryWithProgress struct {
-		db.Gallery
-		Progress *taskprogress.GalleryProgressSummary `json:"Progress,omitempty"`
-	}
-	enriched := make([]galleryWithProgress, len(galleries))
+	// The frontend progress bar needs a simple 0-100 progress number.
+	// Use a map to avoid struct embedding issues with JSON serialization.
+	enriched := make([]map[string]any, len(galleries))
 	for i, g := range galleries {
-		enriched[i] = galleryWithProgress{Gallery: g}
-		if h.ProgressEngine != nil {
-			if g.Status == "downloading" || g.Status == "scraping" || g.Status == "scraped" {
+		// Calculate progress based on status and available data
+		progress := 0.0
+		switch g.Status {
+		case "completed":
+			progress = 100
+		case "pending", "paused":
+			progress = 0
+		default:
+			// For downloading/scraping/scraped: try ProgressEngine first
+			if h.ProgressEngine != nil {
 				summary := h.ProgressEngine.GetSummary(g.ID)
 				if summary.TotalFiles > 0 {
-					enriched[i].Progress = &summary
+					progress = summary.Progress
+					break
 				}
 			}
+			// Fallback: calculate from downloaded_size / total_size
+			if g.TotalSize > 0 {
+				progress = float64(g.DownloadedSize) / float64(g.TotalSize) * 100
+				if progress > 99 && g.Status != "completed" {
+					progress = 99 // Cap at 99 until fully verified
+				}
+			}
+		}
+
+		// Build response map with all gallery fields plus progress
+		// Apply person-stripping to title for display (matches tasks list behavior)
+		displayTitle := StripPersonFromTitle(g.Title, g.Protagonist)
+		enriched[i] = map[string]any{
+			"ID":                  g.ID,
+			"DisplayID":           g.Seq,
+			"SourceURL":           g.SourceURL,
+			"SiteID":              g.SiteID,
+			"ScrapedDomain":       g.ScrapedDomain,
+			"Title":               displayTitle,
+			"Protagonist":         g.Protagonist,
+			"Description":         g.Description,
+			"Category":            g.Category,
+			"Tags":                g.Tags,
+			"CoverURL":            g.CoverURL,
+			"CoverLocalPath":      g.CoverLocalPath,
+			"ImageCount":          g.ImageCount,
+			"VideoCount":          g.VideoCount,
+			"PageCount":           g.PageCount,
+			"Status":              g.Status,
+			"ErrorMsg":            g.ErrorMsg,
+			"DownloadMethod":      g.DownloadMethod,
+			"ExpectedImageCount":  g.ExpectedImageCount,
+			"ExpectedVideoCount":  g.ExpectedVideoCount,
+			"ContentVerified":     g.ContentVerified,
+			"SavePath":            g.SavePath,
+			"TotalSize":           g.TotalSize,
+			"DownloadedSize":      g.DownloadedSize,
+			"GameCharacters":      g.GameCharacters,
+			"PublishTime":         g.PublishTime,
+			"ScrapedAt":           g.ScrapedAt,
+			"CompletedAt":         g.CompletedAt,
+			"CreatedAt":           g.CreatedAt,
+			"UpdatedAt":           g.UpdatedAt,
+			"progress":            progress, // Flattened 0-100 progress for frontend
 		}
 	}
 	writeJSON(w, http.StatusOK, enriched)
@@ -123,7 +201,8 @@ func (h *Handlers) SjsShelfList(w http.ResponseWriter, r *http.Request) {
 	bookmarks := []db.SjsBookmark{}
 	for rows.Next() {
 		var b db.SjsBookmark
-		if err := rows.Scan(&b.ID, &b.URL, &b.ThreadID, &b.Title, &b.CoverURL, &b.Author, &b.PostDate, &b.ForumSection, &b.Notes, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		var ca, ua db.SQLTime // scan SQLite TEXT datetime columns (P-TSG)
+		if err := rows.Scan(&b.ID, &b.URL, &b.ThreadID, &b.Title, &b.CoverURL, &b.Author, &b.PostDate, &b.ForumSection, &b.Notes, &ca, &ua); err != nil {
 			continue
 		}
 		bookmarks = append(bookmarks, b)
@@ -145,22 +224,47 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 
 	// ── Cover image mode ──
 	if r.URL.Query().Get("type") == "cover" {
-		var coverPath string
+		var coverPath, coverURL string
 		err := h.DB.QueryRow(r.Context(),
-			"SELECT cover_local_path FROM galleries WHERE id = ?", id).Scan(&coverPath)
-		if err != nil || coverPath == "" {
+			"SELECT cover_local_path, cover_url FROM galleries WHERE id = ?", id).Scan(&coverPath, &coverURL)
+		if err != nil {
 			writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.gallery.notFound"))
 			return
 		}
-		// DB stores paths as "data\galleries\..."; strip the prefix
-		cleanPath := strings.TrimPrefix(filepath.FromSlash(coverPath), "data"+string(filepath.Separator))
-		cleanPath = strings.TrimPrefix(cleanPath, "data/")
-		fullPath := filepath.Join("..", "data", cleanPath)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			writeError(w, http.StatusNotFound, "cover file not found")
+
+		// Try local cover file first
+		if coverPath != "" {
+			cleanPath := strings.TrimPrefix(filepath.FromSlash(coverPath), "data"+string(filepath.Separator))
+			cleanPath = strings.TrimPrefix(cleanPath, "data/")
+			fullPath := filepath.Join("..", "data", cleanPath)
+			if _, err := os.Stat(fullPath); err == nil {
+				serveResizedImage(w, r, fullPath, queryWidth(r))
+				return
+			}
+		}
+
+		// Fallback 1: try first downloaded gallery image as cover
+		var firstImageLocalPath string
+		err = h.DB.QueryRow(r.Context(),
+			"SELECT local_path FROM gallery_images WHERE gallery_id = ? AND status = 'downloaded' AND local_path != '' ORDER BY order_index LIMIT 1", id).Scan(&firstImageLocalPath)
+		if err == nil && firstImageLocalPath != "" {
+			cleanPath := strings.TrimPrefix(filepath.FromSlash(firstImageLocalPath), "data"+string(filepath.Separator))
+			cleanPath = strings.TrimPrefix(cleanPath, "data/")
+			fullPath := filepath.Join("..", "data", cleanPath)
+			if _, err := os.Stat(fullPath); err == nil {
+				serveResizedImage(w, r, fullPath, queryWidth(r))
+				return
+			}
+		}
+
+		// Fallback 2: redirect to external cover_url
+		if coverURL != "" {
+			http.Redirect(w, r, coverURL, http.StatusFound)
 			return
 		}
-		serveResizedImage(w, r, fullPath, queryWidth(r))
+
+		// No cover available at all
+		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.gallery.notFound"))
 		return
 	}
 
@@ -239,7 +343,8 @@ func (h *Handlers) SjsBookmarksList(w http.ResponseWriter, r *http.Request) {
 	bookmarks := []db.SjsBookmark{}
 	for rows.Next() {
 		var b db.SjsBookmark
-		if err := rows.Scan(&b.ID, &b.URL, &b.ThreadID, &b.Title, &b.CoverURL, &b.Author, &b.PostDate, &b.ForumSection, &b.Notes, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		var ca, ua db.SQLTime // scan SQLite TEXT datetime columns (P-TSG)
+		if err := rows.Scan(&b.ID, &b.URL, &b.ThreadID, &b.Title, &b.CoverURL, &b.Author, &b.PostDate, &b.ForumSection, &b.Notes, &ca, &ua); err != nil {
 			continue
 		}
 		bookmarks = append(bookmarks, b)
@@ -377,7 +482,8 @@ func (h *Handlers) Preview(w http.ResponseWriter, r *http.Request) {
 	images := []db.GalleryImage{}
 	for rows.Next() {
 		var img db.GalleryImage
-		if err := rows.Scan(&img.ID, &img.GalleryID, &img.URL, &img.LocalPath, &img.FileName, &img.FileSize, &img.Width, &img.Height, &img.Format, &img.PageIndex, &img.OrderIndex, &img.Status, &img.ErrorMsg, &img.CompletedAt, &img.CreatedAt, &img.UpdatedAt); err != nil {
+		var completedAt, createdAt, updatedAt db.SQLTime // scan SQLite TEXT datetime columns (P-TSG)
+		if err := rows.Scan(&img.ID, &img.GalleryID, &img.URL, &img.LocalPath, &img.FileName, &img.FileSize, &img.Width, &img.Height, &img.Format, &img.PageIndex, &img.OrderIndex, &img.Status, &img.ErrorMsg, &completedAt, &createdAt, &updatedAt); err != nil {
 			continue
 		}
 		images = append(images, img)
@@ -388,10 +494,75 @@ func (h *Handlers) Preview(w http.ResponseWriter, r *http.Request) {
 // Protagonists returns protagonist names grouped by gallery count.
 func (h *Handlers) Protagonists(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, []any{})
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": map[string]any{"protagonists": []any{}}})
 		return
 	}
-	rows, err := h.DB.Query(r.Context(),
+	ctx := r.Context()
+
+	// Detail mode: /api/protagonists?name=<name> returns per-protagonist
+	// stats (standard name, gallery count, aliases, gallery list) for the
+	// protagonist detail page. Falls back to the list shape when the
+	// name has no rows.
+	if name := r.URL.Query().Get("name"); name != "" {
+		var count int
+		_ = h.DB.QueryRow(ctx,
+			`SELECT COUNT(*) FROM galleries WHERE protagonist = ? AND status = 'completed'`, name).Scan(&count)
+		var aliases []struct {
+			Name  string `json:"name"`
+			Count int    `json:"count"`
+		}
+		aliasRows, aErr := h.DB.Query(ctx,
+			`SELECT protagonist, COUNT(*) FROM galleries
+			 WHERE protagonist != '' AND protagonist != ? AND status = 'completed'
+			   AND (title LIKE '%' || ? || '%' OR protagonist LIKE ?)
+			 GROUP BY protagonist ORDER BY COUNT(*) DESC LIMIT 20`,
+			name, name, "%"+name+"%")
+		if aErr == nil {
+			for aliasRows.Next() {
+				var a struct {
+					Name  string `json:"name"`
+					Count int    `json:"count"`
+				}
+				if err := aliasRows.Scan(&a.Name, &a.Count); err == nil {
+					aliases = append(aliases, a)
+				}
+			}
+			aliasRows.Close()
+		}
+		var galleries []struct {
+			ID       int    `json:"id"`
+			Title    string `json:"title"`
+			CoverURL string `json:"coverUrl"`
+		}
+		gRows, gErr := h.DB.Query(ctx,
+			`SELECT id, COALESCE(title,''), COALESCE(cover_url,'') FROM galleries
+			 WHERE protagonist = ? AND status = 'completed' ORDER BY id DESC LIMIT 100`, name)
+		if gErr == nil {
+			for gRows.Next() {
+				var g struct {
+					ID       int    `json:"id"`
+					Title    string `json:"title"`
+					CoverURL string `json:"coverUrl"`
+				}
+				if err := gRows.Scan(&g.ID, &g.Title, &g.CoverURL); err == nil {
+					galleries = append(galleries, g)
+				}
+			}
+			gRows.Close()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": true,
+			"data": map[string]any{
+				"standardName": name,
+				"count":        count,
+				"aliases":      aliases,
+				"galleries":    galleries,
+			},
+		})
+		return
+	}
+
+	rows, err := h.DB.Query(ctx,
 		`SELECT protagonist, COUNT(*) as gallery_count
 		 FROM galleries WHERE protagonist != '' AND status = 'completed'
 		 GROUP BY protagonist ORDER BY gallery_count DESC LIMIT 100`)
@@ -404,6 +575,7 @@ func (h *Handlers) Protagonists(w http.ResponseWriter, r *http.Request) {
 	type protagonistStat struct {
 		Name         string `json:"name"`
 		GalleryCount int    `json:"galleryCount"`
+		Count        int    `json:"count"` // alias matching the frontend contract
 	}
 	result := []protagonistStat{}
 	for rows.Next() {
@@ -411,9 +583,15 @@ func (h *Handlers) Protagonists(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&ps.Name, &ps.GalleryCount); err != nil {
 			continue
 		}
+		ps.Count = ps.GalleryCount
 		result = append(result, ps)
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]any{
+			"protagonists": result,
+		},
+	})
 }
 
 // History returns download history with pagination and filtering.
@@ -446,7 +624,8 @@ func (h *Handlers) History(w http.ResponseWriter, r *http.Request) {
 	history := []db.DownloadHistory{}
 	for rows.Next() {
 		var dh db.DownloadHistory
-		if err := rows.Scan(&dh.ID, &dh.SiteID, &dh.GalleryID, &dh.URL, &dh.Status, &dh.ImageCount, &dh.VideoCount, &dh.Title, &dh.Protagonist, &dh.SavePath, &dh.CreatedAt, &dh.UpdatedAt); err != nil {
+		var ca, ua db.SQLTime // scan SQLite TEXT datetime columns (P-TSG)
+		if err := rows.Scan(&dh.ID, &dh.SiteID, &dh.GalleryID, &dh.URL, &dh.Status, &dh.ImageCount, &dh.VideoCount, &dh.Title, &dh.Protagonist, &dh.SavePath, &ca, &ua); err != nil {
 			continue
 		}
 		history = append(history, dh)
@@ -491,6 +670,8 @@ func (h *Handlers) GalleryImages(w http.ResponseWriter, r *http.Request) {
 // Before deleting DB rows, any active DAG for this gallery is cancelled
 // to prevent orphaned DAGs from continuing to execute after the gallery
 // record is gone. This mirrors the TaskDelete safety pattern.
+//
+// After DB deletion, local files are cleaned up (gallery folder, ZIP file).
 func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -501,13 +682,23 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cancel any active DAG for this gallery before deleting DB rows.
+	// Step 1: Read gallery info before deletion (for file cleanup).
+	var savePath string
+	_ = h.DB.QueryRow(r.Context(),
+		"SELECT COALESCE(save_path, '') FROM galleries WHERE id = ?", id).Scan(&savePath)
+
+	// Step 1b: Read ZIP download paths from gallery_download_infos.
+	var zipLocalPath string
+	_ = h.DB.QueryRow(r.Context(),
+		"SELECT COALESCE(local_path, '') FROM gallery_download_infos WHERE gallery_id = ?", id).Scan(&zipLocalPath)
+
+	// Step 2: Cancel any active DAG for this gallery before deleting DB rows.
 	// This prevents orphaned DAGs from continuing to execute after the
 	// gallery record is gone, which would cause FK violations and DB
 	// write failures with no user-visible feedback.
 	if h.DagOrch != nil {
-		dagID := fmt.Sprintf("gallery-%d", id)
-		if status := h.DagOrch.GetDagStatus(dagID); status != nil {
+		dagID := h.getGalleryDagID(r.Context(), id)
+		if dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
 			// Best-effort cancel: if the DAG doesn't exist or is already
 			// terminal, proceed with DELETE anyway.
 			_ = h.DagOrch.CancelDag(r.Context(), dagID)
@@ -522,7 +713,7 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete associated records in order (respect FK constraints)
+	// Step 3: Delete associated records in order (respect FK constraints)
 	h.DB.Exec(r.Context(), "DELETE FROM gallery_videos WHERE gallery_id = ?", id)
 	h.DB.Exec(r.Context(), "DELETE FROM gallery_images WHERE gallery_id = ?", id)
 	h.DB.Exec(r.Context(), "DELETE FROM gallery_download_infos WHERE gallery_id = ?", id)
@@ -530,6 +721,24 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
 		return
+	}
+
+	// Step 4: Clean up local files (best-effort, non-blocking).
+	// Delete gallery folder: data/galleries/{主角} - {描述}/
+	if savePath != "" {
+		_ = os.RemoveAll(savePath)
+	}
+	// Delete ZIP file if it exists.
+	if zipLocalPath != "" {
+		_ = os.Remove(zipLocalPath)
+	}
+
+	// Emit event for SSE clients
+	if h.EventBus != nil {
+		h.EventBus.Emit("task:cancelled", map[string]any{
+			"taskId":   id,
+			"taskType": "gallery",
+		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
@@ -560,29 +769,118 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	dagID := fmt.Sprintf("gallery-%d", id)
+	dagID := h.getGalleryDagID(ctx, id)
 
 	switch req.Action {
 	case "retry-failed":
-		// Retry failed nodes in existing DAG, or create a new pipeline.
-		if h.DagOrch != nil {
+		h.shelfRetryFailed(ctx, w, r, id)
+		return
+
+	// Generic action names (frontend no longer needs to translate to backend-specific names).
+	// The backend determines the appropriate operation based on current gallery status.
+	case "start":
+		// Start: if gallery is failed/partial → retry; otherwise → resume/retry-failed.
+		h.shelfRetryFailed(ctx, w, r, id)
+		return
+
+	case "retry":
+		// Retry: same as retry-failed.
+		h.shelfRetryFailed(ctx, w, r, id)
+		return
+
+	case "pause":
+		if h.DagOrch != nil && dagID != "" {
+			if err := h.DagOrch.PauseDag(ctx, dagID); err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG pause failed: %v", err))
+				return
+			}
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'paused' WHERE id = ?", id)
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:progress", map[string]any{
+					"taskId":   id,
+					"taskType": "gallery",
+					"status":   "paused",
+				})
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "pause", "status": "paused"})
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+
+	case "resume":
+		if h.DagOrch != nil && dagID != "" {
+			if err := h.DagOrch.ResumeDag(ctx, dagID, ""); err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume failed: %v", err))
+				return
+			}
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping' WHERE id = ?", id)
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:progress", map[string]any{
+					"taskId":   id,
+					"taskType": "gallery",
+					"status":   "scraping",
+				})
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "resume", "status": "resumed"})
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+
+	case "download":
+		// Re-download: reuse the retry-failed path so the DAG is actually
+		// (re)submitted. Previously this only reset status to 'pending',
+		// leaving the gallery stuck forever (no mechanism re-submits a
+		// plain pending gallery outside restart recovery).
+		h.shelfRetryFailed(ctx, w, r, id)
+		return
+
+	case "download-zip":
+		// NOTE: legacy action kept for API compatibility. The real ZIP
+		// download runs inside the gallery DAG's download node
+		// (TryDownloadGalleryZip); a standalone synchronous ZIP download
+		// is not supported here. Surface an explicit error instead of a
+		// fake success, so the frontend no longer reports a completed
+		// ZIP that never happened.
+		writeJSON(w, http.StatusNotImplemented, map[string]any{
+			"id":      id,
+			"action":  "download-zip",
+			"success": false,
+			"error":   "zip download is only available through the gallery download pipeline",
+		})
+
+	default:
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unknownAction")+" "+req.Action)
+	}
+}
+
+// shelfRetryFailed implements the shared retry-failed logic used by both
+// the "retry-failed" and "download" shelf actions: retry failed nodes in
+// an existing DAG, or build a fresh pipeline (resume when scraped, full
+// otherwise) and submit it.
+func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, r *http.Request, id int) error {
+	dagID := h.getGalleryDagID(ctx, id)
+	if h.DagOrch != nil {
+		if dagID != "" {
 			status := h.DagOrch.GetDagStatus(dagID)
 			if status != nil {
 				// DAG exists: retry failed nodes.
 				if err := h.DagOrch.RetryDag(ctx, dagID, ""); err != nil {
 					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
-					return
+					return nil
 				}
-				// Update gallery status so SSE initial data reflects the change.
 				h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
+				if h.EventBus != nil {
+					h.EventBus.Emit("task:progress", map[string]any{
+						"taskId":   id,
+						"taskType": "gallery",
+						"status":   "scraping",
+					})
+				}
 				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": dagID, "status": "retrying"})
-				return
+				return nil
 			}
+		}
 		// DAG not found: check if gallery has been scraped before.
-		// If image_count or video_count > 0, use the download-only
-		// resume pipeline (skip scrape to avoid immediate failure
-		// from duplicate detection). Otherwise, create a full pipeline
-		// that includes the scrape phase.
 		var sourceURL, siteID string
 		var imageCount, videoCount int
 		err := h.DB.QueryRow(ctx,
@@ -590,74 +888,36 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 			Scan(&sourceURL, &siteID, &imageCount, &videoCount)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "Gallery not found")
-			return
+			return nil
 		}
-
 		var def orchestrator.DagDefinition
 		if imageCount > 0 || videoCount > 0 {
-			// Gallery already scraped: use download-only pipeline.
 			def = dag.NewDagFactory().NewGalleryResumePipeline(id)
 		} else {
 			def = dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
 		}
 		newDagID, err := h.DagOrch.SubmitDag(ctx, def)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
-				return
-			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
-			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": newDagID, "status": "retrying"})
-			return
-		}
-		// Fallback without DAG: reset status only.
-		h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
-		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "status": "pending"})
-
-	case "pause":
-		if h.DagOrch != nil {
-			if err := h.DagOrch.PauseDag(ctx, dagID); err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG pause failed: %v", err))
-				return
-			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'paused' WHERE id = ?", id)
-			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "pause", "status": "paused"})
-			return
-		}
-		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
-
-	case "resume":
-		if h.DagOrch != nil {
-			if err := h.DagOrch.ResumeDag(ctx, dagID, ""); err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume failed: %v", err))
-				return
-			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping' WHERE id = ?", id)
-			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "resume", "status": "resumed"})
-			return
-		}
-		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
-
-	case "download":
-		// Legacy: reset gallery status to pending.
-		_, err := h.DB.Exec(ctx,
-			"UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.gallery.queryFailed"))
-			return
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
+			return nil
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "download", "status": "pending"})
-
-	case "download-zip":
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id":      id,
-			"action":  "download-zip",
-			"success": true,
-			"message": "Zip download initiated",
-		})
-
-	default:
-		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unknownAction")+" "+req.Action)
+		// Store the new DAG ID for future lookups.
+		h.updateGalleryDagID(ctx, id, newDagID)
+		h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
+		if h.EventBus != nil {
+			h.EventBus.Emit("task:progress", map[string]any{
+				"taskId":   id,
+				"taskType": "gallery",
+				"status":   "scraping",
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": newDagID, "status": "retrying"})
+		return nil
 	}
+	// Fallback without DAG: reset status only.
+	h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "status": "pending"})
+	return nil
 }
 
 func scanGallery(rows *sql.Rows, g *db.Gallery) error {
@@ -757,7 +1017,7 @@ func parseNullTime(s sql.NullString) *time.Time {
 // GalleryFileProgress returns per-file progress for a gallery task.
 // GET /api/shelf/{id}/files/progress
 // This provides the granular breakdown needed for fine-grained retry
-// decisions �?which files failed, which succeeded, and the overall
+// decisions — which files failed, which succeeded, and the overall
 // completion ratio based on actual disk state.
 func (h *Handlers) GalleryFileProgress(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
@@ -869,17 +1129,16 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 		if len(indices) == 0 {
 			writeJSON(w, http.StatusOK, taskprogress.RetryResult{
 				GalleryID: id,
-				Message:   "No files to retry �?all files are either completed or have no failed items",
+				Message:   "No files to retry — all files are either completed or have no failed items",
 			})
 			return
 		}
 
 		// Trigger DAG retry for the download/extract/verify nodes.
 		// The DAG-level retry will re-process all specified files.
-		dagID := fmt.Sprintf("gallery-%d", id)
+		dagID := h.getGalleryDagID(ctx, id)
 		if h.DagOrch != nil {
-			status := h.DagOrch.GetDagStatus(dagID)
-			if status != nil {
+			if dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
 				// Retry the download node to re-download failed files.
 				dlNodeID := fmt.Sprintf("dl-%d", id)
 				if err := h.DagOrch.RetryDag(ctx, dagID, dlNodeID); err != nil {
@@ -887,7 +1146,7 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				// DAG not active �?re-submit gallery pipeline.
+				// DAG not active → re-submit gallery pipeline.
 				var sourceURL, siteID string
 				err := h.DB.QueryRow(ctx,
 					"SELECT source_url, site_id FROM galleries WHERE id = ?", id).
@@ -897,16 +1156,25 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				def := dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
-				if _, err := h.DagOrch.SubmitDag(ctx, def); err != nil {
+				newDagID, err := h.DagOrch.SubmitDag(ctx, def)
+				if err != nil {
 					writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
 					return
 				}
+				h.updateGalleryDagID(ctx, id, newDagID)
 			}
 		}
 
 		// Update gallery status for SSE propagation.
 		if h.DB != nil {
 			h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:progress", map[string]any{
+					"taskId":   id,
+					"taskType": "gallery",
+					"status":   "downloading",
+				})
+			}
 		}
 
 		writeJSON(w, http.StatusOK, taskprogress.RetryResult{
@@ -919,13 +1187,20 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback without progress engine: retry the whole gallery DAG.
-	dagID := fmt.Sprintf("gallery-%d", id)
-	if h.DagOrch != nil {
+	dagID := h.getGalleryDagID(ctx, id)
+	if h.DagOrch != nil && dagID != "" {
 		if err := h.DagOrch.RetryDag(ctx, dagID, ""); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
 			return
 		}
 		h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
+		if h.EventBus != nil {
+			h.EventBus.Emit("task:progress", map[string]any{
+				"taskId":   id,
+				"taskType": "gallery",
+				"status":   "downloading",
+			})
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"galleryId": id,
 			"message":   "Full gallery retry initiated (progress engine not available for fine-grained retry)",

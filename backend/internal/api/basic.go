@@ -54,6 +54,13 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 		"downloadHistory":   0,
 		"current_speed_str": "0 B/s",
 		"disk_io_str":       "--",
+		// Speed fields consumed by the dashboard (frontend falls back to
+		// 0 / "0 B/s" when absent, but providing them keeps the contract
+		// explicit — F13).
+		"avg_speed":       0,
+		"avg_speed_str":   "0 B/task",
+		"current_speed":   0,
+		"speed_rating":    0,
 	}
 
 	if h.DB != nil {

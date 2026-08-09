@@ -1,16 +1,8 @@
 {
-  "version": "4.0",
-  "description": "全平台模特数据聚合（去重清洗版）- 用于标题解析与主角识别",
-  "sources": {
-    "coser_original": "backend/resources/model/coser.json (47位)",
-    "coserindex": "https://coserindex.com/models (378位)",
-    "cosmaomao": "https://cosmaomao.com/tags (311位)",
-    "coser_final": "backend/resources/model/coser-final.json (570位)"
-  },
   "stats": {
-    "total": 521,
-    "withAliases": 63,
-    "withPinyin": 521
+    "total": 536,
+    "withAliases": 200,
+    "withPinyin": 536
   },
   "models": [
     {
@@ -49,7 +41,9 @@
     {
       "name": "啊日日Ganlory",
       "pinyin": "a ri ri Ganlory",
-      "aliases": [],
+      "aliases": [
+        "Ganlory"
+      ],
       "category": "coser"
     },
     {
@@ -64,69 +58,83 @@
     {
       "name": "艾西Aiwest",
       "pinyin": "ai xi Aiwest",
-      "aliases": [],
+      "aliases": [
+        "Aiwest"
+      ],
       "category": "coser"
     },
     {
       "name": "爱老师_PhD",
       "pinyin": "ai lao shi _PhD",
-      "aliases": [],
+      "aliases": [
+        "PhD"
+      ],
       "category": "coser"
     },
     {
       "name": "愛莉Iri",
       "pinyin": "ai li Iri",
-      "aliases": [],
+      "aliases": [
+        "Iri"
+      ],
       "category": "coser"
     },
     {
       "name": "安妮-yoo",
       "pinyin": "an ni -yoo",
-      "aliases": [],
+      "aliases": [
+        "yoo"
+      ],
       "category": "coser"
     },
     {
       "name": "安食Ajiki",
       "pinyin": "an shi Ajiki",
-      "aliases": [],
+      "aliases": [
+        "Ajiki"
+      ],
       "category": "coser"
     },
     {
       "name": "巴鲁巴鲁BaRu",
       "pinyin": "ba lu ba lu BaRu",
       "aliases": [
-        "巴鲁巴鲁BaRuv"
+        "巴鲁巴鲁BaRuv",
+        "BaRu"
       ],
       "category": "coser"
     },
     {
       "name": "白金Saki",
       "pinyin": "bai jin Saki",
-      "aliases": [],
+      "aliases": [
+        "Saki"
+      ],
       "category": "coser"
     },
     {
       "name": "白栎Shirly",
       "pinyin": "bai li Shirly",
-      "aliases": [],
+      "aliases": [
+        "Shirly"
+      ],
       "category": "coser"
     },
     {
       "name": "白露bululu",
       "pinyin": "bai lu bululu",
-      "aliases": [],
+      "aliases": [
+        "bululu"
+      ],
       "category": "coser"
     },
     {
       "name": "白神泱",
       "pinyin": "bai shen yang",
-      "aliases": [],
-      "category": "coser"
-    },
-    {
-      "name": "白神泱 / Shiraga Yanko 小泱",
-      "pinyin": "bai shen yang / Shiraga Yanko / Shiraga Yanko xiao",
-      "aliases": [],
+      "aliases": [
+        "Shiraga Yanko",
+        "小泱"
+      ],
       "category": "coser"
     },
     {
@@ -170,7 +178,9 @@
     {
       "name": "寶儿Mysterial",
       "pinyin": "bao er Mysterial",
-      "aliases": [],
+      "aliases": [
+        "Mysterial"
+      ],
       "category": "coser"
     },
     {
@@ -188,14 +198,17 @@
     {
       "name": "贝贝琪Becky",
       "pinyin": "bei bei qi Becky",
-      "aliases": [],
+      "aliases": [
+        "Becky"
+      ],
       "category": "coser"
     },
     {
       "name": "贝儿酱Miki",
       "pinyin": "bei er jiang Miki",
       "aliases": [
-        "-戚顾儿MIKI-"
+        "-戚顾儿MIKI-",
+        "Miki"
       ],
       "category": "coser"
     },
@@ -220,7 +233,9 @@
     {
       "name": "彩芸_Nebula",
       "pinyin": "cai yun _Nebula",
-      "aliases": [],
+      "aliases": [
+        "Nebula"
+      ],
       "category": "coser"
     },
     {
@@ -256,7 +271,9 @@
     {
       "name": "陈妮妮UNI",
       "pinyin": "chen ni ni UNI",
-      "aliases": [],
+      "aliases": [
+        "UNI"
+      ],
       "category": "coser"
     },
     {
@@ -282,7 +299,9 @@
     {
       "name": "沖田凜花Rinka",
       "pinyin": "chong tian lin hua Rinka",
-      "aliases": [],
+      "aliases": [
+        "Rinka"
+      ],
       "category": "coser"
     },
     {
@@ -301,7 +320,8 @@
       "name": "純愛neko",
       "pinyin": "chun ai neko",
       "aliases": [
-        "Neko-薇薇"
+        "Neko-薇薇",
+        "neko"
       ],
       "category": "coser"
     },
@@ -327,7 +347,9 @@
     {
       "name": "刺青Poi",
       "pinyin": "ci qing Poi",
-      "aliases": [],
+      "aliases": [
+        "Poi"
+      ],
       "category": "coser"
     },
     {
@@ -351,7 +373,9 @@
     {
       "name": "大肉丸Amiee",
       "pinyin": "da rou wan Amiee",
-      "aliases": [],
+      "aliases": [
+        "Amiee"
+      ],
       "category": "coser"
     },
     {
@@ -381,7 +405,9 @@
     {
       "name": "二佐Nisa",
       "pinyin": "er zuo Nisa",
-      "aliases": [],
+      "aliases": [
+        "Nisa"
+      ],
       "category": "coser"
     },
     {
@@ -558,7 +584,9 @@
     {
       "name": "花甲conch",
       "pinyin": "hua jia conch",
-      "aliases": [],
+      "aliases": [
+        "conch"
+      ],
       "category": "coser"
     },
     {
@@ -570,19 +598,26 @@
     {
       "name": "花柒Hana",
       "pinyin": "hua qi Hana",
-      "aliases": [],
+      "aliases": [
+        "Hana"
+      ],
       "category": "coser"
     },
     {
       "name": "花兮_honoka",
       "pinyin": "hua xi _honoka",
-      "aliases": [],
+      "aliases": [
+        "honoka"
+      ],
       "category": "coser"
     },
     {
       "name": "花リリ(Plant Lily)",
       "pinyin": "hua リリ(Plant Lily)",
-      "aliases": [],
+      "aliases": [
+        "Plant",
+        "Lily"
+      ],
       "category": "coser"
     },
     {
@@ -600,7 +635,9 @@
     {
       "name": "姜仁卿Ebichu(강인경)",
       "pinyin": "jiang ren qing Ebichu(강인경)",
-      "aliases": [],
+      "aliases": [
+        "Ebichu"
+      ],
       "category": "coser"
     },
     {
@@ -612,7 +649,9 @@
     {
       "name": "絞肉姬Walküre",
       "pinyin": "jiao rou ji Walküre",
-      "aliases": [],
+      "aliases": [
+        "Walk"
+      ],
       "category": "coser"
     },
     {
@@ -650,7 +689,9 @@
     {
       "name": "九曲Jean",
       "pinyin": "jiu qu Jean",
-      "aliases": [],
+      "aliases": [
+        "Jean"
+      ],
       "category": "coser"
     },
     {
@@ -674,7 +715,9 @@
     {
       "name": "菌烨tako",
       "pinyin": "jun ye tako",
-      "aliases": [],
+      "aliases": [
+        "tako"
+      ],
       "category": "coser"
     },
     {
@@ -686,19 +729,25 @@
     {
       "name": "可可西yyy",
       "pinyin": "ke ke xi yyy",
-      "aliases": [],
+      "aliases": [
+        "yyy"
+      ],
       "category": "coser"
     },
     {
       "name": "莱可Raika",
       "pinyin": "lai ke Raika",
-      "aliases": [],
+      "aliases": [
+        "Raika"
+      ],
       "category": "coser"
     },
     {
       "name": "蓝小沂KiKi",
       "pinyin": "lan xiao yi KiKi",
-      "aliases": [],
+      "aliases": [
+        "KiKi"
+      ],
       "category": "coser"
     },
     {
@@ -771,7 +820,9 @@
     {
       "name": "洛璃LoLiSAMA",
       "pinyin": "luo li LoLiSAMA",
-      "aliases": [],
+      "aliases": [
+        "LoLiSAMA"
+      ],
       "category": "coser"
     },
     {
@@ -783,7 +834,9 @@
     {
       "name": "洛洛子Rakukoo",
       "pinyin": "luo luo zi Rakukoo",
-      "aliases": [],
+      "aliases": [
+        "Rakukoo"
+      ],
       "category": "coser"
     },
     {
@@ -795,7 +848,9 @@
     {
       "name": "落落Raku",
       "pinyin": "luo luo Raku",
-      "aliases": [],
+      "aliases": [
+        "Raku"
+      ],
       "category": "coser"
     },
     {
@@ -822,13 +877,17 @@
     {
       "name": "猫九酱Sakura",
       "pinyin": "mao jiu jiang Sakura",
-      "aliases": [],
+      "aliases": [
+        "Sakura"
+      ],
       "category": "coser"
     },
     {
       "name": "猫君君MaoJun",
       "pinyin": "mao jun jun MaoJun",
-      "aliases": [],
+      "aliases": [
+        "MaoJun"
+      ],
       "category": "coser"
     },
     {
@@ -846,7 +905,9 @@
     {
       "name": "萌芽儿o0",
       "pinyin": "meng ya er o0",
-      "aliases": [],
+      "aliases": [
+        "o0"
+      ],
       "category": "coser"
     },
     {
@@ -858,7 +919,9 @@
     {
       "name": "弥美Mime",
       "pinyin": "mi mei Mime",
-      "aliases": [],
+      "aliases": [
+        "Mime"
+      ],
       "category": "coser"
     },
     {
@@ -870,7 +933,9 @@
     {
       "name": "迷失人形QUQ",
       "pinyin": "mi shi ren xing QUQ",
-      "aliases": [],
+      "aliases": [
+        "QUQ"
+      ],
       "category": "coser"
     },
     {
@@ -882,7 +947,9 @@
     {
       "name": "蜜蜜子Kimmie",
       "pinyin": "mi mi zi Kimmie",
-      "aliases": [],
+      "aliases": [
+        "Kimmie"
+      ],
       "category": "coser"
     },
     {
@@ -918,7 +985,9 @@
     {
       "name": "铭铭kizami",
       "pinyin": "ming ming kizami",
-      "aliases": [],
+      "aliases": [
+        "kizami"
+      ],
       "category": "coser"
     },
     {
@@ -966,7 +1035,9 @@
     {
       "name": "穆零Mu0",
       "pinyin": "mu ling Mu0",
-      "aliases": [],
+      "aliases": [
+        "Mu0"
+      ],
       "category": "coser"
     },
     {
@@ -992,14 +1063,17 @@
     {
       "name": "奶兔biubiu",
       "pinyin": "nai tu biubiu",
-      "aliases": [],
+      "aliases": [
+        "biubiu"
+      ],
       "category": "coser"
     },
     {
       "name": "奈汐酱nice",
       "pinyin": "nai xi jiang nice",
       "aliases": [
-        "张思允Nice"
+        "张思允Nice",
+        "nice"
       ],
       "category": "coser"
     },
@@ -1088,7 +1162,9 @@
     {
       "name": "葡萄糖_Glucose",
       "pinyin": "pu tao tang _Glucose",
-      "aliases": [],
+      "aliases": [
+        "Glucose"
+      ],
       "category": "coser"
     },
     {
@@ -1130,7 +1206,9 @@
     {
       "name": "起司块wii",
       "pinyin": "qi si kuai wii",
-      "aliases": [],
+      "aliases": [
+        "wii"
+      ],
       "category": "coser"
     },
     {
@@ -1154,7 +1232,9 @@
     {
       "name": "芊川一笑_MNK",
       "pinyin": "qian chuan yi xiao _MNK",
-      "aliases": [],
+      "aliases": [
+        "MNK"
+      ],
       "category": "coser"
     },
     {
@@ -1196,7 +1276,9 @@
     {
       "name": "切切celia",
       "pinyin": "qie qie celia",
-      "aliases": [],
+      "aliases": [
+        "celia"
+      ],
       "category": "coser"
     },
     {
@@ -1258,13 +1340,17 @@
     {
       "name": "阮邑Fairy",
       "pinyin": "ruan yi Fairy",
-      "aliases": [],
+      "aliases": [
+        "Fairy"
+      ],
       "category": "coser"
     },
     {
       "name": "三刀刀Miido",
       "pinyin": "san dao dao Miido",
-      "aliases": [],
+      "aliases": [
+        "Miido"
+      ],
       "category": "coser"
     },
     {
@@ -1405,7 +1491,9 @@
     {
       "name": "霜月shimo",
       "pinyin": "shuang yue shimo",
-      "aliases": [],
+      "aliases": [
+        "shimo"
+      ],
       "category": "coser"
     },
     {
@@ -1456,13 +1544,18 @@
     {
       "name": "孫樂樂Jang Ye Eun(손예은)",
       "pinyin": "sun le le Jang Ye Eun(손예은)",
-      "aliases": [],
+      "aliases": [
+        "Jang",
+        "Eun"
+      ],
       "category": "coser"
     },
     {
       "name": "塔塔Lo1iTa",
       "pinyin": "ta ta Lo1iTa",
-      "aliases": [],
+      "aliases": [
+        "Lo1iTa"
+      ],
       "category": "coser"
     },
     {
@@ -1483,13 +1576,17 @@
     {
       "name": "唐安琪angel_",
       "pinyin": "tang an qi angel_",
-      "aliases": [],
+      "aliases": [
+        "angel"
+      ],
       "category": "coser"
     },
     {
       "name": "糖果果Candy",
       "pinyin": "tang guo guo Candy",
-      "aliases": [],
+      "aliases": [
+        "Candy"
+      ],
       "category": "coser"
     },
     {
@@ -1507,7 +1604,9 @@
     {
       "name": "特软儿Sona",
       "pinyin": "te ruan er Sona",
-      "aliases": [],
+      "aliases": [
+        "Sona"
+      ],
       "category": "coser"
     },
     {
@@ -1531,31 +1630,41 @@
     {
       "name": "铁打萌萌_moi(王胖胖u)",
       "pinyin": "tie da meng meng _moi(_moi( wang pang u)",
-      "aliases": [],
+      "aliases": [
+        "moi"
+      ],
       "category": "coser"
     },
     {
       "name": "浵卡_Tokar",
       "pinyin": "tong ka _Tokar",
-      "aliases": [],
+      "aliases": [
+        "Tokar"
+      ],
       "category": "coser"
     },
     {
       "name": "兔胖胖min",
       "pinyin": "tu pang pang min",
-      "aliases": [],
+      "aliases": [
+        "min"
+      ],
       "category": "coser"
     },
     {
       "name": "兔子Zzz不吃胡萝卜",
       "pinyin": "tu zi ZzzZzz bu chi hu luo",
-      "aliases": [],
+      "aliases": [
+        "Zzz"
+      ],
       "category": "coser"
     },
     {
       "name": "脱尾巴Mizuki",
       "pinyin": "tuo wei ba Mizuki",
-      "aliases": [],
+      "aliases": [
+        "Mizuki"
+      ],
       "category": "coser"
     },
     {
@@ -1603,6 +1712,12 @@
       "category": "coser"
     },
     {
+      "name": "雯妹",
+      "pinyin": "wen mei",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
       "name": "雯妹不讲道理",
       "pinyin": "wen mei bu jiang dao li",
       "aliases": [],
@@ -1623,7 +1738,9 @@
     {
       "name": "无筝Ryou",
       "pinyin": "wu zheng Ryou",
-      "aliases": [],
+      "aliases": [
+        "Ryou"
+      ],
       "category": "coser"
     },
     {
@@ -1698,9 +1815,19 @@
       "category": "coser"
     },
     {
+      "name": "夏诗诗Sally",
+      "pinyin": "xia shi shi Sally",
+      "aliases": [
+        "Sally"
+      ],
+      "category": "coser"
+    },
+    {
       "name": "仙九Airi",
       "pinyin": "xian jiu Airi",
-      "aliases": [],
+      "aliases": [
+        "Airi"
+      ],
       "category": "coser"
     },
     {
@@ -1712,7 +1839,9 @@
     {
       "name": "贤儿sherry",
       "pinyin": "xian er sherry",
-      "aliases": [],
+      "aliases": [
+        "sherry"
+      ],
       "category": "coser"
     },
     {
@@ -1745,13 +1874,17 @@
     {
       "name": "小空Sora",
       "pinyin": "xiao kong Sora",
-      "aliases": [],
+      "aliases": [
+        "Sora"
+      ],
       "category": "coser"
     },
     {
       "name": "小璐sake",
       "pinyin": "xiao lu sake",
-      "aliases": [],
+      "aliases": [
+        "sake"
+      ],
       "category": "coser"
     },
     {
@@ -1763,7 +1896,9 @@
     {
       "name": "小宁hate",
       "pinyin": "xiao ning hate",
-      "aliases": [],
+      "aliases": [
+        "hate"
+      ],
       "category": "coser"
     },
     {
@@ -1868,14 +2003,17 @@
       "name": "星野咪兔MeetU",
       "pinyin": "xing ye mi tu MeetU",
       "aliases": [
-        "星野咪兔(星小兔Meetu)"
+        "星野咪兔(星小兔Meetu)",
+        "MeetU"
       ],
       "category": "coser"
     },
     {
       "name": "星野saori",
       "pinyin": "xing ye saori",
-      "aliases": [],
+      "aliases": [
+        "saori"
+      ],
       "category": "coser"
     },
     {
@@ -1909,7 +2047,9 @@
     {
       "name": "许岚LAN",
       "pinyin": "xu lan LAN",
-      "aliases": [],
+      "aliases": [
+        "LAN"
+      ],
       "category": "coser"
     },
     {
@@ -1927,19 +2067,26 @@
     {
       "name": "雪貓 Yuki Neko",
       "pinyin": "xue mao Yuki Neko",
-      "aliases": [],
+      "aliases": [
+        "Yuki",
+        "Neko"
+      ],
       "category": "coser"
     },
     {
       "name": "雪琪SAMA",
       "pinyin": "xue qi SAMA",
-      "aliases": [],
+      "aliases": [
+        "SAMA"
+      ],
       "category": "coser"
     },
     {
       "name": "雪晴Astra",
       "pinyin": "xue qing Astra",
-      "aliases": [],
+      "aliases": [
+        "Astra"
+      ],
       "category": "coser"
     },
     {
@@ -1989,7 +2136,9 @@
     {
       "name": "楊衣 Yangyi",
       "pinyin": "yang yi Yangyi",
-      "aliases": [],
+      "aliases": [
+        "Yangyi"
+      ],
       "category": "coser"
     },
     {
@@ -2001,13 +2150,17 @@
     {
       "name": "妖少you1",
       "pinyin": "yao shao you1",
-      "aliases": [],
+      "aliases": [
+        "you1"
+      ],
       "category": "coser"
     },
     {
       "name": "摇摇乐yoyo",
       "pinyin": "yao yao le yoyo",
-      "aliases": [],
+      "aliases": [
+        "yoyo"
+      ],
       "category": "coser"
     },
     {
@@ -2062,7 +2215,9 @@
     {
       "name": "伊喵君_Nya",
       "pinyin": "yi miao jun _Nya",
-      "aliases": [],
+      "aliases": [
+        "Nya"
+      ],
       "category": "coser"
     },
     {
@@ -2126,7 +2281,9 @@
     {
       "name": "樱梨梨Eriri",
       "pinyin": "ying li li Eriri",
-      "aliases": [],
+      "aliases": [
+        "Eriri"
+      ],
       "category": "coser"
     },
     {
@@ -2144,7 +2301,9 @@
     {
       "name": "樱晚gigi",
       "pinyin": "ying wan gigi",
-      "aliases": [],
+      "aliases": [
+        "gigi"
+      ],
       "category": "coser"
     },
     {
@@ -2162,7 +2321,9 @@
     {
       "name": "幼愛Youmeko",
       "pinyin": "you ai Youmeko",
-      "aliases": [],
+      "aliases": [
+        "Youmeko"
+      ],
       "category": "coser"
     },
     {
@@ -2174,7 +2335,9 @@
     {
       "name": "余多多Dudu",
       "pinyin": "yu duo duo Dudu",
-      "aliases": [],
+      "aliases": [
+        "Dudu"
+      ],
       "category": "coser"
     },
     {
@@ -2186,7 +2349,9 @@
     {
       "name": "鱼子酱Fish",
       "pinyin": "yu zi jiang Fish",
-      "aliases": [],
+      "aliases": [
+        "Fish"
+      ],
       "category": "coser"
     },
     {
@@ -2204,13 +2369,17 @@
     {
       "name": "羽天Shine",
       "pinyin": "yu tian Shine",
-      "aliases": [],
+      "aliases": [
+        "Shine"
+      ],
       "category": "coser"
     },
     {
       "name": "雨波_HaneAme",
       "pinyin": "yu bo _HaneAme",
-      "aliases": [],
+      "aliases": [
+        "HaneAme"
+      ],
       "category": "coser"
     },
     {
@@ -2228,7 +2397,9 @@
     {
       "name": "御子Yumiko",
       "pinyin": "yu zi Yumiko",
-      "aliases": [],
+      "aliases": [
+        "Yumiko"
+      ],
       "category": "coser"
     },
     {
@@ -2310,6 +2481,14 @@
     {
       "name": "真央Mao",
       "pinyin": "zhen yang Mao",
+      "aliases": [
+        "Mao"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "正妹像个傻依",
+      "pinyin": "zheng mei xiang ge sha yi",
       "aliases": [],
       "category": "coser"
     },
@@ -2322,13 +2501,18 @@
     {
       "name": "纸悦Etsu_ko",
       "pinyin": "zhi yue Etsu_ko",
-      "aliases": [],
+      "aliases": [
+        "Etsu"
+      ],
       "category": "coser"
     },
     {
-      "name": "中岛莫之子i(抱走莫子aa)",
-      "pinyin": "zhong dao mo zhi zi i(i( bao zou mo aa)",
-      "aliases": [],
+      "name": "抱走莫子aa",
+      "pinyin": "bao zou mo zi aa",
+      "aliases": [
+        "中岛莫之子i",
+        "中岛莫之子i(抱走莫子aa)"
+      ],
       "category": "coser"
     },
     {
@@ -2341,7 +2525,8 @@
       "name": "逐月SU",
       "pinyin": "zhu yue SU",
       "aliases": [
-        "枸名(逐月su)"
+        "枸名(逐月su)",
+        "枸名"
       ],
       "category": "coser"
     },
@@ -2360,7 +2545,9 @@
     {
       "name": "紫姝 Murasaki",
       "pinyin": "zi shu Murasaki",
-      "aliases": [],
+      "aliases": [
+        "Murasaki"
+      ],
       "category": "coser"
     },
     {
@@ -2390,7 +2577,9 @@
     {
       "name": "Akisoso秋楚楚",
       "pinyin": "AkisosoAkisoso qiu chu",
-      "aliases": [],
+      "aliases": [
+        "Akisoso"
+      ],
       "category": "coser"
     },
     {
@@ -2408,14 +2597,17 @@
     {
       "name": "Arty亚缇",
       "pinyin": "ArtyArty ya",
-      "aliases": [],
+      "aliases": [
+        "Arty"
+      ],
       "category": "coser"
     },
     {
       "name": "Arya_肉肉",
       "pinyin": "Arya_Arya_ rou",
       "aliases": [
-        "Nikumikyo きょう肉肉"
+        "Nikumikyo きょう肉肉",
+        "Arya"
       ],
       "category": "coser"
     },
@@ -2482,7 +2674,9 @@
       "aliases": [
         "Cat_Demon",
         "你的喵崽",
-        "喵崽"
+        "喵崽",
+        "Cat",
+        "Demon"
       ],
       "category": "coser"
     },
@@ -2495,7 +2689,9 @@
     {
       "name": "Cien恩恩",
       "pinyin": "CienCien en",
-      "aliases": [],
+      "aliases": [
+        "Cien"
+      ],
       "category": "coser"
     },
     {
@@ -2507,13 +2703,17 @@
     {
       "name": "Conkon控控",
       "pinyin": "ConkonConkon kong",
-      "aliases": [],
+      "aliases": [
+        "Conkon"
+      ],
       "category": "coser"
     },
     {
       "name": "Dita_珟珏",
       "pinyin": "Dita_Dita_ su",
-      "aliases": [],
+      "aliases": [
+        "Dita"
+      ],
       "category": "coser"
     },
     {
@@ -2525,25 +2725,33 @@
     {
       "name": "EIUO-扒拉",
       "pinyin": "EIUO-EIUO- ba",
-      "aliases": [],
+      "aliases": [
+        "EIUO"
+      ],
       "category": "coser"
     },
     {
       "name": "eliza喵喵",
       "pinyin": "elizaeliza miao",
-      "aliases": [],
+      "aliases": [
+        "eliza"
+      ],
       "category": "coser"
     },
     {
       "name": "eloise软软",
       "pinyin": "eloiseeloise ruan",
-      "aliases": [],
+      "aliases": [
+        "eloise"
+      ],
       "category": "coser"
     },
     {
       "name": "ElyEE子",
       "pinyin": "elyee zi",
-      "aliases": [],
+      "aliases": [
+        "ElyEE"
+      ],
       "category": "coser"
     },
     {
@@ -2561,7 +2769,9 @@
     {
       "name": "Fushii_海堂",
       "pinyin": "Fushii_Fushii_ hai",
-      "aliases": [],
+      "aliases": [
+        "Fushii"
+      ],
       "category": "coser"
     },
     {
@@ -2573,7 +2783,9 @@
     {
       "name": "G44不会受伤",
       "pinyin": "G44G44 bu hui shou",
-      "aliases": [],
+      "aliases": [
+        "G44"
+      ],
       "category": "coser"
     },
     {
@@ -2597,19 +2809,25 @@
     {
       "name": "Hachi_小芭",
       "pinyin": "Hachi_Hachi_ xiao",
-      "aliases": [],
+      "aliases": [
+        "Hachi"
+      ],
       "category": "coser"
     },
     {
       "name": "Halo_酱",
       "pinyin": "halo_ jiang",
-      "aliases": [],
+      "aliases": [
+        "Halo"
+      ],
       "category": "coser"
     },
     {
       "name": "HAMSTERS 仓鼠姬",
       "pinyin": "HAMSTERS HAMSTERS cang shu",
-      "aliases": [],
+      "aliases": [
+        "HAMSTERS"
+      ],
       "category": "coser"
     },
     {
@@ -2669,7 +2887,9 @@
     {
       "name": "izumi泉桃子",
       "pinyin": "izumiizumi quan tao",
-      "aliases": [],
+      "aliases": [
+        "izumi"
+      ],
       "category": "coser"
     },
     {
@@ -2714,7 +2934,9 @@
     {
       "name": "KaYa萱",
       "pinyin": "kaya xuan",
-      "aliases": [],
+      "aliases": [
+        "KaYa"
+      ],
       "category": "coser"
     },
     {
@@ -2732,7 +2954,9 @@
     {
       "name": "Kitaro_绮太郎",
       "pinyin": "Kitaro_Kitaro_ qi tai",
-      "aliases": [],
+      "aliases": [
+        "Kitaro"
+      ],
       "category": "coser"
     },
     {
@@ -2750,25 +2974,33 @@
     {
       "name": "Leah梓未",
       "pinyin": "LeahLeah zi",
-      "aliases": [],
+      "aliases": [
+        "Leah"
+      ],
       "category": "coser"
     },
     {
       "name": "lovely呆玄",
       "pinyin": "lovelylovely dai",
-      "aliases": [],
+      "aliases": [
+        "lovely"
+      ],
       "category": "coser"
     },
     {
       "name": "Luisa_零纱纱",
       "pinyin": "Luisa_Luisa_ ling sha",
-      "aliases": [],
+      "aliases": [
+        "Luisa"
+      ],
       "category": "coser"
     },
     {
       "name": "lunananya娜酱",
       "pinyin": "lunananyalunananya na",
-      "aliases": [],
+      "aliases": [
+        "lunananya"
+      ],
       "category": "coser"
     },
     {
@@ -2802,7 +3034,9 @@
     {
       "name": "Meroko_魅瞳",
       "pinyin": "Meroko_Meroko_ mei",
-      "aliases": [],
+      "aliases": [
+        "Meroko"
+      ],
       "category": "coser"
     },
     {
@@ -2814,7 +3048,9 @@
     {
       "name": "miko酱ww",
       "pinyin": "mikomiko ww",
-      "aliases": [],
+      "aliases": [
+        "miko"
+      ],
       "category": "coser"
     },
     {
@@ -2856,19 +3092,25 @@
     {
       "name": "Miu只",
       "pinyin": "miu zhi",
-      "aliases": [],
+      "aliases": [
+        "Miu"
+      ],
       "category": "coser"
     },
     {
       "name": "Miyana咪呀",
       "pinyin": "MiyanaMiyana mi",
-      "aliases": [],
+      "aliases": [
+        "Miyana"
+      ],
       "category": "coser"
     },
     {
       "name": "Money冷冷",
       "pinyin": "MoneyMoney leng",
-      "aliases": [],
+      "aliases": [
+        "Money"
+      ],
       "category": "coser"
     },
     {
@@ -2892,19 +3134,25 @@
     {
       "name": "Nicole小月",
       "pinyin": "NicoleNicole xiao",
-      "aliases": [],
+      "aliases": [
+        "Nicole"
+      ],
       "category": "coser"
     },
     {
       "name": "NinJa阿寨寨",
       "pinyin": "NinJaNinJa a zhai",
-      "aliases": [],
+      "aliases": [
+        "NinJa"
+      ],
       "category": "coser"
     },
     {
       "name": "Nyako喵子",
       "pinyin": "NyakoNyako miao",
-      "aliases": [],
+      "aliases": [
+        "Nyako"
+      ],
       "category": "coser"
     },
     {
@@ -2916,7 +3164,9 @@
     {
       "name": "PAKI酱",
       "pinyin": "paki jiang",
-      "aliases": [],
+      "aliases": [
+        "PAKI"
+      ],
       "category": "coser"
     },
     {
@@ -2958,7 +3208,9 @@
     {
       "name": "Quan冉有点饿",
       "pinyin": "QuanQuan ran you dian",
-      "aliases": [],
+      "aliases": [
+        "Quan"
+      ],
       "category": "coser"
     },
     {
@@ -2970,27 +3222,34 @@
     {
       "name": "Rioko凉凉子",
       "pinyin": "RiokoRioko liang liang",
-      "aliases": [],
+      "aliases": [
+        "Rioko"
+      ],
       "category": "coser"
     },
     {
       "name": "Roroki骷髅姫",
       "pinyin": "RorokiRoroki ku lou",
       "aliases": [
-        "Roroki骷髅姬"
+        "Roroki骷髅姬",
+        "Roroki"
       ],
       "category": "coser"
     },
     {
       "name": "rua阮阮",
       "pinyin": "ruarua ruan",
-      "aliases": [],
+      "aliases": [
+        "rua"
+      ],
       "category": "coser"
     },
     {
       "name": "Sakiiii翎柒",
       "pinyin": "SakiiiiSakiiii ling",
-      "aliases": [],
+      "aliases": [
+        "Sakiiii"
+      ],
       "category": "coser"
     },
     {
@@ -3014,7 +3273,9 @@
     {
       "name": "Sayako_今年4岁",
       "pinyin": "Sayako_Sayako_ jin 4nian",
-      "aliases": [],
+      "aliases": [
+        "Sayako"
+      ],
       "category": "coser"
     },
     {
@@ -3041,19 +3302,25 @@
     {
       "name": "Seele麦麦",
       "pinyin": "SeeleSeele mai",
-      "aliases": [],
+      "aliases": [
+        "Seele"
+      ],
       "category": "coser"
     },
     {
       "name": "Seya-狮砸",
       "pinyin": "Seya-Seya- shi",
-      "aliases": [],
+      "aliases": [
+        "Seya"
+      ],
       "category": "coser"
     },
     {
       "name": "Shika小鹿鹿",
       "pinyin": "ShikaShika xiao lu",
-      "aliases": [],
+      "aliases": [
+        "Shika"
+      ],
       "category": "coser"
     },
     {
@@ -3071,7 +3338,9 @@
     {
       "name": "Sia不吃鱼",
       "pinyin": "SiaSia bu chi",
-      "aliases": [],
+      "aliases": [
+        "Sia"
+      ],
       "category": "coser"
     },
     {
@@ -3101,19 +3370,25 @@
     {
       "name": "Tina很妖孽呀",
       "pinyin": "TinaTina hen yao nie",
-      "aliases": [],
+      "aliases": [
+        "Tina"
+      ],
       "category": "coser"
     },
     {
       "name": "Tomoyo酱",
       "pinyin": "tomoyo jiang",
-      "aliases": [],
+      "aliases": [
+        "Tomoyo"
+      ],
       "category": "coser"
     },
     {
       "name": "uki雨季",
       "pinyin": "ukiuki yu",
-      "aliases": [],
+      "aliases": [
+        "uki"
+      ],
       "category": "coser"
     },
     {
@@ -3145,7 +3420,9 @@
     {
       "name": "wendydydydy_酱油",
       "pinyin": "wendydydydy_wendydydydy_ jiang",
-      "aliases": [],
+      "aliases": [
+        "wendydydydy"
+      ],
       "category": "coser"
     },
     {
@@ -3192,13 +3469,17 @@
     {
       "name": "Yudan鱼蛋",
       "pinyin": "YudanYudan yu",
-      "aliases": [],
+      "aliases": [
+        "Yudan"
+      ],
       "category": "coser"
     },
     {
       "name": "Yui金鱼",
       "pinyin": "YuiYui jin",
-      "aliases": [],
+      "aliases": [
+        "Yui"
+      ],
       "category": "coser"
     },
     {
@@ -3213,7 +3494,8 @@
       "aliases": [
         "浅野yuki",
         "浅野",
-        "yuki"
+        "yuki",
+        "Yuki"
       ],
       "category": "coser"
     },
@@ -3229,14 +3511,17 @@
       "aliases": [
         "yuuhui",
         "玉汇",
-        "yuuhui玉汇(Kokuhui)"
+        "yuuhui玉汇(Kokuhui)",
+        "Yuuhui"
       ],
       "category": "coser"
     },
     {
       "name": "Zaya秋",
       "pinyin": "zaya qiu",
-      "aliases": [],
+      "aliases": [
+        "Zaya"
+      ],
       "category": "coser"
     },
     {
@@ -3272,7 +3557,9 @@
     {
       "name": "Zyra秋",
       "pinyin": "zyra qiu",
-      "aliases": [],
+      "aliases": [
+        "Zyra"
+      ],
       "category": "coser"
     },
     {
@@ -3308,6 +3595,95 @@
     {
       "name": "サク（saku）",
       "pinyin": "サク（saku）",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "苏小曼",
+      "pinyin": "su xiao man",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "言沫",
+      "pinyin": "yan mo",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "鱼子酱",
+      "pinyin": "yu zi jiang",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "安然Maleah",
+      "pinyin": "an ran Maleah",
+      "aliases": [
+        "Maleah"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "软软酱",
+      "pinyin": "ruan ruan jiang",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "悠宝",
+      "pinyin": "you bao",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "rioko凉凉子",
+      "pinyin": "rioko liang liang zi",
+      "aliases": [
+        "凉凉子rioko",
+        "凉凉子",
+        "rioko"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "理万姬",
+      "pinyin": "li wan ji",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "奈莉酱",
+      "pinyin": "nai li jiang",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "知一",
+      "pinyin": "zhi yi",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "玉宝涩涩",
+      "pinyin": "yu bao se se",
+      "aliases": [
+        "玉宝"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "soso嗖嗖",
+      "pinyin": "soso sou sou",
+      "aliases": [
+        "soso",
+        "嗖嗖"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "绫地宁宁",
+      "pinyin": "ling di ning ning",
       "aliases": [],
       "category": "coser"
     }

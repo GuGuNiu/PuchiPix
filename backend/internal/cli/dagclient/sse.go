@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // SseHandler is called for each parsed SSE event.
@@ -115,9 +114,4 @@ func (c *SSEClient) Close() {
 	if c.cancel != nil {
 		c.cancel()
 	}
-}
-
-// SetTimeout configures the HTTP client timeout for the SSE connection.
-func (c *SSEClient) SetTimeout(d time.Duration) {
-	c.httpClient.Timeout = d
 }

@@ -66,3 +66,48 @@ func TestLoadLowSinkCapacityClamped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1000, cfg.LogSinkCapacity, "capacity below 100 should be clamped to 1000")
 }
+
+// TestLoadDownloadDefaults verifies that download config fields have
+// sensible defaults: multi-thread off, concurrency 4, no speed limit,
+// 1 MB min file size, gallery 5, video 3.
+func TestLoadDownloadDefaults(t *testing.T) {
+	os.Unsetenv("DOWNLOAD_MULTI_THREAD")
+	os.Unsetenv("DOWNLOAD_CONCURRENCY")
+	os.Unsetenv("DOWNLOAD_MAX_SPEED")
+	os.Unsetenv("DOWNLOAD_MIN_FILE_SIZE")
+	os.Unsetenv("GALLERY_IMAGE_CONCURRENT")
+	os.Unsetenv("VIDEO_MAX_CONCURRENT")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.False(t, cfg.DownloadMultiThread)
+	assert.Equal(t, 4, cfg.DownloadConcurrency)
+	assert.Equal(t, int64(0), cfg.DownloadMaxSpeed)
+	assert.Equal(t, int64(1<<20), cfg.DownloadMinFileSize)
+	assert.Equal(t, 5, cfg.GalleryImageConcurrent)
+	assert.Equal(t, 3, cfg.VideoMaxConcurrent)
+}
+
+// TestLoadDownloadConcurrencyClamped verifies that concurrency is
+// clamped to the 2-8 range.
+func TestLoadDownloadConcurrencyClamped(t *testing.T) {
+	t.Setenv("DOWNLOAD_CONCURRENCY", "1")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, 2, cfg.DownloadConcurrency, "below 2 should clamp to 2")
+
+	t.Setenv("DOWNLOAD_CONCURRENCY", "99")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, 8, cfg.DownloadConcurrency, "above 8 should clamp to 8")
+}
+
+// TestLoadDownloadMultiThread verifies that the multi-thread flag
+// can be enabled via environment variable.
+func TestLoadDownloadMultiThread(t *testing.T) {
+	t.Setenv("DOWNLOAD_MULTI_THREAD", "true")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.DownloadMultiThread)
+}

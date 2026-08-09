@@ -334,44 +334,6 @@ func (fsm *TaskStateMachine) RestoreFromSnapshot(history []StateTransitionRecord
 	}
 }
 
-// MapNodeStateToDBStatus converts a node state and phase to the
-// database status string used by the Gallery/DownloadTask models.
-func MapNodeStateToDBStatus(state NodeState, phase TaskPhase) string {
-	switch state {
-	case NodeStatePending:
-		return "pending"
-	case NodeStateReady, NodeStateQueued:
-		if phase == PhaseDownload {
-			return "download_pending"
-		}
-		return "scrape_pending"
-	case NodeStateAllocated, NodeStateRunning:
-		if phase == PhaseScrape {
-			return "scraping"
-		}
-		return "downloading"
-	case NodeStatePaused:
-		return "paused"
-	case NodeStateVerifying, NodeStateResumeVerify:
-		if phase == PhaseDownload {
-			return "downloading"
-		}
-		return "scraping"
-	case NodeStateCompleted:
-		return "completed"
-	case NodeStateFailed:
-		return "failed"
-	case NodeStateCancelled:
-		return "cancelled"
-	case NodeStateTimeout:
-		return "failed"
-	case NodeStateNeedsRetry:
-		return "needs_retry"
-	default:
-		return "pending"
-	}
-}
-
 // AggregateTaskStatus computes the aggregate status of a DAG from its
 // node states, implementing the 260720 fix priority ordering.
 //

@@ -40,6 +40,9 @@ func NewRegistry() *Registry {
 		// ── Task & gallery management ──
 		tasksCommand{},
 		galleriesCommand{},
+
+		// ── Database access ──
+		dbCommand{},
 	}
 	return &Registry{commands: cmds}
 }

@@ -52,7 +52,7 @@ func newTestParser(t *testing.T) *Parser {
 	return p
 }
 
-// ── Category 1: Normal titles ──
+// ── Normal titles ──
 
 func TestParse_NAGISAMonsterCat_MaidNight(t *testing.T) {
 	// Input:  "NAGISA魔物喵 - 女仆之夜"
@@ -67,8 +67,7 @@ func TestParse_NAGISAMonsterCat_MaidNight(t *testing.T) {
 
 func TestParse_ChunMomo_Twintails(t *testing.T) {
 	// Input:  "双马尾 - 蠢沫沫奇遇记_102P_写真合集"
-	// Expected protagonist: "蠢沫沫"
-	// (NOT "双马尾" — this was the old bug)
+	// Expected protagonist: "蠢沫沫" (regression: must not detect 双马尾)
 	p := newTestParser(t)
 	result := p.Parse("双马尾 - 蠢沫沫奇遇记_102P_写真合集")
 
@@ -77,7 +76,7 @@ func TestParse_ChunMomo_Twintails(t *testing.T) {
 	assert.NotContains(t, result.Protagonist, "双马尾")
 }
 
-// ── Category 2: Dual-person titles ──
+// ── Dual-person titles ──
 
 func TestParse_NaiTaotao_YunXixi_2B(t *testing.T) {
 	// Input:  "奶桃桃 - 云溪溪_-_2B本"
@@ -104,7 +103,7 @@ func TestParse_MianBing_BanBanZi(t *testing.T) {
 	assert.Contains(t, result.GameCharacters, "可畏")
 }
 
-// ── Category 3: Complex long titles ──
+// ── Complex long titles ──
 
 func TestParse_AiWoHeiQieNe(t *testing.T) {
 	// Input:  "哎我黑切讷_-_崩坏星穹铁道_火花：崩坏星穹铁道_火花角色还原美腿大尺度_34P7V"
@@ -260,7 +259,7 @@ func TestLoadGameCharactersFromJSON_Invalid(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// ── Category: Unknown model heuristic extraction ──
+// ── Unknown model heuristic extraction ──
 
 func TestParse_CiBuLianLian_UnknownModel(t *testing.T) {
 	// Input:  "刺卜(连连) - 白虎私拍合集_#01：黑白丝袜猫娘露点"
@@ -309,64 +308,5 @@ func BenchmarkParse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Parse(title)
 	}
-}
-
-// ── NormalizeDirectoryName tests ──
-
-func TestNormalizeDirectoryName_SpaceVsUnderscore(t *testing.T) {
-	// The two Irisuare titles should normalize to the same string
-	a := "Irisuare - (愛莉) - 下江小春：下江小春制服私房"
-	b := "Irisuare - (愛莉)_-_下江小春：下江小春制服私房"
-
-	assert.True(t, AreTitlesSimilar(a, b))
-	assert.Equal(t, NormalizeDirectoryName(a), NormalizeDirectoryName(b))
-}
-
-func TestNormalizeDirectoryName_Xiaoyukiko(t *testing.T) {
-	a := "Xiaoyukiko小鱼 - Xiaoyukiko_小鱼 - Viper Toxic Bunny"
-	b := "Xiaoyukiko小鱼 - Xiaoyukiko_小鱼_-_Viper_Toxic_Bunny"
-
-	assert.True(t, AreTitlesSimilar(a, b))
-}
-
-func TestNormalizeDirectoryName_SpaceVsUnderscoreSimple(t *testing.T) {
-	a := "徐若兮 - R18 秀人网新人首套：肉丝美胸"
-	b := "徐若兮 - R18_秀人网新人首套：肉丝美胸"
-
-	assert.True(t, AreTitlesSimilar(a, b))
-}
-
-func TestNormalizeDirectoryName_LongTitle(t *testing.T) {
-	a := "霜月shimo - NIKKE灰姑娘女仆装VOL.2：白丝高跟鞋质感很在线 白嫩氛围配美乳曲线 甜辣女仆气场拉满"
-	b := "霜月shimo - NIKKE灰姑娘女仆装VOL.2：白丝高跟鞋质感很在线_白嫩氛围配美乳曲线_甜辣女仆气场拉满"
-
-	assert.True(t, AreTitlesSimilar(a, b))
-}
-
-func TestNormalizeDirectoryName_DifferentTitles(t *testing.T) {
-	a := "NAGISA魔物喵 - 女仆之夜"
-	b := "NAGISA魔物喵 - 猫耳少女"
-
-	assert.False(t, AreTitlesSimilar(a, b))
-}
-
-func TestNormalizeDirectoryName_EmptyString(t *testing.T) {
-	assert.Equal(t, "", NormalizeDirectoryName(""))
-	assert.Equal(t, "", NormalizeDirectoryName("   "))
-}
-
-func TestNormalizeDirectoryName_StripPhotoCount(t *testing.T) {
-	// Photo count should be stripped during normalization
-	a := "雪晴Astra - 透明女仆 71P1V"
-	b := "雪晴Astra - 透明女仆"
-
-	assert.True(t, AreTitlesSimilar(a, b))
-}
-
-func TestNormalizeDirectoryName_StripFileSize(t *testing.T) {
-	a := "雪晴Astra - 崩坏星穹铁道 花火 [78P3V-579MB]"
-	b := "雪晴Astra - 崩坏星穹铁道 花火"
-
-	assert.True(t, AreTitlesSimilar(a, b))
 }
 

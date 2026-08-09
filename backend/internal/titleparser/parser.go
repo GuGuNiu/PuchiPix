@@ -1,14 +1,3 @@
-// Package titleparser provides a multi-stage title parsing pipeline
-// for extracting protagonist names, descriptions, and game characters
-// from cosplay gallery titles. It is designed as a shared base-tool
-// layer, usable by all site providers.
-//
-// Pipeline stages:
-//   1. Preprocessing  – strip publisher prefixes/suffixes, brackets
-//   2. Segmentation   – split title by known delimiters
-//   3. Classification – match each segment against model/character DBs
-//   4. Multi-person   – detect dual-person patterns (与/和)
-//   5. Assembly       – produce final protagonist, description, gameChars
 package titleparser
 
 import (
@@ -21,8 +10,6 @@ import (
 
 	"backend/internal/xutil"
 )
-
-// ── Public types ──
 
 // ParseResult holds the output of title parsing.
 type ParseResult struct {
@@ -49,8 +36,6 @@ type GameCharEntry struct {
 	GameEn    string   `json:"game_name_en"`
 }
 
-// ── Internal types ──
-
 // segInfo holds classification results for a single title segment.
 type segInfo struct {
 	text       string
@@ -63,8 +48,6 @@ type segInfo struct {
 	isDesc     bool     // description fragment
 }
 
-// ── Parser interface ──
-
 // Parser is the title parsing engine. It requires model and character
 // data to be loaded via LoadModels / LoadGameCharacters before use.
 type Parser struct {
@@ -72,38 +55,41 @@ type Parser struct {
 	models map[string]*ModelEntry     // keyed by lowercase name
 	chars  map[string]*GameCharEntry  // keyed by lowercase name
 
-	// index aliases → canonical name for fast lookup
 	modelAliasIndex map[string]string // lowercase alias → canonical name
 	charAliasIndex  map[string]string // lowercase alias → canonical name
 
-	// Pre-compiled patterns
-	separatorRE       *regexp.Regexp
-	photoCountRE      *regexp.Regexp
-	videoCountRE      *regexp.Regexp
-	dualPersonRE      *regexp.Regexp
-	cosplayTagRE      *regexp.Regexp
+	// 2-rune prefix → list of model/alias keys for fast substring matching
+	modelPrefixIndex map[string][]string
+	aliasPrefixIndex map[string][]string
+
+	separatorRE  *regexp.Regexp
+	photoCountRE *regexp.Regexp
+	videoCountRE *regexp.Regexp
+	dualPersonRE *regexp.Regexp
+	cosplayTagRE *regexp.Regexp
 }
 
 // New creates a ready-to-use Parser with pre-compiled patterns.
 // Call LoadModels / LoadGameCharacters before parsing.
 func New() *Parser {
 	return &Parser{
-		models:         make(map[string]*ModelEntry),
-		chars:          make(map[string]*GameCharEntry),
-		modelAliasIndex: make(map[string]string),
-		charAliasIndex:  make(map[string]string),
-		separatorRE:     regexp.MustCompile(`\s*[-–—]\s*|_\s*-\s*_|\s*[|｜]\s*|[《》：:]`),
-		photoCountRE:    regexp.MustCompile(`(?i)^\d+[Pp](\d+[Vv])?(_?\d+[Pp](\d+[Vv])?)*$`),
-		videoCountRE:    regexp.MustCompile(`(?i)^\d+[Vv]$`),
-		dualPersonRE:    regexp.MustCompile(`^[与和]\s*(\S.+)`),
-		cosplayTagRE:    regexp.MustCompile(`(?i)(Cosplay|COS|写真合集|写真|图包|同人|福利|套图)$`),
+		models:           make(map[string]*ModelEntry),
+		chars:            make(map[string]*GameCharEntry),
+		modelAliasIndex:  make(map[string]string),
+		charAliasIndex:   make(map[string]string),
+		modelPrefixIndex: make(map[string][]string),
+		aliasPrefixIndex: make(map[string][]string),
+		separatorRE:      regexp.MustCompile(`\s*[-–—]\s*|_\s*-\s*_|\s*[|｜]\s*|[《》：:]`),
+		photoCountRE:     regexp.MustCompile(`(?i)^\d+[Pp](\d+[Vv])?(_?\d+[Pp](\d+[Vv])?)*$`),
+		videoCountRE:     regexp.MustCompile(`(?i)^\d+[Vv]$`),
+		dualPersonRE:     regexp.MustCompile(`^[与和]\s*(\S.+)`),
+		cosplayTagRE:     regexp.MustCompile(`(?i)(Cosplay|COS|写真合集|写真|图包|同人|福利|套图)$`),
 	}
 }
 
-// ── Data loading ──
-
 // LoadModels populates the parser's model database from a slice of entries.
 // Thread-safe; can be called at any time.
+// Also builds a 2-rune prefix inverted index for fast substring matching.
 func (p *Parser) LoadModels(models []ModelEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -120,7 +106,43 @@ func (p *Parser) LoadModels(models []ModelEntry) {
 				p.modelAliasIndex[ak] = m.Name
 			}
 		}
+		p.addToPrefixIndex(p.modelPrefixIndex, key)
+		for _, alias := range m.Aliases {
+			ak := strings.ToLower(alias)
+			if ak == "" || ak == key {
+				continue
+			}
+			p.addToPrefixIndex(p.aliasPrefixIndex, ak)
+		}
 	}
+}
+
+func (p *Parser) addToPrefixIndex(idx map[string][]string, key string) {
+	prefixes := extractPrefixes(key, 2)
+	for _, prefix := range prefixes {
+		found := false
+		for _, existing := range idx[prefix] {
+			if existing == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			idx[prefix] = append(idx[prefix], key)
+		}
+	}
+}
+
+func extractPrefixes(s string, n int) []string {
+	runes := []rune(s)
+	if len(runes) < n {
+		return nil
+	}
+	result := make([]string, 0, len(runes)-n+1)
+	for i := 0; i <= len(runes)-n; i++ {
+		result = append(result, string(runes[i:i+n]))
+	}
+	return result
 }
 
 // LoadGameCharacters populates the parser's game character database.
@@ -144,8 +166,6 @@ func (p *Parser) LoadGameCharacters(chars []GameCharEntry) {
 	}
 }
 
-// ── Main entry point ──
-
 // Parse runs the full parsing pipeline on a title.
 // rawTitle should already have publisher prefixes/suffixes stripped.
 func (p *Parser) Parse(rawTitle string) *ParseResult {
@@ -158,7 +178,7 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 
 	result := &ParseResult{Confidence: 0}
 
-	// Stage 1: Remove brackets [xxx] and cosplay preamble prefixes
+	// Remove brackets [xxx] and cosplay preamble prefixes
 	title := regexp.MustCompile(`^\[.*?\]\s*`).ReplaceAllString(rawTitle, "")
 	title = StripCosplayPreamble(title)
 	title = strings.TrimSpace(title)
@@ -166,7 +186,6 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 		return result
 	}
 
-	// Stage 2: Segmentation (multi-pass paired-delimiter aware)
 	segments := p.smartSegment(title)
 	result.Segments = segments
 
@@ -174,18 +193,15 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 		return result
 	}
 
-	// Stage 3: Classify each segment
 	infos := make([]segInfo, len(segments))
 	for i, seg := range segments {
 		infos[i] = p.classifySegment(seg)
 	}
 
-	// Stage 4: Detect dual-person pattern
-	// If segment N starts with "与" or "和", segment N-1 is model A and
-	// segment N (after stripping "与/和") is model B.
+	// "与"/"和" at segment start indicates dual-person: segment N-1 is
+	// model A, segment N (after stripping prefix) is model B.
 	protagonists := p.detectProtagonists(segments, infos)
 
-	// Stage 5: Extract game characters and description
 	gameChars := p.extractGameCharacters(segments, infos)
 	description := p.buildDescription(segments, infos, protagonists)
 
@@ -199,82 +215,65 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 	return result
 }
 
-// ── Stage 3: Segment Classification ──
-
 func (p *Parser) classifySegment(seg string) segInfo {
 	info := segInfo{text: seg}
 
-	// 3a: Check photo/video count pattern
 	if p.photoCountRE.MatchString(seg) || p.videoCountRE.MatchString(seg) {
 		info.isCount = true
 		return info
 	}
 
-	// 3b: Check cosplay tag
 	if p.cosplayTagRE.MatchString(strings.ToLower(seg)) {
 		info.isCosTag = true
 		return info
 	}
 
-	// 3c: Match against game character DB (has higher priority)
+	// Game character DB has higher priority than model DB
 	if gc := p.matchGameChar(seg); len(gc) > 0 {
 		info.isGameChar = true
 		info.gameChars = gc
 		return info
 	}
 
-	// 3d: Match against model DB (exact → substring → pinyin/substring)
+	// Model DB: exact → substring → pinyin
 	if name, ok := p.scoredMatch(seg); ok {
 		info.isModel = true
-		// Use the full segment text when the matched model name is a
-		// proper prefix and the remaining suffix is purely Latin.
-		// Example: "星之迟迟Hoshilily" matched as "星之迟迟" —
-		// "Hoshilily" is the model's English alias and should be kept.
-		info.modelName = p.expandModelName(name, seg)
+		info.modelName = name
 		return info
 	}
 
-	// 3e: Fallback — check if segment contains any known game name
 	if p.containsGameName(seg) {
 		info.isGameChar = true
 		return info
 	}
 
-	// Default: description fragment
 	info.isDesc = true
 	return info
 }
-
-// ── Stage 3c: Game character matching ──
 
 func (p *Parser) matchGameChar(seg string) []string {
 	lower := strings.ToLower(seg)
 	var found []string
 
-	// Exact match
 	if c, ok := p.chars[lower]; ok {
 		return []string{c.Name}
 	}
 
-	// Alias match
 	if name, ok := p.charAliasIndex[lower]; ok {
 		if c, ok2 := p.chars[strings.ToLower(name)]; ok2 {
 			return []string{c.Name}
 		}
 	}
 
-	// Substring match (game char name found within segment)
-	// Use rune count to filter out single-CJK-character names that cause false positives.
+	// Require ≥2 runes to filter out single-CJK-character names that cause false positives
 	for key, c := range p.chars {
 		if utf8.RuneCountInString(key) >= 2 && strings.Contains(lower, key) {
 			found = append(found, c.Name)
 		}
 	}
-	// Alias substring match
 	for alias, name := range p.charAliasIndex {
 		if utf8.RuneCountInString(alias) >= 2 && strings.Contains(lower, alias) {
 			if c, ok := p.chars[strings.ToLower(name)]; ok {
-				// dedup
 				dup := false
 				for _, f := range found {
 					if f == c.Name {
@@ -292,9 +291,6 @@ func (p *Parser) matchGameChar(seg string) []string {
 	return found
 }
 
-// ── Stage 3e: Game name detection ──
-
-// containsGameName checks if a segment contains a known game short name.
 func (p *Parser) containsGameName(seg string) bool {
 	gameNames := []string{
 		"崩坏星穹铁道", "星穹铁道", "崩坏", "原神", "碧蓝航线",
@@ -309,31 +305,53 @@ func (p *Parser) containsGameName(seg string) bool {
 	return false
 }
 
-// ── Stage 4: Multi-person detection ──
-
 func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string {
 	var protagonists []string
 
 	for i := range segments {
 		seg := segments[i]
 
+		// Check for "&" dual-person pattern on the FIRST segment
+		// BEFORE model classification. A segment like "奈汐酱nice & 奶桃"
+		// would be classified as isModel (matching "奈汐酱nice") and
+		// skip the & handler via continue. By checking & first, we
+		// split and match both parts.
+		if i == 0 {
+			if idx := strings.Index(seg, "&"); idx > 0 {
+				partA := strings.TrimSpace(seg[:idx])
+				partB := strings.TrimSpace(seg[idx+1:])
+				if partA != "" && partB != "" && isPlausibleModelName(partA) {
+					if nameA, ok := p.matchModelInText(partA); ok {
+						protagonists = append(protagonists, nameA)
+					} else if isPlausibleModelName(partA) {
+						protagonists = append(protagonists, partA)
+					}
+					if nameB, ok := p.matchModelInText(partB); ok {
+						protagonists = append(protagonists, nameB)
+					} else if isPlausibleModelName(partB) {
+						protagonists = append(protagonists, partB)
+					}
+					continue
+				}
+			}
+		}
+
 		if infos[i].isModel {
+			if i > 0 && !strings.HasPrefix(strings.ToLower(seg), strings.ToLower(infos[i].modelName)) {
+				continue
+			}
 			protagonists = append(protagonists, infos[i].modelName)
 			continue
 		}
 
-		// Detect dual-person "与"/"和" pattern
-		// e.g. segment "与半半子_可畏兔兔_Cosplay"
 		if m := p.dualPersonRE.FindStringSubmatch(seg); len(m) >= 2 {
 			dualPart := strings.TrimSpace(m[1])
-			// Try to extract model name after "与"
 			if name, ok := p.matchModelInText(dualPart); ok {
 				protagonists = append(protagonists, name)
 				continue
 			}
 		}
 
-		// If segment contains "与" within it (not at start), split
 		if idx := strings.Index(seg, "与"); idx > 0 {
 			partA := strings.TrimSpace(seg[:idx])
 			partB := strings.TrimSpace(seg[idx+utf8.RuneLen('与'):])
@@ -344,24 +362,32 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 				protagonists = append(protagonists, nameB)
 			}
 		}
+
 	}
 
-	// Fallback: if no model found via segment classification,
-	// try substring matching across all segments
+	// Fallback: if no model found via segment classification, try
+	// substring matching. For the first segment, accept any match.
+	// For later segments, only accept matches where the model name
+	// appears at the START of the segment — this prevents finding
+	// unrelated models mentioned mid-description (e.g. "绫地宁宁"
+	// in "大三在读女大学生 绫地宁宁&浊心斯卡蒂") while still
+	// catching models in later segments when they're at the head
+	// (e.g. "蠢沫沫" in "蠢沫沫奇遇记_102P_写真合集").
 	if len(protagonists) == 0 {
-		for _, seg := range segments {
+		for i, seg := range segments {
 			if name, ok := p.matchModelInText(seg); ok {
+				if i > 0 && !strings.HasPrefix(strings.ToLower(seg), strings.ToLower(name)) {
+					continue
+				}
 				protagonists = append(protagonists, name)
-				break // take first match
+				break
 			}
 		}
 	}
 
-	// Heuristic fallback: extract unknown model name from the FIRST
-	// non-classified segment only. Cosplay titles use a consistent
-	// structure where the model name appears before the first separator.
-	// Checking later segments (descriptions, costume types) causes
-	// false positives like "秋山兔女郎" being mistaken for a model name.
+	// Heuristic fallback: cosplay titles consistently place the model name
+	// before the first separator. Only check the first non-classified segment
+	// to avoid false positives from description/costume segments.
 	if len(protagonists) == 0 && len(segments) >= 2 {
 		if !infos[0].isGameChar && !infos[0].isCount && !infos[0].isCosTag {
 			if isPlausibleModelName(segments[0]) {
@@ -373,46 +399,6 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 	return xutil.UniqueStrings(protagonists, false)
 }
 
-// expandModelName checks whether the canonical model name matches the
-// segment text after whitespace normalization, or is a proper prefix
-// with a Latin-only suffix. When true, returns the segment text as the
-// expanded name so the display matches the actual title text.
-//
-// Examples:
-//   canonical="KANEKO咔喵" segment="KANEKO 咔喵" → "KANEKO 咔喵" (space diff)
-//   canonical="星之迟迟"  segment="星之迟迟Hoshilily" → "星之迟迟Hoshilily"
-func (p *Parser) expandModelName(canonical, segment string) string {
-	// Case 1: segment equals canonical when whitespace is collapsed.
-	// Return the canonical name so that underscores and spaces are
-	// normalized to the database form (e.g., "KANEKO_咔喵" → "KANEKO咔喵").
-	if collapseSpaces(segment) == collapseSpaces(canonical) {
-		return canonical
-	}
-
-	lowerCanon := strings.ToLower(canonical)
-	lowerSeg := strings.ToLower(segment)
-
-	if !strings.HasPrefix(lowerSeg, lowerCanon) {
-		return canonical
-	}
-
-	suffix := segment[len(canonical):]
-	if suffix == "" {
-		return canonical
-	}
-
-	// Accept suffix if it's purely Latin/alphanumeric (English alias)
-	for _, r := range suffix {
-		if !isAlphaNum(r) || r > 127 {
-			return canonical
-		}
-	}
-
-	return segment
-}
-
-// matchModelInText searches for a model name anywhere in text, handling
-// the case where a model name is embedded in a longer string.
 func (p *Parser) matchModelInText(text string) (string, bool) {
 	if name, ok := p.scoredMatch(text); ok {
 		return name, true
@@ -425,8 +411,6 @@ func (p *Parser) matchModelInText(text string) (string, bool) {
 
 	return "", false
 }
-
-// ── Stage 5a: Game character extraction ──
 
 func (p *Parser) extractGameCharacters(segments []string, infos []segInfo) []string {
 	var chars []string
@@ -441,7 +425,6 @@ func (p *Parser) extractGameCharacters(segments []string, infos []segInfo) []str
 				}
 			}
 		}
-		// Also scan segment text for game character names
 		extra := p.matchGameChar(segments[i])
 		for _, gc := range extra {
 			if !seen[gc] {
@@ -453,8 +436,6 @@ func (p *Parser) extractGameCharacters(segments []string, infos []segInfo) []str
 
 	return chars
 }
-
-// ── Stage 5b: Description building ──
 
 func (p *Parser) buildDescription(segments []string, infos []segInfo, protagonists []string) string {
 	protoSet := make(map[string]bool)
@@ -473,7 +454,6 @@ func (p *Parser) buildDescription(segments []string, infos []segInfo, protagonis
 		if infos[i].isGameChar {
 			continue
 		}
-		// Also skip if segment contains protagonist name
 		lower := strings.ToLower(segments[i])
 		skip := false
 		for proto := range protoSet {
@@ -494,13 +474,10 @@ func (p *Parser) buildDescription(segments []string, infos []segInfo, protagonis
 	return strings.Join(parts, " ")
 }
 
-// ── Confidence calculation ──
-
 func (p *Parser) calcConfidence(segments []string, infos []segInfo, protagonists []string) float64 {
 	if len(segments) == 0 || len(protagonists) == 0 {
 		return 0
 	}
-	// Simple heuristic: ratio of classified vs unclassified segments
 	classified := 0
 	for i := range segments {
 		if infos[i].isModel || infos[i].isGameChar || infos[i].isCount || infos[i].isCosTag {
@@ -516,8 +493,6 @@ func (p *Parser) calcConfidence(segments []string, infos []segInfo, protagonists
 	}
 	return conf
 }
-
-// ── Utilities ──
 
 // StripCosplayPreamble removes known cosplay-preamble prefixes from
 // the beginning of a title. Prefixes like "COS福利", "Cosplay", "Coser"
@@ -550,17 +525,6 @@ func isCJK(r rune) bool {
 	return r >= 0x4E00 && r <= 0x9FFF
 }
 
-// collapseSpaces removes all whitespace from a string, enabling
-// fuzzy comparison between "KANEKO 咔喵" and "KANEKO咔喵".
-func collapseSpaces(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r == ' ' || r == '\t' || r == '_' {
-			return -1
-		}
-		return r
-	}, s)
-}
-
 func lastRune(s string) rune {
 	if s == "" {
 		return 0
@@ -589,54 +553,6 @@ func scriptOf(r rune) int {
 	return 0
 }
 
-// ── Directory name normalization ──
-
-
-// ── Directory name normalization ──
-
-// NormalizeDirectoryName collapses separator differences (space vs
-// underscore vs hyphen) and full/half-width variants into a canonical
-// form suitable for filesystem paths and duplicate detection.
-//
-// Examples:
-//
-//	"Irisuare - (愛莉) - 下江小春：..." → "irisuare (愛莉) 下江小春:..."
-//	"Irisuare - (愛莉)_-_下江小春：..." → "irisuare (愛莉) 下江小春:..."
-func NormalizeDirectoryName(name string) string {
-	n := strings.ToLower(name)
-
-	// Collapse ALL separator-like characters to a single space
-	n = regexp.MustCompile(`[\s\-–—_]+`).ReplaceAllString(n, " ")
-
-	// Normalize full-width punctuation to half-width
-	replacements := map[string]string{
-		"：": ":", "（": "(", "）": ")",
-		"！": "!", "？": "?", "【": "[", "】": "]",
-		"；": ";", "，": ",", "。": ".",
-	}
-	for full, half := range replacements {
-		n = strings.ReplaceAll(n, full, half)
-	}
-
-	// Collapse multiple spaces
-	n = regexp.MustCompile(`\s+`).ReplaceAllString(n, " ")
-	// Trim photo/video counts (with or without leading space/underscore)
-	n = regexp.MustCompile(`[\s_]*\d+[pP](\d+[vV])?(\s*_?\d+[pP](\d+[vV])?)*$`).ReplaceAllString(n, "")
-	// Trim trailing file size info like [81P1V-1.63GB]
-	n = regexp.MustCompile(`\s*\[.*?\]$`).ReplaceAllString(n, "")
-
-	return strings.TrimSpace(n)
-}
-
-// AreTitlesSimilar returns true if two directory names are considered
-// the same after normalization. A small Levenshtein tolerance could
-// be added later for fuzzy matching.
-func AreTitlesSimilar(a, b string) bool {
-	return NormalizeDirectoryName(a) == NormalizeDirectoryName(b)
-}
-
-// ── JSON import helpers ──
-
 // LoadModelsFromJSON parses models from embedded JSON bytes.
 func LoadModelsFromJSON(data []byte) ([]ModelEntry, error) {
 	var wrapper struct {
@@ -660,19 +576,6 @@ func LoadModelsFromJSON(data []byte) ([]ModelEntry, error) {
 	return result, nil
 }
 
-// LoadGameCharactersFromJSON parses a single per-game JSON file into
-// GameCharEntry slices. Each entry inherits the game's name/en from
-// the file's top-level fields.
-//
-// JSON shape (one file per game):
-//
-//	{
-//	  "name": "原神",
-//	  "nameEn": "Genshin Impact",
-//	  "characters": [
-//	    {"name": "雷电将军", "pinyin": "...", "aliases": [...]}
-//	  ]
-//	}
 func LoadGameCharactersFromJSON(data []byte) ([]GameCharEntry, error) {
 	var game struct {
 		Name       string `json:"name"`

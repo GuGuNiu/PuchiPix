@@ -23,9 +23,15 @@ export default defineConfig({
         target: `http://localhost:${GO_BACKEND_PORT}`,
         changeOrigin: true,
       },
-      "/ws": {
-        target: `ws://localhost:${GO_BACKEND_PORT}`,
-        ws: true,
+    },
+  },
+  preview: {
+    port: PORT,
+    strictPort: true,
+    proxy: {
+      "/api": {
+        target: `http://localhost:${GO_BACKEND_PORT}`,
+        changeOrigin: true,
       },
     },
   },

@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"unicode"
 )
 
 // CleanURL removes invisible characters (zero-width, BOM, newlines, tabs)
@@ -169,20 +168,6 @@ func GenerateMirrorURLs(rawURL string, mirrorDomains []string) MirrorURLInfo {
 		Signature:  signature,
 		Mirrors:    mirrors,
 	}
-}
-
-// IsNumericID returns true if the string consists solely of digits.
-// Used by the Aimeizizi provider's CanHandle fallback for pure-numeric IDs.
-func IsNumericID(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if !unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return true
 }
 
 // sortQueryParams parses a raw query string, sorts parameters by key

@@ -84,10 +84,3 @@ func (s *StrategySelector) Select(in SelectStrategyInput) ScrapeStrategy {
 	// 6. Default: HTTP-first (safer, faster, lower resource cost).
 	return StrategyHTTP
 }
-
-// ShouldRetryWithChromedp returns true when an HTTP scrape should be
-// retried using chromedp. This is called after an HTTP attempt fails
-// or the result quality check (ShouldFallbackToBrowser) triggers.
-func (s *StrategySelector) ShouldRetryWithChromedp(in SelectStrategyInput) bool {
-	return s.Select(in) == StrategyChromedp
-}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"backend/internal/sites"
+	"backend/internal/stealth"
 	"backend/internal/urlutil"
 )
 
@@ -15,7 +16,15 @@ var PrimaryDomain string
 var DiscuzCookiePrefix string
 var PlaceholderGIF string
 
-var pkgDataStore sites.SiteDataStore
+// getCurrentDomains returns the current domain list, using the registered
+// domain pool if available for dynamic domain discovery.
+func getCurrentDomains() []string {
+	pool := stealth.GetRegisteredDomainPool("sjs")
+	if pool != nil {
+		return pool.GetDomains()
+	}
+	return SiteDomains
+}
 
 var (
 	threadIDPattern      = regexp.MustCompile(`thread-(\d+)-\d+-\d+\.html`)
@@ -35,8 +44,6 @@ var categorySuffixPatterns []*regexp.Regexp
 // initData populates package-level configuration variables from the
 // unified SiteDataStore, replacing former hardcoded constants.
 func initData(ds sites.SiteDataStore) {
-	pkgDataStore = ds
-
 	if mod, ok := ds.GetModuleConfig("sjs"); ok {
 		SiteDomains = mod.Domains
 	}
@@ -88,15 +95,7 @@ func NormalizeSjsUrl(rawURL string) string {
 		}
 		return PrimaryDomain + "/thread-" + m[1] + "-1-" + fid + ".html"
 	}
-	return urlutil.ReplaceDomain(rawURL, PrimaryDomain, SiteDomains)
-}
-
-// MatchesSjsUrl checks if a URL belongs to any known SJS domain.
-func MatchesSjsUrl(rawURL string) bool {
-	if pkgDataStore == nil {
-		return false
-	}
-	return pkgDataStore.CanHandle("sjs", rawURL)
+	return urlutil.ReplaceDomain(rawURL, PrimaryDomain, getCurrentDomains())
 }
 
 // IsListingPage reports whether the URL is a forum listing or search

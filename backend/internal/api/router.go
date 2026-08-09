@@ -8,13 +8,12 @@ import (
 
 	"backend/internal/api/middleware"
 	"backend/internal/i18n"
-	"backend/internal/infra"
 )
 
 // NewRouter builds the chi router with the full middleware chain and
 // all API endpoint groups registered, mirroring the Next.js App
 // Router API structure.
-func NewRouter(h *Handlers, eventBus *infra.EventBus) http.Handler {
+func NewRouter(h *Handlers) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RequestID)
@@ -50,17 +49,19 @@ func NewRouter(h *Handlers, eventBus *infra.EventBus) http.Handler {
 		})
 
 		// Slot pool monitoring and dynamic configuration endpoints.
-		// GET  /api/slots            - real-time slot usage snapshot
-		// GET  /api/slots/stream     - SSE subscription for slot state changes
-		// GET  /api/slots/holders    - active holder IDs for leak diagnosis
-		// GET  /api/slots/{type}     - detailed info for a single slot type
-		// PUT  /api/slots/{type}     - dynamically adjust max concurrency
+		// GET   /api/slots            - real-time slot usage snapshot
+		// GET   /api/slots/holders    - active holder IDs for leak diagnosis
+		// GET   /api/slots/{type}     - detailed info for a single slot type
+		// PUT   /api/slots/{type}     - dynamically adjust max concurrency
+		// DELETE /api/slots/{type}    - emergency reset of a slot type (ghost slots)
+		// NOTE: /api/slots/stream was removed (260806) — slot:stateChanged is
+		// already streamed by /api/tasks/stream; snapshots use GET /api/slots.
 		r.Route("/slots", func(r chi.Router) {
 			r.Get("/", h.SlotList)
-			r.Get("/stream", h.SlotStreamSSE)
 			r.Get("/holders", h.SlotHolders)
 			r.Get("/{type}", h.SlotDetail)
 			r.Put("/{type}", h.SlotUpdate)
+			r.Delete("/{type}", h.SlotReset)
 		})
 
 		r.Route("/tasks", func(r chi.Router) {
@@ -143,8 +144,6 @@ func NewRouter(h *Handlers, eventBus *infra.EventBus) http.Handler {
 		r.Get("/character-db", h.CharacterDB)
 		r.Get("/game-characters", h.GameCharacters)
 	})
-
-	r.Get("/ws", WSHandler(eventBus))
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.common.endpointNotFound"))

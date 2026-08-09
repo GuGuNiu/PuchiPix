@@ -3,6 +3,8 @@ package cli
 import (
 	"os"
 	"strings"
+
+	"backend/internal/db/dbconfig"
 )
 
 // Config holds the parsed global CLI options shared by all commands.
@@ -10,6 +12,7 @@ type Config struct {
 	Host    string
 	Port    string
 	BaseURL string
+	DBPath  string
 	JSON    bool
 	ShowHelp bool
 }
@@ -26,8 +29,12 @@ func ParseGlobalOptions(args []string) (Config, []string) {
 	if port == "" {
 		port = "10540"
 	}
+	dbPath := os.Getenv("PUCHIPIX_DB_PATH")
+	if dbPath == "" {
+		dbPath = dbconfig.DefaultDBPath
+	}
 
-	cfg := Config{Host: host, Port: port}
+	cfg := Config{Host: host, Port: port, DBPath: dbPath}
 	var remaining []string
 
 	for i := 0; i < len(args); i++ {
@@ -39,6 +46,9 @@ func ParseGlobalOptions(args []string) (Config, []string) {
 		case arg == "--port" && i+1 < len(args):
 			i++
 			cfg.Port = args[i]
+		case arg == "--db-path" && i+1 < len(args):
+			i++
+			cfg.DBPath = args[i]
 		case arg == "--json":
 			cfg.JSON = true
 		case arg == "-h" || arg == "--help":
@@ -47,6 +57,8 @@ func ParseGlobalOptions(args []string) (Config, []string) {
 			cfg.Host = strings.TrimPrefix(arg, "--host=")
 		case strings.HasPrefix(arg, "--port="):
 			cfg.Port = strings.TrimPrefix(arg, "--port=")
+		case strings.HasPrefix(arg, "--db-path="):
+			cfg.DBPath = strings.TrimPrefix(arg, "--db-path=")
 		default:
 			remaining = append(remaining, arg)
 		}
@@ -54,21 +66,4 @@ func ParseGlobalOptions(args []string) (Config, []string) {
 
 	cfg.BaseURL = "http://" + cfg.Host + ":" + cfg.Port
 	return cfg, remaining
-}
-
-// ExtractFlag returns the value of a named flag from args, supporting
-// both --flag value and --flag=value syntaxes, with an optional default.
-func ExtractFlag(args []string, flag, def string) string {
-	prefix := flag + "="
-	for _, a := range args {
-		if strings.HasPrefix(a, prefix) {
-			return strings.TrimPrefix(a, prefix)
-		}
-	}
-	for i, a := range args {
-		if a == flag && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return def
 }

@@ -2,7 +2,6 @@ package aimeizizi
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -364,44 +363,6 @@ func fetchGalleryPage(ctx context.Context, url, domain, articleID string, pageNu
 
 	pageData := ParseGalleryPageHtml(result.doc, pageNum-1, placeholder)
 	return &pageData, nil
-}
-
-// FetchEligibilityAPI calls the download eligibility API to resolve
-// direct download links, mirroring the TypeScript eligibility flow.
-func FetchEligibilityAPI(ctx context.Context, domain, pageID string) (map[string]any, error) {
-	apiURL := domain + "/api/download/eligibility?page_id=" + pageID + "&next=" + pageID
-
-	profile := stealth.RandomProfile()
-	headers := stealth.BuildStealthHeaders(profile, domain)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header = headers
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("eligibility API returned %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result map[string]any
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse eligibility response: %w", err)
-	}
-
-	return result, nil
 }
 
 func convertZipInfo(info *ZipInfoFromHtml) *sites.GalleryZipInfo {

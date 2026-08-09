@@ -85,20 +85,6 @@ func (r *TaskTypeRegistry) GetTransitionPolicy(taskType TaskType) *TransitionPol
 	return r.policies[taskType]
 }
 
-// AggregateTaskStatusWithRegistry resolves the aggregator for taskType
-// via the registry and delegates to it. When the registry has no
-// aggregator for taskType, it falls back to the package-level
-// AggregateTaskStatus (the default gallery implementation), preserving
-// backward compatibility.
-func AggregateTaskStatusWithRegistry(r *TaskTypeRegistry, taskType TaskType, nodes []NodeSnapshotInfo) string {
-	if r != nil {
-		if fn := r.GetAggregator(taskType); fn != nil {
-			return fn(taskType, nodes)
-		}
-	}
-	return AggregateTaskStatus(taskType, nodes)
-}
-
 // ResolveTransitionPolicy returns the TransitionPolicy to install on a
 // node with the given taskType. It prefers an explicit policy carried in
 // the DagNodeDefinition; when that is nil it falls back to the registry.

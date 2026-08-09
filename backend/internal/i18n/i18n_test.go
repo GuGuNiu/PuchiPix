@@ -6,44 +6,6 @@ import (
 	"testing"
 )
 
-func TestSupportedLocales(t *testing.T) {
-	locs := SupportedLocales()
-	expectedCount := 12
-	if len(locs) != expectedCount {
-		t.Errorf("Expected %d locales, got %d", expectedCount, len(locs))
-	}
-
-	expected := []string{
-		"zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR",
-		"ru-RU", "de-DE", "vi-VN", "es-ES", "pt-BR", "fr-FR", "id-ID",
-	}
-	for i, loc := range locs {
-		if loc != expected[i] {
-			t.Errorf("Expected locale %s at index %d, got %s", expected[i], i, loc)
-		}
-	}
-}
-
-func TestIsSupported(t *testing.T) {
-	tests := []struct {
-		locale   string
-		expected bool
-	}{
-		{"zh-CN", true},
-		{"en-US", true},
-		{"id-ID", true},
-		{"xx-XX", false},
-		{"", false},
-		{"zh", false},
-	}
-
-	for _, tt := range tests {
-		if got := IsSupported(tt.locale); got != tt.expected {
-			t.Errorf("IsSupported(%q) = %v, want %v", tt.locale, got, tt.expected)
-		}
-	}
-}
-
 func TestParseLangTag(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -199,27 +161,5 @@ func TestTCtx(t *testing.T) {
 
 	if got != want {
 		t.Errorf("TCtx() = %q, want %q", got, want)
-	}
-}
-
-func TestAllKeys(t *testing.T) {
-	keys := AllKeys()
-	if len(keys) == 0 {
-		t.Fatal("AllKeys() returned empty slice")
-	}
-
-	// Check for some known keys
-	knownKeys := []string{"nav.dashboard", "common.refresh", "api.gallery.notFound"}
-	for _, k := range knownKeys {
-		found := false
-		for _, key := range keys {
-			if key == k {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected key %q in AllKeys() result", k)
-		}
 	}
 }

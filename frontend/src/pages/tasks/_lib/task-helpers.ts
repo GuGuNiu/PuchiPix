@@ -30,19 +30,10 @@ export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
   downloading: ["downloading", "download_pending"],
 };
 
-export function getEffectiveFilterStatus(task: DownloadTask): TaskStatus {
-  const hasScrapeResults = (task.ImageCount ?? 0) > 0 || (task.VideoCount ?? 0) > 0;
-
-  if (task.Status === "paused") {
-    return hasScrapeResults ? "download_pending" : "scraping";
-  }
-
-  if (task.Status === "pending") {
-    return hasScrapeResults ? "download_pending" : "scraping";
-  }
-
-  return task.Status;
-}
+/*
+ * EffectiveStatus is now computed server-side (backend computeEffectiveStatus).
+ * This function is removed — use task.EffectiveStatus directly.
+ */
 
 export const SORT_OPTION_KEYS = [
   { value: "date_desc", labelKey: "tasks.sortDateDesc" },
@@ -82,16 +73,20 @@ export function useStatusLabel(t: TranslateFunction): Record<TaskStatus, string>
   };
 }
 
-export function stripPersonFromTitle(title: string, person?: string): string {
-  if (!title || !person) return title;
-  if (title.startsWith(person)) {
-    const after = title.slice(person.length);
-    return after.replace(/^[\s\-\u2013\u2014]+/, "").trim() || title;
-  }
-  return title;
-}
+/*
+ * Title cleaning is now done server-side at scrape time (CleanTitle).
+ * This function is removed — backend returns clean titles.
+ */
 
+/*
+ * getProgressStage now uses server-provided ProgressStage field (i18n key).
+ * Falls back to progress-percentage thresholds only if server field is absent.
+ */
 export function getProgressStage(task: DownloadTask, t: TranslateFunction): string {
+  if (task.ProgressStage) {
+    return t(task.ProgressStage);
+  }
+  // Fallback for older server responses without ProgressStage field.
   if (task.TaskType === "sniff") {
     if (task.Status === "scraping") return t("tasks.progressStageAnalyzing");
     if (task.Status === "completed") return t("tasks.progressStageCompleted");

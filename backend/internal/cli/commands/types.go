@@ -2,14 +2,17 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 
 	"backend/internal/cli/dagclient"
 )
 
 // CommandContext carries the API client, parsed arguments, and global
-// flags to each command executor.
+// flags to each command executor. DB is an optional direct SQLite
+// connection used by the "db" command for local database access.
 type CommandContext struct {
 	Client *dagclient.Client
+	DB     *sql.DB
 	Args   []string
 	JSON   bool
 	Ctx    context.Context
@@ -24,17 +27,3 @@ type Command interface {
 	Aliases() []string
 	Execute(ctx CommandContext) error
 }
-
-// BaseCommand provides default values for optional Command fields,
-// reducing boilerplate in concrete command implementations.
-type BaseCommand struct {
-	CmdName        string
-	CmdDescription string
-	CmdUsage       string
-	CmdAliases     []string
-}
-
-func (b BaseCommand) Name() string        { return b.CmdName }
-func (b BaseCommand) Description() string { return b.CmdDescription }
-func (b BaseCommand) Usage() string       { return b.CmdUsage }
-func (b BaseCommand) Aliases() []string   { return b.CmdAliases }

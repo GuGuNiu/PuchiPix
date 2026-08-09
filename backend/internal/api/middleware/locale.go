@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 
 	"backend/internal/i18n"
@@ -18,10 +17,4 @@ func LocaleDetection(next http.Handler) http.Handler {
 		ctx := i18n.WithLocale(r.Context(), locale)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// GetLocale extracts the locale set by LocaleDetection. Kept for
-// backward compatibility with handlers that read the locale directly.
-func GetLocale(ctx context.Context) string {
-	return i18n.LocaleFromContext(ctx)
 }

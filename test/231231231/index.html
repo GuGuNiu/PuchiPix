@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>角色图片可视化 - {{ roleName }}</title>
+    <link rel="stylesheet" type="text/css" href="{{_res_path}}visualize/index.css"/>
+</head>
+
+<body>
+    <div class="container">
+      <div class="header">
+        <div class="header-content-left">
+          <div class="main-title" data-text="{{ roleName }} 面板图可视化">{{ roleName }} 面板图可视化</div>
+          <div class="title-divider">
+             <div class="divider-line"></div>
+           </div>
+        </div>
+        <div class="header-stats-area">
+          <div class="stat-card">
+            <div class="stat-block">
+              <span class="stat-label">图片总数</span>
+              <div class="stat-value">{{ totalCount }}</div>
+            </div>
+            {{ if folderSize }}
+            <div class="stat-divider"></div>
+            <div class="stat-block">
+              <span class="stat-label">图库大小</span>
+              <div class="stat-value">{{ folderSize }}</div>
+            </div>
+            {{ /if }}
+          </div>
+          {{ if totalPages > 1 }}
+          <div class="pagination-info">
+            PAGE <span class="page-number">{{ page }}</span> / {{ totalPages }}
+          </div>
+          {{ /if }}
+        </div>
+      </div>
+        <div class="main-content">
+            <div class="ban-grid">
+                {{ each images item }}
+                <li class="ban-item">
+                    <img src="{{ item.fileUrl }}" alt="{{ item.fileName }}"
+                        onerror="this.style.display='none'; const ph = document.createElement('div'); ph.className='error-placeholder'; ph.innerHTML='<div>图片加载失败:</div><div>' + this.alt + '</div>'; this.parentNode.insertBefore(ph, this);" />
+                    <div class="filename-area">
+                        <div class="filename">
+                            {{ item.originalIndex + 1 }}. {{ item.fileName }}
+                        </div>
+                    </div>
+                </li>
+                {{ /each }}
+            </div>
+        </div>
+        <div class="footer">
+            <div class="footer-content">
+                <div class="copyright">{{@sys.copyright}}</div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

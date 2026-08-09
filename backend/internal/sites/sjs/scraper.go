@@ -25,14 +25,15 @@ var scraperLogger = infra.NewLogger("SjsProvider")
 func ScrapeGalleryHTTP(ctx context.Context, pageURL string, am *sites.SiteAccountManager) (*sites.GalleryScrapeResult, error) {
 	cookieStr, accountID := GetAuthCookieString(ctx, am)
 	tracker := stealth.GetDomainHealthTracker()
-	orderedDomains := tracker.GetAllDomainsOrdered(SiteDomains)
+	currentDomains := getCurrentDomains()
+	orderedDomains := tracker.GetAllDomainsOrdered(currentDomains)
 
 	var doc *goquery.Document
 	var usedDomain string
 	var pageHTML string
 
 	for _, domain := range orderedDomains {
-		tryURL := urlutil.ReplaceDomain(pageURL, domain, SiteDomains)
+		tryURL := urlutil.ReplaceDomain(pageURL, domain, currentDomains)
 
 		html, err := fetchHTMLWithCookies(ctx, tryURL, cookieStr, domain+"/")
 		if err != nil {
@@ -81,7 +82,8 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, am *sites.SiteAccoun
 func ScrapeGalleryBrowser(ctx context.Context, pageURL string, am *sites.SiteAccountManager) (*sites.GalleryScrapeResult, error) {
 	cookieStr, accountID := GetAuthCookieString(ctx, am)
 	tracker := stealth.GetDomainHealthTracker()
-	orderedDomains := tracker.GetAllDomainsOrdered(SiteDomains)
+	currentDomains := getCurrentDomains()
+	orderedDomains := tracker.GetAllDomainsOrdered(currentDomains)
 
 	var doc *goquery.Document
 	var usedDomain string
@@ -93,7 +95,7 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, am *sites.SiteAcc
 	}
 
 	for _, domain := range orderedDomains {
-		tryURL := urlutil.ReplaceDomain(pageURL, domain, SiteDomains)
+		tryURL := urlutil.ReplaceDomain(pageURL, domain, currentDomains)
 
 		html, err := navigateWithSjsCookies(ctx, tryURL, domain, cookieData)
 		if err != nil {

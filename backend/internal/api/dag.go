@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -279,7 +280,8 @@ func (h *Handlers) DagTrigger(w http.ResponseWriter, r *http.Request) {
 
 // DagStreamSSE pushes DAG state change events in real-time via SSE,
 // subscribing to the EventBus dag:* namespace and forwarding to the
-// frontend with keepalive pings.
+// CLI/frontend with 15s heartbeats so clients can detect dead
+// connections and reconnect proactively.
 func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 	sse := NewSSEStream(w)
 	if sse == nil {
@@ -349,5 +351,17 @@ func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 		unsubResumed()
 	}()
 
-	<-r.Context().Done()
+	// Heartbeat: send a named event every 15s so clients can detect
+	// dead connections and trigger proactive reconnection (mirrors
+	// TaskStreamSSE; previously this endpoint had no heartbeat at all).
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			sse.SendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
+		}
+	}
 }

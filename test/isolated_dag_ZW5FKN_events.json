@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "seq": 1,
+    "dag_id": "ZW5FKN",
+    "node_id": "",
+    "type": "dag:created",
+    "payload": "{\"nodeCount\":1,\"sourceUrl\":\"video-task:1\",\"taskType\":\"video\"}",
+    "timestamp": "2026-08-04 15:44:46.2583313 +0800 CST m=+0.133354001"
+  },
+  {
+    "id": 2,
+    "seq": 2,
+    "dag_id": "ZW5FKN",
+    "node_id": "vdl-1",
+    "type": "dag:nodeStateChanged",
+    "payload": "{\"context\":{\"reason\":\"resources allocated\",\"triggeredBy\":\"scheduler\"},\"from\":\"allocated\",\"to\":\"allocated\"}",
+    "timestamp": "2026-08-04 15:44:46.434896 +0800 CST m=+0.309918701"
+  },
+  {
+    "id": 3,
+    "seq": 3,
+    "dag_id": "ZW5FKN",
+    "node_id": "vdl-1",
+    "type": "dag:nodeStateChanged",
+    "payload": "{\"context\":{\"reason\":\"execution started\",\"triggeredBy\":\"scheduler\"},\"from\":\"running\",\"to\":\"running\"}",
+    "timestamp": "2026-08-04 15:44:46.4354841 +0800 CST m=+0.310506801"
+  },
+  {
+    "id": 4,
+    "seq": 4,
+    "dag_id": "ZW5FKN",
+    "node_id": "vdl-1",
+    "type": "dag:nodeCompleted",
+    "payload": "{\"result\":{\"success\":false,\"error\":{\"code\":\"EXECUTION_FAILED\",\"message\":\"no executor registered for key: video:download\",\"retryable\":false}}}",
+    "timestamp": "2026-08-04 15:44:46.4359884 +0800 CST m=+0.311011101"
+  }
+]

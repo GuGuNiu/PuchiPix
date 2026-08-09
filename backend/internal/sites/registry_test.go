@@ -46,18 +46,6 @@ func TestSiteRegistryGetProviderNotFound(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestSiteRegistryUnregister verifies that unregistering a provider
-// removes it from the registry.
-func TestSiteRegistryUnregister(t *testing.T) {
-	reg := NewSiteRegistry()
-	p := &mockProvider{id: "test-site", canHandle: func(string) bool { return false }}
-	reg.Register(p)
-	reg.Unregister("test-site")
-
-	_, ok := reg.GetProvider("test-site")
-	assert.False(t, ok)
-}
-
 // TestSiteRegistryGetProviderByUrl verifies that URL-based provider
 // lookup matches the first provider whose CanHandle returns true.
 func TestSiteRegistryGetProviderByUrl(t *testing.T) {
@@ -106,21 +94,6 @@ func TestSiteDataStoreModules(t *testing.T) {
 	for _, expected := range []string{"aimeizizi", "exhentai", "sjs", "xsnvshen", "universal", "kanav"} {
 		assert.True(t, ids[expected], "expected site %s in data store modules", expected)
 	}
-}
-
-// TestSiteRegistryGetEnabledProviders verifies that only providers
-// with enabled modules are returned.
-func TestSiteRegistryGetEnabledProviders(t *testing.T) {
-	reg := NewSiteRegistry()
-	reg.RegisterModule(SiteModuleConfig{ID: "enabled-site", Enabled: true})
-	reg.RegisterModule(SiteModuleConfig{ID: "disabled-site", Enabled: false})
-
-	reg.Register(&mockProvider{id: "enabled-site", canHandle: func(string) bool { return false }})
-	reg.Register(&mockProvider{id: "disabled-site", canHandle: func(string) bool { return false }})
-
-	enabled := reg.GetEnabledProviders()
-	assert.Len(t, enabled, 1)
-	assert.Equal(t, "enabled-site", enabled[0].SiteID())
 }
 
 // TestSiteRegistryGetSiteInfos verifies that site infos are built

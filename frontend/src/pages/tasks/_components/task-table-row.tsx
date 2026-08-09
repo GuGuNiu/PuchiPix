@@ -15,10 +15,9 @@ import {
 import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask, TaskStatus } from "@/types";
 import { useI18n } from "@/lib/i18n";
-import { getSiteModuleByUrl, getSiteModuleName } from "@/lib/sites/site-modules";
+import { getSiteModule, getSiteModuleByUrl, getSiteModuleName } from "@/lib/sites/site-modules";
 import {
   formatFileSize,
-  stripPersonFromTitle,
   getProgressStage,
 } from "../_lib/task-helpers";
 
@@ -30,6 +29,7 @@ interface TaskTableRowProps {
   onAction: (task: DownloadTask, action: string) => void;
   onDelete: (task: DownloadTask) => void;
   STATUS_LABEL: Record<TaskStatus, string>;
+  animClass?: string;
 }
 
 export function TaskTableRow({
@@ -40,6 +40,7 @@ export function TaskTableRow({
   onAction,
   onDelete,
   STATUS_LABEL,
+  animClass,
 }: TaskTableRowProps): React.JSX.Element {
   const { t, locale } = useI18n();
 
@@ -66,8 +67,8 @@ export function TaskTableRow({
   const rawTitle = isSniff
     ? task.URL
     : isGallery
-      ? stripPersonFromTitle(task.GalleryTitle || "", task.Person)
-      : (task.VideoInfo?.Title || "");
+      ? (task.GalleryTitle || "")
+      : (task.GalleryTitle || task.VideoInfo?.Title || "");
   const titleDisplay = isIdentifying && !rawTitle
     ? t("tasks.identifying")
     : (rawTitle || task.URL);
@@ -83,15 +84,15 @@ export function TaskTableRow({
           ? ""
           : "";
 
-  const siteModule = getSiteModuleByUrl(
-    task.VideoInfo?.SourceURL || task.URL || ""
-  );
+  const siteModule = (task.SiteID && getSiteModule(task.SiteID)) ||
+    getSiteModuleByUrl(task.VideoInfo?.SourceURL || task.URL || "");
 
   const taskKey = `${task.TaskType || "video"}-${task.ID}`;
 
   return (
     <Fragment key={taskKey}>
       <tr
+        className={animClass || undefined}
         onClick={() => onToggleExpand(task)}
         style={{
           cursor: "pointer",
@@ -157,9 +158,9 @@ export function TaskTableRow({
             fontSize: 12,
             color: "var(--text-secondary)",
           }}
-          title={task.Person || ""}
+          title={task.Person && task.Person !== "null" ? task.Person : ""}
         >
-          {task.Person || "—"}
+          {task.Person && task.Person !== "null" ? task.Person : "—"}
         </td>
         <td
           style={{
@@ -265,8 +266,8 @@ export function TaskTableRow({
                 : task.DownloadInfo?.FileSizeText
                   ? task.DownloadInfo.FileSizeText
                   : "—"
-          ) : task.VideoInfo?.FileSize ? (
-            `${(task.VideoInfo.FileSize / 1024 / 1024).toFixed(1)} MB`
+          ) : task.FileSize && task.FileSize > 0 ? (
+            `${(task.FileSize / 1024 / 1024).toFixed(1)} MB`
           ) : (
             "—"
           )}

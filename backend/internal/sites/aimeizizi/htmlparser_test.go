@@ -1,7 +1,6 @@
 package aimeizizi
 
 import (
-	"backend/internal/xutil"
 	"regexp"
 	"strings"
 	"testing"
@@ -249,48 +248,6 @@ func TestParseGalleryPageHtml_NoArticle(t *testing.T) {
 	assert.Equal(t, "Title", result.H1Title)
 	assert.Equal(t, 1, result.CurrentPage)
 	assert.Equal(t, 1, result.TotalPages)
-}
-
-// --- ParseExtMetadata ---
-
-// TestParseExtMetadata verifies that extended metadata (keywords meta,
-// document title, cover URL) is extracted correctly, as these fields
-// feed into the search index and gallery detail view.
-func TestParseExtMetadata(t *testing.T) {
-	html := `<html><head>
-		<title>Gallery Page Title</title>
-		<meta name="keywords" content="cute, model, photo, 爱妹子" />
-		</head><body>
-		<h1>Gallery H1</h1>
-		<nav aria-label="Breadcrumb"><a href="/">Home</a><a href="/cat/photo">Photo</a></nav>
-		<a href="/tag/cute">cute</a>
-		<a href="/tag/model">model</a>
-		<article><img data-src="https://example.com/cover.jpg" /></article>
-		</body></html>`
-	doc := mustDoc(t, html)
-
-	meta := ParseExtMetadata(doc, "/static/zde/timg.gif")
-	assert.Equal(t, "Gallery H1", meta.H1Title)
-	assert.Equal(t, "Photo", meta.Category)
-	assert.Equal(t, "Gallery Page Title", meta.DocumentTitle)
-	assert.Equal(t, "cute, model, photo, 爱妹子", meta.KeywordStr)
-	assert.Equal(t, "https://example.com/cover.jpg", meta.CoverURL)
-	assert.Contains(t, meta.Tags, "cute")
-	assert.Contains(t, meta.Tags, "model")
-}
-
-// TestParseExtMetadata_NoCoverFromPlaceholder confirms that the
-// placeholder fragment filter prevents the site's loading GIF from
-// being reported as the cover image.
-func TestParseExtMetadata_NoCoverFromPlaceholder(t *testing.T) {
-	html := `<html><body><article>
-		<img data-src="https://example.com/static/zde/timg.gif" />
-		<img data-src="https://example.com/real-cover.jpg" />
-		</article></body></html>`
-	doc := mustDoc(t, html)
-
-	meta := ParseExtMetadata(doc, "/static/zde/timg.gif")
-	assert.Equal(t, "https://example.com/real-cover.jpg", meta.CoverURL)
 }
 
 // --- ParseSearchResults ---
@@ -541,16 +498,6 @@ func TestFirstNonEmpty(t *testing.T) {
 	assert.Equal(t, "c", firstNonEmpty("", "", "c"))
 	assert.Equal(t, "", firstNonEmpty("", "", ""))
 	assert.Equal(t, "", firstNonEmpty())
-}
-
-// TestContains verifies the string slice membership check used to
-// prevent duplicate video URLs in the gallery result.
-func TestContains(t *testing.T) {
-	slice := []string{"a", "b", "c"}
-	assert.True(t, xutil.Contains(slice, "a"))
-	assert.True(t, xutil.Contains(slice, "c"))
-	assert.False(t, xutil.Contains(slice, "d"))
-	assert.False(t, xutil.Contains(nil, "a"))
 }
 
 // TestAtoiSafe verifies that numeric strings are converted to

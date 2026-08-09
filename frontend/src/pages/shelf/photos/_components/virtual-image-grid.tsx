@@ -120,7 +120,18 @@ function ImageCell({
           loading="lazy"
           decoding="async"
           onError={(e) => {
-            e.currentTarget.style.opacity = "0.2";
+            const el = e.currentTarget;
+            // If local proxy fails, fall back to external URL
+            if (img.LocalPath && el.src.includes("/api/proxy?path=") && !el.dataset.fallback) {
+              el.dataset.fallback = "1";
+              if (img.URL) {
+                el.src = img.URL;
+              } else {
+                el.style.opacity = "0.2";
+              }
+            } else {
+              el.style.opacity = "0.2";
+            }
           }}
         />
         <span

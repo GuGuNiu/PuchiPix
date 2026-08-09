@@ -155,10 +155,11 @@ func (s *BlocklistService) GetAll(ctx context.Context) ([]db.BlocklistRule, erro
 	defer rows.Close()
 
 	var result []db.BlocklistRule
+	var ca, ua db.SQLTime
 	for rows.Next() {
 		var r db.BlocklistRule
 		if err := rows.Scan(&r.ID, &r.SiteID, &r.FieldType, &r.Keyword,
-			&r.MatchMode, &r.Enabled, &r.Remark, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			&r.MatchMode, &r.Enabled, &r.Remark, &ca, &ua); err != nil {
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
 		result = append(result, r)
@@ -173,7 +174,7 @@ func (s *BlocklistService) Create(ctx context.Context, siteID, fieldType, keywor
 	}
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO blocklist_rules (site_id, field_type, keyword, match_mode, enabled, remark, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, true, $5, NOW(), NOW())`,
+		VALUES (?, ?, ?, ?, true, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		siteID, fieldType, keyword, matchMode, remark)
 	if err != nil {
 		return fmt.Errorf("create rule: %w", err)
@@ -241,7 +242,7 @@ func (s *BlocklistService) Update(ctx context.Context, id int, fields map[string
 
 // Delete removes a single blocklist rule by ID.
 func (s *BlocklistService) Delete(ctx context.Context, id int) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM blocklist_rules WHERE id = $1`, id)
+	_, err := s.db.Exec(ctx, `DELETE FROM blocklist_rules WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete rule: %w", err)
 	}
@@ -254,7 +255,13 @@ func (s *BlocklistService) BatchDelete(ctx context.Context, ids []int) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := s.db.Exec(ctx, `DELETE FROM blocklist_rules WHERE id = ANY($1)`, ids)
+	// Build IN (?,?,...) placeholders — SQLite has no ANY(array) syntax.
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	_, err := s.db.Exec(ctx, `DELETE FROM blocklist_rules WHERE id IN (`+placeholders+`)`, args...)
 	if err != nil {
 		return fmt.Errorf("batch delete rules: %w", err)
 	}

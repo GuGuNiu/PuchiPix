@@ -52,12 +52,3 @@ func queryInt(r *http.Request, key string, def int) int {
 	}
 	return n
 }
-
-// queryString extracts a string query parameter with a fallback.
-func queryString(r *http.Request, key, def string) string {
-	v := r.URL.Query().Get(key)
-	if v == "" {
-		return def
-	}
-	return v
-}

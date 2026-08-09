@@ -18,10 +18,13 @@
         "domains": [
           "https://kanav.ad",
           "https://v1.kanav.work",
-          "https://kanav.work"
+          "https://kanav.work",
+          "https://v1.kanav.onl"
         ]
       },
-      "provider": {}
+      "provider": {
+        "publisherUrl": ""
+      }
     },
     "aimeizizi": {
       "module": {
@@ -46,6 +49,7 @@
       },
       "provider": {
         "placeholderFragment": "/static/zde/timg.gif",
+        "publisherUrl": "https://www.9999998.best/",
         "titleSuffixPatterns": [
           "(?i)\\s*[|\\-]\\s*(爱妹子|爱妹子网|Aimeizizi|LoveCutes)\\s*$"
         ],
@@ -138,6 +142,7 @@
         ]
       },
       "provider": {
+        "publisherUrl": "",
         "primaryDomain": "https://xsijishe.ink",
         "discuzCookiePrefix": "SgL6_2132_",
         "placeholderGif": "/static/image/common/none.gif",
@@ -186,6 +191,41 @@
         "titleSuffixPatterns": [
           "(?i)\\s*[_|]\\s*(秀色女神|xsnvshen|XsNvShen)\\s*$"
         ],
+        "blockedTitleKeywords": [],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
+    "fourkhd": {
+      "module": {
+        "id": "fourkhd",
+        "nameCn": "4KHD",
+        "nameEn": "4KHD",
+        "baseUrl": "https://www.4khd.com",
+        "type": "photo",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #00A2E8, #2184f9)",
+          "solidColor": "#00A2E8",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "scrapingStrategy": "http",
+        "domains": [
+          "https://www.4khd.com",
+          "https://qbep.uuss.uk",
+          "https://y5gx.uuss.uk"
+        ]
+      },
+      "provider": {
+        "placeholderFragment": "/static/images/Loading",
+        "publisherUrl": "",
+        "titleSuffixPatterns": [
+          "(?i)\\s*[-–—]\\s*4KHD\\s*$",
+          "\\[\\d+(?:\\.\\d+)?(?:MB|GB)-\\d+photos\\]$",
+          "\\(\\d+(?:\\.\\d+)?(?:MB|GB)\\)\\(\\d+photos\\)$"
+        ],
+        "publisherPrefixes": [],
         "blockedTitleKeywords": [],
         "blockedCategories": [],
         "blockedProtagonists": [],

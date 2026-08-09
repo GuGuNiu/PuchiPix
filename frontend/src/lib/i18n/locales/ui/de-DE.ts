@@ -266,6 +266,11 @@ const deDE: TranslationDict = {
   "config.loadConfigFailed": "Einstellungen konnten nicht geladen werden",
   "config.saveConfigFailed": "Einstellungen konnten nicht gespeichert werden",
   "config.restoredDefault": "Standardeinstellungen wiederhergestellt",
+  "config.multiThreadSettings": "Multithread-Download",
+  "config.multiThreadDownload": "HTTP-Range-Parallel-Download aktivieren",
+  "config.downloadConcurrency": "Chunk-Parallelität",
+  "config.downloadMaxSpeed": "Geschwindigkeitslimit (MB/s, 0=unbegrenzt)",
+  "config.downloadMinFileSize": "Minimale Dateigröße (MB)",
 
   /* ─── Sniffing ─── */
   "sniff.title": "M3U8-Links sniffe",

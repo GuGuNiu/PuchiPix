@@ -266,6 +266,11 @@ const enUS: TranslationDict = {
   "config.loadConfigFailed": "Failed to load settings",
   "config.saveConfigFailed": "Failed to save settings",
   "config.restoredDefault": "Defaults restored",
+  "config.multiThreadSettings": "Multi-thread Download",
+  "config.multiThreadDownload": "Enable HTTP Range parallel download",
+  "config.downloadConcurrency": "Chunk concurrency",
+  "config.downloadMaxSpeed": "Speed limit (MB/s, 0=unlimited)",
+  "config.downloadMinFileSize": "Min file size (MB)",
 
   /* ─── Sniff ─── */
   "sniff.title": "Sniff M3U8 Links",

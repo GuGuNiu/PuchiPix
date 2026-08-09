@@ -43,13 +43,6 @@ func NewEngine(logger *infra.Logger) *Engine {
 	}
 }
 
-// SetProgressCallback registers a callback for progress change notifications.
-func (e *Engine) SetProgressCallback(cb func(galleryID int, summary GalleryProgressSummary)) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.onProgress = cb
-}
-
 // RegisterFiles initializes file tracking for a gallery. Called after
 // the scrape phase when we know the expected file counts.
 func (e *Engine) RegisterFiles(galleryID int, files []FileProgress) {
@@ -371,57 +364,6 @@ func (e *Engine) retryAll(galleryFiles map[int]*FileProgress) ([]int, error) {
 	}
 	sort.Ints(result)
 	return result, nil
-}
-
-// ResolveProgressFromDisk scans the gallery's save directory and
-// synchronizes the in-memory progress with the actual files on disk.
-// This is used at startup and after crashes to recover accurate
-// progress state.
-func (e *Engine) ResolveProgressFromDisk(galleryID int, savePath string, expectedFiles []FileProgress) GalleryProgressSummary {
-	// Count actual files on disk.
-	actualCount := countFilesRecursive(savePath)
-
-	// If no files on disk and no tracking data, register expected files.
-	e.mu.Lock()
-	if _, ok := e.files[galleryID]; !ok {
-		e.RegisterFiles(galleryID, expectedFiles)
-	}
-	e.mu.Unlock()
-
-	// Mark files as completed based on disk presence.
-	// Files on disk that aren't tracked are marked as completed.
-	// Tracked files not on disk are marked as pending (to be retried).
-	if actualCount > 0 {
-		e.mu.RLock()
-		galleryFiles := e.files[galleryID]
-		e.mu.RUnlock()
-
-		completedOnDisk := 0
-		for idx, f := range galleryFiles {
-			if f.LocalPath != "" {
-				if _, err := os.Stat(f.LocalPath); err == nil {
-					if f.Status != FileCompleted {
-						e.UpdateFileStatus(galleryID, idx, FileCompleted, f.LocalPath, f.FileSize, "")
-					}
-					completedOnDisk++
-				}
-			}
-		}
-
-		// If disk count exceeds tracked count, we may have unregistered files.
-		// Trust the disk count for progress in that case.
-		if actualCount > completedOnDisk+len(galleryFiles) {
-			e.logger.Warn("Disk file count exceeds tracked count - possible untracked files",
-				infra.LogContext{Extra: map[string]any{
-					"galleryId":      galleryID,
-					"actualCount":    actualCount,
-					"trackedCount":   len(galleryFiles),
-					"completedCount": completedOnDisk,
-				}})
-		}
-	}
-
-	return e.GetSummary(galleryID)
 }
 
 // countFilesRecursive counts all regular files in a directory tree.

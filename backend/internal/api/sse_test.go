@@ -38,20 +38,6 @@ func TestSSESendEvent(t *testing.T) {
 	assert.Contains(t, body, `"key":"value"`)
 }
 
-// TestSSESendData verifies that unnamed data events use the
-// data-only SSE format.
-func TestSSESendData(t *testing.T) {
-	w := httptest.NewRecorder()
-	sse := NewSSEStream(w)
-	require.NotNil(t, sse)
-
-	sse.SendData("hello")
-	body := w.Body.String()
-	assert.Contains(t, body, "data: ")
-	assert.Contains(t, body, "hello")
-	assert.NotContains(t, body, "event:")
-}
-
 // TestSSESendKeepalive verifies that keepalive comments are written
 // in the correct SSE comment format.
 func TestSSESendKeepalive(t *testing.T) {

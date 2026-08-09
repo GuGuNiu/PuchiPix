@@ -266,6 +266,11 @@ const ruRU: TranslationDict = {
   "config.loadConfigFailed": "Ошибка загрузки настроек",
   "config.saveConfigFailed": "Ошибка сохранения настроек",
   "config.restoredDefault": "Значения по умолчанию восстановлены",
+  "config.multiThreadSettings": "Многопоточная загрузка",
+  "config.multiThreadDownload": "Включить параллельную загрузку HTTP Range",
+  "config.downloadConcurrency": "Параллельность chunks",
+  "config.downloadMaxSpeed": "Ограничение скорости (МБ/с, 0=без ограничений)",
+  "config.downloadMinFileSize": "Минимальный размер файла (МБ)",
 
   /* ─── Сниффинг ─── */
   "sniff.title": "Сниффинг M3U8 ссылок",

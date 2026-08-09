@@ -19,24 +19,72 @@ import (
 var fallbackLogger = infra.NewLogger("DownloadManager")
 
 // DownloadOptions configures file download behavior including custom
-// headers, timeout, and atomic write semantics.
+// headers, timeout, atomic write semantics, and optional multi-thread
+// Range-based parallel download.
 type DownloadOptions struct {
-	Headers  map[string]string
-	Timeout  time.Duration
-	Atomic   bool
-	Referer  string
+	Headers map[string]string
+	Timeout time.Duration
+	Atomic  bool
+	Referer string
+	// MultiThread enables Range-based parallel download when the server
+	// supports it. When false (default), single-thread download is used.
+	MultiThread bool
+	// Concurrency controls the number of parallel chunk workers.
+	// Clamped to 2-8 at runtime; default 4.
+	Concurrency int
+	// MaxSpeed limits aggregate download speed (bytes/sec) for a single
+	// file across all workers. 0 means unlimited.
+	MaxSpeed int64
+	// MinFileSize is the threshold below which multi-thread download
+	// is skipped (not worth the overhead). Default 1 MB.
+	MinFileSize int64
+}
+
+// DownloadDefaults holds the runtime download configuration that is
+// applied to every DownloadOptions constructed by the orchestrator.
+// It is populated from config.Config and passed down to avoid the
+// orchestrator importing the config package directly.
+type DownloadDefaults struct {
+	MultiThread bool
+	Concurrency int
+	MaxSpeed    int64
+	MinFileSize int64
+	// GalleryImageConcurrent limits simultaneous image downloads
+	// within a gallery batch. 0 falls back to a sensible default.
+	GalleryImageConcurrent int
+	// VideoMaxConcurrent limits simultaneous video downloads within
+	// a gallery batch. 0 falls back to a sensible default.
+	VideoMaxConcurrent int
+}
+
+// ApplyTo merges the defaults into an existing DownloadOptions,
+// filling in multi-thread fields without overriding caller-set
+// Headers, Timeout, Atomic, or Referer.
+func (d DownloadDefaults) ApplyTo(opts *DownloadOptions) *DownloadOptions {
+	if opts == nil {
+		opts = &DownloadOptions{}
+	}
+	opts.MultiThread = d.MultiThread
+	opts.Concurrency = d.Concurrency
+	opts.MaxSpeed = d.MaxSpeed
+	opts.MinFileSize = d.MinFileSize
+	return opts
 }
 
 // DownloadResult reports the outcome of a file download attempt.
 type DownloadResult struct {
-	Success  bool
-	FileSize int64
+	Success   bool
+	FileSize  int64
 	SavedPath string
-	Error    error
+	Error     error
 }
 
 // DownloadFile fetches a file from the given URL and saves it to filePath,
 // applying stealth headers and supporting atomic writes via temp files.
+// When opts.MultiThread is true and the server supports Range requests,
+// the download is split into parallel chunks for faster throughput.
+// If Range is unsupported or the file is too small, it transparently
+// falls back to single-thread download with identical return semantics.
 func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptions) *DownloadResult {
 	if opts == nil {
 		opts = &DownloadOptions{}
@@ -47,6 +95,26 @@ func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptio
 		timeout = 30 * time.Second
 	}
 
+	// Multi-thread path: probe Range support and attempt parallel
+	// download. Falls back to single-thread on any failure.
+	if opts.MultiThread {
+		probe, err := probeRangeSupport(ctx, url, opts, timeout)
+		if err == nil && probe.supportsRange && probe.totalSize > 0 {
+			mtResult := downloadFileMultiThread(ctx, url, filePath, opts, probe.totalSize, probe.etag, probe.lastModified)
+			if mtResult != nil {
+				return mtResult
+			}
+			// mtResult == nil signals "fall back to single-thread".
+		}
+	}
+
+	return downloadFileSingleThread(ctx, url, filePath, opts, timeout)
+}
+
+// downloadFileSingleThread is the legacy single-thread download path,
+// extracted so that both the default path and the multi-thread fallback
+// share the same logic and return-value structure.
+func downloadFileSingleThread(ctx context.Context, url, filePath string, opts *DownloadOptions, timeout time.Duration) *DownloadResult {
 	profile := stealth.RandomProfile()
 	headers := stealth.BuildStealthHeaders(profile, opts.Referer)
 	for k, v := range opts.Headers {
@@ -294,7 +362,7 @@ func ExtractDomain(rawURL string) string {
 // any site with multiple configured domains automatically supports
 // mirror-based failover without hardcoded entries.
 var (
-	mirrorOnce     sync.Once
+	mirrorOnce      sync.Once
 	mirrorDomainMap map[string][]string
 )
 

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"backend/internal/i18n"
 )
 
 // TestLocaleDetectionHeader verifies that the x-locale header takes
@@ -14,7 +16,7 @@ import (
 func TestLocaleDetectionHeader(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		detected = GetLocale(r.Context())
+		detected = i18n.LocaleFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest("GET", "/api/test", nil)
@@ -31,7 +33,7 @@ func TestLocaleDetectionHeader(t *testing.T) {
 func TestLocaleDetectionCookie(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		detected = GetLocale(r.Context())
+		detected = i18n.LocaleFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest("GET", "/api/test", nil)
@@ -47,7 +49,7 @@ func TestLocaleDetectionCookie(t *testing.T) {
 func TestLocaleDetectionAcceptLanguage(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		detected = GetLocale(r.Context())
+		detected = i18n.LocaleFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest("GET", "/api/test", nil)
@@ -63,7 +65,7 @@ func TestLocaleDetectionAcceptLanguage(t *testing.T) {
 func TestLocaleDetectionDefault(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		detected = GetLocale(r.Context())
+		detected = i18n.LocaleFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest("GET", "/api/test", nil)
@@ -78,7 +80,7 @@ func TestLocaleDetectionDefault(t *testing.T) {
 func TestLocaleDetectionHeaderPriority(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		detected = GetLocale(r.Context())
+		detected = i18n.LocaleFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest("GET", "/api/test", nil)
