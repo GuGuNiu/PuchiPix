@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"backend/internal/api"
 	"backend/internal/config"
 	"backend/internal/db"
+	"backend/internal/downloader"
 	"backend/internal/downloader/video"
 	"backend/internal/infra"
 	"backend/internal/orchestrator"
@@ -25,6 +27,8 @@ import (
 	"backend/internal/sites"
 	"backend/internal/sites/aimeizizi"
 	"backend/internal/sites/exhentai"
+	"backend/internal/sites/kanav"
+	"backend/internal/sites/fourkhd"
 	siteSjs "backend/internal/sites/sjs"
 	"backend/internal/sites/universal"
 	"backend/internal/sites/xsnvshen"
@@ -54,10 +58,15 @@ func main() {
 		logger.Info("Dev mode: log level set to INFO")
 	}
 
+	logger.Info("Configuration resolved",
+		"dataDir", cfg.DataDir,
+		"databasePath", cfg.DatabasePath)
+
 	// ── Database ──
 	database, dbErr := db.NewDatabase(cfg.DatabasePath, nil)
 	if dbErr != nil {
-		logger.Warn("Database unavailable, starting in degraded mode")
+		logger.Warn("Database unavailable, starting in degraded mode",
+			"error", dbErr.Error())
 	}
 
 	// ── DAG Scheduler (only when database is available) ──
@@ -110,7 +119,15 @@ func main() {
 
 		// 4. Executor Registry ??routes node execution by key
 		exeReg = executors.NewRegistry()
-		orchestrator.WireExecutors(exeReg, siteReg, database, eventBus, titleParser, progressEngine, videoTracker)
+		dlDefaults := downloader.DownloadDefaults{
+			MultiThread:            cfg.DownloadMultiThread,
+			Concurrency:            cfg.DownloadConcurrency,
+			MaxSpeed:               cfg.DownloadMaxSpeed,
+			MinFileSize:            cfg.DownloadMinFileSize,
+			GalleryImageConcurrent: cfg.GalleryImageConcurrent,
+			VideoMaxConcurrent:     cfg.VideoMaxConcurrent,
+		}
+		orchestrator.WireExecutors(exeReg, siteReg, database, eventBus, titleParser, progressEngine, videoTracker, cfg.DataDir, dlDefaults)
 
 		// 4. Slot Pool ??concurrency control
 		slotPool := slot.NewSlotPool()
@@ -137,9 +154,10 @@ func main() {
 		})
 
 		// 4b. Stream slot state changes over the EventBus so SSE clients
-		// (GET /api/slots/stream) observe acquire / release / max / quota
-		// updates in real-time without polling. Payload mirrors the
-		// SlotStateChange shape with an extra timestamp.
+		// (via /api/tasks/stream, which forwards slot:stateChanged) observe
+		// acquire / release / max / quota updates in real-time without
+		// polling. Payload mirrors the SlotStateChange shape with an extra
+		// timestamp.
 		slotPool.SetStateChangeCallback(func(change slot.SlotStateChange) {
 			eventBus.Emit("slot:stateChanged", map[string]any{
 				"event":     change.Event,
@@ -152,6 +170,15 @@ func main() {
 				"ts":        time.Now().UnixMilli(),
 			})
 		})
+
+		// 4c. Periodic slot-pool health check: self-heal running-vs-
+		// activeSlots drift (P-SLOT-01 ghost slots) and release stale
+		// holders that outlive the 10-minute video/download timeout.
+		// Runs until the process exits (background context, cancelled
+		// by the deferred cancel below).
+		healthCtx, healthCancel := context.WithCancel(context.Background())
+		go slotPool.StartHealthCheck(healthCtx, 5*time.Second, 10*time.Minute)
+		defer healthCancel()
 
 		// 5. DagOrchestrator ??full lifecycle management
 		dagOrch = dag.NewDagOrchestrator(eventStore, slotPool)
@@ -212,16 +239,179 @@ func main() {
 		// 9b. Reactivate READY nodes that were restored from snapshots
 		// but never submitted to the scheduler's ReadyQueue. Without this
 		// call, any DAG whose nodes are in "ready" state after a server
-		// restart will be stuck forever �?the scan timer only dispatches
+		// restart will be stuck forever — the scan timer only dispatches
 		// nodes already in the queue, but the queue is empty because
-		// SubmitDag �?activateReadyNodes only runs for newly created DAGs.
+		// SubmitDag → activateReadyNodes only runs for newly created DAGs.
 		// This is the root cause of 11 pending DAGs that never execute
 		// their scrape nodes after restart.
 		dagOrch.ReactivateReadyNodes(ctx)
 
+		// 9c. Crash recovery: reset stale gallery and video statuses and
+		// auto-recreate DAGs for orphaned galleries. After a server crash,
+		// in-flight galleries are left with "downloading" or "scraped"
+		// status while their DAGs are lost from memory. This recovery
+		// step: (a) resets stale statuses to "pending", (b) recreates
+		// DAG pipelines for each reset gallery so the scheduler can pick
+		// them up on the next scan cycle.
+		{
+			recoveryCtx := context.Background()
+			staleStatuses := []string{"downloading", "scraped", "scraping"}
+			for _, staleStatus := range staleStatuses {
+				rows, qErr := database.Query(recoveryCtx,
+					`SELECT id, source_url, site_id FROM galleries WHERE status = ?`, staleStatus)
+				if qErr != nil {
+					continue
+				}
+				type orphan struct {
+					id        int
+					sourceURL string
+					siteID    string
+				}
+				var orphans []orphan
+				for rows.Next() {
+					var o orphan
+					if scanErr := rows.Scan(&o.id, &o.sourceURL, &o.siteID); scanErr == nil {
+						orphans = append(orphans, o)
+					}
+				}
+				rows.Close()
+
+				if len(orphans) > 0 {
+					logger.Info("Crash recovery: resetting stale galleries",
+						"status", staleStatus, "count", len(orphans))
+					for _, o := range orphans {
+						// Reset gallery status to pending.
+						_, _ = database.Exec(recoveryCtx,
+							`UPDATE galleries SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+							o.id)
+
+						// Recreate DAG pipeline.
+						def := dag.NewDagFactory().NewGalleryPipeline(o.sourceURL, o.siteID, o.id)
+						if dagID, submitErr := dagOrch.SubmitDag(recoveryCtx, def); submitErr != nil {
+							logger.Warn("Crash recovery: DAG recreate failed",
+								"galleryId", o.id, "error", submitErr.Error())
+						} else {
+							logger.Info("Crash recovery: DAG recreated",
+								"galleryId", o.id, "dagId", dagID)
+						}
+					}
+				}
+			}
+
+			// Also reset stale gallery_videos statuses.
+			_, _ = database.Exec(recoveryCtx,
+				`UPDATE gallery_videos SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'failed')`)
+
+			// Reset stale video tasks (download_tasks) so in-flight video
+			// downloads are not orphaned after a crash. Their DAGs are
+			// recreated below via NewVideoPipeline, matching the gallery
+			// recovery path. Previously these tasks stayed 'downloading'
+			// forever (no DAG, no status change).
+			videoStale, vErr := database.Query(recoveryCtx,
+				`SELECT id FROM download_tasks WHERE status IN ('downloading', 'pending')`)
+			if vErr == nil {
+				var videoIDs []int
+				for videoStale.Next() {
+					var vid int
+					if scanErr := videoStale.Scan(&vid); scanErr == nil {
+						videoIDs = append(videoIDs, vid)
+					}
+				}
+				videoStale.Close()
+				if len(videoIDs) > 0 {
+					logger.Info("Crash recovery: resetting stale video tasks",
+						"count", len(videoIDs))
+					for _, vid := range videoIDs {
+						_, _ = database.Exec(recoveryCtx,
+							`UPDATE download_tasks SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+							vid)
+						def := dag.NewDagFactory().NewVideoPipeline(vid)
+						if dagID, submitErr := dagOrch.SubmitDag(recoveryCtx, def); submitErr != nil {
+							logger.Warn("Crash recovery: video DAG recreate failed",
+								"taskId", vid, "error", submitErr.Error())
+						} else {
+							logger.Info("Crash recovery: video DAG recreated",
+								"taskId", vid, "dagId", dagID)
+						}
+					}
+				}
+			}
+
+			// Second pass: recreate DAGs for "pending" galleries that lost
+			// their DAGs in the crash. These are tasks that were created but
+			// never started downloading — their DAGs are gone but their DB
+			// status is still "pending" and they're not covered by the stale
+			// status recovery above.
+			pendingRows, pqErr := database.Query(recoveryCtx,
+				`SELECT id, source_url, site_id FROM galleries WHERE status = 'pending'`)
+			if pqErr == nil {
+				type pendingOrphan struct {
+					id        int
+					sourceURL string
+					siteID    string
+				}
+				var pending []pendingOrphan
+				for pendingRows.Next() {
+					var po pendingOrphan
+					if scanErr := pendingRows.Scan(&po.id, &po.sourceURL, &po.siteID); scanErr == nil {
+						pending = append(pending, po)
+					}
+				}
+				pendingRows.Close()
+
+				if len(pending) > 0 {
+					logger.Info("Crash recovery: recreating DAGs for pending galleries",
+						"count", len(pending))
+					for _, po := range pending {
+						def := dag.NewDagFactory().NewGalleryPipeline(po.sourceURL, po.siteID, po.id)
+						if dagID, submitErr := dagOrch.SubmitDag(recoveryCtx, def); submitErr != nil {
+							logger.Warn("Crash recovery: pending DAG recreate failed",
+								"galleryId", po.id, "error", submitErr.Error())
+						} else {
+							logger.Info("Crash recovery: pending DAG recreated",
+								"galleryId", po.id, "dagId", dagID)
+						}
+					}
+				}
+			}
+		}
+
 		// 10. Start periodic scan + queue capacity sync
 		sched.SyncQueueCapacityFromSlotPool()
 		sched.StartScanTimer(2 * time.Second)
+
+		// 10a. Sync DAG terminal failures back to the galleries table.
+		// The DAG orchestrator emits gallery:stateChanged when a gallery
+		// DAG ends failed/cancelled; executors may have left
+		// galleries.status at 'completed'/'partial' (their local view),
+		// so without this the frontend shows a completed gallery that
+		// actually failed verification. This subscription keeps the DB
+		// the single source of truth for the shelf UI.
+		eventBus.On("gallery:stateChanged", func(payload any) {
+			ev, ok := payload.(map[string]any)
+			if !ok || database == nil {
+				return
+			}
+			dagID, _ := ev["dagId"].(string)
+			status, _ := ev["status"].(string)
+			if status == "" || dagID == "" {
+				return
+			}
+			// Look up the gallery by dag_id (unified 6-char alphanumeric format).
+			_, _ = database.Exec(context.Background(),
+				`UPDATE galleries SET status = ?, error_msg = 'DAG ended with ' || ?, updated_at = CURRENT_TIMESTAMP WHERE dag_id = ?`,
+				status, status, dagID)
+		})
+
+		// 10b. Periodic READY-node reactivation. A node whose Submit was
+		// rejected (queue full / draining) is rolled back to READY by
+		// submitToScheduler; nothing else ever re-submits it, so without
+		// this ticker such nodes (and their DAGs) stall forever until a
+		// manual `puchipix-cli trigger`. The scan converges once the
+		// scheduler queue frees up.
+		reactivationCtx, reactivationCancel := context.WithCancel(context.Background())
+		dagOrch.StartAutoReactivation(reactivationCtx, 5*time.Second)
+		defer reactivationCancel()
 
 		logger.Info("DAG scheduler initialized")
 
@@ -246,11 +436,13 @@ func main() {
 
 		// 12. Register all site providers onto the registry
 		siteReg.Register(aimeizizi.NewProvider(dataStore, blocklistSvc))
+		siteReg.Register(kanav.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(siteSjs.NewProvider(dataStore, accountMgr))
 		siteReg.Register(exhentai.NewProvider(dataStore))
 		siteReg.Register(xsnvshen.NewProvider(dataStore, blocklistSvc))
+		siteReg.Register(fourkhd.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(universal.NewProvider())
-		logger.Info("Site providers registered", "count", 5)
+		logger.Info("Site providers registered", "count", 7)
 	}
 
 	// ── HTTP Handlers ──
@@ -260,13 +452,16 @@ func main() {
 	if database != nil {
 		siteReg := sites.GetSiteRegistry()
 		ouoOrch := orchestrator.NewOuoOrchestrator()
-		dm := video.NewDownloadManager(database, eventBus, video.DefaultManagerConfig())
+		dmCfg := video.DefaultManagerConfig()
+		dmCfg.DownloadPath = filepath.Join(cfg.DataDir, "videos")
+		dmCfg.SegmentsPath = filepath.Join(cfg.DataDir, "segments")
+		dm := video.NewDownloadManager(database, eventBus, dmCfg)
 
-	// Inject the video segment tracker into the download manager so
-	// that RegisterSegments and UpdateSegment are called from the
-	// download pipeline. This bridges the gap where the tracker was
-	// initialized but never connected to the segment queue.
-	dm.SetTracker(videoTracker)
+		// Inject the video segment tracker into the download manager so
+		// that RegisterSegments and UpdateSegment are called from the
+		// download pipeline. This bridges the gap where the tracker was
+		// initialized but never connected to the segment queue.
+		dm.SetTracker(videoTracker)
 
 		// Register the video download executor now that DownloadManager
 		// is available. WireExecutors (called during DAG init above) only
@@ -299,20 +494,32 @@ func main() {
 			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
 				var pageURL, m3u8URL, storedTitle string
 				err := database.QueryRow(ctx,
-					`SELECT url, COALESCE(m3u8_url, ''), COALESCE(title, '') FROM download_tasks WHERE id = ?`,
+					`SELECT dt.url, COALESCE(dt.m3u8_url, ''), COALESCE(vi.title, '') FROM download_tasks dt LEFT JOIN video_infos vi ON vi.task_id = dt.id WHERE dt.id = ?`,
 					taskID).Scan(&pageURL, &m3u8URL, &storedTitle)
 				if err != nil {
 					return video.DownloadTaskInput{}, fmt.Errorf("query task %d: %w", taskID, err)
 				}
 
+				// Decode MacCMS-style encoded M3U8 URLs that may have been
+				// stored in a previous run before the decode fix was added.
+				m3u8URL = universal.DecodeMacCMSURL(m3u8URL)
+
 				// If M3U8 URL is already known, use it directly with
 				// lightweight best-effort metadata scrape.
 				if m3u8URL != "" {
+					// Collect referer domains for CDN anti-hotlink bypass.
+					var refererDomains []string
+					if h.SiteReg != nil {
+						if mod, ok := h.SiteReg.GetModuleByUrl(pageURL); ok {
+							refererDomains = mod.Domains
+						}
+					}
 					task := video.DownloadTaskInput{
-						ID:      taskID,
-						M3U8URL: m3u8URL,
-						PageURL: pageURL,
-						Title:   storedTitle,
+						ID:             taskID,
+						M3U8URL:        m3u8URL,
+						PageURL:        pageURL,
+						Title:          storedTitle,
+						RefererDomains: refererDomains,
 					}
 					metaCtx, metaCancel := context.WithTimeout(ctx, 30*time.Second)
 					defer metaCancel()
@@ -326,7 +533,7 @@ func main() {
 					return task, nil
 				}
 
-				// M3U8 URL not yet discovered �?strategy-driven scrape with
+				// M3U8 URL not yet discovered — strategy-driven scrape with
 				// domain fallback. First, look up the site module to get
 				// mirror domains and scraping strategy.
 				var siteID string
@@ -420,31 +627,45 @@ func main() {
 				// Pre-write video metadata immediately after scraping.
 				preWriteVideoInfo(ctx, database, taskID, result)
 
+				// Emit task:metadata so SSE clients receive the scraped
+				// title and actors in real-time without waiting for the
+				// 10s polling fallback. This bridges the gap between DB
+				// write and frontend state.
+				if eventBus != nil {
+					eventBus.Emit("task:metadata", map[string]any{
+						"taskId":       taskID,
+						"taskType":     "video",
+						"GalleryTitle": result.Title,
+						"Person":       strings.Join(result.Actors, ", "),
+					})
+				}
+
 				return video.DownloadTaskInput{
-					ID:         taskID,
-					M3U8URL:    result.M3U8URL,
-					PageURL:    pageURL,
-					Title:      result.Title,
-					Tags:       result.Tags,
-					Actors:     result.Actors,
-					Categories: result.Categories,
-					Director:   result.Director,
+					ID:             taskID,
+					M3U8URL:        result.M3U8URL,
+					PageURL:        pageURL,
+					Title:          result.Title,
+					Tags:           result.Tags,
+					Actors:         result.Actors,
+					Categories:     result.Categories,
+					Director:       result.Director,
+					RefererDomains: mirrorDomains,
 				}, nil
 			}
 
-		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
+			exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
+		}
+
+		// Progress engine and video tracker were created earlier during
+		// DAG initialization so they could be passed to WireExecutors.
+		// Here we just inject them into the API handlers.
+
+		h.WithDag(dagOrch, sched, exeReg)
+		h.WithServices(ouoOrch, dm, siteReg)
+		h.WithProgressEngine(progressEngine, videoTracker)
 	}
 
-	// Progress engine and video tracker were created earlier during
-	// DAG initialization so they could be passed to WireExecutors.
-	// Here we just inject them into the API handlers.
-
-	h.WithDag(dagOrch, sched, exeReg)
-	h.WithServices(ouoOrch, dm, siteReg)
-	h.WithProgressEngine(progressEngine, videoTracker)
-}
-
-	router := api.NewRouter(h, eventBus)
+	router := api.NewRouter(h)
 
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
 	srv := &http.Server{
@@ -608,8 +829,8 @@ func isLikelyAntiBot(err error) bool {
 	for _, sig := range []string{
 		"cf-", "cloudflare", "challenge", "captcha", "turnstile",
 		"403", "access denied", "forbidden",
-		"deadline exceeded",                   // headless Chrome stuck on JS challenge
-		"navigation failed",                  // chromedp couldn't even load the page
+		"deadline exceeded", // headless Chrome stuck on JS challenge
+		"navigation failed", // chromedp couldn't even load the page
 		"context deadline exceeded",
 	} {
 		if strings.Contains(lower, sig) {
@@ -625,13 +846,23 @@ func isLikelyAntiBot(err error) bool {
 // original TS scrapeVideoAsync behavior where downloadTask.update with
 // videoInfo was called right after scraping, so users can see metadata
 // during the potentially long download phase.
+// marshalStrSlice serializes a string slice to JSON, returning "[]" for
+// nil slices instead of "null" (json.Marshal(nil) produces "null").
+func marshalStrSlice(s []string) []byte {
+	if s == nil {
+		return []byte("[]")
+	}
+	b, _ := json.Marshal(s)
+	return b
+}
+
 func preWriteVideoInfo(ctx context.Context, database *db.Database, taskID int, result *sites.ScrapeResult) {
 	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	tagsJSON, _ := json.Marshal(result.Tags)
-	actorsJSON, _ := json.Marshal(result.Actors)
-	categoriesJSON, _ := json.Marshal(result.Categories)
+	tagsJSON := marshalStrSlice(result.Tags)
+	actorsJSON := marshalStrSlice(result.Actors)
+	categoriesJSON := marshalStrSlice(result.Categories)
 
 	_, err := database.Exec(writeCtx, `
 		INSERT INTO video_infos (task_id, title, source_url, tags, actors, categories, director)

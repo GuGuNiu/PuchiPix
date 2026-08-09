@@ -9,24 +9,12 @@ interface TaskStore {
   tasks: DownloadTask[];
   loading: boolean;
   sseConnected: boolean;
-  sniffTaskEventId: number;
-  lastSniffTaskEvent: SniffTaskEventData | null;
   fetchTasks: (status?: string) => Promise<void>;
   addTask: (task: DownloadTask) => void;
   removeTask: (id: number, taskType?: string) => void;
   clearDeletedKey: (id: number, taskType: string) => void;
   connectSSE: () => () => void;
   subscribeToSocket: () => () => void;
-}
-
-interface SniffTaskEventData {
-  action: 'galleryCreated';
-  sniffId: number;
-  galleryId?: number;
-  seq?: string | null;
-  title?: string;
-  totalCreated?: number;
-  totalSkipped?: number;
 }
 
 function taskKey(t: DownloadTask): string {
@@ -43,53 +31,21 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   loading: true,
   sseConnected: false,
-  sniffTaskEventId: 0,
-  lastSniffTaskEvent: null,
 
   fetchTasks: async (status?: string) => {
+    /*
+     * Fallback only: primary data source is SSE initial event.
+     * This fetch runs when SSE is disconnected and on manual refresh.
+     * Single API call replaces the previous dual-API pattern
+     * (/api/tasks + /api/shelf with manual gallery mapping).
+     */
     set({ loading: true });
     try {
-      // Fetch both video download tasks and gallery tasks
-      const [tasksRes, shelfRes] = await Promise.all([
-        fetch(status ? `/api/tasks?status=${status}` : '/api/tasks'),
-        fetch('/api/shelf?limit=500'),
-      ]);
-
-      const videoData = await tasksRes.json();
-      const shelfData = await shelfRes.json();
+      const res = await fetch(status ? `/api/tasks?status=${status}` : '/api/tasks');
+      const videoData = await res.json();
       const videoTasks = Array.isArray(videoData) ? videoData : [];
 
-      /*
-       * Map gallery shelf items to DownloadTask format.
-       * Gallery struct now uses PascalCase JSON tags (matching
-       * DownloadTask convention), but we keep fallback to camelCase
-       * for backward compatibility with cached/old responses.
-       */
-      const galleryTasks: DownloadTask[] = Array.isArray(shelfData)
-        ? shelfData.map((g: Record<string, unknown>) => ({
-            ID: (g.ID ?? g.id) as number,
-            DisplayID: (g.DisplayID ?? g.seq) as string | undefined,
-            URL: ((g.SourceURL ?? g.sourceUrl) as string) || '',
-            M3U8URL: '',
-            Status: ((g.Status ?? g.status) as TaskStatus) || 'pending',
-            Progress: 0,
-            FilePath: ((g.SavePath ?? g.savePath) as string) || '',
-            Format: '',
-            Priority: 0,
-            ErrorMsg: ((g.ErrorMsg ?? g.errorMsg) as string) || '',
-            CreatedAt: ((g.CreatedAt ?? g.createdAt) as string) || '',
-            UpdatedAt: ((g.UpdatedAt ?? g.updatedAt) as string) || '',
-            TaskType: 'gallery' as const,
-            GalleryTitle: ((g.Title ?? g.title) as string) || '',
-            ImageCount: ((g.ImageCount ?? g.imageCount) as number) ?? 0,
-            VideoCount: ((g.VideoCount ?? g.videoCount) as number) ?? 0,
-            DownloadMethod: ((g.DownloadMethod ?? g.downloadMethod) as string) || '',
-            GalleryTotalSize: ((g.TotalSize ?? g.totalSize) as number) ?? 0,
-            Person: ((g.Protagonist ?? g.protagonist) as string) || '',
-          }))
-        : [];
-
-      const allTasks = [...videoTasks, ...galleryTasks];
+      const allTasks = [...videoTasks];
       const serverTaskKeys = new Set(allTasks.map(taskKey));
       for (const key of deletedKeys) {
         if (serverTaskKeys.has(key)) {
@@ -158,9 +114,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     );
 
     unsubs.push(
-      subscribeSseEvent('upsert', (e: MessageEvent) => {
+      /*
+       * P1-4 semantic event names: task:created (PascalCase DownloadTask
+       * struct for video / PascalCase map with TaskType for sniff) +
+       * gallery:created (PascalCase map). Was: overloaded "upsert".
+       */
+      subscribeSseEvent('task:created', (e: MessageEvent) => {
         try {
-          const task = JSON.parse(e.data) as DownloadTask;
+          const raw = JSON.parse(e.data) as Partial<DownloadTask> & { TaskType?: string };
+          const taskType = raw.TaskType || 'video';
+          if (taskType === 'gallery') return; // Handled by gallery:created
+          const task = { ...raw, TaskType: taskType } as DownloadTask;
           const key = taskKey(task);
           if (deletedKeys.has(key)) return;
           set((s) => {
@@ -173,95 +137,192 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             return { tasks: [task, ...s.tasks] };
           });
         } catch (err) {
-          logger.warn('SSE upsert parse failed', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE task:created parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
 
     unsubs.push(
-      subscribeSseEvent('patch', (e: MessageEvent) => {
+      /*
+       * Gallery:created carries a minimal PascalCase map (ID/SourceURL/
+       * Status/DagID/DisplayID). Insert a placeholder gallery task so the
+       * list reflects new galleries without a page refresh; fetchTasks
+       * will reconcile full details later.
+       */
+      subscribeSseEvent('gallery:created', (e: MessageEvent) => {
         try {
-          const { id, taskType, changes } = JSON.parse(e.data) as {
-            id: number;
-            taskType: string;
-            changes: Partial<DownloadTask>;
+          const raw = JSON.parse(e.data) as {
+            ID: number;
+            SourceURL?: string;
+            DisplayID?: string;
+            Status?: string;
+            CreatedAt?: string;
+            UpdatedAt?: string;
           };
-          const key = `${taskType}-${id}`;
+          const key = `gallery-${raw.ID}`;
+          if (deletedKeys.has(key)) return;
+          set((s) => {
+            if (s.tasks.some((t) => taskKey(t) === key)) return s;
+            const task: DownloadTask = {
+              ID: raw.ID,
+              DisplayID: raw.DisplayID,
+              URL: raw.SourceURL || '',
+              M3U8URL: '',
+              Status: (raw.Status as TaskStatus) || 'pending',
+              Progress: 0,
+              FilePath: '',
+              Format: '',
+              Priority: 0,
+              ErrorMsg: '',
+              CreatedAt: raw.CreatedAt || '',
+              UpdatedAt: raw.UpdatedAt || '',
+              TaskType: 'gallery',
+              GalleryTitle: '',
+              ImageCount: 0,
+              VideoCount: 0,
+              DownloadMethod: '',
+              GalleryTotalSize: 0,
+              Person: '',
+            };
+            return { tasks: [task, ...s.tasks] };
+          });
+        } catch (err) {
+          logger.warn('SSE gallery:created parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * P1-4 semantic event names: task:progress (camelCase map; gallery
+       * carries taskType/completed/total/failed, video carries
+       * speed/segment and NO taskType — default to "video"). Was: "patch".
+       */
+      subscribeSseEvent('task:progress', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as {
+            taskId: number;
+            taskType?: string;
+            progress?: number;
+            status?: string;
+            speed?: string;
+            completed?: number;
+            total?: number;
+            failed?: number;
+            segment?: number;
+          };
+          const taskType = payload.taskType || 'video';
+          const key = `${taskType}-${payload.taskId}`;
+          set((s) => ({
+            tasks: s.tasks.map((t) => {
+              if (taskKey(t) !== key) return t;
+              const next = {
+                ...t,
+                Progress: payload.progress ?? t.Progress,
+                Status: (payload.status as TaskStatus) || t.Status,
+              };
+              // Video tasks: update Segment/TotalSegments from segment/total
+              // fields emitted by DownloadManager.emitProgress().
+              if (taskType === 'video' && payload.segment !== undefined && payload.total !== undefined && payload.total > 0) {
+                next.Segment = payload.segment;
+                next.TotalSegments = payload.total;
+              }
+              // Gallery tasks: update GalleryProgressInfo from completed/total
+              if (payload.completed !== undefined && payload.total !== undefined && payload.total > 0) {
+                next.GalleryProgressInfo = {
+                  completed: payload.completed,
+                  total: payload.total,
+                  failed: payload.failed ?? 0,
+                };
+              }
+              return next;
+            }),
+          }));
+        } catch (err) {
+          logger.warn('SSE task:progress parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Task:completed — gallery carries {taskId, taskType, status} where
+       * status is "completed"|"partial"; video carries {taskId, title} and
+       * no taskType — default to "video", status "completed".
+       */
+      subscribeSseEvent('task:completed', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as {
+            taskId: number;
+            taskType?: string;
+            status?: string;
+          };
+          const taskType = payload.taskType || 'video';
+          const key = `${taskType}-${payload.taskId}`;
+          const status = (payload.status || 'completed') as TaskStatus;
           set((s) => ({
             tasks: s.tasks.map((t) =>
-              taskKey(t) === key ? { ...t, ...changes } : t,
+              taskKey(t) === key
+                ? { ...t, Status: status, Progress: status === 'completed' ? 100 : t.Progress }
+                : t,
             ),
           }));
         } catch (err) {
-          logger.warn('SSE patch parse failed', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE task:completed parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
 
     unsubs.push(
-      subscribeSseEvent('delete', (e: MessageEvent) => {
+      /*
+       * Task:failed — only emitted by video path {taskId, error}; no
+       * taskType — target video tasks.
+       */
+      subscribeSseEvent('task:failed', (e: MessageEvent) => {
         try {
-          const { id, taskType } = JSON.parse(e.data) as {
-            id: number;
-            taskType: string;
-          };
-          const key = `${taskType}-${id}`;
+          const payload = JSON.parse(e.data) as { taskId: number; error?: string };
+          set((s) => ({
+            tasks: s.tasks.map((t) =>
+              taskKey(t) === `video-${payload.taskId}`
+                ? { ...t, Status: 'failed' as TaskStatus, ErrorMsg: payload.error || t.ErrorMsg }
+                : t,
+            ),
+          }));
+        } catch (err) {
+          logger.warn('SSE task:failed parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Task:cancelled — payload is only {taskId} (no taskType). Resolve
+       * the task key from the current list so we can remove the right
+       * entry regardless of type.
+       */
+      subscribeSseEvent('task:cancelled', (e: MessageEvent) => {
+        try {
+          const { taskId } = JSON.parse(e.data) as { taskId: number };
+          const key = get().tasks.find((t) => t.ID === taskId)
+            ? taskKey(get().tasks.find((t) => t.ID === taskId)!)
+            : undefined;
+          if (!key) return;
           deletedKeys.delete(key);
           set((s) => ({
             tasks: s.tasks.filter((t) => taskKey(t) !== key),
           }));
         } catch (err) {
-          logger.warn('SSE delete parse failed', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE task:cancelled parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
 
     unsubs.push(
-      subscribeSseEvent('sniffTask', (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as SniffTaskEventData;
-          set((s) => ({
-            sniffTaskEventId: s.sniffTaskEventId + 1,
-            lastSniffTaskEvent: data,
-          }));
-        } catch (err) {
-          logger.warn('SSE sniffTask parse failed', { error: err instanceof Error ? err.message : String(err) });
-        }
-      }),
-    );
-
-    unsubs.push(
-      subscribeSseEvent('notification', (e: MessageEvent) => {
-        try {
-          const { type, message, id } = JSON.parse(e.data) as {
-            type: 'info' | 'success' | 'warning' | 'error';
-            message: string;
-            id?: string;
-          };
-          import('@/lib/i18n/toast').then(({ toast }) => {
-            switch (type) {
-              case 'info':
-                toast.info(message, { id });
-                break;
-              case 'success':
-                toast.success(message, { id });
-                break;
-              case 'warning':
-                toast.warning(message, { id });
-                break;
-              case 'error':
-                toast.error(message, { id });
-                break;
-            }
-          });
-        } catch (err) {
-          logger.warn('SSE notification parse failed', { error: err instanceof Error ? err.message : String(err) });
-        }
-      }),
-    );
-
-    unsubs.push(
-      subscribeSseEvent('nodeProgress', (e: MessageEvent) => {
+      /*
+       * Dag:nodeProgress — camelCase map {dagId, nodeId, phase, current,
+       * total, failed, taskType}. Was: "nodeProgress".
+       */
+      subscribeSseEvent('dag:nodeProgress', (e: MessageEvent) => {
         try {
           const { dagId, current, total, failed } = JSON.parse(e.data) as {
             dagId: string;
@@ -294,7 +355,52 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             ),
           }));
         } catch (err) {
-          logger.warn('SSE nodeProgress parse failed', { error: err instanceof Error ? err.message : String(err) });
+          logger.warn('SSE dag:nodeProgress parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      /*
+       * Task:metadata — pushed when scraping completes (title, person,
+       * image/video counts become available) or when video info is
+       * finalized (final title, actors). Bridges the gap between DB
+       * writes and frontend state so the Tasks page reflects metadata
+       * changes without requiring F5 refresh.
+       */
+      subscribeSseEvent('task:metadata', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as {
+            taskId: number;
+            taskType?: string;
+            GalleryTitle?: string;
+            Person?: string;
+            ImageCount?: number;
+            VideoCount?: number;
+          };
+          const taskType = payload.taskType || 'video';
+          const key = `${taskType}-${payload.taskId}`;
+          set((s) => ({
+            tasks: s.tasks.map((t) => {
+              if (taskKey(t) !== key) return t;
+              const next = { ...t };
+              if (payload.GalleryTitle !== undefined) {
+                next.GalleryTitle = payload.GalleryTitle;
+              }
+              if (payload.Person !== undefined) {
+                next.Person = payload.Person !== 'null' ? payload.Person : '';
+              }
+              if (payload.ImageCount !== undefined) {
+                next.ImageCount = payload.ImageCount;
+              }
+              if (payload.VideoCount !== undefined) {
+                next.VideoCount = payload.VideoCount;
+              }
+              return next;
+            }),
+          }));
+        } catch (err) {
+          logger.warn('SSE task:metadata parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
