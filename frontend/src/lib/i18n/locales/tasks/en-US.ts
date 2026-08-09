@@ -145,6 +145,8 @@ const enUS: TranslationDict = {
   "tasks.taskDataCopied": "Copied #{id} data",
   "tasks.copyFailed": "Copy failed",
   "tasks.noApplicableTasks": "No tasks to {action} ({skipped} skipped)",
+  "tasks.batchSubmitComplete": "Tasks created: {count}",
+  "tasks.batchSubmitPartial": "Done: {ok} created, {fail} failed",
   "tasks.batchActionComplete": "Batch {action} complete: {count} items",
   "tasks.batchActionCompleteWithSkipped": "Batch {action} complete: {count} items, {skipped} skipped",
   "tasks.batchResultWithSkipped": "Done: {ok} succeeded, {fail} failed, {skipped} skipped",

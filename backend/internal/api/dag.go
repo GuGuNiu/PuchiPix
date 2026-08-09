@@ -299,47 +299,50 @@ func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Subscribe to dag:* events with proper cleanup via defer,
 	// matching the TaskStreamSSE pattern to avoid memory leaks.
+	// 260809 fix: business events use TrySendEvent (non-blocking) so a
+	// slow client cannot block the EventBus caller; heartbeat also uses
+	// the non-blocking path.
 	unsubNodeState := h.EventBus.On("dag:nodeStateChanged", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
-		sse.SendEvent("dag:nodeStateChanged", string(raw))
+		sse.TrySendEvent("dag:nodeStateChanged", string(raw))
 	})
 	unsubCreated := h.EventBus.On("dag:created", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
-		sse.SendEvent("dag:created", string(raw))
+		sse.TrySendEvent("dag:created", string(raw))
 	})
 	unsubCompleted := h.EventBus.On("dag:completed", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
-		sse.SendEvent("dag:completed", string(raw))
+		sse.TrySendEvent("dag:completed", string(raw))
 	})
 	unsubFailed := h.EventBus.On("dag:failed", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
-		sse.SendEvent("dag:failed", string(raw))
+		sse.TrySendEvent("dag:failed", string(raw))
 	})
 	unsubPaused := h.EventBus.On("dag:paused", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
-		sse.SendEvent("dag:paused", string(raw))
+		sse.TrySendEvent("dag:paused", string(raw))
 	})
 	unsubResumed := h.EventBus.On("dag:resumed", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
-		sse.SendEvent("dag:resumed", string(raw))
+		sse.TrySendEvent("dag:resumed", string(raw))
 	})
 
 	defer func() {
@@ -356,12 +359,13 @@ func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 	// TaskStreamSSE; previously this endpoint had no heartbeat at all).
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	defer sse.Close()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
-			sse.SendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
+			sse.TrySendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
 		}
 	}
 }

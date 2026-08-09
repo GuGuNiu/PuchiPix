@@ -145,6 +145,8 @@ const jaJP: TranslationDict = {
   "tasks.taskDataCopied": "#{id} のデータをコピーしました",
   "tasks.copyFailed": "コピーエラー",
   "tasks.noApplicableTasks": "{action}可能なタスクがありません{skipped} 個スキップ",
+  "tasks.batchSubmitComplete": "{count} 件のタスクを作成しました",
+  "tasks.batchSubmitPartial": "完了：{ok} 件成功、{fail} 件失敗",
   "tasks.batchActionComplete": "一括{action}完了{count} 件",
   "tasks.batchActionCompleteWithSkipped": "一括{action}完了{count} 件、{skipped} 件スキップ",
   "tasks.batchResultWithSkipped": "完了{ok} 成功、{fail} 失敗、{skipped} 件スキップ",

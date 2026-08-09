@@ -145,6 +145,8 @@ const deDE: TranslationDict = {
   "tasks.taskDataCopied": "Daten #{id} kopiert",
   "tasks.copyFailed": "Kopieren fehlgeschlagen",
   "tasks.noApplicableTasks": "Keine Aufgaben zu {action} ({skipped} übersprungen)",
+  "tasks.batchSubmitComplete": "{count} Aufgaben erstellt",
+  "tasks.batchSubmitPartial": "Fertig: {ok} erstellt, {fail} fehlgeschlagen",
   "tasks.batchActionComplete": "Massen-{action} abgeschlossen: {count} Einträge",
   "tasks.batchActionCompleteWithSkipped": "Massen-{action} abgeschlossen: {count} Einträge, {skipped} übersprungen",
   "tasks.batchResultWithSkipped": "Erfolg {ok}, Fehler {fail}, {skipped} übersprungen",

@@ -144,6 +144,8 @@ const zhCN: TranslationDict = {
   "tasks.taskDataCopied": "已复制 #{id} 数据",
   "tasks.copyFailed": "复制失败",
   "tasks.noApplicableTasks": "没有可{action}的任务{skipped} 个已跳过",
+  "tasks.batchSubmitComplete": "已创建 {count} 个任务",
+  "tasks.batchSubmitPartial": "完成：{ok} 个成功，{fail} 个失败",
   "tasks.batchActionComplete": "批量{action}完成{count} 个",
   "tasks.batchActionCompleteWithSkipped": "批量{action}完成{count} 个{skipped} 个跳过",
   "tasks.batchResultWithSkipped": "完成{ok} 成功{fail} 失败{skipped} 个跳过",

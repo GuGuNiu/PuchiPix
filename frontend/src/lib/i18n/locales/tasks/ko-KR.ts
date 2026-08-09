@@ -144,6 +144,8 @@ const koKR: TranslationDict = {
   "tasks.taskDataCopied": "#{id} 데이터 복사됨",
   "tasks.copyFailed": "복사 실패",
   "tasks.noApplicableTasks": "{action}할 수 있는 작업 없음 ({skipped}개 건너뜀)",
+  "tasks.batchSubmitComplete": "작업 {count}개 생성됨",
+  "tasks.batchSubmitPartial": "완료: {ok}개 성공, {fail}개 실패",
   "tasks.batchActionComplete": "일괄 {action} 완료: {count}개",
   "tasks.batchActionCompleteWithSkipped": "일괄 {action} 완료: {count}개, {skipped}개 건너뜀",
   "tasks.batchResultWithSkipped": "완료: 성공 {ok}, 실패 {fail}, {skipped}개 건너뜀",

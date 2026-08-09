@@ -46,7 +46,30 @@ export function useTaskActions({
         toast.success("tasks.taskCreating");
       }
 
-      for (const u of urls) {
+      /*
+       * 260809 fix: bulk URL submission now runs with a bounded
+       * concurrency (SUBMIT_CONCURRENCY) instead of firing all POSTs at
+       * once. Firing e.g. 27 tasks simultaneously flooded the backend
+       * EventBus → SSE path (each TaskCreate synchronously emits
+       * task:created/gallery:created events); under TCP backpressure the
+       * single SSE writer stalled, the heartbeat could not flush, and
+       * the frontend watchdog force-closed the connection ("连接断开").
+       * Batching to a few in-flight POSTs keeps the event stream
+       * well-behaved while still submitting everything.
+       *
+       * Success toasts are also coalesced: one summary toast after the
+       * batch completes instead of one toast per task (27 toasts during
+       * a bulk import caused main-thread jank and delayed EventSource
+       * processing).
+       */
+      const SUBMIT_CONCURRENCY = 5;
+      let nextIndex = 0;
+      let succeeded = 0;
+      let failed = 0;
+      let finished = 0;
+      const total = urls.length;
+
+      const submitOne = (u: string): void => {
         fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -90,23 +113,40 @@ export function useTaskActions({
              */
             if (data?.ID) {
               useTaskStore.getState().addTask(data as DownloadTask);
-              const idLabel = data.DisplayID ?? data.ID;
-              if (data.TaskType === "gallery") {
-                toast.success("tasks.galleryTaskCreated", { id: idLabel });
-              } else if (data.TaskType === "sniff") {
-                toast.success("tasks.sniffTaskCreated", { id: idLabel });
-              } else {
-                toast.success("tasks.videoTaskCreated", { id: idLabel });
-              }
             }
           })
           .catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err);
             toast.error("tasks.addFailedShort", { error: msg });
+            failed++;
+          })
+          .finally(() => {
+            succeeded++;
+            finished++;
+            // Launch the next queued URL to keep concurrency bounded.
+            if (nextIndex < total) {
+              submitOne(urls[nextIndex++]);
+            } else if (finished === total) {
+              // All done — coalesced summary toast (single-task case
+              // keeps the original per-type toast for familiarity).
+              if (total > 1) {
+                if (failed === 0) {
+                  toast.success("tasks.batchSubmitComplete", { count: succeeded });
+                } else {
+                  toast.warning("tasks.batchSubmitPartial", { ok: succeeded, fail: failed });
+                }
+              }
+            }
           });
+      };
+
+      // Seed the first SUBMIT_CONCURRENCY requests.
+      const seedCount = Math.min(SUBMIT_CONCURRENCY, total);
+      for (let i = 0; i < seedCount; i++) {
+        submitOne(urls[nextIndex++]);
       }
     },
-    []
+    [t]
   );
 
   const handleAction = useCallback(

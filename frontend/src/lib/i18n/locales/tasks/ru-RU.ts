@@ -145,6 +145,8 @@ const ruRU: TranslationDict = {
   "tasks.taskDataCopied": "Данные #{id} скопированы",
   "tasks.copyFailed": "Ошибка копирования",
   "tasks.noApplicableTasks": "Нет задач для {action} (пропущено {skipped})",
+  "tasks.batchSubmitComplete": "Создано задач: {count}",
+  "tasks.batchSubmitPartial": "Готово: {ok} создано, {fail} ошибок",
   "tasks.batchActionComplete": "Массовое {action} завершено: {count} шт.",
   "tasks.batchActionCompleteWithSkipped": "Массовое {action} завершено: {count} шт., пропущено {skipped}",
   "tasks.batchResultWithSkipped": "Готово: успешно {ok}, с ошибками {fail}, пропущено {skipped}",

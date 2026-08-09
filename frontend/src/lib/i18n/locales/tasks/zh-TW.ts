@@ -145,6 +145,8 @@ const zhTW: TranslationDict = {
   "tasks.taskDataCopied": "已複製 #{id} 資料",
   "tasks.copyFailed": "複製失敗",
   "tasks.noApplicableTasks": "沒有可{action}的任務{skipped} 個已跳過",
+  "tasks.batchSubmitComplete": "已建立 {count} 個任務",
+  "tasks.batchSubmitPartial": "完成：{ok} 個成功，{fail} 個失敗",
   "tasks.batchActionComplete": "批次{action}完成{count} 個",
   "tasks.batchActionCompleteWithSkipped": "批次{action}完成{count} 個{skipped} 個跳過",
   "tasks.batchResultWithSkipped": "完成{ok} 成功{fail} 失敗{skipped} 個跳過",

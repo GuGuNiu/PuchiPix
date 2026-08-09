@@ -144,6 +144,8 @@ const viVN: TranslationDict = {
   "tasks.taskDataCopied": "Đã sao chép dữ liệu #{id}",
   "tasks.copyFailed": "Sao chép thất bại",
   "tasks.noApplicableTasks": "Không có tác vụ để {action} (bỏ qua {skipped})",
+  "tasks.batchSubmitComplete": "Đã tạo {count} tác vụ",
+  "tasks.batchSubmitPartial": "Xong: {ok} tạo, {fail} lỗi",
   "tasks.batchActionComplete": "{action} hàng loạt hoàn tất: {count} mục",
   "tasks.batchActionCompleteWithSkipped": "{action} hàng loạt hoàn tất: {count} mục, bỏ qua {skipped}",
   "tasks.batchResultWithSkipped": "Xong: {ok} thành công, {fail} thất bại, bỏ qua {skipped}",

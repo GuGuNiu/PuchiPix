@@ -145,6 +145,8 @@ const esES: TranslationDict = {
   "tasks.taskDataCopied": "Datos #{id} copiados",
   "tasks.copyFailed": "Error al copiar",
   "tasks.noApplicableTasks": "No hay tareas para {action} ({skipped} omitidas)",
+  "tasks.batchSubmitComplete": "{count} tareas creadas",
+  "tasks.batchSubmitPartial": "Hecho: {ok} creadas, {fail} fallidas",
   "tasks.batchActionComplete": "{action} por lotes completada: {count} elementos",
   "tasks.batchActionCompleteWithSkipped": "{action} por lotes completada: {count} elementos omitidos {skipped}",
   "tasks.batchResultWithSkipped": "Listo: {ok} exitosas, {fail} fallidas, {skipped} omitidas",

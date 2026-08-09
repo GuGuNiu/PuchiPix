@@ -201,54 +201,63 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Subscribe to task-related events from the EventBus.
 	// P1-4 fix: use semantic event names instead of the overloaded "patch".
+	//
+	// 260809 fix: business events use TrySendEvent (non-blocking, bounded
+	// queue) so a slow SSE client cannot block the EventBus caller
+	// (TaskCreate/DAG/executor goroutines). Bulk task creation (e.g. 27
+	// tasks) previously flooded the stream with synchronous writes; when
+	// TCP backpressure stalled one Fprintf, the SSEClient mutex was held
+	// and even the heartbeat could not flush — the frontend watchdog then
+	// force-closed the connection. The initial snapshot below remains a
+	// synchronous SendEvent so ordering is deterministic.
 	if h.EventBus != nil {
 		// task:created → task:created (was: upsert)
 		unsubCreated := h.EventBus.On("task:created", func(payload any) {
-			sse.SendEvent("task:created", payload)
+			sse.TrySendEvent("task:created", payload)
 		})
 
 		// task:progress → task:progress (was: patch)
 		unsubProgress := h.EventBus.On("task:progress", func(payload any) {
-			sse.SendEvent("task:progress", payload)
+			sse.TrySendEvent("task:progress", payload)
 		})
 
 		// task:completed → task:completed (was: patch)
 		unsubCompleted := h.EventBus.On("task:completed", func(payload any) {
-			sse.SendEvent("task:completed", payload)
+			sse.TrySendEvent("task:completed", payload)
 		})
 
 		// task:failed → task:failed (was: patch)
 		unsubFailed := h.EventBus.On("task:failed", func(payload any) {
-			sse.SendEvent("task:failed", payload)
+			sse.TrySendEvent("task:failed", payload)
 		})
 
 		// task:cancelled → task:cancelled (was: delete)
 		unsubCancelled := h.EventBus.On("task:cancelled", func(payload any) {
-			sse.SendEvent("task:cancelled", payload)
+			sse.TrySendEvent("task:cancelled", payload)
 		})
 
 		// dag:nodeProgress → dag:nodeProgress (was: nodeProgress)
 		unsubNodeProg := h.EventBus.On("dag:nodeProgress", func(payload any) {
-			sse.SendEvent("dag:nodeProgress", payload)
+			sse.TrySendEvent("dag:nodeProgress", payload)
 		})
 
 		// dag:nodeStateChanged → dag:nodeStateChanged (was: patch)
 		unsubNodeState := h.EventBus.On("dag:nodeStateChanged", func(payload any) {
 			raw, _ := json.Marshal(payload)
-			sse.SendEvent("dag:nodeStateChanged", json.RawMessage(raw))
+			sse.TrySendEvent("dag:nodeStateChanged", json.RawMessage(raw))
 		})
 
 		// gallery:created — forwarded so the frontend can add new gallery
 		// tasks to the list without requiring a page refresh.
 		unsubGalleryCreated := h.EventBus.On("gallery:created", func(payload any) {
-			sse.SendEvent("gallery:created", payload)
+			sse.TrySendEvent("gallery:created", payload)
 		})
 
 		// gallery:stateChanged — DAG 失败/完成时画廊状态变更转发，
 		// 使前端无需刷新即可感知画廊状态更新
 		unsubGalleryState := h.EventBus.On("gallery:stateChanged", func(payload any) {
 			raw, _ := json.Marshal(payload)
-			sse.SendEvent("gallery:stateChanged", json.RawMessage(raw))
+			sse.TrySendEvent("gallery:stateChanged", json.RawMessage(raw))
 		})
 
 		// slot:stateChanged — forwarded so dashboards render slot
@@ -256,7 +265,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		// without polling /api/slots. (The dedicated /api/slots/stream
 		// endpoint was removed 260806 — this is the single live channel.)
 		unsubSlotState := h.EventBus.On("slot:stateChanged", func(payload any) {
-			sse.SendEvent("slot:stateChanged", payload)
+			sse.TrySendEvent("slot:stateChanged", payload)
 		})
 
 		// task:metadata — pushed when scraping completes or video info
@@ -278,7 +287,7 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					m["GalleryTitle"] = StripPersonFromTitle(title, person)
 				}
 			}
-			sse.SendEvent("task:metadata", payload)
+			sse.TrySendEvent("task:metadata", payload)
 		})
 
 		defer func() {
@@ -297,15 +306,18 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Heartbeat: send a ping every 15s so the frontend can detect
-	// dead connections and trigger proactive reconnection.
+	// dead connections and trigger proactive reconnection. The heartbeat
+	// uses TrySendEvent (non-blocking) so a transient queue overflow
+	// under event storms can never block the loop.
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	defer sse.Close()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
-			sse.SendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
+			sse.TrySendEvent("heartbeat", map[string]string{"ts": time.Now().Format(time.RFC3339)})
 		}
 	}
 }

@@ -23,6 +23,7 @@ func (h *Handlers) LogsSSE(w http.ResponseWriter, r *http.Request) {
 		close(ctx)
 	}()
 	StreamLogs(sse, filter, ctx)
+	sse.Close()
 }
 
 // LogsHistory returns historical log entries as a JSON array, matching
