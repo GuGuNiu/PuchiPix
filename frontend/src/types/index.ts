@@ -50,6 +50,17 @@ export interface DownloadTask {
   TotalSegments?: number;
   /** File size in bytes (from video_infos.file_size via LEFT JOIN) */
   FileSize?: number;
+  /**
+   * Live downloaded bytes during video download — sum of completed
+   * segment file sizes (260809). Shows a partial size in the size
+   * column instead of "—" until the MP4 merge sets FileSize.
+   */
+  DownloadedBytes?: number;
+  /**
+   * Live downloaded bytes during gallery download — accumulated size of
+   * completed images (260809). Shows a partial size in real-time.
+   */
+  DownloadedSize?: number;
   TaskType?: TaskType;
   GalleryTitle?: string;
   ImageCount?: number;

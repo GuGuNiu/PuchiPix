@@ -355,46 +355,20 @@ func main() {
 				}
 			}
 
-			// Also reset stale gallery_videos statuses.
-			_, _ = database.Exec(recoveryCtx,
-				`UPDATE gallery_videos SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'failed')`)
+		// Also reset stale gallery_videos statuses.
+		_, _ = database.Exec(recoveryCtx,
+			`UPDATE gallery_videos SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'failed')`)
 
-			// Reset stale video tasks (download_tasks) so in-flight video
-			// downloads are not orphaned after a crash. Their DAGs are
-			// recreated below via NewVideoPipeline, matching the gallery
-			// recovery path. Previously these tasks stayed 'downloading'
-			// forever (no DAG, no status change).
-			videoStale, vErr := database.Query(recoveryCtx,
-				`SELECT id FROM download_tasks WHERE status IN ('downloading', 'pending')`)
-			if vErr == nil {
-				var videoIDs []int
-				for videoStale.Next() {
-					var vid int
-					if scanErr := videoStale.Scan(&vid); scanErr == nil {
-						videoIDs = append(videoIDs, vid)
-					}
-				}
-				videoStale.Close()
-				if len(videoIDs) > 0 {
-					logger.Info("Crash recovery: resetting stale video tasks",
-						"count", len(videoIDs))
-					for _, vid := range videoIDs {
-						_, _ = database.Exec(recoveryCtx,
-							`UPDATE download_tasks SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-							vid)
-						def := dag.NewDagFactory().NewVideoPipeline(vid)
-						if dagID, submitErr := dagOrch.SubmitDag(recoveryCtx, def); submitErr != nil {
-							logger.Warn("Crash recovery: video DAG recreate failed",
-								"taskId", vid, "error", submitErr.Error())
-						} else {
-							logger.Info("Crash recovery: video DAG recreated",
-								"taskId", vid, "dagId", dagID)
-						}
-					}
-				}
-			}
+		// Reset stale video tasks (download_tasks) status to 'pending'.
+		// NOTE: Must include 'scraping' (identifying phase) — tasks
+		// crashed during identification were previously left stranded
+		// in 'scraping' because this query only covered
+		// 'downloading' + 'pending'. DAG recreation for these tasks
+		// happens later, AFTER the video executor is registered.
+		_, _ = database.Exec(recoveryCtx,
+			`UPDATE download_tasks SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'pending', 'scraping')`)
 
-			// Second pass: recreate DAGs for "pending" galleries that lost
+		// Second pass: recreate DAGs for "pending" galleries that lost
 			// their DAGs in the crash. These are tasks that were created but
 			// never started downloading — their DAGs are gone but their DB
 			// status is still "pending" and they're not covered by the stale
@@ -710,8 +684,43 @@ func main() {
 				}, nil
 			}
 
-			exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
+		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
+
+		// Post-executor-registration video DAG recovery. This must run
+		// AFTER the video:download executor is registered above — otherwise
+		// the scheduler dispatches video DAG nodes before the executor is
+		// available, causing "no executor registered for key: video:download"
+		// failures. The DB status reset (earlier in the crash recovery
+		// block) already marked these tasks 'pending'; this step recreates
+		// their DAGs so the scheduler can pick them up.
+		videoRecoveryCtx := context.Background()
+		videoStale, vErr := database.Query(videoRecoveryCtx,
+			`SELECT id FROM download_tasks WHERE status IN ('downloading', 'pending', 'scraping')`)
+		if vErr == nil {
+			var videoIDs []int
+			for videoStale.Next() {
+				var vid int
+				if scanErr := videoStale.Scan(&vid); scanErr == nil {
+					videoIDs = append(videoIDs, vid)
+				}
+			}
+			videoStale.Close()
+			if len(videoIDs) > 0 {
+				logger.Info("Post-executor video DAG recovery: recreating DAGs",
+					"count", len(videoIDs))
+				for _, vid := range videoIDs {
+					def := dag.NewDagFactory().NewVideoPipeline(vid)
+					if dagID, submitErr := dagOrch.SubmitDag(videoRecoveryCtx, def); submitErr != nil {
+						logger.Warn("Post-executor video DAG recovery: failed",
+							"taskId", vid, "error", submitErr.Error())
+					} else {
+						logger.Info("Post-executor video DAG recovery: recreated",
+							"taskId", vid, "dagId", dagID)
+					}
+				}
+			}
 		}
+	}
 
 		// Progress engine and video tracker were created earlier during
 		// DAG initialization so they could be passed to WireExecutors.

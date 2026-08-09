@@ -38,12 +38,16 @@ type VideoSegmentProgress struct {
 
 // VideoProgressSummary aggregates segment-level progress for a video.
 type VideoProgressSummary struct {
-	TaskID           int     `json:"taskId"`
-	TotalSegments    int     `json:"totalSegments"`
-	CompletedSegments int    `json:"completedSegments"`
-	FailedSegments   int     `json:"failedSegments"`
-	PendingSegments  int     `json:"pendingSegments"`
-	Progress         float64 `json:"progress"`
+	TaskID            int     `json:"taskId"`
+	TotalSegments     int     `json:"totalSegments"`
+	CompletedSegments int     `json:"completedSegments"`
+	FailedSegments    int     `json:"failedSegments"`
+	PendingSegments   int     `json:"pendingSegments"`
+	Progress          float64 `json:"progress"`
+	// DownloadedBytes is the sum of FileSize for completed segments.
+	// Carried in SSE progress events so the frontend size column can
+	// show a live partial size instead of "—" until the MP4 merge.
+	DownloadedBytes int64 `json:"downloadedBytes"`
 	// IntegrityScore 0-100: percentage of segments that passed checksum
 	// or size verification.
 	IntegrityScore float64 `json:"integrityScore"`
@@ -160,16 +164,25 @@ func (vt *VideoProgressTracker) computeSummaryLocked(taskID int) VideoProgressSu
 	}
 
 	summary.TotalSegments = len(taskSegments)
+	var downloadedBytes int64
 	for _, s := range taskSegments {
 		switch s.Status {
 		case SegCompleted:
 			summary.CompletedSegments++
+			if s.FileSize > 0 {
+				downloadedBytes += s.FileSize
+			} else if s.LocalPath != "" {
+				if info, err := os.Stat(s.LocalPath); err == nil {
+					downloadedBytes += info.Size()
+				}
+			}
 		case SegFailed:
 			summary.FailedSegments++
 		default:
 			summary.PendingSegments++
 		}
 	}
+	summary.DownloadedBytes = downloadedBytes
 
 	if summary.TotalSegments > 0 {
 		summary.Progress = math.Round(float64(summary.CompletedSegments)/float64(summary.TotalSegments)*100*100) / 100

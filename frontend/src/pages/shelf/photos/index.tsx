@@ -429,6 +429,15 @@ export default function PhotosPage(): React.JSX.Element {
                               {formatFileSize(gallery.TotalSize)}
                             </span>
                           )}
+                          {gallery.TotalSize <= 0 && gallery.DownloadedSize > 0 && (
+                            <span
+                              className="pill"
+                              style={{ fontSize: 11, padding: "2px 8px" }}
+                            >
+                              <HardDrive size={11} style={{ marginRight: 3 }} />
+                              {formatFileSize(gallery.DownloadedSize)}
+                            </span>
+                          )}
                         </div>
                         {(gallery.Status === "downloading" || gallery.Status === "scraping") && (
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

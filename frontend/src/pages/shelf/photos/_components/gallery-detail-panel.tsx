@@ -219,6 +219,14 @@ export function GalleryDetailPanel({
                     </span>
                   </div>
                 )}
+                {gallery.TotalSize <= 0 && gallery.DownloadedSize > 0 && (
+                  <div className="info-bar-item">
+                    <HardDrive size={14} className="info-bar-icon" />
+                    <span className="info-bar-text">
+                      {formatFileSize(gallery.DownloadedSize)}
+                    </span>
+                  </div>
+                )}
                 {progress && (
                   <div className="info-bar-item">
                     <HardDrive size={14} className="info-bar-icon" />

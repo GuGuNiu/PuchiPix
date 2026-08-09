@@ -165,6 +165,14 @@ func (m *DownloadManager) handleSegmentUpdate(taskID, segmentIdx int, completed 
 func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, total int, status, speed string) {
 	rounded := math.Round(progress*100) / 100
 
+	// Aggregate downloaded bytes from the segment tracker so the SSE
+	// size column shows a live partial size during download (previously
+	// only appeared after the MP4 merge via video_infos.file_size).
+	var downloadedBytes int64
+	if m.tracker != nil {
+		downloadedBytes = m.tracker.GetSummary(taskID).DownloadedBytes
+	}
+
 	m.callbackMu.RLock()
 	cb := m.progressCallback
 	m.callbackMu.RUnlock()
@@ -183,12 +191,13 @@ func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, to
 
 	if m.eventBus != nil {
 		m.eventBus.Emit("task:progress", map[string]any{
-			"taskId":   taskID,
-			"progress": rounded,
-			"status":   status,
-			"speed":    speed,
-			"segment":  segment,
-			"total":    total,
+			"taskId":          taskID,
+			"progress":        rounded,
+			"status":          status,
+			"speed":           speed,
+			"segment":         segment,
+			"total":           total,
+			"downloadedBytes": downloadedBytes,
 		})
 	}
 }

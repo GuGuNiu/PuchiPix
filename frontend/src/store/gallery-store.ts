@@ -366,6 +366,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             total?: number;
             failed?: number;
             status: string;
+            // 260809: live downloaded bytes for gallery downloads.
+            downloadedSize?: number;
           };
           if (payload.taskType !== 'gallery') return;
 
@@ -389,6 +391,18 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             };
             set((s) => ({
               progressMap: { ...s.progressMap, [payload.taskId]: progress },
+            }));
+          }
+
+          // Live downloaded bytes — reflects accumulated size of completed
+          // images so the size display updates in real-time.
+          if (payload.downloadedSize !== undefined && payload.downloadedSize > 0) {
+            set((s) => ({
+              galleries: s.galleries.map((g) =>
+                g.ID === payload.taskId
+                  ? { ...g, DownloadedSize: Math.max(g.DownloadedSize || 0, payload.downloadedSize!) }
+                  : g,
+              ),
             }));
           }
         } catch (err) {

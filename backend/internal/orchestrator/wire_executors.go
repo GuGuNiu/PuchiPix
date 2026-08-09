@@ -537,6 +537,9 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// Periodic progress reporter: emit task:progress every 2s so
 		// the SSE-connected frontend can show real-time download progress
 		// instead of staying at 0% until the entire batch finishes.
+		// The payload also carries downloadedSize (accumulated bytes of
+		// successfully downloaded images) so the frontend size column
+		// updates live instead of only appearing after completion.
 		progressDone := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(2 * time.Second)
@@ -552,16 +555,19 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					if totalImages > 0 {
 						pct = done * 100 / totalImages
 					}
+					downloaded := totalSize
+					failed := failedCount
 					mu.Unlock()
 					if eventBus != nil {
 						eventBus.Emit("task:progress", map[string]any{
-							"taskId":    galleryID,
-							"taskType":  "gallery",
-							"progress":  pct,
-							"completed": done,
-							"total":     totalImages,
-							"failed":    failedCount,
-							"status":    "downloading",
+							"taskId":         galleryID,
+							"taskType":       "gallery",
+							"progress":       pct,
+							"completed":      done,
+							"total":          totalImages,
+							"failed":         failed,
+							"status":         "downloading",
+							"downloadedSize": downloaded,
 						})
 					}
 				}
@@ -736,13 +742,14 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				finalPct = successCount * 100 / totalImages
 			}
 			eventBus.Emit("task:progress", map[string]any{
-				"taskId":    galleryID,
-				"taskType":  "gallery",
-				"progress":  finalPct,
-				"completed": successCount,
-				"total":     totalImages,
-				"failed":    failedCount,
-				"status":    "downloading",
+				"taskId":         galleryID,
+				"taskType":       "gallery",
+				"progress":       finalPct,
+				"completed":      successCount,
+				"total":          totalImages,
+				"failed":         failedCount,
+				"status":         "downloading",
+				"downloadedSize": totalSize,
 			})
 		}
 

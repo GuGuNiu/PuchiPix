@@ -210,6 +210,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             total?: number;
             failed?: number;
             segment?: number;
+            // 260809: live size fields — gallery carries downloadedSize
+            // (accumulated bytes of completed images), video carries
+            // downloadedBytes (sum of completed segment file sizes).
+            downloadedSize?: number;
+            downloadedBytes?: number;
           };
           const taskType = payload.taskType || 'video';
           const key = `${taskType}-${payload.taskId}`;
@@ -227,6 +232,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
                 next.Segment = payload.segment;
                 next.TotalSegments = payload.total;
               }
+              // Video tasks: live downloaded bytes (sum of completed
+              // segment file sizes) — the size column updates in real-time
+              // instead of showing "—" until the MP4 merge.
+              if (taskType === 'video' && payload.downloadedBytes !== undefined && payload.downloadedBytes > 0) {
+                next.DownloadedBytes = payload.downloadedBytes;
+              }
               // Gallery tasks: update GalleryProgressInfo from completed/total
               if (payload.completed !== undefined && payload.total !== undefined && payload.total > 0) {
                 next.GalleryProgressInfo = {
@@ -234,6 +245,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
                   total: payload.total,
                   failed: payload.failed ?? 0,
                 };
+              }
+              // Gallery tasks: live downloaded bytes (accumulated size of
+              // completed images) — the size column updates in real-time.
+              if (taskType === 'gallery' && payload.downloadedSize !== undefined && payload.downloadedSize > 0) {
+                next.DownloadedSize = payload.downloadedSize;
               }
               return next;
             }),

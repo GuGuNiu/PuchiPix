@@ -261,13 +261,17 @@ export function TaskTableRow({
           ) : isGallery ? (
             task.GalleryTotalSize && task.GalleryTotalSize > 0
               ? formatFileSize(task.GalleryTotalSize)
-              : task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
-                ? formatFileSize(task.DownloadInfo.ActualSize)
-                : task.DownloadInfo?.FileSizeText
-                  ? task.DownloadInfo.FileSizeText
-                  : "—"
+              : task.DownloadedSize && task.DownloadedSize > 0
+                ? formatFileSize(task.DownloadedSize)
+                : task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
+                  ? formatFileSize(task.DownloadInfo.ActualSize)
+                  : task.DownloadInfo?.FileSizeText
+                    ? task.DownloadInfo.FileSizeText
+                    : "—"
           ) : task.FileSize && task.FileSize > 0 ? (
             `${(task.FileSize / 1024 / 1024).toFixed(1)} MB`
+          ) : task.DownloadedBytes && task.DownloadedBytes > 0 ? (
+            `${(task.DownloadedBytes / 1024 / 1024).toFixed(1)} MB`
           ) : (
             "—"
           )}
