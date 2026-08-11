@@ -10,9 +10,6 @@ import (
 	"backend/internal/i18n"
 )
 
-// NewRouter builds the chi router with the full middleware chain and
-// all API endpoint groups registered, mirroring the Next.js App
-// Router API structure.
 func NewRouter(h *Handlers) http.Handler {
 	r := chi.NewRouter()
 
@@ -115,6 +112,9 @@ func NewRouter(h *Handlers) http.Handler {
 
 		r.Get("/config", h.ConfigList)
 		r.Put("/config", h.ConfigUpdate)
+
+		r.Get("/gpu-info", h.GPUInfo)
+		r.Put("/gpu-setting", h.GPUSettingUpdate)
 
 		r.Get("/task-settings", h.TaskSettingsList)
 		r.Put("/task-settings", h.TaskSettingsUpdate)

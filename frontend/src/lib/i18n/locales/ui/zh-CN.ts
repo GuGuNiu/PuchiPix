@@ -267,6 +267,13 @@ const zhCN: TranslationDict = {
   "config.downloadConcurrency": "分片并发数",
   "config.downloadMaxSpeed": "限速 (MB/s, 0=不限速)",
   "config.downloadMinFileSize": "最小文件大小 (MB)",
+  "config.gpuTranscodeSettings": "GPU 硬件加速转码",
+  "config.enableGPUTranscode": "启用 GPU 硬件加速转码",
+  "config.gpuDetecting": "正在检测 GPU...",
+  "config.gpuDetected": "检测到显卡",
+  "config.gpuDriver": "驱动版本",
+  "config.gpuEncoder": "编码器",
+  "config.gpuNotAvailable": "未检测到支持的独立显卡，将使用 CPU 转码",
 
   /* ─── 嗅探 ─── */
   "sniff.title": "嗅探 M3U8 链接",
@@ -427,6 +434,7 @@ const zhCN: TranslationDict = {
   "taskSettings.save": "保存",
   "taskSettings.loadFailed": "加载设置失败",
   "taskSettings.saveFailed": "保存设置失败",
+  "taskSettings.saved": "保存成功",
 
   /* ─── 控制台日志 ─── */
   "console.noTaskLogs": "暂无任务日志",

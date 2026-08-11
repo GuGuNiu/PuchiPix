@@ -271,6 +271,13 @@ const enUS: TranslationDict = {
   "config.downloadConcurrency": "Chunk concurrency",
   "config.downloadMaxSpeed": "Speed limit (MB/s, 0=unlimited)",
   "config.downloadMinFileSize": "Min file size (MB)",
+  "config.gpuTranscodeSettings": "GPU Hardware Transcoding",
+  "config.enableGPUTranscode": "Enable GPU hardware-accelerated transcoding",
+  "config.gpuDetecting": "Detecting GPU...",
+  "config.gpuDetected": "GPU detected",
+  "config.gpuDriver": "Driver version",
+  "config.gpuEncoder": "Encoder",
+  "config.gpuNotAvailable": "No compatible GPU detected, will use CPU transcoding",
 
   /* ─── Sniff ─── */
   "sniff.title": "Sniff M3U8 Links",
@@ -432,6 +439,7 @@ const enUS: TranslationDict = {
   "taskSettings.save": "Save",
   "taskSettings.loadFailed": "Failed to load settings",
   "taskSettings.saveFailed": "Failed to save settings",
+  "taskSettings.saved": "Settings saved",
 
   /* ─── Console Log ─── */
   "console.noTaskLogs": "No task logs",

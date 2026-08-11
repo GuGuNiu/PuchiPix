@@ -109,6 +109,58 @@
   border-top: 1px solid var(--border);
 }
 
+// ===== GPU Info Box =====
+.gpu-info-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-3);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.gpu-info-box {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+}
+
+.gpu-available {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.gpu-unavailable {
+  border-color: var(--border);
+  opacity: 0.8;
+}
+
+.gpu-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.gpu-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.gpu-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.gpu-no-gpu {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 // ===== Sniff Status =====
 .sniff-status-grid {
   display: grid;
@@ -188,7 +240,7 @@
   height: 20px;
   border-radius: var(--radius-full);
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
   font-size: 11px;
   font-weight: 700;
   flex-shrink: 0;

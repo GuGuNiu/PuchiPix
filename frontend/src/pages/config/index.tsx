@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "@/lib/i18n/toast";
-import { Save, RotateCcw } from "lucide-react";
+import { Save, RotateCcw, Cpu, Zap } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { LogConsole } from "@/components/ops/log-console";
 
@@ -14,6 +14,18 @@ interface ConfigState {
   download_concurrency: number;
   download_max_speed: number;
   download_min_file_size: number;
+  gpu_transcode: boolean;
+}
+
+interface GPUInfo {
+  available: boolean;
+  type: string;
+  encoder_name: string;
+  gpu_name: string;
+  driver_version: string;
+  cuda_support: boolean;
+  description: string;
+  detection_error?: string;
 }
 
 const BYTES_PER_MB = 1024 * 1024;
@@ -30,9 +42,12 @@ export default function ConfigPage(): React.JSX.Element {
     download_concurrency: 4,
     download_max_speed: 0,
     download_min_file_size: 1,
+    gpu_transcode: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [gpuInfo, setGpuInfo] = useState<GPUInfo | null>(null);
+  const [gpuLoading, setGpuLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -49,6 +64,7 @@ export default function ConfigPage(): React.JSX.Element {
           download_concurrency: parseInt(data?.download_concurrency, 10) || 4,
           download_max_speed: Math.round((parseInt(data?.download_max_speed, 10) || 0) / BYTES_PER_MB),
           download_min_file_size: Math.round((parseInt(data?.download_min_file_size, 10) || BYTES_PER_MB) / BYTES_PER_MB),
+          gpu_transcode: data?.gpu_transcode === "true" || data?.gpu_transcode === true,
         });
       } catch {
         toast.error("config.loadConfigFailed");
@@ -56,11 +72,49 @@ export default function ConfigPage(): React.JSX.Element {
         setLoading(false);
       }
     })();
+
+    // Fetch GPU info in parallel
+    fetchGPUInfo();
   }, [t]);
+
+  const fetchGPUInfo = async (): Promise<void> => {
+    setGpuLoading(true);
+    try {
+      const res = await fetch("/api/gpu-info");
+      if (res.ok) {
+        const data = await res.json();
+        setGpuInfo(data);
+        // Sync GPU enabled state from server
+        if (data?.gpu_enabled !== undefined) {
+          setConfig((prev) => ({
+            ...prev,
+            gpu_transcode: data.gpu_enabled === true,
+          }));
+        }
+      }
+    } catch {
+      // GPU info fetch failure is non-critical
+    } finally {
+      setGpuLoading(false);
+    }
+  };
 
   const handleSave = async (): Promise<void> => {
     setSaving(true);
     try {
+      // Save GPU transcoding setting to dedicated endpoint
+      if (gpuInfo && config.gpu_transcode !== gpuInfo.gpu_enabled) {
+        try {
+          await fetch("/api/gpu-setting", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: config.gpu_transcode }),
+          });
+        } catch {
+          // GPU setting save failure is non-critical; continue with config save
+        }
+      }
+
       const payload = {
         chromedriver_path: config.chromedriver_path || undefined,
         ffmpeg_path: config.ffmpeg_path || undefined,
@@ -71,6 +125,7 @@ export default function ConfigPage(): React.JSX.Element {
         download_concurrency: String(config.download_concurrency),
         download_max_speed: String(config.download_max_speed * BYTES_PER_MB),
         download_min_file_size: String(config.download_min_file_size * BYTES_PER_MB),
+        gpu_transcode: config.gpu_transcode ? "true" : "false",
       };
       const res = await fetch("/api/config", {
         method: "PUT",
@@ -290,6 +345,67 @@ export default function ConfigPage(): React.JSX.Element {
                 }}
               />
             </div>
+          </div>
+        </div>
+
+        <div className="config-section">
+          <div className="config-section-title">
+            <Cpu size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+            {t("config.gpuTranscodeSettings")}
+          </div>
+          <div className="form-group">
+            <div className="checkbox-group">
+              <input
+                type="checkbox"
+                id="gpu-transcode"
+                checked={config.gpu_transcode}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    gpu_transcode: e.target.checked,
+                  }))
+                }
+                disabled={!gpuInfo?.available && !config.gpu_transcode}
+              />
+              <label htmlFor="gpu-transcode">
+                <Zap size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                {t("config.enableGPUTranscode")}
+              </label>
+            </div>
+            {/* GPU Info Display */}
+            {gpuLoading ? (
+              <div className="gpu-info-loading">
+                <span className="spinner spinner-sm" />
+                {t("config.gpuDetecting")}
+              </div>
+            ) : gpuInfo ? (
+              <div className={`gpu-info-box ${gpuInfo.available ? "gpu-available" : "gpu-unavailable"}`}>
+                {gpuInfo.available ? (
+                  <>
+                    <div className="gpu-info-row">
+                      <span className="gpu-label">{t("config.gpuDetected")}:</span>
+                      <span className="gpu-value">{gpuInfo.gpu_name || gpuInfo.type}</span>
+                    </div>
+                    {gpuInfo.driver_version && (
+                      <div className="gpu-info-row">
+                        <span className="gpu-label">{t("config.gpuDriver")}:</span>
+                        <span className="gpu-value">{gpuInfo.driver_version}</span>
+                      </div>
+                    )}
+                    <div className="gpu-info-row">
+                      <span className="gpu-label">{t("config.gpuEncoder")}:</span>
+                      <span className="gpu-value">{gpuInfo.encoder_name || gpuInfo.type}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="gpu-info-row gpu-no-gpu">
+                    <span className="gpu-value">
+                      {gpuInfo.detection_error || t("config.gpuNotAvailable")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 

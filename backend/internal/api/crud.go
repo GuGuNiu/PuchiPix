@@ -1,4 +1,4 @@
-﻿﻿package api
+﻿package api
 
 import (
 	"encoding/json"
@@ -14,7 +14,6 @@ import (
 	"backend/internal/i18n"
 )
 
-// AccountsList returns all site accounts (passwords redacted).
 func (h *Handlers) AccountsList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -36,8 +35,6 @@ func (h *Handlers) AccountsList(w http.ResponseWriter, r *http.Request) {
 	result := []accountView{}
 	for rows.Next() {
 		var a db.SiteAccount
-		// Scan timestamps into strings (TEXT cannot scan into time.Time
-		// with modernc.org/sqlite — P-TSG time-column pitfall).
 		var lastLogin, lastUsed, ca, ua db.SQLTime
 		if err := rows.Scan(&a.ID, &a.SiteID, &a.Username, &a.Domain, &a.Status, &a.CookiePrefix, &lastLogin, &lastUsed, &a.FailCount, &a.Remark, &ca, &ua); err != nil {
 			continue
@@ -47,7 +44,6 @@ func (h *Handlers) AccountsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// AccountsCreate creates a new site account.
 func (h *Handlers) AccountsCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -74,7 +70,6 @@ func (h *Handlers) AccountsCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// AccountsUpdate updates a site account by ID.
 func (h *Handlers) AccountsUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
@@ -94,7 +89,6 @@ func (h *Handlers) AccountsUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
 }
 
-// AccountsDelete deletes a site account by ID.
 func (h *Handlers) AccountsDelete(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
@@ -108,7 +102,6 @@ func (h *Handlers) AccountsDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 }
 
-// PersonsList returns all persons with optional search.
 func (h *Handlers) PersonsList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -136,8 +129,6 @@ func (h *Handlers) PersonsList(w http.ResponseWriter, r *http.Request) {
 	persons := []db.Person{}
 	for rows.Next() {
 		var p db.Person
-		// Scan timestamps into strings (TEXT cannot scan into time.Time
-		// with modernc.org/sqlite — P-TSG time-column pitfall).
 		var ca, ua db.SQLTime
 		if err := rows.Scan(&p.ID, &p.Name, &p.Pinyin, &p.Aliases, &p.Source, &p.SourceGame, &p.GalleryCount, &p.Confirmed, &ca, &ua); err != nil {
 			continue
@@ -147,7 +138,6 @@ func (h *Handlers) PersonsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, persons)
 }
 
-// PersonsCreate creates a new person.
 func (h *Handlers) PersonsCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -174,7 +164,6 @@ func (h *Handlers) PersonsCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// PersonsUpdate updates a person by ID.
 func (h *Handlers) PersonsUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
@@ -194,7 +183,6 @@ func (h *Handlers) PersonsUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
 }
 
-// PersonsDelete deletes a person by ID.
 func (h *Handlers) PersonsDelete(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
@@ -208,7 +196,6 @@ func (h *Handlers) PersonsDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 }
 
-// BlocklistList returns all blocklist rules.
 func (h *Handlers) BlocklistList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -225,9 +212,6 @@ func (h *Handlers) BlocklistList(w http.ResponseWriter, r *http.Request) {
 
 	rules := []db.BlocklistRule{}
 	for rows.Next() {
-		// Scan timestamps into strings (TEXT cannot scan into time.Time
-		// with modernc.org/sqlite — P-TSG time-column pitfall). The
-		// frontend does not consume createdAt/updatedAt.
 		var br db.BlocklistRule
 		var ca, ua db.SQLTime
 		if err := rows.Scan(&br.ID, &br.SiteID, &br.FieldType, &br.Keyword, &br.MatchMode, &br.Enabled, &br.Remark, &ca, &ua); err != nil {
@@ -238,7 +222,6 @@ func (h *Handlers) BlocklistList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rules)
 }
 
-// BlocklistCreate creates a new blocklist rule.
 func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -265,7 +248,6 @@ func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// BlocklistUpdate updates a blocklist rule by ID.
 func (h *Handlers) BlocklistUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseIDParam(w, r)
 	if !ok {
@@ -285,16 +267,7 @@ func (h *Handlers) BlocklistUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
 }
 
-// BlocklistDelete deletes blocklist rules. Supports both a single ID
-// via path parameter (/api/blocklist/{id}) and query parameter forms
-// used by the frontend:
-//   - DELETE /api/blocklist?id=123        (single delete)
-//   - DELETE /api/blocklist?ids=1,2,3      (batch delete)
-//
-// Input validation (400) takes priority over database availability
-// (503) so that clients get the most specific error first.
 func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
-	// Check query params first (frontend uses ?id= or ?ids=)
 	if idStr := r.URL.Query().Get("id"); idStr != "" {
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -589,11 +562,11 @@ func (h *Handlers) TaskSettingsList(w http.ResponseWriter, r *http.Request) {
 // to DB but never applied to the runtime concurrency controllers.
 //
 // Settings mapping:
-//   maxConcurrentTasks      → SlotPool "download"  type (1-10)
-//   maxScrapingTasks        → SlotPool "scraping" type (1-5)
-//   maxConcurrentSniffTasks → SlotPool "sniff"    type (1-3)
+//   maxConcurrentTasks      → SlotPool "download"  type (1-50)
+//   maxScrapingTasks        → SlotPool "scraping" type (1-50)
+//   maxConcurrentSniffTasks → SlotPool "sniff"    type (1-10)
 //   tsSegmentConcurrent     → DownloadManager.maxConcurrent (1-200)
-//   galleryImageConcurrent  → DownloadDefaults.GalleryImageConcurrent (1-20)
+//   galleryImageConcurrent  → DownloadDefaults.GalleryImageConcurrent (1-50)
 func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -629,15 +602,15 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	var updates []settingUpdate
 
 	if req.MaxConcurrentTasks != nil {
-		v := clamp(*req.MaxConcurrentTasks, 1, 10)
+		v := clamp(*req.MaxConcurrentTasks, 1, 50)
 		updates = append(updates, settingUpdate{"maxConcurrentTasks", "max_concurrent_tasks", v})
 	}
 	if req.MaxScrapingTasks != nil {
-		v := clamp(*req.MaxScrapingTasks, 1, 5)
+		v := clamp(*req.MaxScrapingTasks, 1, 50)
 		updates = append(updates, settingUpdate{"maxScrapingTasks", "max_scraping_tasks", v})
 	}
 	if req.MaxConcurrentSniffTasks != nil {
-		v := clamp(*req.MaxConcurrentSniffTasks, 1, 3)
+		v := clamp(*req.MaxConcurrentSniffTasks, 1, 10)
 		updates = append(updates, settingUpdate{"maxConcurrentSniffTasks", "max_concurrent_sniff_tasks", v})
 	}
 	if req.TsSegmentConcurrent != nil {
@@ -645,7 +618,7 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		updates = append(updates, settingUpdate{"tsSegmentConcurrent", "ts_segment_concurrent", v})
 	}
 	if req.GalleryImageConcurrent != nil {
-		v := clamp(*req.GalleryImageConcurrent, 1, 20)
+		v := clamp(*req.GalleryImageConcurrent, 1, 50)
 		updates = append(updates, settingUpdate{"galleryImageConcurrent", "gallery_image_concurrent", v})
 	}
 
@@ -715,4 +688,64 @@ func parseIDParam(w http.ResponseWriter, r *http.Request) (int, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// GPUInfo returns detected GPU information for hardware-accelerated transcoding.
+// It probes the system for NVIDIA NVENC, Intel QSV, AMD VAAPI/AMF, and Apple VideoToolbox.
+func (h *Handlers) GPUInfo(w http.ResponseWriter, r *http.Request) {
+	gpuInfo := video.DetectGPU()
+
+	response := map[string]any{
+		"available":     gpuInfo.Available,
+		"type":          string(gpuInfo.Type),
+		"encoder_name":  gpuInfo.EncoderName,
+		"gpu_name":      gpuInfo.GPUName,
+		"driver_version": gpuInfo.DriverVersion,
+		"cuda_support":  gpuInfo.CUDASupport,
+		"description":   gpuInfo.String(),
+	}
+
+	// Include current runtime setting if DownloadManager is available
+	if h.DownloadMgr != nil {
+		enabled, forceType, _ := h.DownloadMgr.GetGPUTranscodeStatus()
+		response["gpu_enabled"] = enabled
+		response["force_gpu_type"] = forceType
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// GPUSettingUpdate updates the GPU transcoding configuration at runtime.
+// Accepts JSON body: {"enabled": bool, "force_gpu_type": string}
+func (h *Handlers) GPUSettingUpdate(w http.ResponseWriter, r *http.Request) {
+	if h.DownloadMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.serviceUnavailable"))
+		return
+	}
+
+	var req struct {
+		Enabled     bool   `json:"enabled"`
+		ForceGPUType string `json:"force_gpu_type"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	h.DownloadMgr.SetGPUTranscode(req.Enabled, req.ForceGPUType)
+
+	// Return updated status
+	enabled, forceType, gpuInfo := h.DownloadMgr.GetGPUTranscodeStatus()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"updated":       true,
+		"gpu_enabled":   enabled,
+		"force_gpu_type": forceType,
+		"gpu_info": map[string]any{
+			"available":      gpuInfo.Available,
+			"type":           string(gpuInfo.Type),
+			"encoder_name":   gpuInfo.EncoderName,
+			"gpu_name":       gpuInfo.GPUName,
+			"driver_version": gpuInfo.DriverVersion,
+			"description":    gpuInfo.String(),
+		},
+	})
 }

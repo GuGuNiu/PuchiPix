@@ -50,6 +50,11 @@ type ManagerConfig struct {
 	DownloadPath  string
 	SegmentsPath  string
 	MaxConcurrent int
+	// GPUTranscode enables hardware-accelerated transcoding when a compatible GPU is available.
+	GPUTranscode bool
+	// ForceGPUType overrides auto-detection and forces a specific GPU encoder type.
+	// Empty string means auto-detect. Valid values: "nvenc", "qsv", "vaapi", "amf", "videotoolbox".
+	ForceGPUType string
 }
 
 // DefaultManagerConfig returns sensible defaults matching the
@@ -60,14 +65,13 @@ func DefaultManagerConfig() ManagerConfig {
 		DownloadPath:  "../data/videos",
 		SegmentsPath:  "../data/segments",
 		MaxConcurrent: 3,
+		GPUTranscode: false,
+		ForceGPUType: "",
 	}
 }
 
 const maxTaskRetries = 2
 
-// DownloadManager orchestrates the full M3U8 video download pipeline:
-// fetch playlist, download segments concurrently, merge, transcode,
-// probe metadata, and persist results to the database.
 type DownloadManager struct {
 	mu              sync.Mutex
 	cond            *sync.Cond
@@ -80,6 +84,8 @@ type DownloadManager struct {
 	downloadPath string
 	segmentsPath string
 	maxConcurrent int
+	gpuTranscode bool
+	forceGPUType string
 	tracker       *taskprogress.VideoProgressTracker
 
 	activeDownloads map[int]*ActiveDownload
@@ -88,8 +94,6 @@ type DownloadManager struct {
 	logger          *infra.Logger
 }
 
-// NewDownloadManager creates a fully initialized manager with a
-// shared mutex and condition variable for the segment queue.
 func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg ManagerConfig) *DownloadManager {
 	if cfg.MaxRetries == 0 {
 		cfg.MaxRetries = 5
@@ -111,6 +115,8 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		downloadPath:   cfg.DownloadPath,
 		segmentsPath:   cfg.SegmentsPath,
 		maxConcurrent:  cfg.MaxConcurrent,
+		gpuTranscode:   cfg.GPUTranscode,
+		forceGPUType:   cfg.ForceGPUType,
 		activeDownloads: make(map[int]*ActiveDownload),
 		taskRetries:    make(map[int]int),
 		logger:         m3u8Logger,
@@ -127,6 +133,10 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		DB:         database,
 		Logger:     m.logger,
 	})
+
+	// Load persisted GPU transcoding settings from database
+	// (overrides ManagerConfig defaults if DB has saved values)
+	m.LoadGPUTranscodeFromDB()
 
 	return m
 }
@@ -160,6 +170,78 @@ func (m *DownloadManager) GetMaxConcurrent() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.maxConcurrent
+}
+
+func (m *DownloadManager) SetGPUTranscode(enabled bool, forceType string) {
+	m.mu.Lock()
+	m.gpuTranscode = enabled
+	m.forceGPUType = forceType
+	m.mu.Unlock()
+
+	// Persist to app_configs for restart survival
+	if m.db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = m.db.Exec(ctx,
+			`INSERT INTO app_configs (key, value) VALUES (?, ?)
+			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+			"gpu_transcode", boolToStr(enabled), boolToStr(enabled))
+		_, _ = m.db.Exec(ctx,
+			`INSERT INTO app_configs (key, value) VALUES (?, ?)
+			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+			"gpu_force_type", forceType, forceType)
+	}
+
+	ResetGPUCache()
+
+	gpuInfo := DetectGPU()
+	if enabled && gpuInfo.SupportsHWTranscode() {
+		m.logger.Info("GPU transcoding enabled",
+			infra.LogContext{Extra: map[string]any{
+				"gpu":     gpuInfo.String(),
+				"encoder": gpuInfo.EncoderName,
+			}})
+	} else if enabled {
+		m.logger.Warn("GPU transcoding enabled but no compatible GPU detected — will fall back to software",
+			nil)
+	} else {
+		m.logger.Info("GPU transcoding disabled", nil)
+	}
+}
+
+func (m *DownloadManager) GetGPUTranscodeStatus() (enabled bool, forceType string, gpuInfo *GPUInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.gpuTranscode, m.forceGPUType, DetectGPU()
+}
+
+// LoadGPUTranscodeFromDB loads the GPU transcoding configuration from
+// app_configs. Call this during NewDownloadManager initialization.
+func (m *DownloadManager) LoadGPUTranscodeFromDB() {
+	if m.db == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var value string
+	err := m.db.QueryRow(ctx, "SELECT value FROM app_configs WHERE key = 'gpu_transcode'").Scan(&value)
+	if err == nil && value == "true" {
+		m.gpuTranscode = true
+	}
+
+	err = m.db.QueryRow(ctx, "SELECT value FROM app_configs WHERE key = 'gpu_force_type'").Scan(&value)
+	if err == nil {
+		m.forceGPUType = value
+	}
+}
+
+// boolToStr converts bool to string for storage in app_configs.
+func boolToStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 // SetTracker injects the VideoProgressTracker for segment-level tracking.
@@ -476,10 +558,18 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	m.emitProgress(task.ID, 97, completedCount, totalSegments, "transcoding", "")
 
 	m.logger.Info("Transcoding to MP4",
-		infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
+		infra.LogContext{Extra: map[string]any{
+			"taskId": task.ID,
+			"gpu":    m.gpuTranscode,
+		}})
 	transcodeCtx, transcodeCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer transcodeCancel()
-	if err := TranscodeTS(transcodeCtx, segDir, mp4OutputPath); err != nil {
+
+	transcodeOpts := TranscodeOptions{
+		UseGPU:       m.gpuTranscode,
+		ForceGPUType: m.forceGPUType,
+	}
+	if err := TranscodeTS(transcodeCtx, segDir, mp4OutputPath, transcodeOpts); err != nil {
 		return fmt.Errorf("transcode TS: %w", err)
 	}
 	m.logger.Info("MP4 transcoding completed",
