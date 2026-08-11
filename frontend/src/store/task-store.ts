@@ -36,24 +36,29 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     /*
      * Fallback only: primary data source is SSE initial event.
      * This fetch runs when SSE is disconnected and on manual refresh.
-     * Single API call replaces the previous dual-API pattern
-     * (/api/tasks + /api/shelf with manual gallery mapping).
+     *
+     * Uses /api/tasks/all (unified endpoint) which returns ALL task
+     * types (video + gallery + sniff) in a single response — matching
+     * the SSE initial event format exactly. Previously this used
+     * /api/tasks which ONLY returns video tasks, causing all gallery
+     * and sniff tasks to vanish from the store every time fetchTasks()
+     * was called (page mount, error recovery, batch search completion).
      */
     set({ loading: true });
     try {
-      const res = await fetch(status ? `/api/tasks?status=${status}` : '/api/tasks');
-      const videoData = await res.json();
-      const videoTasks = Array.isArray(videoData) ? videoData : [];
-
-      const allTasks = [...videoTasks];
-      const serverTaskKeys = new Set(allTasks.map(taskKey));
-      for (const key of deletedKeys) {
-        if (serverTaskKeys.has(key)) {
-          deletedKeys.delete(key);
-        }
-      }
+      const res = await fetch(status ? `/api/tasks/all?status=${status}` : '/api/tasks/all');
+      const data = await res.json();
+      const allTasks = Array.isArray(data) ? data : [];
       const filtered = allTasks.filter((t) => !deletedKeys.has(taskKey(t)));
-      set({ tasks: filtered, loading: false });
+      set((s) => {
+        // Guard: don't clear existing tasks if the server returns an
+        // empty array (e.g., database temporarily unavailable). This
+        // mirrors the SSE initial event handler's protection.
+        if (filtered.length === 0 && s.tasks.length > 0) {
+          return { loading: false };
+        }
+        return { tasks: filtered, loading: false };
+      });
     } catch {
       set({ loading: false });
     }

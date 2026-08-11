@@ -91,11 +91,10 @@ func parsePersonForDisplay(raw string) string {
 //   - download_tasks: Video tasks (M3U8 streams, video files)
 //   - galleries: Gallery tasks (photo sets/写真包, primarily images with optional videos)
 //
-// TODO: The frontend /tasks page currently calls this endpoint expecting
-// ALL tasks, causing missing gallery tasks on page refresh. Options:
-//   1. Merge gallery results into TaskList (unified task view)
-//   2. Create a new /api/tasks/all endpoint that combines both
-//   3. Have frontend call both /api/tasks and /api/shelf and merge
+// For a unified view of ALL task types (video + gallery + sniff), use
+// TaskListUnified (/api/tasks/all) instead. The frontend fetchTasks()
+// should use that endpoint to avoid clearing gallery/sniff tasks from
+// the store on every page mount — a bug that caused "前端全部消失".
 //
 // See: gallery.go ShelfList for gallery task queries
 func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +140,123 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 		t.ProgressStage = computeProgressStage(t.Status, "video", t.Progress)
 		t.AllowedActions = computeAllowedActions(t.Status, "video")
 		tasks = append(tasks, t)
+	}
+	writeJSON(w, http.StatusOK, tasks)
+}
+
+// TaskListUnified returns ALL task types (video + gallery + sniff) in a
+// single response, using the same UNION ALL query as the SSE initial
+// event. This is the correct endpoint for the frontend's fetchTasks()
+// fallback — using /api/tasks (video only) caused all gallery/sniff tasks
+// to vanish from the store every time fetchTasks() was called (page mount,
+// error recovery, batch search completion).
+//
+// The response format matches the SSE initial event exactly: each task is
+// a map[string]any with PascalCase keys, enriched with EffectiveStatus,
+// ProgressStage, and AllowedActions computed fields.
+func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
+	if h.DB == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	rows, err := h.DB.Query(r.Context(),
+		`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
+		        COALESCE(dt.file_path, '') AS file_path,
+		        COALESCE(dt.format, '') AS format,
+		        COALESCE(dt.priority, 0) AS priority,
+		        COALESCE(dt.error_msg, '') AS error_msg,
+		        COALESCE(dt.site_id, '') AS site_id,
+		        dt.seq,
+		        COALESCE(NULLIF(vi.title, ''), '') AS title,
+		        COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
+		        0 AS image_count, 0 AS video_count,
+		        0 AS total_size, 0 AS downloaded_size,
+		        false AS content_verified,
+		        COALESCE(dt.total_segments, 0) AS total_segments,
+		        COALESCE(dt.completed_segments, 0) AS completed_segments,
+		        dt.created_at, dt.updated_at
+		 FROM download_tasks dt
+		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
+		 UNION ALL
+		 SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
+		        COALESCE(status, 'pending') AS status,
+		        CASE
+		            WHEN COALESCE(status, 'pending') = 'completed' THEN 100
+		            WHEN COALESCE(content_verified, false) AND (COALESCE(image_count, 0) + COALESCE(video_count, 0)) > 0 THEN 99
+		            WHEN COALESCE(total_size, 0) > 0 THEN
+		                CASE
+		                    WHEN ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1) > 99 THEN 99
+		                    ELSE ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1)
+		                END
+		            ELSE 0
+		        END AS progress,
+		        COALESCE(save_path, '') AS file_path, '' AS format,
+		        0 AS priority, COALESCE(error_msg, '') AS error_msg,
+		        COALESCE(site_id, '') AS site_id,
+		        seq, COALESCE(title, '') AS title,
+		        COALESCE(protagonist, '') AS protagonist,
+		        COALESCE(image_count, 0) AS image_count,
+		        COALESCE(video_count, 0) AS video_count,
+		        COALESCE(total_size, 0) AS total_size,
+		        COALESCE(downloaded_size, 0) AS downloaded_size,
+		        COALESCE(content_verified, false) AS content_verified,
+		        0 AS total_segments, 0 AS completed_segments,
+		        created_at, updated_at
+		 FROM galleries
+		 UNION ALL
+		 SELECT 'sniff' AS task_type, id, COALESCE(url, '') AS url,
+		        COALESCE(status, 'pending') AS status, 0 AS progress,
+		        '' AS file_path, '' AS format, 0 AS priority,
+		        COALESCE(error_msg, '') AS error_msg,
+		        COALESCE(site_id, '') AS site_id,
+		        seq, '' AS title, '' AS protagonist,
+		        0 AS image_count, 0 AS video_count,
+		        0 AS total_size, 0 AS downloaded_size,
+		        false AS content_verified,
+		        0 AS total_segments, 0 AS completed_segments,
+		        created_at, updated_at
+		 FROM sniff_tasks
+		 ORDER BY id DESC`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
+		return
+	}
+	defer rows.Close()
+
+	tasks := []map[string]any{}
+	for rows.Next() {
+		var r unifiedTaskRow
+		if err := rows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+			&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+			&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+			&r.DownloadedSize, &r.ContentVerified,
+			&r.TotalSegments, &r.CompletedSegments,
+			&r.CreatedAt, &r.UpdatedAt); err != nil {
+			continue
+		}
+		tasks = append(tasks, enrichTaskMap(map[string]any{
+			"TaskType":         r.TaskType,
+			"ID":               r.ID,
+			"URL":              r.URL,
+			"Status":           r.Status,
+			"Progress":         r.Progress,
+			"FilePath":         r.FilePath,
+			"Format":           r.Format,
+			"Priority":         r.Priority,
+			"ErrorMsg":         r.ErrorMsg,
+			"SiteID":           r.SiteID,
+			"DisplayID":        r.Seq,
+			"GalleryTitle":     r.Title,
+			"Person":           parsePersonForDisplay(r.Protagonist),
+			"ImageCount":       r.ImageCount,
+			"VideoCount":       r.VideoCount,
+			"GalleryTotalSize": r.TotalSize,
+			"Segment":          r.CompletedSegments,
+			"TotalSegments":    r.TotalSegments,
+			"CreatedAt":        r.CreatedAt,
+			"UpdatedAt":        r.UpdatedAt,
+		}))
 	}
 	writeJSON(w, http.StatusOK, tasks)
 }
