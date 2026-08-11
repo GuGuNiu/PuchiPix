@@ -1,4 +1,4 @@
-﻿package api
+﻿﻿package api
 
 import (
 	"encoding/json"
@@ -545,14 +545,157 @@ func (h *Handlers) PreferencesUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"updated": true, "count": len(entries)})
 }
 
-// TaskSettingsList returns task-related settings from app_config.
+// TaskSettingsList returns the 5 task concurrency settings by reading
+// live runtime values from the SlotPool and DownloadManager — not stale
+// app_configs rows. This ensures the frontend always sees the effective
+// concurrency limits, even if they were changed via /api/slots/{type}.
 func (h *Handlers) TaskSettingsList(w http.ResponseWriter, r *http.Request) {
-	h.ConfigList(w, r)
+	result := map[string]any{
+		"maxConcurrentTasks":      5,
+		"maxScrapingTasks":        3,
+		"maxConcurrentSniffTasks": 1,
+		"tsSegmentConcurrent":     3,
+		"galleryImageConcurrent":  5,
+	}
+
+	if h.Sched != nil {
+		snapshot := h.Sched.GetSlotSnapshot()
+		if usage, ok := snapshot["download"]; ok {
+			result["maxConcurrentTasks"] = usage.Max
+		}
+		if usage, ok := snapshot["scraping"]; ok {
+			result["maxScrapingTasks"] = usage.Max
+		}
+		if usage, ok := snapshot["sniff"]; ok {
+			result["maxConcurrentSniffTasks"] = usage.Max
+		}
+	}
+	if h.DownloadMgr != nil {
+		result["tsSegmentConcurrent"] = h.DownloadMgr.GetMaxConcurrent()
+	}
+	if h.DlDefaults != nil {
+		if h.DlDefaults.GalleryImageConcurrent > 0 {
+			result["galleryImageConcurrent"] = h.DlDefaults.GalleryImageConcurrent
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
-// TaskSettingsUpdate updates task-related settings.
+// TaskSettingsUpdate parses the 5 task concurrency settings from the
+// request body, validates ranges, persists them to app_configs (so they
+// survive restarts), and applies them to the live SlotPool and
+// DownloadManager — closing the broken link where settings were written
+// to DB but never applied to the runtime concurrency controllers.
+//
+// Settings mapping:
+//   maxConcurrentTasks      → SlotPool "download"  type (1-10)
+//   maxScrapingTasks        → SlotPool "scraping" type (1-5)
+//   maxConcurrentSniffTasks → SlotPool "sniff"    type (1-3)
+//   tsSegmentConcurrent     → DownloadManager.maxConcurrent (1-200)
+//   galleryImageConcurrent  → DownloadDefaults.GalleryImageConcurrent (1-20)
 func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
-	h.ConfigUpdate(w, r)
+	if h.DB == nil {
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
+		return
+	}
+
+	var req struct {
+		MaxConcurrentTasks      *int `json:"maxConcurrentTasks"`
+		MaxScrapingTasks        *int `json:"maxScrapingTasks"`
+		MaxConcurrentSniffTasks *int `json:"maxConcurrentSniffTasks"`
+		TsSegmentConcurrent     *int `json:"tsSegmentConcurrent"`
+		GalleryImageConcurrent  *int `json:"galleryImageConcurrent"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	// Validate and clamp each provided field.
+	clamp := func(v, lo, hi int) int {
+		if v < lo {
+			return lo
+		}
+		if v > hi {
+			return hi
+		}
+		return v
+	}
+
+	type settingUpdate struct {
+		key, dbKey string
+		value      int
+	}
+	var updates []settingUpdate
+
+	if req.MaxConcurrentTasks != nil {
+		v := clamp(*req.MaxConcurrentTasks, 1, 10)
+		updates = append(updates, settingUpdate{"maxConcurrentTasks", "max_concurrent_tasks", v})
+	}
+	if req.MaxScrapingTasks != nil {
+		v := clamp(*req.MaxScrapingTasks, 1, 5)
+		updates = append(updates, settingUpdate{"maxScrapingTasks", "max_scraping_tasks", v})
+	}
+	if req.MaxConcurrentSniffTasks != nil {
+		v := clamp(*req.MaxConcurrentSniffTasks, 1, 3)
+		updates = append(updates, settingUpdate{"maxConcurrentSniffTasks", "max_concurrent_sniff_tasks", v})
+	}
+	if req.TsSegmentConcurrent != nil {
+		v := clamp(*req.TsSegmentConcurrent, 1, 200)
+		updates = append(updates, settingUpdate{"tsSegmentConcurrent", "ts_segment_concurrent", v})
+	}
+	if req.GalleryImageConcurrent != nil {
+		v := clamp(*req.GalleryImageConcurrent, 1, 20)
+		updates = append(updates, settingUpdate{"galleryImageConcurrent", "gallery_image_concurrent", v})
+	}
+
+	if len(updates) == 0 {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.keyRequired"))
+		return
+	}
+
+	// 1. Persist to app_configs so values survive restarts.
+	for _, u := range updates {
+		_, err := h.DB.Exec(r.Context(),
+			`INSERT INTO app_configs (key, value) VALUES (?, ?)
+			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+			u.dbKey, strconv.Itoa(u.value), strconv.Itoa(u.value))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+			return
+		}
+	}
+
+	// 2. Apply to live runtime — SlotPool, DownloadManager, DownloadDefaults.
+	result := map[string]any{}
+	for _, u := range updates {
+		result[u.key] = u.value
+		switch u.key {
+		case "maxConcurrentTasks":
+			if h.Sched != nil {
+				h.Sched.UpdateSlotMax("download", u.value)
+			}
+		case "maxScrapingTasks":
+			if h.Sched != nil {
+				h.Sched.UpdateSlotMax("scraping", u.value)
+			}
+		case "maxConcurrentSniffTasks":
+			if h.Sched != nil {
+				h.Sched.UpdateSlotMax("sniff", u.value)
+			}
+		case "tsSegmentConcurrent":
+			if h.DownloadMgr != nil {
+				h.DownloadMgr.SetMaxConcurrent(u.value)
+			}
+		case "galleryImageConcurrent":
+			if h.DlDefaults != nil {
+				h.DlDefaults.GalleryImageConcurrent = u.value
+			}
+		}
+	}
+	result["updated"] = true
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func parseIDParam(w http.ResponseWriter, r *http.Request) (int, bool) {

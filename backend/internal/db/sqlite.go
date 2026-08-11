@@ -52,19 +52,32 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// Use DSN-level PRAGMAs so EVERY connection in the pool inherits
+	// busy_timeout and other per-connection settings. With MaxOpenConns > 1,
+	// db.Exec("PRAGMA ...") only sets the pragma on the connection that
+	// services that call — new pool connections get default values and
+	// hit SQLITE_BUSY immediately on write contention instead of waiting.
+	// modernc.org/sqlite supports _pragma=NAME(VALUE) query parameters.
+	dsn := dbPath +
+		"?_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=wal_autocheckpoint(1000)" +
+		"&_pragma=foreign_keys(ON)" +
+		"&_pragma=cache_size(-20000)"
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		logger.Error("Failed to open database", "error", err.Error())
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
+	// Verify PRAGMAs are effective on the first pooled connection.
 	pragmas := []string{
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
 		"PRAGMA busy_timeout = 5000",
-		"PRAGMA wal_autocheckpoint = 1000",
 		"PRAGMA foreign_keys = ON",
-		"PRAGMA cache_size = -20000",
 	}
 	for _, p := range pragmas {
 		if _, err := db.Exec(p); err != nil {
@@ -73,7 +86,15 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 		}
 	}
 
-	db.SetMaxOpenConns(1)
+	// Allow concurrent read connections. WAL mode permits multiple
+	// readers alongside a single writer; the busy_timeout pragma
+	// handles write contention gracefully. With MaxOpenConns(1) every
+	// query — including reads — serialized behind any in-flight write,
+	// which caused multi-second stalls when the scheduler, event
+	// handlers, and API all competed for the single connection.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	// Ping: verify the connection is alive with a short timeout.
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)

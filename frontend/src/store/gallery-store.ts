@@ -55,6 +55,8 @@ function mapTaskStatusToGallery(status: string): string {
       return 'scraping';
     case 'scrape_pending':
       return 'scrape_pending';
+    case 'scraped':
+      return 'download_pending';
     case 'failed':
       return 'failed';
     default:

@@ -2,6 +2,7 @@ package api
 
 import (
 	"backend/internal/db"
+	"backend/internal/downloader"
 	"backend/internal/downloader/video"
 	"backend/internal/infra"
 	"backend/internal/orchestrator"
@@ -25,6 +26,7 @@ type Handlers struct {
 	SiteReg        *sites.SiteRegistry
 	ProgressEngine *taskprogress.Engine
 	VideoTracker   *taskprogress.VideoProgressTracker
+	DlDefaults     *downloader.DownloadDefaults
 }
 
 // New creates a Handlers instance with the given dependencies.
@@ -58,5 +60,13 @@ func (h *Handlers) WithServices(ouoOrch *orchestrator.OuoOrchestrator, dm *video
 func (h *Handlers) WithProgressEngine(pe *taskprogress.Engine, vt *taskprogress.VideoProgressTracker) *Handlers {
 	h.ProgressEngine = pe
 	h.VideoTracker = vt
+	return h
+}
+
+// WithDownloadDefaults injects the shared DownloadDefaults pointer so
+// that task-settings updates can mutate gallery/video concurrency at
+// runtime and have the changes be visible to executor closures.
+func (h *Handlers) WithDownloadDefaults(dd *downloader.DownloadDefaults) *Handlers {
+	h.DlDefaults = dd
 	return h
 }

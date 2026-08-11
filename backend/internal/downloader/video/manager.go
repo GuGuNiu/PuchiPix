@@ -139,6 +139,29 @@ func (m *DownloadManager) SetProgressCallback(cb func(ProgressMessage)) {
 	m.callbackMu.Unlock()
 }
 
+// SetMaxConcurrent updates the TS segment download concurrency limit at
+// runtime. The value is clamped to [1, 200] and takes effect immediately
+// for the next segment dispatch cycle — no restart required.
+func (m *DownloadManager) SetMaxConcurrent(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > 200 {
+		n = 200
+	}
+	m.mu.Lock()
+	m.maxConcurrent = n
+	m.mu.Unlock()
+	m.logger.Info("TS segment concurrency updated", "newMax", n)
+}
+
+// GetMaxConcurrent returns the current TS segment concurrency limit.
+func (m *DownloadManager) GetMaxConcurrent() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.maxConcurrent
+}
+
 // SetTracker injects the VideoProgressTracker for segment-level tracking.
 // This bridges the pipeline gap where the tracker was initialized but
 // never connected to the download pipeline.

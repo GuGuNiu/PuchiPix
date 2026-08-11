@@ -224,7 +224,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
               const next = {
                 ...t,
                 Progress: payload.progress ?? t.Progress,
-                Status: (payload.status as TaskStatus) || t.Status,
+                // Map DB-internal "scraped" to the frontend-visible
+                // "download_pending" at the SSE boundary (defensive —
+                // backend enrichTaskMap already does this, but SSE
+                // events from wire_executors.go bypass enrichTaskMap).
+                Status: (payload.status === 'scraped' ? 'download_pending' : payload.status as TaskStatus) || t.Status,
               };
               // Video tasks: update Segment/TotalSegments from segment/total
               // fields emitted by DownloadManager.emitProgress().

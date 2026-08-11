@@ -14,16 +14,22 @@ import (
 
 // SanitizeFileName replaces characters that are invalid in file names
 // and truncates over-long names for filesystem compatibility.
+//
+// Truncation is by rune count, NOT byte length. Chinese/CJK characters
+// are 3 bytes in UTF-8; slicing at a byte boundary (e.g. s[:80]) can
+// split a multi-byte character in half, producing invalid UTF-8 that
+// renders as the replacement character "".
 func SanitizeFileName(name string) string {
 	replacer := strings.NewReplacer(
 		"/", "_", "\\", "_", ":", "_", "*", "_",
 		"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
 	)
 	s := replacer.Replace(name)
-	if len(s) > 80 {
-		s = s[:80]
+	// Truncate by rune count to avoid splitting multi-byte chars.
+	if runes := []rune(s); len(runes) > 80 {
+		s = string(runes[:80])
 	}
-	return s
+	return strings.TrimSpace(s)
 }
 
 // ResolveOUOFn resolves an OUO short link to its direct download URL.

@@ -52,19 +52,34 @@ func NewLogSink(capacity int) *LogSink {
 // Push appends an entry, evicting the oldest when full, then fans out
 // to every subscriber. Listener panics are recovered so a faulty
 // subscriber cannot crash the logger.
+//
+// Listeners are invoked OUTSIDE the lock: a slow SSE subscriber
+// previously blocked every concurrent Push/Query call because the
+// RLock was held during listener dispatch. The copy-under-lock →
+// invoke-outside pattern mirrors EventBus.Emit.
 func (s *LogSink) Push(entry StructuredLogEntry) {
 	s.mu.Lock()
 	s.buffer = append(s.buffer, entry)
 	if len(s.buffer) > s.capacity {
 		s.buffer = s.buffer[len(s.buffer)-s.capacity:]
 	}
+	listeners := make([]LogSinkListener, 0, len(s.listeners))
+	for _, fn := range s.listeners {
+		listeners = append(listeners, fn)
+	}
 	s.mu.Unlock()
 
-	s.mu.RLock()
-	for _, fn := range s.listeners {
-		fn(entry)
+	for _, fn := range listeners {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// A faulty listener must not crash the logger.
+					_ = r
+				}
+			}()
+			fn(entry)
+		}()
 	}
-	s.mu.RUnlock()
 }
 
 // Subscribe registers a listener and returns an unsubscribe function.

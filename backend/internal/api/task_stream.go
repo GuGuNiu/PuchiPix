@@ -153,7 +153,16 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			// but for partially-downloaded galleries the file count is more
 			// accurate — especially when some files failed and disk state
 			// doesn't match DB expectations.
-			for i, t := range tasks {
+			//
+			// This is now ASYNC: the initial snapshot is sent immediately
+			// with SQL-based progress, and a background goroutine refines
+			// progress for downloading galleries via file counting. This
+			// prevents slow disk I/O (N filepath.WalkDir calls) from
+			// blocking SSE connection establishment — previously a shelf
+			// with 20+ downloading galleries could delay the initial
+			// snapshot by several seconds.
+			galleriesToRefine := []map[string]any{}
+			for _, t := range tasks {
 				if t["TaskType"] != "gallery" {
 					continue
 				}
@@ -171,19 +180,48 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				if totalExpected == 0 {
 					continue
 				}
-				actualFiles := countFilesInDir(savePath)
-				if actualFiles > 0 {
-					progress := float64(actualFiles) / float64(totalExpected) * 100
-					if progress > 99 && status != "completed" {
-						progress = 99
-					}
-					if progress < 1 {
-						progress = 1
-					}
-					tasks[i]["Progress"] = progress
-				}
+				// Collect for async refinement.
+				galleriesToRefine = append(galleriesToRefine, map[string]any{
+					"savePath":      savePath,
+					"totalExpected": totalExpected,
+					"status":        status,
+					"taskId":        t["ID"],
+				})
 			}
+
 			sse.SendEvent("initial", tasks)
+
+			// Refine gallery progress asynchronously via file counting.
+			// Each refined progress is pushed as a task:progress event so
+			// the frontend updates without waiting for the next poll.
+			if len(galleriesToRefine) > 0 {
+				go func(refinements []map[string]any) {
+					for _, r := range refinements {
+						savePath, _ := r["savePath"].(string)
+						totalExpected, _ := r["totalExpected"].(int)
+						status, _ := r["status"].(string)
+						taskID := r["taskId"]
+
+						actualFiles := countFilesInDir(savePath)
+						if actualFiles <= 0 {
+							continue
+						}
+						progress := float64(actualFiles) / float64(totalExpected) * 100
+						if progress > 99 && status != "completed" {
+							progress = 99
+						}
+						if progress < 1 {
+							progress = 1
+						}
+						sse.TrySendEvent("task:progress", map[string]any{
+							"taskId":    taskID,
+							"taskType":  "gallery",
+							"progress":  progress,
+							"status":    status,
+						})
+					}
+				}(galleriesToRefine)
+			}
 		} else {
 			// The initial snapshot query failed — do NOT silently swallow
 			// it (this was the root pattern behind the 260803 initial

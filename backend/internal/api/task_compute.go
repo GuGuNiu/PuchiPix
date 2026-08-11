@@ -27,6 +27,12 @@ func computeEffectiveStatus(status, taskType string, imageCount, videoCount int)
 			return "download_pending"
 		}
 		return "scraping"
+	case "scraped":
+		// DB-internal status: gallery scrape complete, download not yet
+		// started. Map to the frontend-visible "download_pending" so the
+		// task list shows the correct badge (was leaking as raw "scraped"
+		// which is not a valid TaskStatus in the frontend type system).
+		return "download_pending"
 	default:
 		return status
 	}
@@ -46,10 +52,10 @@ func computeAllowedActions(status, taskType string) []string {
 		switch status {
 		case "pending", "scrape_pending":
 			actions = append(actions, "start", "pause", "delete")
-		case "scraping", "downloading":
-			actions = append(actions, "pause", "delete")
-		case "download_pending":
-			actions = append(actions, "start", "pause", "delete")
+	case "scraping", "downloading":
+		actions = append(actions, "pause", "delete")
+	case "scraped", "download_pending":
+		actions = append(actions, "start", "pause", "delete")
 		case "paused":
 			actions = append(actions, "start", "resume", "delete")
 		case "failed", "partial":
@@ -105,7 +111,7 @@ func computeProgressStage(status, taskType string, progress float64) string {
 		return "tasks.progressStageScraping"
 	case "scrape_pending":
 		return "tasks.progressStageScrapePending"
-	case "download_pending":
+	case "scraped", "download_pending":
 		return "tasks.progressStageDownloadPending"
 	case "completed":
 		return "tasks.progressStageCompleted"
@@ -187,6 +193,14 @@ func stripPersonPrefix(title, name string) string {
 // This replaces the frontend logic that previously derived these values.
 func enrichTaskMap(task map[string]any) map[string]any {
 	status, _ := task["Status"].(string)
+	// Map DB-internal "scraped" to frontend-visible "download_pending"
+	// before any computation or response. The "scraped" status is set by
+	// wire_executors.go after gallery scrape completes; it must not leak
+	// to the frontend as-is because TaskStatus has no "scraped" member.
+	if status == "scraped" {
+		status = "download_pending"
+		task["Status"] = status
+	}
 	taskType, _ := task["TaskType"].(string)
 	imageCount, _ := task["ImageCount"].(int)
 	videoCount, _ := task["VideoCount"].(int)

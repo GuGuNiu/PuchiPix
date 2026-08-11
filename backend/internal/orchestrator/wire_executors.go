@@ -47,7 +47,7 @@ const defaultVideoMaxConcurrent = 2
 // DownloadManager separately, but passed here for the gallery video path).
 // dlDefaults provides multi-thread download configuration that is
 // applied to every DownloadOptions constructed by the download executor.
-func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, titleParser *titleparser.Parser, progressEngine *taskprogress.Engine, videoTracker *taskprogress.VideoProgressTracker, dataDir string, dlDefaults downloader.DownloadDefaults) {
+func WireExecutors(reg *executors.Registry, siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, titleParser *titleparser.Parser, progressEngine *taskprogress.Engine, videoTracker *taskprogress.VideoProgressTracker, dataDir string, dlDefaults *downloader.DownloadDefaults) {
 	reg.Register(newScrapeExecutor(siteReg, database, eventBus, titleParser))
 	reg.Register(newDownloadExecutor(siteReg, database, eventBus, progressEngine, dataDir, dlDefaults))
 	reg.Register(newVerifyExecutor(database))
@@ -375,7 +375,7 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 // atomic write semantics. When a galleryId is present in the node
 // config, it switches to gallery batch download mode, reading all
 // gallery_images from the database and downloading each one.
-func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, progressEngine *taskprogress.Engine, dataDir string, dlDefaults downloader.DownloadDefaults) *executors.DownloadExecutor {
+func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eventBus *infra.EventBus, progressEngine *taskprogress.Engine, dataDir string, dlDefaults *downloader.DownloadDefaults) *executors.DownloadExecutor {
 	logger := infra.NewLogger("GalleryDownloader")
 	fn := func(ctx context.Context, url, savePath string, domains []string) error {
 		opts := dlDefaults.ApplyTo(&downloader.DownloadOptions{

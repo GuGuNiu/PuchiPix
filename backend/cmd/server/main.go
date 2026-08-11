@@ -418,6 +418,12 @@ func main() {
 		// so without this the frontend shows a completed gallery that
 		// actually failed verification. This subscription keeps the DB
 		// the single source of truth for the shelf UI.
+		//
+		// The DB write runs in a fire-and-forget goroutine so the
+		// EventBus emitter (DAG orchestrator) is never blocked on DB
+		// I/O. The write is idempotent (UPDATE ... WHERE dag_id = ?)
+		// and best-effort (failures only lose a status sync that the
+		// next event or manual refresh will correct).
 		eventBus.On("gallery:stateChanged", func(payload any) {
 			ev, ok := payload.(map[string]any)
 			if !ok || database == nil {
@@ -428,10 +434,13 @@ func main() {
 			if status == "" || dagID == "" {
 				return
 			}
-			// Look up the gallery by dag_id (unified 6-char alphanumeric format).
-			_, _ = database.Exec(context.Background(),
-				`UPDATE galleries SET status = ?, error_msg = 'DAG ended with ' || ?, updated_at = CURRENT_TIMESTAMP WHERE dag_id = ?`,
-				status, status, dagID)
+			go func(dagID, status string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, _ = database.Exec(ctx,
+					`UPDATE galleries SET status = ?, error_msg = 'DAG ended with ' || ?, updated_at = CURRENT_TIMESTAMP WHERE dag_id = ?`,
+					status, status, dagID)
+			}(dagID, status)
 		})
 
 		// 10b. Periodic READY-node reactivation. A node whose Submit was
