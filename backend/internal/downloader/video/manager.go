@@ -325,7 +325,7 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer dbCancel()
 	_, _ = m.db.Exec(dbCtx,
-		"UPDATE download_tasks SET status = 'downloading', progress = 0, error_msg = '' WHERE id = ?",
+		"UPDATE download_tasks SET status = 'downloading', progress = 0, error_msg = '', completed_segments = 0 WHERE id = ?",
 		task.ID)
 
 	safeTitle := downloader.SanitizeFilename(task.Title)
@@ -375,6 +375,13 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 		m.handleDownloadError(ctx, task, perr)
 		return perr
 	}
+
+	// Download succeeded — clean up retry counter so a future task
+	// with the same ID starts fresh. This prevents stale retry counts
+	// from causing premature "failed" on a subsequent manual restart.
+	m.mu.Lock()
+	delete(m.taskRetries, task.ID)
+	m.mu.Unlock()
 
 	return nil
 }
@@ -673,10 +680,16 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 				"max":     maxTaskRetries,
 			}})
 
+		// Truncate error message to avoid excessively long DB values
+		shortErr := errMsg
+		if len(shortErr) > 200 {
+			shortErr = shortErr[:200] + "..."
+		}
+
 		retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, _ = m.db.Exec(retryCtx,
 			"UPDATE download_tasks SET status = 'pending', progress = 0, error_msg = ? WHERE id = ?",
-			fmt.Sprintf("Auto-retrying (%d/%d)...", retryCount+1, maxTaskRetries), task.ID)
+			fmt.Sprintf("Auto-retrying (%d/%d): %s", retryCount+1, maxTaskRetries, shortErr), task.ID)
 		retryCancel()
 
 		m.emitProgress(task.ID, 0, 0, 0, "pending", "")
@@ -702,16 +715,19 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 				return
 			}
 
-			m.mu.Lock()
-			delete(m.taskRetries, task.ID)
-			m.mu.Unlock()
-
 			m.logger.Info("Starting auto-retry",
 				infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
 			if err := m.StartDownload(context.Background(), task); err != nil {
 				m.logger.Error("Auto-retry failed",
 					infra.LogContext{Extra: map[string]any{"taskId": task.ID}}, err)
 			}
+
+			// Retry counter is managed by handleDownloadError (increment
+			// for next retry or delete when exhausted) and by
+			// StartDownload's success path (delete on success). We must
+			// NOT delete it here before StartDownload — that was the
+			// previous bug that reset the counter to 0 on every retry
+			// and caused an infinite retry loop.
 		}()
 		return
 	}

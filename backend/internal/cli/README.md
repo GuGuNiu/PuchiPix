@@ -5,15 +5,16 @@
 ## 快速开始
 
 ```bash
-# 构建
+# 直接运行（推荐，无需构建 exe）
 cd backend
-go build -o bin/cli.exe ./cmd/cli/
+go run -buildvcs=false ./cmd/cli --help
 
-# 查看帮助
-./bin/cli.exe --help
+# 或构建到 .tmp/
+go build -buildvcs=false -o .tmp/cli.exe ./cmd/cli
+./.tmp/cli.exe --help
 
 # 连接远程服务器
-./bin/cli.exe --host 192.168.1.100 --port 10540 status
+go run -buildvcs=false ./cmd/cli --host 192.168.1.100 --port 10540 status
 ```
 
 ## 命令总览 (24 个)

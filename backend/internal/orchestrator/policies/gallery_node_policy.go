@@ -113,18 +113,18 @@ func galleryOnResume(_ orchestrator.StateMachineContext) orchestrator.NodeState 
 	return orchestrator.NodeStateReady
 }
 
-// galleryOnRestart decides the fate of a gallery node found in RUNNING
-// or VERIFYING state after a service restart. When Config.resumableVerify
-// is true and the retry budget allows (retryCount < 2), the node enters
-// RESUME_VERIFY so the StateReconciler can resume from the checkpoint.
-// Otherwise the node is marked FAILED so the user can retry manually.
-func galleryOnRestart(ctx orchestrator.StateMachineContext) orchestrator.NodeState {
-	v, _ := ctx.Definition.Config["resumableVerify"]
-	resumable, _ := v.(bool)
-	if resumable && ctx.RetryCount < 2 {
-		return orchestrator.NodeStateResumeVerify
-	}
-	return orchestrator.NodeStateFailed
+// galleryOnRestart decides the fate of a gallery node found in a
+// non-terminal state after a service restart. Per the design requirement,
+// all unfinished tasks should transition to PAUSED so the user can
+// decide when to resume them — no auto-execution should happen.
+//
+// Previously:
+//   - resumableVerify && retryCount < 2 → RESUME_VERIFY (auto-re-verify)
+//   - otherwise → FAILED (user had to retry)
+//
+// Now: always → PAUSED, leaving the task in a user-controllable state.
+func galleryOnRestart(_ orchestrator.StateMachineContext) orchestrator.NodeState {
+	return orchestrator.NodeStatePaused
 }
 
 // buildGalleryTransitions constructs the transition rule map for the

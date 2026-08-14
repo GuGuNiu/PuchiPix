@@ -777,6 +777,115 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 	return result, nil
 }
 
+// QuickMetadataResult holds the fast-extracted metadata from a
+// lightweight HTTP scrape. It only contains title and protagonist
+// (actors) — the minimum needed to give the frontend something to
+// display while the full scrape continues in the background.
+type QuickMetadataResult struct {
+	Title       string
+	Protagonist string
+}
+
+// QuickMetadataScrape performs a fast HTTP-only scrape to extract
+// just the title and protagonist (actors) from the page. It uses a
+// short 5-second timeout and only parses HTML metadata — no M3U8
+// detection, no image extraction, no multi-page traversal.
+//
+// This is the "Phase 1" of the progressive scrape strategy: get
+// basic metadata to the frontend in < 2 seconds, then continue with
+// the full scrape (HTTP or chromedp) in the background.
+func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataResult, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,*/*")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("quick metadata fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 && resp.StatusCode != 304 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024)) // 2MB limit
+	if err != nil {
+		return nil, err
+	}
+	body := string(bodyBytes)
+
+	doc, docErr := goquery.NewDocumentFromReader(strings.NewReader(body))
+	if docErr != nil {
+		scraperLogger.Warn("QuickMetadata goquery parse failed",
+			infra.LogContext{Extra: map[string]any{"url": pageURL, "error": docErr.Error()}})
+	}
+
+	title := ""
+	actors := []string{}
+
+	if doc != nil {
+		// Extract title: og:title → <title> → CleanTitle.
+		if og, ok := doc.Find(`meta[property="og:title"]`).Attr("content"); ok && og != "" {
+			title = og
+		} else {
+			title = strings.TrimSpace(doc.Find("title").First().Text())
+		}
+		title = CleanTitle(title)
+	}
+
+	// Extract actors from player_aaaa JSON (MacCMS/Kanav pattern).
+	for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
+		if len(m) >= 2 {
+			raw := m[1]
+			var pd struct {
+				VodData struct {
+					Actor string `json:"vod_actor"`
+					Name  string `json:"vod_name"`
+				} `json:"vod_data"`
+			}
+			if err := json.Unmarshal([]byte(raw), &pd); err == nil {
+				for _, a := range strings.Split(pd.VodData.Actor, ",") {
+					if a = strings.TrimSpace(a); a != "" {
+						actors = append(actors, a)
+					}
+				}
+				// Use vod_name as title fallback.
+				if title == "" && pd.VodData.Name != "" {
+					title = CleanTitle(strings.TrimSpace(pd.VodData.Name))
+				}
+			}
+		}
+	}
+
+	// Also try og:description meta as a fallback source for actor hints.
+	if doc != nil && len(actors) == 0 {
+		doc.Find(".video-countext-tags a, .tag-list a, .actor-list a, .model-tag").Each(func(_ int, s *goquery.Selection) {
+			if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 30 {
+				actors = append(actors, text)
+			}
+		})
+	}
+
+	protagonist := strings.Join(xutil.UniqueStrings(actors, true), ", ")
+
+	scraperLogger.Info("Quick metadata extracted",
+		infra.LogContext{Extra: map[string]any{
+			"url":         pageURL,
+			"title":       title,
+			"protagonist": protagonist,
+		}})
+
+	return &QuickMetadataResult{
+		Title:       title,
+		Protagonist: protagonist,
+	}, nil
+}
+
 // ScrapePageWithFallback wraps a scrape function with domain health-aware
 // mirror domain switching. It uses DomainHealthTracker to prioritize
 // healthy domains and deprioritize rate-limited ones.

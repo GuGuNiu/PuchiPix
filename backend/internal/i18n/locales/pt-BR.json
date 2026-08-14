@@ -613,6 +613,7 @@
   "api.gallery.allDomainsFailed": "Todos os domínios falharam na raspagem",
   "api.tasks.multipleM3u8Detected": "{count} endereços M3U8 detectados, selecione",
   "api.tasks.unsupportedListScrape": "O provedor não suporta raspagem de página de listagem",
+  "api.tasks.unrecognizedUrl": "Não foi possível determinar o tipo de tarefa para esta URL. Verifique se é um endereço de galeria ou vídeo válido",
   "api.common.internalError": "Erro interno do servidor",
   "api.common.missingParams": "Parâmetros obrigatórios ausentes: {params}",
   "api.gallery.noProviderForRescrape": "Nenhum provedor de galeria encontrado, não é possível re-raspar",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Falha ao cancelar tarefa",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

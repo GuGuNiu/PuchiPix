@@ -18,7 +18,9 @@ func TestNewDomainPool(t *testing.T) {
 func TestDomainPoolGetDomains_StaticOnly(t *testing.T) {
 	pool := NewDomainPool("test", []string{"https://a.com", "https://b.com"}, "")
 	domains := pool.GetDomains()
-	assert.Equal(t, []string{"https://a.com", "https://b.com"}, domains)
+	// GetDomains() returns health-ordered domains (shuffled healthy),
+	// so use ElementsMatch to verify presence without exact order.
+	assert.ElementsMatch(t, []string{"https://a.com", "https://b.com"}, domains)
 }
 
 func TestDomainPoolGetDomains_WithPublisher(t *testing.T) {
@@ -39,6 +41,7 @@ func TestDomainPoolGetDomains_WithPublisher(t *testing.T) {
 func TestDomainPoolGetDomainsForceRefresh_EmptyPublisher(t *testing.T) {
 	pool := NewDomainPool("test", []string{"https://a.com", "https://b.com"}, "")
 	domains := pool.GetDomainsForceRefresh()
+	// GetDomainsForceRefresh returns mergeDomains directly without health ordering.
 	assert.Equal(t, []string{"https://a.com", "https://b.com"}, domains)
 }
 
@@ -57,7 +60,8 @@ func TestDomainPoolSetStaticDomains(t *testing.T) {
 	pool.SetStaticDomains([]string{"https://x.com", "https://y.com"})
 
 	domains := pool.GetDomains()
-	assert.Equal(t, []string{"https://x.com", "https://y.com"}, domains)
+	// GetDomains() returns health-ordered (shuffled) domains.
+	assert.ElementsMatch(t, []string{"https://x.com", "https://y.com"}, domains)
 }
 
 func TestDomainPoolGetCacheInfo(t *testing.T) {
@@ -154,7 +158,8 @@ func TestGetRegisteredDomainDomains(t *testing.T) {
 	RegisterDomainPool("test-domains", pool)
 
 	domains := GetRegisteredDomainDomains("test-domains")
-	assert.Equal(t, []string{"https://x.com", "https://y.com"}, domains)
+	// GetDomains() returns health-ordered (shuffled) domains.
+	assert.ElementsMatch(t, []string{"https://x.com", "https://y.com"}, domains)
 
 	// Non-existent site should return nil
 	assert.Nil(t, GetRegisteredDomainDomains("non-existent"))

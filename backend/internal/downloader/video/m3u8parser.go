@@ -8,14 +8,15 @@ import (
 
 	"backend/internal/downloader"
 	"backend/internal/infra"
+	"backend/internal/stealth"
 )
 
 var m3u8Logger = infra.NewLogger("DownloadManager")
 
 // M3U8Segment represents a single media segment in an HLS playlist.
 type M3U8Segment struct {
-	URI     string
-	FullURI string
+	URI      string
+	FullURI  string
 	Duration float64
 	Index    int
 }
@@ -31,10 +32,10 @@ type M3U8Variant struct {
 // M3U8Playlist holds the parsed structure of an M3U8 file, either a
 // master playlist with variants or a media playlist with segments.
 type M3U8Playlist struct {
-	IsMaster        bool
-	Segments        []M3U8Segment
-	Variants        []M3U8Variant
-	TargetDuration   int
+	IsMaster       bool
+	Segments       []M3U8Segment
+	Variants       []M3U8Variant
+	TargetDuration int
 }
 
 // resolveURI converts a relative URI from an M3U8 playlist into an
@@ -78,6 +79,12 @@ func FetchM3U8Content(ctx context.Context, m3u8URL, referer string) (string, err
 // then falls back to alternative referer domains when the CDN returns
 // 403 (anti-hotlink). It returns the content, the effective referer that
 // succeeded, and any error.
+//
+// Fallback domains are ordered by health (healthy first, rate-limited
+// last) using the shared DomainHealthTracker, and domains that fail are
+// automatically marked as rate-limited so they are deprioritized in
+// subsequent calls. This provides adaptive failover that learns from
+// previous failures across all concurrent requests.
 func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer string, fallbackDomains []string) (string, string, error) {
 	// Try the primary referer first.
 	content, err := FetchM3U8Content(ctx, m3u8URL, referer)
@@ -90,16 +97,24 @@ func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer s
 		return "", referer, err
 	}
 
+	// Order fallback domains by health: healthy domains first (shuffled
+	// for load distribution), rate-limited domains in cooldown last.
+	// This prevents repeatedly trying domains that are known to be
+	// rejecting requests (e.g., CDN 403, rate limiting).
+	healthTracker := stealth.GetDomainHealthTracker()
+	orderedDomains := healthTracker.GetAllDomainsOrdered(fallbackDomains)
+
 	m3u8Logger.Warn("Primary referer rejected, trying fallback domains",
 		infra.LogContext{Extra: map[string]any{
-			"m3u8URL":       m3u8URL,
+			"m3u8URL":        m3u8URL,
 			"primaryReferer": referer,
-			"error":         err.Error(),
-			"fallbackCount": len(fallbackDomains),
+			"error":          err.Error(),
+			"fallbackCount":  len(orderedDomains),
 		}})
 
-	// Try each fallback domain as the referer.
-	for _, domain := range fallbackDomains {
+	// Try each fallback domain as the referer, in health-priority order.
+	var lastErr error
+	for _, domain := range orderedDomains {
 		fallbackReferer := domain
 		// Ensure the referer looks like a full URL.
 		if !strings.HasPrefix(fallbackReferer, "http://") && !strings.HasPrefix(fallbackReferer, "https://") {
@@ -114,11 +129,17 @@ func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer s
 		if err == nil {
 			m3u8Logger.Info("Fallback referer accepted by CDN",
 				infra.LogContext{Extra: map[string]any{
-					"m3u8URL":  m3u8URL,
+					"m3u8URL":          m3u8URL,
 					"effectiveReferer": fallbackReferer,
 				}})
 			return content, fallbackReferer, nil
 		}
+
+		// Mark the domain as rate-limited so it's deprioritized in
+		// future calls. This builds adaptive failover across all
+		// concurrent requests without central coordination.
+		healthTracker.MarkRateLimited(domain)
+		lastErr = err
 
 		m3u8Logger.Debug("Fallback referer also rejected",
 			infra.LogContext{Extra: map[string]any{
@@ -127,7 +148,7 @@ func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer s
 			}})
 	}
 
-	return "", referer, fmt.Errorf("all referer domains rejected by CDN: %w", err)
+	return "", referer, fmt.Errorf("all referer domains rejected by CDN: %w", lastErr)
 }
 
 // ParseM3U8 parses raw M3U8 text into a structured playlist, resolving
@@ -139,7 +160,7 @@ func ParseM3U8(content, baseURL string) M3U8Playlist {
 	}
 
 	segmentIndex := 0
-	var mediaSequence int   // #EXT-X-MEDIA-SEQUENCE offset
+	var mediaSequence int // #EXT-X-MEDIA-SEQUENCE offset
 	var pendingDuration float64
 	var pendingVariant *M3U8Variant
 

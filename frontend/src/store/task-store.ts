@@ -11,6 +11,7 @@ interface TaskStore {
   sseConnected: boolean;
   fetchTasks: (status?: string) => Promise<void>;
   addTask: (task: DownloadTask) => void;
+  updateTask: (id: number, taskType: string, patch: Partial<DownloadTask>) => void;
   removeTask: (id: number, taskType?: string) => void;
   clearDeletedKey: (id: number, taskType: string) => void;
   connectSSE: () => () => void;
@@ -69,6 +70,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const exists = s.tasks.some((t) => taskKey(t) === key);
     if (exists) return s;
     return { tasks: [task, ...s.tasks] };
+  }),
+
+  updateTask: (id, taskType, patch) => set((s) => {
+    const key = `${taskType}-${id}`;
+    return {
+      tasks: s.tasks.map((t) =>
+        taskKey(t) === key ? { ...t, ...patch } : t,
+      ),
+    };
   }),
 
   removeTask: (id, taskType?: string) =>
@@ -321,18 +331,26 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
     unsubs.push(
       /*
-       * Task:cancelled — payload is only {taskId} (no taskType). Resolve
-       * the task key from the current list so we can remove the right
-       * entry regardless of type.
+       * Task:cancelled — backend payload carries {taskId, taskType}.
+       * Use taskType to construct the correct composite key
+       * (e.g. "gallery-3" vs "video-3"). Gallery and video task
+       * IDs overlap (both are auto-increment starting from 1), so
+       * resolving by ID alone (find) would match the wrong task
+       * type — e.g. deleting gallery #3 via CLI would remove video
+       * task #3 from the list instead.
        */
       subscribeSseEvent('task:cancelled', (e: MessageEvent) => {
         try {
-          const { taskId } = JSON.parse(e.data) as { taskId: number };
-          const key = get().tasks.find((t) => t.ID === taskId)
-            ? taskKey(get().tasks.find((t) => t.ID === taskId)!)
-            : undefined;
-          if (!key) return;
-          deletedKeys.delete(key);
+          const raw = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          const taskId = raw.taskId;
+          const taskType = raw.taskType || 'video';
+          const key = `${taskType}-${taskId}`;
+          /*
+           * Mark as deleted so subsequent SSE events (task:created,
+           * initial) don't re-insert the cancelled task before the
+           * next full refresh clears deletedKeys.
+           */
+          markDeleted(key);
           set((s) => ({
             tasks: s.tasks.filter((t) => taskKey(t) !== key),
           }));

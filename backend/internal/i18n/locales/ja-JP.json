@@ -665,6 +665,7 @@
   "api.gallery.allDomainsFailed": "すべてのドメインでスクレイピングに失敗しました",
   "api.tasks.multipleM3u8Detected": "{count} 個の M3U8 アドレスを検出しました、選択してください",
   "api.tasks.unsupportedListScrape": "プロバイダーはリストページのスクレイピングをサポートしていません",
+  "api.tasks.unrecognizedUrl": "このURLのタスクタイプを識別できません。有効なギャラリーまたは動画アドレスか確認してください",
   "api.characterDb.syncRunning": "同期タスクが実行中です",
   "api.common.internalError": "サーバー内部エラー",
   "api.common.missingParams": "必須パラメータが不足しています: {params}",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "タスクのキャンセルに失敗しました",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

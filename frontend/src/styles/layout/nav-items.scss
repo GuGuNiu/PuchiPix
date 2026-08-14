@@ -60,17 +60,17 @@
   &:hover {
     background: var(--accent-soft);
     color: var(--accent);
-    border-color: rgba(15, 15, 26, 0.06);
+    border-color: var(--nav-hover-border);
     transform: translateX(2px);
-    box-shadow: 0 2px 8px rgba(15, 15, 26, 0.04);
+    box-shadow: var(--nav-hover-shadow);
   }
 
   &.active {
     background: var(--accent);
     color: var(--text-inverse);
     font-weight: 600;
-    border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 12px rgba(15, 15, 26, 0.18), 0 1px 3px rgba(15, 15, 26, 0.12);
+    border-color: var(--nav-active-border);
+    box-shadow: var(--nav-active-shadow);
 
     &::before {
       content: '';
@@ -87,7 +87,7 @@
 
     .nav-item-icon {
       color: var(--text-inverse);
-      filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.3));
+      filter: drop-shadow(0 0 4px var(--nav-icon-glow));
     }
   }
 }

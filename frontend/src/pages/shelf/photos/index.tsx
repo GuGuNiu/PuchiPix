@@ -80,6 +80,12 @@ export default function PhotosPage(): React.JSX.Element {
       if (s === "partial") {
         counts["completed"] = (counts["completed"] || 0) + 1;
       }
+      // download_pending is a sub-state of the downloading phase;
+      // count it under "downloading" so the filter pill reflects the
+      // true number of galleries still in progress.
+      if (s === "download_pending") {
+        counts["downloading"] = (counts["downloading"] || 0) + 1;
+      }
     }
     return counts;
   }, [galleries]);
@@ -93,7 +99,7 @@ export default function PhotosPage(): React.JSX.Element {
       } else if (statusFilter === "failed") {
         result = result.filter((g) => g.Status === "failed");
       } else if (statusFilter === "downloading") {
-        result = result.filter((g) => g.Status === "downloading" || g.Status === "scraping");
+        result = result.filter((g) => g.Status === "downloading" || g.Status === "scraping" || g.Status === "download_pending");
       } else {
         result = result.filter((g) => g.Status === statusFilter);
       }

@@ -37,7 +37,7 @@
 
     tr {
       &:nth-child(even) td {
-        background: rgba(148, 163, 184, 0.04);
+        background: var(--bg-hover);
       }
 
       &:hover td {

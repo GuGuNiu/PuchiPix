@@ -426,6 +426,7 @@ const jaJP: TranslationDict = {
   "taskSettings.save": "保存",
   "taskSettings.loadFailed": "設定の読み込みに失敗しました",
   "taskSettings.saveFailed": "設定の保存に失敗しました",
+  "taskSettings.saved": "設定を保存しました",
 
   /* ─── コンソールログ ─── */
   "console.noTaskLogs": "タスクログはありません",

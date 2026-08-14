@@ -182,8 +182,16 @@ func TestGraphIndexRestoreConsistency(t *testing.T) {
 	o2.SetScheduler(sched2)
 	require.NoError(t, o2.RestoreDagForTest(*snap))
 
-	// node-2 was QUEUED in the snapshot; simulate the scheduler picking
-	// it up by driving the legal QUEUED -> ALLOCATED -> ... path.
+	// After restore, node-2 was QUEUED in the snapshot but is now
+	// PAUSED (per the design requirement: all non-terminal nodes
+	// transition to PAUSED on restart so the user controls execution).
+	// Simulate a user "resume" by transitioning PAUSED → READY → QUEUED.
+	require.NoError(t, o2.TransitionNode(ctx, "dag-restore", "node-2",
+		orchestrator.NodeStateReady, orchestrator.TransitionContext{Reason: "user resume", TriggeredBy: "user"}))
+	require.NoError(t, o2.TransitionNode(ctx, "dag-restore", "node-2",
+		orchestrator.NodeStateQueued, orchestrator.TransitionContext{Reason: "re-queued", TriggeredBy: "system"}))
+
+	// Drive the legal QUEUED → ALLOCATED → ... → COMPLETED path.
 	completeNode(t, o2, "dag-restore", "node-2")
 	require.NoError(t, o2.OnNodeCompleted(ctx, "dag-restore", "node-2", orchestrator.NodeExecutionResult{Success: true}))
 

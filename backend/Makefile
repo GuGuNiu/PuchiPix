@@ -2,10 +2,10 @@
 
 APP_NAME := puchipix-server
 CLI_NAME := puchipix-cli
-BUILD_DIR := bin
 
 # ── 开发模式 (推荐日常使用) ──
 # 热重载: 修改 .go 文件后自动重新编译并重启服务器
+# 编译产物在 .tmp/ 下，不污染工作区
 dev:
 	air
 
@@ -17,10 +17,11 @@ dev-cli:
 run:
 	go run -buildvcs=false ./cmd/server
 
-# ── 构建模式 (仅在需要发布时使用) ──
+# ── 构建模式 (仅在需要发布/部署时使用) ──
+# 产物输出到 .tmp/ 目录
 build:
-	go build -buildvcs=false -o $(BUILD_DIR)/$(APP_NAME) ./cmd/server
-	go build -buildvcs=false -o $(BUILD_DIR)/$(CLI_NAME) ./cmd/cli
+	go build -buildvcs=false -o .tmp/$(APP_NAME) ./cmd/server
+	go build -buildvcs=false -o .tmp/$(CLI_NAME) ./cmd/cli
 
 test:
 	go test -v -race ./...
@@ -33,7 +34,6 @@ lint:
 	go run -buildvcs=false honnef.co/go/tools/cmd/staticcheck@latest -checks=U1000 ./...
 
 clean:
-	rm -rf $(BUILD_DIR)
 	rm -rf .tmp
 
 test-coverage:

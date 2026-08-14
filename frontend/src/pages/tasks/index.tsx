@@ -262,7 +262,7 @@ export default function TasksPage(): React.JSX.Element {
       const effectiveStatus = t.EffectiveStatus ?? t.Status;
       if (effectiveStatus === "scrape_pending") {
         counts["scraping"] = (counts["scraping"] || 0) + 1;
-      } else if (effectiveStatus === "download_pending") {
+      } else if (effectiveStatus === "download_pending" || effectiveStatus === "transcoding") {
         counts["downloading"] = (counts["downloading"] || 0) + 1;
       } else {
         counts[effectiveStatus] = (counts[effectiveStatus] || 0) + 1;
@@ -523,7 +523,7 @@ export default function TasksPage(): React.JSX.Element {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 88, whiteSpace: "nowrap" }}>
+                  <th style={{ width: 60, whiteSpace: "nowrap" }}>
                     <button
                       onClick={toggleSelectAll}
                       style={{
@@ -541,14 +541,14 @@ export default function TasksPage(): React.JSX.Element {
                     </button>
                     {t("tasks.colId")}
                   </th>
-                  <th style={{ width: 48, whiteSpace: "nowrap" }}>{t("tasks.colType")}</th>
+                  <th style={{ width: 28, whiteSpace: "nowrap" }}>{t("tasks.colType")}</th>
                   <th style={{ width: 100 }}>{t("tasks.colPerson")}</th>
                   <th style={{ width: 300 }}>{t("tasks.colTitle")}</th>
                   <th style={{ width: 64, whiteSpace: "nowrap" }}>{t("tasks.colSource")}</th>
-                  <th style={{ width: 68 }}>{t("tasks.colStatus")}</th>
+                  <th style={{ width: 92 }}>{t("tasks.colStatus")}</th>
                   <th style={{ width: 140 }}>{t("tasks.colProgress")}</th>
-                  <th style={{ width: 80, whiteSpace: "nowrap" }}>{t("tasks.colSegments")}</th>
-                  <th style={{ width: 80, whiteSpace: "nowrap" }}>{t("tasks.colFileSize")}</th>
+                  <th style={{ width: 68, whiteSpace: "nowrap" }}>{t("tasks.colSegments")}</th>
+                  <th style={{ width: 68, whiteSpace: "nowrap" }}>{t("tasks.colFileSize")}</th>
                   <th style={{ width: 190, whiteSpace: "nowrap" }}>{t("tasks.colActions")}</th>
                 </tr>
               </thead>
@@ -583,20 +583,19 @@ export default function TasksPage(): React.JSX.Element {
           </div>
         )}
 
-        {filteredTasks.length > pageSize && (
-          <div
-            style={{
-              position: "sticky",
-              bottom: 0,
-              background: "var(--bg-card)",
-              display: "flex",
-              alignItems: "center",
-              padding: "8px 20px",
-              borderTop: "1px solid var(--border-light)",
-              fontSize: 13,
-              zIndex: 10,
-            }}
-          >
+        <div
+          style={{
+            position: "sticky",
+            bottom: 0,
+            background: "var(--bg-card)",
+            display: "flex",
+            alignItems: "center",
+            padding: "8px 20px",
+            borderTop: "1px solid var(--border-light)",
+            fontSize: 13,
+            zIndex: 10,
+          }}
+        >
             <div style={{ flex: 1 }}>
               <Pagination
                 currentPage={safePage}
@@ -678,7 +677,6 @@ export default function TasksPage(): React.JSX.Element {
               </div>
             </div>
           </div>
-        )}
       </div>
 
       <TaskSettingsPanel

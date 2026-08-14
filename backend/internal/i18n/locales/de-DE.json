@@ -664,7 +664,8 @@
   "api.gallery.unsupportedScrape": "Site {site} unterstützt kein Galerie-Scraping",
   "api.gallery.allDomainsFailed": "Alle Domains konnten nicht gescrapt werden",
   "api.tasks.multipleM3u8Detected": "{count} M3U8-Adressen erkannt, bitte auswählen",
-  "api.tasks.unsupportedListScrape": "Provider unterstützt kein Listen-Seiten-Scraping",
+  "api.tasks.unsupportedListScrape": "Anbieter unterstützt kein Listen-Seiten-Scraping",
+  "api.tasks.unrecognizedUrl": "Aufgabentyp für diese URL nicht erkennbar. Bitte überprüfen Sie, ob es sich um eine gültige Galerie- oder Videoadresse handelt",
   "api.characterDb.syncRunning": "Synchronisierungsaufgabe läuft bereits",
   "api.common.internalError": "Interner Serverfehler",
   "api.common.missingParams": "Erforderliche Parameter fehlen: {params}",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Aufgabe konnte nicht abgebrochen werden",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

@@ -30,19 +30,19 @@
   font-weight: 500;
   white-space: nowrap;
   line-height: 18px;
-  color: #fff;
+  color: var(--text-inverse);
 
-  &-pending { background: #64748b; }
-  &-scrape_pending { background: #0891b2; }
-  &-scraping { background: #0ea5e9; }
-  &-download_pending { background: #4f6e9e; }
-  &-downloading { background: #3b82f6; }
-  &-paused { background: #f59e0b; }
-  &-completed { background: #22c55e; }
-  &-partial { background: #f59e0b; }
-  &-failed { background: #ef4444; }
-  &-cancelled { background: #94a3b8; }
-  &-transcoding { background: #8b5cf6; }
+  &-pending { background: var(--status-pending); }
+  &-scrape_pending { background: var(--status-scrape-pending); }
+  &-scraping { background: var(--status-scraping); }
+  &-download_pending { background: var(--status-download-pending); }
+  &-downloading { background: var(--status-downloading); }
+  &-paused { background: var(--status-paused); }
+  &-completed { background: var(--status-completed); }
+  &-partial { background: var(--status-partial); }
+  &-failed { background: var(--status-failed); }
+  &-cancelled { background: var(--status-cancelled); }
+  &-transcoding { background: var(--status-transcoding); }
 }
 
 // ===== Dual Capsule (简约文字 + 细边框) =====

@@ -665,6 +665,7 @@
   "api.gallery.allDomainsFailed": "Tất cả tên miền đều cào thất bại",
   "api.tasks.multipleM3u8Detected": "Đã phát hiện {count} địa chỉ M3U8, vui lòng chọn",
   "api.tasks.unsupportedListScrape": "Provider không hỗ trợ cào trang danh sách",
+  "api.tasks.unrecognizedUrl": "Không thể xác định loại tác vụ cho URL này. Vui lòng xác minh đó là địa chỉ thư viện hoặc video hợp lệ",
   "api.characterDb.syncRunning": "Tác vụ đồng bộ đang chạy",
   "api.common.internalError": "Lỗi máy chủ nội bộ",
   "api.common.missingParams": "Thiếu tham số bắt buộc: {params}",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Không thể hủy tác vụ",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

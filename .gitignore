@@ -30,6 +30,7 @@ frontend/dist/
 *.so
 *.dylib
 backend/bin/
+bin/
 *.log
 *.test
 *.out

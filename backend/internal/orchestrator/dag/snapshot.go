@@ -96,19 +96,20 @@ func (o *DagOrchestrator) restoreDag(snap orchestrator.DagSnapshot) error {
 			}
 		}
 		fsm.RestoreFromSnapshot(ns.History, ns.Error)
-		// M7 onRestart strategy: a node found in RUNNING or VERIFYING
-		// state after a restart cannot continue (no executor is
-		// driving it). The policy's onRestart decides its fate:
-		//   - resumableVerify && retryCount < 2 → RESUME_VERIFY
-		//     (StateReconciler resumes from checkpoint on the next
-		//     activation pass)
-		//   - otherwise → FAILED (user can retry manually)
-		// Without a policy, RUNNING falls back to READY (re-schedule)
-		// and VERIFYING falls back to FAILED (cannot resume).
-		// Previously these nodes were left stranded, causing deadlocks
-		// (audit S1 / B1 / B2).
+		// M7 onRestart strategy: per the design requirement, ALL non-terminal
+		// nodes found after a restart must transition to PAUSED so the user
+		// can decide when to resume them — no auto-execution should happen.
+		//
+		// Previously, only RUNNING and VERIFYING were handled (RUNNING → READY
+		// for re-scheduling, VERIFYING → FAILED). QUEUED and READY nodes were
+		// left as-is, which caused the periodic ReactivateReadyNodes ticker
+		// to auto-execute them immediately after restart.
+		//
+		// Now: all non-terminal, non-PENDING states → PAUSED. PENDING nodes
+		// are left untouched (they haven't started yet and are already in
+		// the correct "waiting" state).
 		restoredState := fsm.State()
-		if restoredState == orchestrator.NodeStateRunning || restoredState == orchestrator.NodeStateVerifying {
+		if !orchestrator.IsTerminalState(restoredState) && restoredState != orchestrator.NodeStatePending {
 			targetState := defaultOnRestart(restoredState)
 			if p := fsm.Policy(); p != nil && p.OnRestart != nil {
 				if s := p.OnRestart(fsm.Context()); s != "" {
@@ -117,7 +118,7 @@ func (o *DagOrchestrator) restoreDag(snap orchestrator.DagSnapshot) error {
 			}
 			if targetState != restoredState && fsm.CanTransitionTo(targetState) {
 				_ = fsm.Transition(targetState, orchestrator.TransitionContext{
-					Reason:      "restart recovery via onRestart policy",
+					Reason:      "restart recovery: transitioning to PAUSED (service restart)",
 					TriggeredBy: "system",
 				})
 				o.logger.Info("Restart recovery transition", "dagId", snap.DagID, "nodeId", ns.NodeID, "from", restoredState, "to", targetState)

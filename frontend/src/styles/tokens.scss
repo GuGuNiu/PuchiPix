@@ -111,6 +111,9 @@
   --text-muted: #94a3b8;
   --text-inverse: #ffffff;
 
+  // ─── Inverse Background (tooltip / floating label) ───
+  --bg-inverse: #1e293b;
+
   // ─── Accent (璀璨黑) ───
   --accent: #0f0f1a;
   --accent-hover: #050508;
@@ -130,6 +133,41 @@
   --info-soft: #eff6ff;
   --purple: #9333ea;
   --purple-soft: #faf5ff;
+
+  // ─── Hover Variants ───
+  --danger-hover: #b91c1c;
+  --warning-hover: #b45309;
+
+  // ─── Status Pills (state indicators, white text on colored bg) ───
+  --status-pending: #64748b;
+  --status-scrape-pending: #0891b2;
+  --status-scraping: #0ea5e9;
+  --status-download-pending: #4f6e9e;
+  --status-downloading: #3b82f6;
+  --status-paused: #f59e0b;
+  --status-completed: #22c55e;
+  --status-partial: #f59e0b;
+  --status-failed: #ef4444;
+  --status-cancelled: #94a3b8;
+  --status-transcoding: #8b5cf6;
+
+  // ─── Chip Colors (search page tags) ───
+  --chip-category-fg: #3b82f6;
+  --chip-category-bg: rgba(59, 130, 246, 0.12);
+  --chip-tag-fg: #9333ea;
+  --chip-tag-bg: rgba(168, 85, 247, 0.12);
+  --chip-actor-fg: #ec4899;
+  --chip-actor-bg: rgba(236, 72, 153, 0.12);
+
+  // ─── Overlay Scrim (modal / popover backdrop) ───
+  --overlay-scrim: rgba(15, 23, 42, 0.4);
+
+  // ─── Nav Active/Hover Effects ───
+  --nav-hover-border: rgba(15, 15, 26, 0.06);
+  --nav-hover-shadow: 0 2px 8px rgba(15, 15, 26, 0.04);
+  --nav-active-border: rgba(255, 255, 255, 0.1);
+  --nav-active-shadow: 0 4px 12px rgba(15, 15, 26, 0.18), 0 1px 3px rgba(15, 15, 26, 0.12);
+  --nav-icon-glow: rgba(255, 255, 255, 0.3);
 
   // ─── Neon Highlights (Ops 面板专用) ───
   --neon-cyan: #0891b2;
@@ -223,6 +261,9 @@
   --text-muted: #4a4d63;
   --text-inverse: #06060a;
 
+  // ─── Inverse Background (tooltip / floating label) ───
+  --bg-inverse: #1a1a2e;
+
   --accent: #818cf8;
   --accent-hover: #a5b4fc;
   --accent-light: #6366f1;
@@ -240,6 +281,41 @@
   --info-soft: rgba(14, 165, 233, 0.14);
   --purple: #a855f7;
   --purple-soft: rgba(168, 85, 247, 0.14);
+
+  // ─── Hover Variants (brighter on dark) ───
+  --danger-hover: #f87171;
+  --warning-hover: #fbbf24;
+
+  // ─── Status Pills (brighter on dark backgrounds) ───
+  --status-pending: #64748b;
+  --status-scrape-pending: #06b6d4;
+  --status-scraping: #38bdf8;
+  --status-download-pending: #6366f1;
+  --status-downloading: #60a5fa;
+  --status-paused: #fbbf24;
+  --status-completed: #4ade80;
+  --status-partial: #fbbf24;
+  --status-failed: #f87171;
+  --status-cancelled: #94a3b8;
+  --status-transcoding: #a78bfa;
+
+  // ─── Chip Colors (lighter shades for dark mode) ───
+  --chip-category-fg: #60a5fa;
+  --chip-category-bg: rgba(59, 130, 246, 0.15);
+  --chip-tag-fg: #c084fc;
+  --chip-tag-bg: rgba(168, 85, 247, 0.15);
+  --chip-actor-fg: #f472b6;
+  --chip-actor-bg: rgba(236, 72, 153, 0.15);
+
+  // ─── Overlay Scrim (stronger on dark) ───
+  --overlay-scrim: rgba(0, 0, 0, 0.6);
+
+  // ─── Nav Active/Hover Effects (accent-tinted on dark) ───
+  --nav-hover-border: rgba(129, 140, 248, 0.08);
+  --nav-hover-shadow: 0 2px 8px rgba(129, 140, 248, 0.06);
+  --nav-active-border: rgba(129, 140, 248, 0.2);
+  --nav-active-shadow: 0 4px 12px rgba(129, 140, 248, 0.18), 0 1px 3px rgba(129, 140, 248, 0.12);
+  --nav-icon-glow: rgba(129, 140, 248, 0.4);
 
   --neon-cyan: #06b6d4;
   --neon-cyan-glow: rgba(6, 182, 212, 0.5);

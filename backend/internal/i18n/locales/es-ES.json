@@ -664,7 +664,8 @@
   "api.gallery.unsupportedScrape": "El sitio {site} no admite el raspado de galerías",
   "api.gallery.allDomainsFailed": "Todos los dominios fallaron al raspar",
   "api.tasks.multipleM3u8Detected": "Se detectaron {count} direcciones M3U8, seleccione",
-  "api.tasks.unsupportedListScrape": "El proveedor no admite el raspado de páginas de lista",
+  "api.tasks.unsupportedListScrape": "El proveedor no admite el scraping de páginas de lista",
+  "api.tasks.unrecognizedUrl": "No se puede determinar el tipo de tarea para esta URL. Verifique que sea una dirección de galería o video válida",
   "api.characterDb.syncRunning": "La tarea de sincronización ya está en ejecución",
   "api.common.internalError": "Error interno del servidor",
   "api.common.missingParams": "Faltan parámetros obligatorios: {params}",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Error al cancelar la tarea",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

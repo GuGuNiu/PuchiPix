@@ -11,10 +11,11 @@ import (
 // SiteRegistry manages provider registration and URL-based provider lookup,
 // serving as the central routing layer for all site-specific operations.
 type SiteRegistry struct {
-	mu        sync.RWMutex
-	providers map[string]SiteProvider
-	modules   map[string]SiteModuleConfig
-	logger    *infra.Logger
+	mu            sync.RWMutex
+	providers     map[string]SiteProvider
+	providerOrder []string // ordered list of provider IDs, maintaining registration order for deterministic lookup
+	modules       map[string]SiteModuleConfig
+	logger        *infra.Logger
 }
 
 // NewSiteRegistry creates an empty registry with a logger for diagnostics.
@@ -27,10 +28,17 @@ func NewSiteRegistry() *SiteRegistry {
 }
 
 // Register adds a provider to the registry, keyed by its SiteID.
+// Providers are stored in registration order for deterministic
+// GetProviderByUrl lookup — the first registered provider whose
+// CanHandle matches wins.
 func (r *SiteRegistry) Register(p SiteProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.providers[p.SiteID()] = p
+	id := p.SiteID()
+	if _, exists := r.providers[id]; !exists {
+		r.providerOrder = append(r.providerOrder, id)
+	}
+	r.providers[id] = p
 }
 
 // GetProvider returns the provider registered under the given site ID.
@@ -42,24 +50,31 @@ func (r *SiteRegistry) GetProvider(id string) (SiteProvider, bool) {
 }
 
 // GetProviderByUrl finds the first provider whose CanHandle matches the URL.
+// Iterates providers in registration order for deterministic results —
+// earlier-registered providers take priority over later ones. This avoids
+// the non-deterministic behavior of Go map iteration.
 func (r *SiteRegistry) GetProviderByUrl(rawURL string) (SiteProvider, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, p := range r.providers {
-		if p.CanHandle(rawURL) {
+	for _, id := range r.providerOrder {
+		if p, ok := r.providers[id]; ok && p.CanHandle(rawURL) {
 			return p, true
 		}
 	}
 	return nil, false
 }
 
-// GetAllProviders returns a slice of all registered providers.
+// GetAllProviders returns a slice of all registered providers in
+// registration order, ensuring deterministic output for consumers
+// that iterate over all providers (e.g., CLI diagnostics).
 func (r *SiteRegistry) GetAllProviders() []SiteProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]SiteProvider, 0, len(r.providers))
-	for _, p := range r.providers {
-		result = append(result, p)
+	for _, id := range r.providerOrder {
+		if p, ok := r.providers[id]; ok {
+			result = append(result, p)
+		}
 	}
 	return result
 }

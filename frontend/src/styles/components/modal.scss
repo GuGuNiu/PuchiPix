@@ -6,7 +6,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--overlay-scrim);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -353,8 +353,8 @@
   }
 
   &.stat-detected {
-    border-color: rgba(16, 185, 129, 0.25);
-    background: rgba(16, 185, 129, 0.06);
+    border-color: var(--success);
+    background: var(--success-soft);
 
     .stat-icon { color: var(--success); }
     .stat-value { color: var(--success); }

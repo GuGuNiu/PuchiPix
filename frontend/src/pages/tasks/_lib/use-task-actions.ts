@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { toast } from "@/lib/i18n/toast";
-import type { DownloadTask } from "@/types";
+import type { DownloadTask, TaskStatus } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import { actionLabel, type TranslateFunction } from "./task-helpers";
 
@@ -192,6 +192,22 @@ export function useTaskActions({
         }
         const res = await fetch(endpoint, fetchOpts);
         if (!res.ok) throw new Error(await res.text());
+
+        /*
+         * Optimistic UI update: immediately reflect the new status in
+         * the task list instead of waiting for the next SSE event
+         * (which may be delayed by backend work such as domain
+         * switching, DAG scheduling, etc.). The SSE stream will
+         * eventually correct any discrepancy.
+         */
+        const optimistic = computeOptimisticStatus(task, action);
+        if (optimistic) {
+          useTaskStore.getState().updateTask(
+            task.ID,
+            isGallery ? "gallery" : isSniff ? "sniff" : "video",
+            optimistic,
+          );
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.error(msg);
@@ -199,6 +215,39 @@ export function useTaskActions({
     },
     [t]
   );
+
+  /*
+   * computeOptimisticStatus returns the immediate UI state change for
+   * a given action, so the user sees instant feedback without waiting
+   * for the backend to emit the first progress event. Returns null if
+   * no optimistic update applies.
+   */
+  function computeOptimisticStatus(
+    task: DownloadTask,
+    action: string,
+  ): { Status: TaskStatus; AllowedActions: string[] } | null {
+    const isGallery = task.TaskType === "gallery";
+    const hasScraped = (task.ImageCount ?? 0) > 0 || (task.VideoCount ?? 0) > 0;
+
+    switch (action) {
+      case "start":
+      case "retry":
+      case "resume":
+        if (isGallery) {
+          // Gallery tasks: scraped results mean download phase, else scrape phase.
+          const status: TaskStatus = hasScraped ? "download_pending" : "scraping";
+          return { Status: status, AllowedActions: ["pause", "delete"] };
+        }
+        // Video / sniff tasks enter pending (waiting for slot).
+        return { Status: "pending", AllowedActions: ["pause", "delete"] };
+
+      case "pause":
+        return { Status: "paused", AllowedActions: ["start", "delete"] };
+
+      default:
+        return null;
+    }
+  }
 
   const handleDelete = useCallback(
     async (task: DownloadTask) => {
@@ -304,6 +353,19 @@ export function useTaskActions({
       if (applicable.length === 0) {
         toast.info(t("tasks.noApplicableTasks", { action: actionLabel(action, t), skipped }));
         return;
+      }
+
+      /*
+       * Batch optimistic update: immediately reflect the new status for
+       * all applicable tasks before the API calls resolve. This gives
+       * instant visual feedback for bulk operations.
+       */
+      for (const t of applicable) {
+        const tt = t.TaskType === "gallery" ? "gallery" : t.TaskType === "sniff" ? "sniff" : "video";
+        const optimistic = computeOptimisticStatus(t, action);
+        if (optimistic) {
+          useTaskStore.getState().updateTask(t.ID, tt, optimistic);
+        }
       }
 
       const results = await Promise.allSettled(

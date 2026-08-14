@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"golang.org/x/image/draw"
 )
@@ -125,8 +126,61 @@ func thumbnailCachePath(absPath string, width int) string {
 
 func queryWidth(r *http.Request) int {
 	v := r.URL.Query().Get("width")
-	if v == "" { return 0 }
+	if v == "" {
+		return 0
+	}
 	n, err := strconv.Atoi(v)
-	if err != nil || n <= 0 { return 0 }
+	if err != nil || n <= 0 {
+		return 0
+	}
 	return n
+}
+
+// resolveDataPath resolves a stored local path to an absolute filesystem
+// path that the API can serve. It handles three path formats that may
+// exist in the database:
+//
+//  1. Absolute paths (e.g. `e:\data\Github\PuchiPix\data\galleries\x\001.jpg`)
+//     — produced by wire_executors.go which joins an absolute dataDir.
+//  2. Paths prefixed with `data\` or `data/` (e.g. `data\galleries\x\001.jpg`)
+//     — the legacy TS-backend convention.
+//  3. Bare relative paths (e.g. `galleries\x\001.jpg`).
+//
+// The function strips any `data[/\\]` prefix, joins the remainder against
+// `../data` (the data directory relative to the backend CWD), and returns
+// the resolved absolute path. The returned path is guaranteed to be inside
+// the data directory; if resolution fails or the path escapes, an empty
+// string is returned.
+func resolveDataPath(storedPath string) string {
+	if storedPath == "" {
+		return ""
+	}
+
+	// Case 1: already absolute — verify it lives inside the data directory.
+	if filepath.IsAbs(storedPath) {
+		dataRoot, _ := filepath.Abs(filepath.Join("..", "data"))
+		abs := filepath.Clean(storedPath)
+		if strings.HasPrefix(filepath.ToSlash(abs)+"/", filepath.ToSlash(dataRoot)+"/") {
+			return abs
+		}
+		// Absolute but outside data/ — reject for safety.
+		return ""
+	}
+
+	// Case 2 & 3: relative paths — strip optional `data\` / `data/` prefix.
+	clean := strings.TrimPrefix(filepath.FromSlash(storedPath), "data"+string(filepath.Separator))
+	clean = strings.TrimPrefix(clean, "data/")
+
+	fullPath := filepath.Join("..", "data", clean)
+
+	// Verify the resolved file is inside data/.
+	abs, err := filepath.Abs(fullPath)
+	if err != nil {
+		return ""
+	}
+	dataRoot, _ := filepath.Abs(filepath.Join("..", "data"))
+	if !strings.HasPrefix(filepath.ToSlash(abs)+"/", filepath.ToSlash(dataRoot)+"/") {
+		return ""
+	}
+	return abs
 }

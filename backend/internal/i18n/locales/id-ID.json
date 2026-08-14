@@ -612,7 +612,8 @@
   "api.gallery.unsupportedScrape": "Situs {site} tidak mendukung ekstraksi galeri",
   "api.gallery.allDomainsFailed": "Semua domain gagal diekstrak",
   "api.tasks.multipleM3u8Detected": "Terdeteksi {count} alamat M3U8, silakan pilih",
-  "api.tasks.unsupportedListScrape": "Penyedia tidak mendukung ekstraksi halaman daftar",
+  "api.tasks.unsupportedListScrape": "Penyedia tidak mendukung pengambilan halaman daftar",
+  "api.tasks.unrecognizedUrl": "Tidak dapat menentukan jenis tugas untuk URL ini. Harap verifikasi bahwa ini adalah alamat galeri atau video yang valid",
   "api.common.internalError": "Kesalahan internal server",
   "api.common.missingParams": "Parameter wajib hilang: {params}",
   "api.gallery.noProviderForRescrape": "Penyedia galeri tidak ditemukan, tidak dapat mengekstrak ulang",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Gagal membatalkan tugas",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

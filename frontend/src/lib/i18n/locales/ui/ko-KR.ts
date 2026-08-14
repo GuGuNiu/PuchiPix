@@ -430,6 +430,7 @@ const koKR: TranslationDict = {
   "taskSettings.save": "저장",
   "taskSettings.loadFailed": "설정 로드 실패",
   "taskSettings.saveFailed": "설정 저장 실패",
+  "taskSettings.saved": "설정이 저장되었습니다",
 
   /* ─── 콘솔 로그 ─── */
   "console.noTaskLogs": "작업 로그 없음",

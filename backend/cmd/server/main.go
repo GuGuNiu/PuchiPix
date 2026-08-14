@@ -76,6 +76,19 @@ func main() {
 	var progressEngine *taskprogress.Engine
 	var videoTracker *taskprogress.VideoProgressTracker
 
+	// dlDefaults is declared outside the if-block so both the first
+	// (WireExecutors) and second (WithDownloadDefaults) if-database
+	// scopes can access it. Task-settings updates mutate this pointer
+	// at runtime to change gallery/video concurrency live.
+	dlDefaults := &downloader.DownloadDefaults{
+		MultiThread:            cfg.DownloadMultiThread,
+		Concurrency:            cfg.DownloadConcurrency,
+		MaxSpeed:               cfg.DownloadMaxSpeed,
+		MinFileSize:            cfg.DownloadMinFileSize,
+		GalleryImageConcurrent: cfg.GalleryImageConcurrent,
+		VideoMaxConcurrent:     cfg.VideoMaxConcurrent,
+	}
+
 	if database != nil {
 		logger.Info("Initializing DAG scheduler")
 
@@ -101,6 +114,10 @@ func main() {
 			titleParser.LoadModels(models)
 			logger.Info("Title parser loaded models", "count", len(models))
 		}
+		if netredModels, err := titleparser.LoadModelsFromJSON(resources.NetredJSON); err == nil {
+			titleParser.LoadModels(netredModels)
+			logger.Info("Title parser loaded netred models", "count", len(netredModels))
+		}
 		if entries, err := resources.GameFS.ReadDir("game"); err == nil {
 			totalChars := 0
 			for _, entry := range entries {
@@ -117,16 +134,7 @@ func main() {
 			logger.Info("Title parser loaded game characters", "count", totalChars)
 		}
 
-		// 4. Executor Registry ??routes node execution by key
 		exeReg = executors.NewRegistry()
-		dlDefaults := downloader.DownloadDefaults{
-			MultiThread:            cfg.DownloadMultiThread,
-			Concurrency:            cfg.DownloadConcurrency,
-			MaxSpeed:               cfg.DownloadMaxSpeed,
-			MinFileSize:            cfg.DownloadMinFileSize,
-			GalleryImageConcurrent: cfg.GalleryImageConcurrent,
-			VideoMaxConcurrent:     cfg.VideoMaxConcurrent,
-		}
 		orchestrator.WireExecutors(exeReg, siteReg, database, eventBus, titleParser, progressEngine, videoTracker, cfg.DataDir, dlDefaults)
 
 		// 4. Slot Pool ??concurrency control
@@ -134,23 +142,23 @@ func main() {
 		slotPool.RegisterType(slot.SlotTypeDefinition{
 			Key:        "scraping",
 			Label:      "Scraping",
-			DefaultMax: 3,
+			DefaultMax: 5,
 			Min:        1,
-			Max:        5,
+			Max:        50,
 		})
 		slotPool.RegisterType(slot.SlotTypeDefinition{
 			Key:        "download",
 			Label:      "Download",
 			DefaultMax: 5,
 			Min:        1,
-			Max:        10,
+			Max:        50,
 		})
 		slotPool.RegisterType(slot.SlotTypeDefinition{
 			Key:        "sniff",
 			Label:      "Sniff",
 			DefaultMax: 1,
 			Min:        1,
-			Max:        3,
+			Max:        10,
 		})
 
 		// 4b. Stream slot state changes over the EventBus so SSE clients
@@ -293,23 +301,24 @@ func main() {
 			logger.Error("DAG orchestrator init failed", err)
 		}
 
-		// 9b. Reactivate READY nodes that were restored from snapshots
-		// but never submitted to the scheduler's ReadyQueue. Without this
-		// call, any DAG whose nodes are in "ready" state after a server
-		// restart will be stuck forever — the scan timer only dispatches
-		// nodes already in the queue, but the queue is empty because
-		// SubmitDag → activateReadyNodes only runs for newly created DAGs.
-		// This is the root cause of 11 pending DAGs that never execute
-		// their scrape nodes after restart.
-		dagOrch.ReactivateReadyNodes(ctx)
+		// 9b. Per the design requirement, ALL unfinished tasks should
+		// transition to PAUSED on restart — no auto-execution. The
+		// onRestart policy in restoreDag (snapshot.go) handles the
+		// DAG-level state transitions (RUNNING/QUEUED/READY/etc. →
+		// PAUSED). We intentionally do NOT call ReactivateReadyNodes
+		// here, because that would immediately re-submit paused nodes
+		// for execution. The periodic auto-reactivation ticker (started
+		// below) only processes READY nodes, and since all restored
+		// nodes are PAUSED, it remains a no-op until the user manually
+		// starts or resumes tasks via the UI.
 
-		// 9c. Crash recovery: reset stale gallery and video statuses and
-		// auto-recreate DAGs for orphaned galleries. After a server crash,
-		// in-flight galleries are left with "downloading" or "scraped"
-		// status while their DAGs are lost from memory. This recovery
-		// step: (a) resets stale statuses to "pending", (b) recreates
-		// DAG pipelines for each reset gallery so the scheduler can pick
-		// them up on the next scan cycle.
+		// 9c. Crash recovery: reset stale gallery and video statuses to
+		// 'pending' so the user sees them as "等待中" in the UI. We do
+		// NOT auto-recreate DAGs — the user decides when to start each
+		// task. After a server crash, in-flight galleries are left with
+		// "downloading" or "scraped" status; this step resets them to
+		// "pending" and leaves DAG recreation to the user's "start"
+		// action.
 		{
 			recoveryCtx := context.Background()
 			staleStatuses := []string{"downloading", "scraped", "scraping"}
@@ -337,20 +346,11 @@ func main() {
 					logger.Info("Crash recovery: resetting stale galleries",
 						"status", staleStatus, "count", len(orphans))
 					for _, o := range orphans {
-						// Reset gallery status to pending.
+						// Reset gallery status to pending — do NOT recreate
+						// the DAG; the user starts it manually.
 						_, _ = database.Exec(recoveryCtx,
 							`UPDATE galleries SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 							o.id)
-
-						// Recreate DAG pipeline.
-						def := dag.NewDagFactory().NewGalleryPipeline(o.sourceURL, o.siteID, o.id)
-						if dagID, submitErr := dagOrch.SubmitDag(recoveryCtx, def); submitErr != nil {
-							logger.Warn("Crash recovery: DAG recreate failed",
-								"galleryId", o.id, "error", submitErr.Error())
-						} else {
-							logger.Info("Crash recovery: DAG recreated",
-								"galleryId", o.id, "dagId", dagID)
-						}
 					}
 				}
 			}
@@ -363,48 +363,9 @@ func main() {
 		// NOTE: Must include 'scraping' (identifying phase) — tasks
 		// crashed during identification were previously left stranded
 		// in 'scraping' because this query only covered
-		// 'downloading' + 'pending'. DAG recreation for these tasks
-		// happens later, AFTER the video executor is registered.
+		// 'downloading' + 'pending'.
 		_, _ = database.Exec(recoveryCtx,
 			`UPDATE download_tasks SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'pending', 'scraping')`)
-
-		// Second pass: recreate DAGs for "pending" galleries that lost
-			// their DAGs in the crash. These are tasks that were created but
-			// never started downloading — their DAGs are gone but their DB
-			// status is still "pending" and they're not covered by the stale
-			// status recovery above.
-			pendingRows, pqErr := database.Query(recoveryCtx,
-				`SELECT id, source_url, site_id FROM galleries WHERE status = 'pending'`)
-			if pqErr == nil {
-				type pendingOrphan struct {
-					id        int
-					sourceURL string
-					siteID    string
-				}
-				var pending []pendingOrphan
-				for pendingRows.Next() {
-					var po pendingOrphan
-					if scanErr := pendingRows.Scan(&po.id, &po.sourceURL, &po.siteID); scanErr == nil {
-						pending = append(pending, po)
-					}
-				}
-				pendingRows.Close()
-
-				if len(pending) > 0 {
-					logger.Info("Crash recovery: recreating DAGs for pending galleries",
-						"count", len(pending))
-					for _, po := range pending {
-						def := dag.NewDagFactory().NewGalleryPipeline(po.sourceURL, po.siteID, po.id)
-						if dagID, submitErr := dagOrch.SubmitDag(recoveryCtx, def); submitErr != nil {
-							logger.Warn("Crash recovery: pending DAG recreate failed",
-								"galleryId", po.id, "error", submitErr.Error())
-						} else {
-							logger.Info("Crash recovery: pending DAG recreated",
-								"galleryId", po.id, "dagId", dagID)
-						}
-					}
-				}
-			}
 		}
 
 		// 10. Start periodic scan + queue capacity sync
@@ -695,40 +656,13 @@ func main() {
 
 		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
 
-		// Post-executor-registration video DAG recovery. This must run
-		// AFTER the video:download executor is registered above — otherwise
-		// the scheduler dispatches video DAG nodes before the executor is
-		// available, causing "no executor registered for key: video:download"
-		// failures. The DB status reset (earlier in the crash recovery
-		// block) already marked these tasks 'pending'; this step recreates
-		// their DAGs so the scheduler can pick them up.
-		videoRecoveryCtx := context.Background()
-		videoStale, vErr := database.Query(videoRecoveryCtx,
-			`SELECT id FROM download_tasks WHERE status IN ('downloading', 'pending', 'scraping')`)
-		if vErr == nil {
-			var videoIDs []int
-			for videoStale.Next() {
-				var vid int
-				if scanErr := videoStale.Scan(&vid); scanErr == nil {
-					videoIDs = append(videoIDs, vid)
-				}
-			}
-			videoStale.Close()
-			if len(videoIDs) > 0 {
-				logger.Info("Post-executor video DAG recovery: recreating DAGs",
-					"count", len(videoIDs))
-				for _, vid := range videoIDs {
-					def := dag.NewDagFactory().NewVideoPipeline(vid)
-					if dagID, submitErr := dagOrch.SubmitDag(videoRecoveryCtx, def); submitErr != nil {
-						logger.Warn("Post-executor video DAG recovery: failed",
-							"taskId", vid, "error", submitErr.Error())
-					} else {
-						logger.Info("Post-executor video DAG recovery: recreated",
-							"taskId", vid, "dagId", dagID)
-					}
-				}
-			}
-		}
+		// Post-executor-registration video DAG recovery is intentionally
+		// skipped. Per the design requirement, unfinished tasks should
+		// remain in 'pending' status after restart — the user decides when
+		// to start each task via the UI. The DB status reset (earlier in
+		// the crash recovery block) already marked these tasks 'pending';
+		// no DAG recreation is needed because the user's "start" action
+		// will create a fresh DAG when ready.
 	}
 
 		// Progress engine and video tracker were created earlier during
@@ -738,6 +672,7 @@ func main() {
 		h.WithDag(dagOrch, sched, exeReg)
 		h.WithServices(ouoOrch, dm, siteReg)
 		h.WithProgressEngine(progressEngine, videoTracker)
+		h.WithDownloadDefaults(dlDefaults)
 	}
 
 	router := api.NewRouter(h)

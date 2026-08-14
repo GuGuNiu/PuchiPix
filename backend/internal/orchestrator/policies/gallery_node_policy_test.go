@@ -64,48 +64,31 @@ func TestGalleryNodePolicy_OnPause_Download(t *testing.T) {
 	}
 }
 
-// TestGalleryNodePolicy_OnRestart_Resumable verifies that resumableVerify
-// nodes with retryCount < 2 go to RESUME_VERIFY.
-func TestGalleryNodePolicy_OnRestart_Resumable(t *testing.T) {
-	ctx := orchestrator.StateMachineContext{
-		Definition: orchestrator.DagNodeDefinition{
-			Config: map[string]any{"resumableVerify": true},
-		},
-		RetryCount: 1,
+// TestGalleryNodePolicy_OnRestart_AlwaysPaused verifies that all
+// gallery nodes transition to PAUSED on restart, regardless of
+// resumableVerify config or retry count. Per the design requirement,
+// unfinished tasks should not auto-execute after restart.
+func TestGalleryNodePolicy_OnRestart_AlwaysPaused(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     map[string]any
+		retryCount int
+	}{
+		{"resumable with retries left", map[string]any{"resumableVerify": true}, 1},
+		{"resumable retries exhausted", map[string]any{"resumableVerify": true}, 2},
+		{"non-resumable", map[string]any{}, 0},
 	}
-	got := galleryOnRestart(ctx)
-	if got != orchestrator.NodeStateResumeVerify {
-		t.Fatalf("resumable node with retryCount<2 should go to RESUME_VERIFY, got %s", got)
-	}
-}
-
-// TestGalleryNodePolicy_OnRestart_RetryExhausted verifies that
-// resumableVerify nodes with retryCount >= 2 go to FAILED.
-func TestGalleryNodePolicy_OnRestart_RetryExhausted(t *testing.T) {
-	ctx := orchestrator.StateMachineContext{
-		Definition: orchestrator.DagNodeDefinition{
-			Config: map[string]any{"resumableVerify": true},
-		},
-		RetryCount: 2,
-	}
-	got := galleryOnRestart(ctx)
-	if got != orchestrator.NodeStateFailed {
-		t.Fatalf("resumable node with retryCount>=2 should go to FAILED, got %s", got)
-	}
-}
-
-// TestGalleryNodePolicy_OnRestart_NotResumable verifies that nodes
-// without resumableVerify go to FAILED on restart.
-func TestGalleryNodePolicy_OnRestart_NotResumable(t *testing.T) {
-	ctx := orchestrator.StateMachineContext{
-		Definition: orchestrator.DagNodeDefinition{
-			Config: map[string]any{},
-		},
-		RetryCount: 0,
-	}
-	got := galleryOnRestart(ctx)
-	if got != orchestrator.NodeStateFailed {
-		t.Fatalf("non-resumable node should go to FAILED, got %s", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := orchestrator.StateMachineContext{
+				Definition: orchestrator.DagNodeDefinition{Config: tt.config},
+				RetryCount: tt.retryCount,
+			}
+			got := galleryOnRestart(ctx)
+			if got != orchestrator.NodeStatePaused {
+				t.Fatalf("node should go to PAUSED on restart, got %s", got)
+			}
+		})
 	}
 }
 

@@ -1,8 +1,8 @@
 {
   "stats": {
-    "total": 536,
+    "total": 537,
     "withAliases": 200,
-    "withPinyin": 536
+    "withPinyin": 537
   },
   "models": [
     {
@@ -3684,6 +3684,12 @@
     {
       "name": "绫地宁宁",
       "pinyin": "ling di ning ning",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "Xiaoyukiko小鱼",
+      "pinyin": "Xiaoyukiko xiao yu",
       "aliases": [],
       "category": "coser"
     }

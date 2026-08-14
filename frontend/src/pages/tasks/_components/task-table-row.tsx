@@ -136,7 +136,7 @@ export function TaskTableRow({
         </td>
         <td>
           {isSniff ? (
-            <span title={t("tasks.sniffTaskLabel")} style={{ color: "#6366f1" }}>
+            <span title={t("tasks.sniffTaskLabel")} style={{ color: "var(--accent-light)" }}>
               <Radar size={15} />
             </span>
           ) : isGallery ? (

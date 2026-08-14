@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 	"database/sql"
 
 	"backend/internal/db"
+	"backend/internal/downloader/video"
 	"backend/internal/i18n"
 )
 

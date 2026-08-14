@@ -426,6 +426,7 @@ const zhTW: TranslationDict = {
   "taskSettings.save": "儲存",
   "taskSettings.loadFailed": "載入設定失敗",
   "taskSettings.saveFailed": "儲存設定失敗",
+  "taskSettings.saved": "儲存成功",
 
   /* ─── 控制台日誌 ─── */
   "console.noTaskLogs": "暫無任務日誌",

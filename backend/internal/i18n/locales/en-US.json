@@ -122,6 +122,7 @@
   "api.tasks.queryFailed": "Failed to query tasks",
   "api.tasks.schedulerRequired": "Task actions require scheduler (Phase 3)",
   "api.tasks.unsupportedListScrape": "Provider does not support listing page scraping",
+  "api.tasks.unrecognizedUrl": "Unable to determine task type for this URL. Please verify it is a valid gallery or video address",
   "api.validation.galleryImageConcurrent": "Gallery image concurrency must be between 1 and 50",
   "api.validation.maxConcurrentTasks": "Max concurrent tasks must be between 1 and 50",
   "api.validation.maxScrapingSlots": "Max scraping slots must be between 1 and 50",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Failed to cancel task",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

@@ -17,22 +17,27 @@ import (
 const maxJitter = 200
 
 // defaultOnRestart returns the fallback target state for a node found in
-// RUNNING or VERIFYING after a service restart, when no policy onRestart
-// hook is installed. RUNNING nodes are re-schedulable so they go to READY;
-// VERIFYING nodes have no executor driving them so they go to FAILED
-// (the user can retry). This prevents the deadlocks identified in audit
-// S1/B1/B2 where restarted nodes stayed stranded in a non-progressing
-// state.
+// a non-terminal state after a service restart. Per the design requirement,
+// ALL unfinished tasks should transition to PAUSED on restart so the user
+// can decide when to resume them — no auto-execution should happen.
+//
+// Previously:
+//   - RUNNING → READY (auto-re-scheduled, causing uncontrolled execution)
+//   - VERIFYING → FAILED (user had to retry)
+//   - ALLOCATED → READY (auto-re-scheduled)
+//
+// Now: all non-terminal states → PAUSED, leaving the task in a
+// user-controllable "waiting" state. The user can resume via the UI.
 func defaultOnRestart(restoredState orchestrator.NodeState) orchestrator.NodeState {
 	switch restoredState {
-	case orchestrator.NodeStateRunning:
-		return orchestrator.NodeStateReady
-	case orchestrator.NodeStateVerifying:
-		return orchestrator.NodeStateFailed
-	case orchestrator.NodeStateAllocated:
-		// ALLOCATED means slots were acquired but the executor never
-		// started; safe to re-schedule.
-		return orchestrator.NodeStateReady
+	case orchestrator.NodeStateRunning,
+		orchestrator.NodeStateVerifying,
+		orchestrator.NodeStateAllocated,
+		orchestrator.NodeStateQueued,
+		orchestrator.NodeStateReady,
+		orchestrator.NodeStateResumeVerify,
+		orchestrator.NodeStateNeedsRetry:
+		return orchestrator.NodeStatePaused
 	default:
 		return restoredState
 	}

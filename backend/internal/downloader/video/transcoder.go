@@ -247,19 +247,30 @@ func TranscodeTSWithFallback(ctx context.Context, inputDir, outputPath string, o
 func transcodeCopyDirect(ctx context.Context, inputDir, outputPath string, opts TranscodeOptions) error {
 	// Reuse TranscodeTS with UseGPU=false
 	return TranscodeTS(ctx, inputDir, outputPath, TranscodeOptions{UseGPU: false})
+}
 
 // buildHWArgsForType builds ffmpeg args for a detected and verified GPU type.
+//
+// ffmpeg requires input-side options (e.g. -hwaccel) to appear BEFORE the
+// -i argument, and output-side options (e.g. -c:v, -preset, -vf) to appear
+// AFTER -i but BEFORE the output file. Mixing them between -i and the
+// output path causes "you are trying to apply an input option to an output
+// file or vice versa" errors.
 func buildHWArgsForType(gpu *GPUInfo, concatPath, outputPath string) []string {
-	hwArgs := gpu.GetHWAccelArgs()
+	inputArgs := gpu.GetHWInputArgs()
+	outputArgs := gpu.GetHWOutputArgs()
 
-	// Prepend concat demuxer input, append output
-	args := make([]string, 0, len(hwArgs)+6)
+	args := make([]string, 0, len(inputArgs)+len(outputArgs)+6)
+	// Input-side HW accel options must come before -i
+	args = append(args, inputArgs...)
+	// Concat demuxer input
 	args = append(args,
 		"-f", "concat",
 		"-safe", "0",
 		"-i", concatPath,
 	)
-	args = append(args, hwArgs...)
+	// Output-side encoder options must come after -i, before output path
+	args = append(args, outputArgs...)
 	args = append(args, "-y", outputPath)
 
 	return args

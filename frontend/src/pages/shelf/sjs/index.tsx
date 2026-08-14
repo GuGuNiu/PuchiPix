@@ -480,7 +480,7 @@ export default function SjsPage(): React.JSX.Element {
                           fontSize: 10,
                           padding: "2px 8px",
                           background: "rgba(0,0,0,0.6)",
-                          color: "#fff",
+                          color: "var(--text-inverse)",
                           border: "none",
                         }}
                       >

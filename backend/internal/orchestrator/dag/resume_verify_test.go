@@ -15,115 +15,152 @@ import (
 // timeNow is a tiny helper so snapshot tests can set a stable timestamp.
 func timeNow() time.Time { return time.Now() }
 
-// TestResumeVerifyActivationPassed verifies Phase 3 fix: a node stranded
-// in RESUME_VERIFY (produced by restoreDag's onRestart policy) is
-// re-driven by ReactivateReadyNodes. With no reconciler installed
-// (runVerification defaults to "passed"), the node must transition
-// RESUME_VERIFY -> COMPLETED.
-func TestResumeVerifyActivationPassed(t *testing.T) {
+// TestRestartRecovery_AllNonTerminalToPaused verifies that all non-terminal
+// node states are transitioned to PAUSED during restoreDag, per the design
+// requirement that unfinished tasks should not auto-execute after restart.
+func TestRestartRecovery_AllNonTerminalToPaused(t *testing.T) {
+	// Helper to build a snapshot whose node ends in the given state.
+	makeSnap := func(dagID string, finalState orchestrator.NodeState) orchestrator.DagSnapshot {
+		// Build a minimal history that ends in finalState.
+		// The exact path doesn't matter; only the last transition's To.
+		states := []orchestrator.NodeState{
+			orchestrator.NodeStatePending,
+			orchestrator.NodeStateReady,
+			orchestrator.NodeStateQueued,
+			orchestrator.NodeStateAllocated,
+			orchestrator.NodeStateRunning,
+		}
+		history := make([]orchestrator.StateTransitionRecord, 0, len(states))
+		prev := orchestrator.NodeStatePending
+		for _, s := range states {
+			if s == finalState {
+				break
+			}
+			history = append(history, orchestrator.StateTransitionRecord{
+				NodeID: "node-1", DagID: dagID, From: prev, To: s, Timestamp: timeNow(),
+			})
+			prev = s
+		}
+		// Add the final transition to finalState if not already there.
+		if prev != finalState {
+			history = append(history, orchestrator.StateTransitionRecord{
+				NodeID: "node-1", DagID: dagID, From: prev, To: finalState, Timestamp: timeNow(),
+			})
+		}
+		return orchestrator.DagSnapshot{
+			DagID:      dagID,
+			CreatedAt:  timeNow(),
+			Definition: newSimpleDagDef(dagID),
+			NodeStates: []orchestrator.NodeSnapshot{
+				{NodeID: "node-1", History: history},
+			},
+		}
+	}
+
+	// All non-terminal, non-PENDING states should be transitioned to PAUSED.
+	testStates := []orchestrator.NodeState{
+		orchestrator.NodeStateReady,
+		orchestrator.NodeStateQueued,
+		orchestrator.NodeStateAllocated,
+		orchestrator.NodeStateRunning,
+		orchestrator.NodeStateVerifying,
+		orchestrator.NodeStateResumeVerify,
+		orchestrator.NodeStateNeedsRetry,
+	}
+
+	for _, state := range testStates {
+		t.Run(string(state), func(t *testing.T) {
+			o1 := dag.NewDagOrchestrator(orchestrator.NewEventStore(nil, nil), &mockSlotPool{})
+			o1.SetScheduler(newMockScheduler(true))
+
+			dagID := "dag-" + string(state)
+			snap := makeSnap(dagID, state)
+			require.NoError(t, o1.RestoreDagForTest(snap))
+
+			// After restoration, the node must be in PAUSED.
+			status := o1.GetDagStatus(dagID)
+			require.NotNil(t, status)
+			require.Len(t, status.Nodes, 1)
+			assert.Equal(t, orchestrator.NodeStatePaused, status.Nodes[0].State,
+				"node in %s should be transitioned to PAUSED on restart", state)
+
+			// ReactivateReadyNodes must NOT re-submit the paused node.
+			o1.ReactivateReadyNodes(context.Background())
+
+			status = o1.GetDagStatus(dagID)
+			require.NotNil(t, status)
+			require.Len(t, status.Nodes, 1)
+			assert.Equal(t, orchestrator.NodeStatePaused, status.Nodes[0].State,
+				"PAUSED node must not be re-submitted by ReactivateReadyNodes")
+		})
+	}
+}
+
+// TestRestartRecovery_PendingStaysPending verifies that PENDING nodes are
+// left untouched (they haven't started yet and are already "waiting").
+func TestRestartRecovery_PendingStaysPending(t *testing.T) {
 	o1 := dag.NewDagOrchestrator(orchestrator.NewEventStore(nil, nil), &mockSlotPool{})
 	o1.SetScheduler(newMockScheduler(true))
 
-	// Craft a snapshot whose node history ends in RESUME_VERIFY (exactly
-	// what restoreDag produces when onRestart maps RUNNING/VERIFYING to
-	// RESUME_VERIFY with resumableVerify=true).
 	snap := orchestrator.DagSnapshot{
-		DagID:      "dag-RV",
+		DagID:      "dag-pending",
 		CreatedAt:  timeNow(),
-		Definition: newSimpleDagDef("dag-RV"),
+		Definition: newSimpleDagDef("dag-pending"),
 		NodeStates: []orchestrator.NodeSnapshot{
 			{
 				NodeID: "node-1",
 				History: []orchestrator.StateTransitionRecord{
-					{NodeID: "node-1", DagID: "dag-RV", From: orchestrator.NodeStatePending, To: orchestrator.NodeStateReady, Timestamp: timeNow()},
-					{NodeID: "node-1", DagID: "dag-RV", From: orchestrator.NodeStateReady, To: orchestrator.NodeStateQueued, Timestamp: timeNow()},
-					{NodeID: "node-1", DagID: "dag-RV", From: orchestrator.NodeStateQueued, To: orchestrator.NodeStateAllocated, Timestamp: timeNow()},
-					{NodeID: "node-1", DagID: "dag-RV", From: orchestrator.NodeStateAllocated, To: orchestrator.NodeStateRunning, Timestamp: timeNow()},
-					{NodeID: "node-1", DagID: "dag-RV", From: orchestrator.NodeStateRunning, To: orchestrator.NodeStateVerifying, Timestamp: timeNow()},
-					{NodeID: "node-1", DagID: "dag-RV", From: orchestrator.NodeStateVerifying, To: orchestrator.NodeStateResumeVerify, Timestamp: timeNow()},
+					{NodeID: "node-1", DagID: "dag-pending", From: orchestrator.NodeStatePending, To: orchestrator.NodeStatePending, Timestamp: timeNow()},
 				},
 			},
 		},
 	}
+	// RestoreFromSnapshot with empty history leaves the node in PENDING.
+	snap.NodeStates[0].History = nil
 	require.NoError(t, o1.RestoreDagForTest(snap))
 
-	// Before activation the node is stranded in RESUME_VERIFY.
-	status := o1.GetDagStatus("dag-RV")
+	status := o1.GetDagStatus("dag-pending")
 	require.NotNil(t, status)
 	require.Len(t, status.Nodes, 1)
-	assert.Equal(t, orchestrator.NodeStateResumeVerify, status.Nodes[0].State)
-
-	// ReactivateReadyNodes (the periodic scan) must drive verification.
-	o1.ReactivateReadyNodes(context.Background())
-
-	status = o1.GetDagStatus("dag-RV")
-	require.NotNil(t, status)
-	require.Len(t, status.Nodes, 1)
-	assert.Equal(t, orchestrator.NodeStateCompleted, status.Nodes[0].State,
-		"RESUME_VERIFY node must reach COMPLETED when verification passes")
+	assert.Equal(t, orchestrator.NodeStatePending, status.Nodes[0].State,
+		"PENDING node should remain PENDING after restart")
 }
 
-// TestResumeVerifyActivationNeedsRetry verifies the needs_retry path:
-// when the reconciler flags retry (scrape produced no rows), the
-// RESUME_VERIFY node is routed NEEDS_RETRY -> READY -> QUEUED and
-// re-submitted to the scheduler instead of being stranded or hard-failed.
-func TestResumeVerifyActivationNeedsRetry(t *testing.T) {
-	database := newTestDatabase(t)
-	o1 := dag.NewDagOrchestrator(orchestrator.NewEventStore(nil, nil), &mockSlotPool{})
-	sched := newMockScheduler(true)
-	o1.SetScheduler(sched)
-	o1.SetReconciler(orchestrator.NewStateReconciler(database))
-
-	// Scrape node with a galleryId that has no rows in the DB, so
-	// verifyScrapeNode returns needs_retry.
-	def := orchestrator.DagDefinition{
-		ID:       "dag-RV2",
-		TaskType: orchestrator.TaskTypeGallery,
-		Nodes: []orchestrator.DagNodeDefinition{
-			{
-				ID:       "scrape",
-				TaskType: orchestrator.TaskTypeGallery,
-				Phase:    orchestrator.PhaseScrape,
-				Executor: "scrape",
-				Priority: orchestrator.PriorityNormal,
-				Config:   map[string]any{"galleryId": 999999},
-			},
-		},
-		Metadata: orchestrator.DagMetadata{SourceURL: "https://example.com/rv2/1"},
+// TestRestartRecovery_TerminalStaysTerminal verifies that terminal states
+// (COMPLETED, FAILED, CANCELLED, TIMEOUT) are not transitioned.
+func TestRestartRecovery_TerminalStaysTerminal(t *testing.T) {
+	terminalStates := []orchestrator.NodeState{
+		orchestrator.NodeStateCompleted,
+		orchestrator.NodeStateFailed,
+		orchestrator.NodeStateCancelled,
+		orchestrator.NodeStateTimeout,
 	}
 
-	snap := orchestrator.DagSnapshot{
-		DagID:      "dag-RV2",
-		CreatedAt:  timeNow(),
-		Definition: def,
-		NodeStates: []orchestrator.NodeSnapshot{
-			{
-				NodeID: "scrape",
-				History: []orchestrator.StateTransitionRecord{
-					{NodeID: "scrape", DagID: "dag-RV2", From: orchestrator.NodeStatePending, To: orchestrator.NodeStateReady, Timestamp: timeNow()},
-					{NodeID: "scrape", DagID: "dag-RV2", From: orchestrator.NodeStateReady, To: orchestrator.NodeStateQueued, Timestamp: timeNow()},
-					{NodeID: "scrape", DagID: "dag-RV2", From: orchestrator.NodeStateQueued, To: orchestrator.NodeStateAllocated, Timestamp: timeNow()},
-					{NodeID: "scrape", DagID: "dag-RV2", From: orchestrator.NodeStateAllocated, To: orchestrator.NodeStateRunning, Timestamp: timeNow()},
-					{NodeID: "scrape", DagID: "dag-RV2", From: orchestrator.NodeStateRunning, To: orchestrator.NodeStateVerifying, Timestamp: timeNow()},
-					{NodeID: "scrape", DagID: "dag-RV2", From: orchestrator.NodeStateVerifying, To: orchestrator.NodeStateResumeVerify, Timestamp: timeNow()},
+	for _, state := range terminalStates {
+		t.Run(string(state), func(t *testing.T) {
+			o1 := dag.NewDagOrchestrator(orchestrator.NewEventStore(nil, nil), &mockSlotPool{})
+
+			dagID := "dag-" + string(state)
+			snap := orchestrator.DagSnapshot{
+				DagID:      dagID,
+				CreatedAt:  timeNow(),
+				Definition: newSimpleDagDef(dagID),
+				NodeStates: []orchestrator.NodeSnapshot{
+					{
+						NodeID: "node-1",
+						History: []orchestrator.StateTransitionRecord{
+							{NodeID: "node-1", DagID: dagID, From: orchestrator.NodeStateRunning, To: state, Timestamp: timeNow()},
+						},
+					},
 				},
-			},
-		},
+			}
+			require.NoError(t, o1.RestoreDagForTest(snap))
+
+			status := o1.GetDagStatus(dagID)
+			require.NotNil(t, status)
+			require.Len(t, status.Nodes, 1)
+			assert.Equal(t, state, status.Nodes[0].State,
+				"terminal state %s should not be transitioned on restart", state)
+		})
 	}
-	require.NoError(t, o1.RestoreDagForTest(snap))
-
-	o1.ReactivateReadyNodes(context.Background())
-
-	// needs_retry path: node goes RESUME_VERIFY -> NEEDS_RETRY -> READY
-	// -> QUEUED and is re-submitted to the scheduler.
-	status := o1.GetDagStatus("dag-RV2")
-	require.NotNil(t, status)
-	require.Len(t, status.Nodes, 1)
-	assert.Equal(t, orchestrator.NodeStateQueued, status.Nodes[0].State,
-		"needs_retry RESUME_VERIFY node must be re-submitted (QUEUED)")
-
-	sched.mu.Lock()
-	submitted := sched.submitted["dag-RV2:scrape"]
-	sched.mu.Unlock()
-	assert.True(t, submitted, "needs_retry node must reach the scheduler")
 }

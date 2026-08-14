@@ -41,7 +41,7 @@ var validTransitions = map[NodeState][]NodeState{
 	NodeStateResumeVerify: {NodeStateVerifying, NodeStateCompleted, NodeStateFailed, NodeStatePaused},
 	NodeStateCompleted:    {},
 	NodeStateFailed:       {NodeStateReady, NodeStateNeedsRetry},
-	NodeStateNeedsRetry:   {NodeStateReady},
+	NodeStateNeedsRetry:   {NodeStateReady, NodeStatePaused},
 	NodeStateCancelled:    {},
 	NodeStateTimeout:      {NodeStateReady},
 }

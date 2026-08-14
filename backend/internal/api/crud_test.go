@@ -200,21 +200,20 @@ func TestBlocklistDeleteInvalidId(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestTaskSettingsUpdateNoDB verifies that updating task settings without
-// a database returns a 503 error, because TaskSettingsUpdate delegates
-// to ConfigUpdate which has a nil-DB guard.
+// TestTaskSettingsUpdateNoDB verifies that updating task settings
+// without a database returns a 503 error (nil-DB guard).
 func TestTaskSettingsUpdateNoDB(t *testing.T) {
 	h := New(nil, infra.NewEventBus())
-	req := httptest.NewRequest("PUT", "/api/task-settings", strings.NewReader(`{"key":"test","value":"val"}`))
+	req := httptest.NewRequest("PUT", "/api/task-settings", strings.NewReader(`{"maxConcurrentTasks":3}`))
 	w := httptest.NewRecorder()
 	h.TaskSettingsUpdate(w, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
-// TestTaskSettingsUpdateMissingKey verifies that updating task settings
-// without a key returns 503 because the nil-DB guard fires first.
-func TestTaskSettingsUpdateMissingKey(t *testing.T) {
+// TestTaskSettingsUpdateNoFields verifies that a PUT with no recognised
+// settings fields returns 400 (keyRequired).
+func TestTaskSettingsUpdateNoFields(t *testing.T) {
 	h := New(nil, infra.NewEventBus())
 	req := httptest.NewRequest("PUT", "/api/task-settings", strings.NewReader(`{"value":"val"}`))
 	w := httptest.NewRecorder()

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"backend/internal/db"
-	"backend/internal/downloader/video"
 	"backend/internal/i18n"
 	"backend/internal/idgen"
 	"backend/internal/orchestrator/dag"
@@ -261,6 +260,55 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+// isM3U8URL checks whether a URL is likely an M3U8/HLS stream URL using
+// multiple detection signals rather than just the .m3u8 suffix. This
+// prevents false negatives where M3U8 URLs use non-standard extensions
+// or are embedded in query parameters.
+//
+// Detection signals (any match → true):
+//  1. Path ends with .m3u8 or .m3u (most common)
+//  2. Path contains /m3u8/ or /hls/ or /stream/ or /playlist/ segments
+//  3. Query parameters contain m3u8-related keys
+//  4. Known CDN domains that primarily serve HLS content
+func isM3U8URL(rawURL string) bool {
+	lower := strings.ToLower(rawURL)
+
+	// Signal 1: Standard M3U8/M3U file extensions.
+	if strings.HasSuffix(lower, ".m3u8") || strings.HasSuffix(lower, ".m3u") {
+		return true
+	}
+
+	// Signal 2: Path contains HLS-related segments.
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		pathLower := strings.ToLower(parsed.Path)
+		for _, seg := range []string{"/m3u8/", "/hls/", "/stream/", "/playlist/"} {
+			if strings.Contains(pathLower, seg) {
+				return true
+			}
+		}
+		// Signal 3: Query parameters hint at M3U8 content.
+		queryLower := strings.ToLower(parsed.RawQuery)
+		for _, key := range []string{"m3u8", "m3u", "hls", "playlist"} {
+			if strings.Contains(queryLower, key) {
+				return true
+			}
+		}
+	}
+
+	// Signal 4: Known HLS CDN domains (patterns that almost always serve M3U8).
+	knownCDNPatterns := []string{
+		".m3u8.", "hls.", "cdn", "11yun.space", "stream.",
+	}
+	for _, pattern := range knownCDNPatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // TaskCreate creates a new download task from the request body.
 func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
@@ -303,8 +351,10 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	//   2. Look up the site module config (type: "photo" | "video")
 	//   3. Only route to gallery/sniff pipeline if module type == "photo"
 	//   4. Video-type providers fall through to video task creation
-	if h.SiteReg != nil && !strings.HasSuffix(cleanedURL, ".m3u8") {
+	providerMatched := false
+	if h.SiteReg != nil && !isM3U8URL(cleanedURL) {
 		if provider, ok := h.SiteReg.GetProviderByUrl(cleanedURL); ok {
+			providerMatched = true
 			// Check the site module's type field to determine the
 			// correct task pipeline. This is the pre-processor that
 			// correctly assigns sub-processors based on site type.
@@ -336,6 +386,18 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 			// M3U8 sniffing, but the task should be treated as a video
 			// download, not a gallery task.
 		}
+	}
+
+	// Fallback detection: if the URL didn't match any known provider
+	// and isn't a recognizable M3U8/HLS stream URL, reject it instead
+	// of silently creating a video download task. This prevents users
+	// from accidentally submitting non-media URLs (e.g., random web
+	// pages) as download tasks.
+	//
+	// Per design spec (260725/01-03): "禁止无法识别→当普通下载任务处理"
+	if !providerMatched && !isM3U8URL(cleanedURL) && h.SiteReg != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unrecognizedUrl"))
+		return
 	}
 
 	if req.Format == "" {
@@ -917,6 +979,17 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "queued"})
 
 	case "pause":
+		// Route through DAG orchestrator for proper state management.
+		dagID := h.getTaskDagID(r.Context(), id)
+		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
+			if err := h.DagOrch.PauseDag(r.Context(), dagID); err != nil {
+				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.pauseFailed"))
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "paused"})
+			return
+		}
+		// Legacy fallback for tasks without DAG (e.g., pre-DAG tasks).
 		if err := h.DownloadMgr.PauseDownload(id); err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.pauseFailed"))
 			return
@@ -924,6 +997,17 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "paused"})
 
 	case "resume":
+		// Route through DAG orchestrator for proper state management.
+		dagID := h.getTaskDagID(r.Context(), id)
+		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
+			if err := h.DagOrch.ResumeDag(r.Context(), dagID, ""); err != nil {
+				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.resumeFailed"))
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "resumed"})
+			return
+		}
+		// Legacy fallback for tasks without DAG (e.g., pre-DAG tasks).
 		if err := h.DownloadMgr.ResumeDownload(id); err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.resumeFailed"))
 			return
@@ -931,6 +1015,17 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "resumed"})
 
 	case "cancel":
+		// Route through DAG orchestrator for proper state management and resource cleanup.
+		dagID := h.getTaskDagID(r.Context(), id)
+		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
+			if err := h.DagOrch.CancelDag(r.Context(), dagID); err != nil {
+				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.cancelFailed"))
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "cancelled"})
+			return
+		}
+		// Legacy fallback for tasks without DAG (e.g., pre-DAG tasks).
 		h.DownloadMgr.CancelDownload(id)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "cancelled"})
 
@@ -939,6 +1034,13 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.tasks.schedulerRequired"))
 			return
 		}
+
+		// ── Clean up cached files from the previous attempt ──
+		// Retry must start from a clean slate: delete the old MP4 output
+		// and the segments directory so stale/corrupt files don't cause
+		// the re-download to skip segments or fail at merge/transcode.
+		h.cleanupVideoTaskCache(r.Context(), id)
+
 		// Use RetryDag to reuse the existing DAG rather than CancelDag +
 		// SubmitDag, which creates a new DAG and has a race window between
 		// cancel and re-submit. RetryDag resets retry counts and
@@ -974,16 +1076,46 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 }
 
 // submitVideoDag builds a video download DAG via the centralized
-// DagFactory and submits it to the orchestrator. Falls back to the
-// legacy direct DownloadManager path when the DAG system is unavailable.
+// DagFactory and submits it to the orchestrator.
 func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 	if h.DagOrch == nil {
-		go h.DownloadMgr.StartDownload(r.Context(), video.DownloadTaskInput{ID: taskID})
-		return "", fmt.Errorf("DAG orchestrator not available, using legacy path")
+		return "", fmt.Errorf("DAG orchestrator not available")
 	}
 
 	def := dag.NewDagFactory().NewVideoPipeline(taskID)
 	return h.DagOrch.SubmitDag(r.Context(), def)
+}
+
+// cleanupVideoTaskCache deletes all cached files from a previous download
+// attempt so a retry starts from a clean slate. Removes:
+//   - The segments directory: data/segments/task_{id}/
+//   - The output MP4 file pointed to by file_path
+//
+// Also resets progress-related DB fields (progress, completed_segments,
+// total_segments, error_msg, m3u8_url) so the frontend doesn't show
+// stale data from the failed attempt.
+func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) {
+	// 1. Read file_path from DB before deleting (for MP4 cleanup).
+	var filePath string
+	_ = h.DB.QueryRow(ctx,
+		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", taskID).Scan(&filePath)
+
+	// 2. Delete the output MP4 file.
+	if filePath != "" {
+		_ = os.Remove(filePath)
+	}
+
+	// 3. Delete the segments directory: data/segments/task_{id}/
+	segmentsDir := filepath.Join("..", "data", "segments", fmt.Sprintf("task_%d", taskID))
+	_ = os.RemoveAll(segmentsDir)
+
+	// 4. Reset progress-related DB fields so stale data doesn't leak
+	// into the retry attempt's SSE events.
+	_, _ = h.DB.Exec(ctx,
+		`UPDATE download_tasks
+		 SET progress = 0, completed_segments = 0, total_segments = 0,
+		     error_msg = '', m3u8_url = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, taskID)
 }
 
 // FixGalleries is a temporary admin endpoint that resets failed/scraping
@@ -996,7 +1128,6 @@ func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	// 先查询受影响的画廊 ID，以便批量更新后逐个发射 SSE 事件
 	rows, err := h.DB.Query(ctx,
 		"SELECT id FROM galleries WHERE status IN ('failed', 'scraping')")
 	if err != nil {

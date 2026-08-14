@@ -613,6 +613,7 @@
   "api.gallery.allDomainsFailed": "Tous les domaines ont échoué à l'extraction",
   "api.tasks.multipleM3u8Detected": "{count} adresses M3U8 détectées, veuillez sélectionner",
   "api.tasks.unsupportedListScrape": "Le fournisseur ne supporte pas l'extraction de page de liste",
+  "api.tasks.unrecognizedUrl": "Impossible de déterminer le type de tâche pour cette URL. Veuillez vérifier qu'il s'agit d'une adresse de galerie ou de vidéo valide",
   "api.common.internalError": "Erreur interne du serveur",
   "api.common.missingParams": "Paramètres obligatoires manquants: {params}",
   "api.gallery.noProviderForRescrape": "Aucun fournisseur de galerie trouvé, impossible de re-scrapr",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Échec de l'annulation de la tâche",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

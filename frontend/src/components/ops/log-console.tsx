@@ -48,19 +48,19 @@ function flattenLogContext(raw: Record<string, unknown>): Record<string, unknown
 }
 
 const LEVEL_CONFIG = {
-  INFO: { icon: Info, color: "#2563eb", bg: "rgba(37, 99, 235, 0.08)", label: "INFO" },
-  WARN: { icon: AlertTriangle, color: "#d97706", bg: "rgba(217, 119, 6, 0.08)", label: "WARN" },
-  ERROR: { icon: XCircle, color: "#dc2626", bg: "rgba(220, 38, 38, 0.08)", label: "ERROR" },
-  DEBUG: { icon: Bug, color: "#7c3aed", bg: "rgba(124, 58, 237, 0.08)", label: "DEBUG" },
+  INFO: { icon: Info, color: "var(--info)", bg: "var(--info-soft)", label: "INFO" },
+  WARN: { icon: AlertTriangle, color: "var(--warning)", bg: "var(--warning-soft)", label: "WARN" },
+  ERROR: { icon: XCircle, color: "var(--danger)", bg: "var(--danger-soft)", label: "ERROR" },
+  DEBUG: { icon: Bug, color: "var(--purple)", bg: "var(--purple-soft)", label: "DEBUG" },
 } as const;
 
 type LogLevel = keyof typeof LEVEL_CONFIG;
 type FilterLevel = "all" | LogLevel;
 
 const CTX_COLORS = {
-  dag: "#3b82f6",
-  node: "#3b82f6",
-  trace: "#a855f7",
+  dag: "var(--info)",
+  node: "var(--info)",
+  trace: "var(--purple)",
 };
 
 export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Element {

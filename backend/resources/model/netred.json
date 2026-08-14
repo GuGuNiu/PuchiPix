@@ -1,0 +1,42 @@
+{
+  "stats": {
+    "total": 5,
+    "withAliases": 1,
+    "withPinyin": 5
+  },
+  "models": [
+    {
+      "name": "朱可儿",
+      "pinyin": "zhu ke er",
+      "aliases": [],
+      "category": "netred"
+    },
+    {
+      "name": "芝芝",
+      "pinyin": "zhi zhi",
+      "aliases": [],
+      "category": "netred"
+    },
+    {
+      "name": "徐安安",
+      "pinyin": "xu an an",
+      "aliases": [],
+      "category": "netred"
+    },
+    {
+      "name": "Emily顾奈奈酱",
+      "pinyin": "Emily gu nai nai jiang",
+      "aliases": [
+        "Emily",
+        "顾奈奈酱"
+      ],
+      "category": "netred"
+    },
+    {
+      "name": "杨晨晨",
+      "pinyin": "yang chen chen",
+      "aliases": [],
+      "category": "netred"
+    }
+  ]
+}

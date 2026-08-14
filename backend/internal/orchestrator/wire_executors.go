@@ -143,6 +143,63 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 			return nil, fmt.Errorf("provider %s does not implement GallerySiteProvider", provider.SiteID())
 		}
 
+		// ── Phase 1: Quick HTTP metadata sniff ──
+		// Fire a fast HTTP GET (5s timeout) to extract just the title
+		// and protagonist. If successful, persist them immediately so
+		// the frontend sees metadata within 1-2 seconds, even if the
+		// full scrape takes 30+ seconds (chromedp fallback).
+		//
+		// This eliminates the "识别中 with no metadata" UX problem:
+		// users see the task title and model name right away, while
+		// the full scrape (images, videos, multi-page traversal)
+		// continues in the background.
+		quickCtx, quickCancel := context.WithTimeout(ctx, 6*time.Second)
+		quickMeta, quickErr := universal.QuickMetadataScrape(quickCtx, pageURL)
+		quickCancel()
+		if quickErr != nil {
+			logger.Debug("Quick metadata scrape skipped (non-critical)",
+				"url", pageURL, "error", quickErr.Error())
+		}
+		if quickMeta != nil && database != nil && (quickMeta.Title != "" || quickMeta.Protagonist != "") {
+			// Resolve protagonist through the title parser if available.
+			protagonist := quickMeta.Protagonist
+			if titleParser != nil && quickMeta.Title != "" && protagonist == "" {
+				if parseResult := titleParser.Parse(quickMeta.Title); parseResult != nil && parseResult.Protagonist != "" {
+					protagonist = parseResult.Protagonist
+				}
+			}
+
+			_, err := database.Exec(ctx,
+				`UPDATE galleries SET
+					title = CASE WHEN COALESCE(title, '') = '' THEN ?1 ELSE title END,
+					protagonist = CASE WHEN COALESCE(protagonist, '') = '' THEN ?2 ELSE protagonist END,
+					updated_at = CURRENT_TIMESTAMP
+					WHERE source_url = ?3`,
+				quickMeta.Title, protagonist, pageURL)
+			if err != nil {
+				logger.Warn("Failed to persist quick metadata", "url", pageURL, "error", err.Error())
+			} else if quickMeta.Title != "" || protagonist != "" {
+				logger.Info("Quick metadata persisted (Phase 1 complete)",
+					"url", pageURL, "title", quickMeta.Title, "protagonist", protagonist)
+
+				// Emit SSE events so the frontend updates immediately.
+				if eventBus != nil {
+					var gid int
+					if qErr := database.QueryRow(ctx, `SELECT id FROM galleries WHERE source_url = ?`, pageURL).Scan(&gid); qErr == nil {
+						eventBus.Emit("task:metadata", map[string]any{
+							"taskId":       gid,
+							"taskType":     "gallery",
+							"GalleryTitle": quickMeta.Title,
+							"Person":       protagonist,
+							"ImageCount":   0,
+							"VideoCount":   0,
+						})
+					}
+				}
+			}
+		}
+
+		// ── Phase 2: Full content scrape ──
 		// Try HTTP scrape first (handles multi-page pagination), fall
 		// back to browser-based scrape if HTTP fails.
 		var result *sites.GalleryScrapeResult
@@ -206,13 +263,15 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 
 			_, err = database.Exec(ctx,
 				`UPDATE galleries SET
-					title = ?, protagonist = ?, description = ?,
-					category = ?, tags = ?, cover_url = ?,
-					image_count = ?, video_count = ?, page_count = ?,
-					expected_image_count = ?, expected_video_count = ?,
-					scraped_domain = ?, status = 'scraped',
+					title = CASE WHEN ?1 != '' THEN ?1 ELSE title END,
+					protagonist = CASE WHEN ?2 != '' THEN ?2 ELSE protagonist END,
+					description = ?3,
+					category = ?4, tags = ?5, cover_url = ?6,
+					image_count = ?7, video_count = ?8, page_count = ?9,
+					expected_image_count = ?10, expected_video_count = ?11,
+					scraped_domain = ?12, status = 'scraped',
 					scraped_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-					WHERE source_url = ?`,
+					WHERE source_url = ?13`,
 				result.Title, protagonist, description,
 				result.Category, tagsStr, result.CoverURL,
 				result.ImageCount, result.VideoCount, result.PageCount,
@@ -243,14 +302,14 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 							"failed":    0,
 							"status":    "scraped",
 						})
-					eventBus.Emit("task:metadata", map[string]any{
-						"taskId":       gid,
-						"taskType":     "gallery",
-						"GalleryTitle": result.Title,
-						"Person":       protagonist,
-						"ImageCount":   result.ImageCount,
-						"VideoCount":   result.VideoCount,
-					})
+						eventBus.Emit("task:metadata", map[string]any{
+							"taskId":       gid,
+							"taskType":     "gallery",
+							"GalleryTitle": result.Title,
+							"Person":       protagonist,
+							"ImageCount":   result.ImageCount,
+							"VideoCount":   result.VideoCount,
+						})
 					}
 				}
 			}
@@ -455,7 +514,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// lost during the Go migration.
 		if zipDownloaded := downloader.TryDownloadGalleryZip(ctx, database, galleryID, saveDir, logger, func(ctx context.Context, ouoURL string) (string, error) {
 			return NewOuoOrchestrator().Resolve(ctx, ouoURL)
-		}, dlDefaults); zipDownloaded {
+		}, *dlDefaults); zipDownloaded {
 			logger.Info("Gallery ZIP download completed, skipping page-by-page image download",
 				"galleryId", galleryID, "saveDir", saveDir)
 			_, _ = database.Exec(ctx,
@@ -860,4 +919,3 @@ func newExtractExecutor() *executors.ExtractExecutor {
 	}
 	return executors.NewExtractExecutor(fn)
 }
-

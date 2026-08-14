@@ -7,7 +7,7 @@
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(15, 23, 42, 0.25);
+  background: var(--overlay-scrim);
   animation: modalFadeIn 0.15s ease;
 }
 
@@ -203,12 +203,12 @@
 
 // ===== Failure Reason Card =====
 .failure-reason-card {
-  background: linear-gradient(135deg, var(--danger-soft) 0%, rgba(239, 68, 68, 0.08) 100%);
+  background: linear-gradient(135deg, var(--danger-soft) 0%, var(--danger-soft) 100%);
   border: 1px solid var(--danger-light, var(--danger));
   border-radius: var(--radius-md);
   overflow: hidden;
   animation: shake 0.5s ease;
-  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.12), 0 1px 3px rgba(239, 68, 68, 0.08);
+  box-shadow: var(--shadow-glow-danger);
 }
 
 @keyframes shake {
@@ -222,14 +222,14 @@
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: linear-gradient(90deg, var(--danger-light, var(--danger)) 0%, rgba(239, 68, 68, 0.15) 100%);
+  background: linear-gradient(90deg, var(--danger) 0%, var(--danger-soft) 100%);
   border-bottom: 1px solid var(--danger-light, var(--danger));
 }
 
 .failure-reason-icon {
   font-size: 18px;
   line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(239, 68, 68, 0.3));
+  filter: drop-shadow(0 1px 2px var(--danger));
 }
 
 .failure-reason-title {
@@ -247,7 +247,7 @@
   overflow-wrap: break-word;
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
   line-height: 1.7;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--inset-highlight-soft);
 
   strong,
   b {

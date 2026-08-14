@@ -508,13 +508,18 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
 
     unsubs.push(
       /*
-       * Task:cancelled — payload is only {taskId} (no taskType). Only
-       * act when a matching gallery exists in the current list.
-       * Was: "delete".
+       * Task:cancelled — backend payload carries {taskId, taskType}.
+       * Only act when taskType is "gallery" (or undefined for backward
+       * compatibility). Without this guard, a video task deletion
+       * (taskType: "video") with ID 3 would also remove gallery #3
+       * from the shelf list, because gallery and video task IDs
+       * overlap (both are auto-increment starting from 1).
        */
       subscribeSseEvent('task:cancelled', (e: MessageEvent) => {
         try {
-          const { taskId } = JSON.parse(e.data) as { taskId: number };
+          const raw = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          if (raw.taskType && raw.taskType !== 'gallery') return;
+          const { taskId } = raw;
           set((s) => {
             if (!s.galleries.some((g) => g.ID === taskId)) return s;
             return {

@@ -44,7 +44,7 @@
     color: var(--text-inverse);
 
     &:hover:not(:disabled) {
-      background: #b91c1c;
+      background: var(--danger-hover);
     }
   }
 
@@ -53,7 +53,7 @@
     color: var(--text-inverse);
 
     &:hover:not(:disabled) {
-      background: #b45309;
+      background: var(--warning-hover);
     }
   }
 

@@ -122,6 +122,7 @@
   "api.tasks.queryFailed": "查询任务失败",
   "api.tasks.schedulerRequired": "任务操作需要调度器（Phase 3）",
   "api.tasks.unsupportedListScrape": "Provider 不支持列表页爬取",
+  "api.tasks.unrecognizedUrl": "无法识别该 URL 的任务类型，请确认是否为有效的图库或视频地址",
   "api.validation.galleryImageConcurrent": "图库图片并发数必须在 1~50 之间",
   "api.validation.maxConcurrentTasks": "同时运行任务数必须在 1~50 之间",
   "api.validation.maxScrapingSlots": "识别中最大数量必须在 1~50 之间",
@@ -899,6 +900,7 @@
   "api.tasks.pauseFailed": "暂停任务失败",
   "api.tasks.resumeFailed": "恢复任务失败",
   "api.tasks.retryFailed": "重试任务失败",
+  "api.tasks.cancelFailed": "取消任务失败",
   "api.tasks.startFailed": "启动任务失败",
   "api.tasks.unknownAction": "未知操作"
 }

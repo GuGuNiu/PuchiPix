@@ -10,6 +10,12 @@ import (
 //go:embed model/coser.json
 var CoserJSON []byte
 
+// NetredJSON holds the pre-populated netred (网红模特) model database,
+// used for protagonist name recognition for internet-famous models.
+//
+//go:embed model/netred.json
+var NetredJSON []byte
+
 // GameFS embeds all per-game character JSON files under game/.
 // Each file contains a single game's metadata and character list,
 // making it easy to add or update individual games without

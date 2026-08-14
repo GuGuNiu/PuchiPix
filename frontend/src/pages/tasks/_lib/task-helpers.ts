@@ -27,7 +27,7 @@ export const FILTER_PILL_KEYS = [
 
 export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
   scraping: ["scraping", "scrape_pending", "pending"],
-  downloading: ["downloading", "download_pending"],
+  downloading: ["downloading", "download_pending", "transcoding"],
 };
 
 /*

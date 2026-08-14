@@ -62,31 +62,22 @@ func (h *Handlers) Scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If DAG orchestrator is available, route through it for proper
-	// slot pool concurrency control. Otherwise fall back to direct call
-	// for backward compatibility.
-	if h.DagOrch != nil {
-		dagID, err := h.submitScrapeDag(r, req.URL, provider.SiteID())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.scrape.failed"))
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"dagId":  dagID,
-			"status": "queued",
-			"url":    req.URL,
-		})
+	// Route through DAG orchestrator for proper slot pool concurrency control.
+	if h.DagOrch == nil {
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.scrape.notAvailable"))
 		return
 	}
 
-	// Legacy fallback: direct provider call (no DAG).
-	gp := provider.(sites.GallerySiteProvider)
-	result, err := gp.ScrapeGallery(r.Context(), req.URL)
+	dagID, err := h.submitScrapeDag(r, req.URL, provider.SiteID())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.scrape.failed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"dagId":  dagID,
+		"status": "queued",
+		"url":    req.URL,
+	})
 }
 
 // submitScrapeDag builds a scrape DAG via the DagFactory

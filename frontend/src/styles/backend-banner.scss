@@ -14,19 +14,19 @@
   justify-content: center;
   gap: 10px;
   padding: 8px 16px;
-  background: #ef4444;
-  color: white;
+  background: var(--danger);
+  color: var(--text-inverse);
   font-size: 13px;
   font-weight: 500;
 
   &-warn {
-    background: #f59e0b;
+    background: var(--warning);
   }
 
   &-retry {
     background: rgba(255, 255, 255, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.3);
-    color: white;
+    color: var(--text-inverse);
     padding: 3px 10px;
     border-radius: 4px;
     cursor: pointer;

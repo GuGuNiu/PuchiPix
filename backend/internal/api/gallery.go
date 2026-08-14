@@ -858,6 +858,12 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 // an existing DAG, or build a fresh pipeline (resume when scraped, full
 // otherwise) and submit it.
 func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, r *http.Request, id int) error {
+	// ── Clean up cached files from the previous attempt ──
+	// Retry must start from a clean slate: delete the old gallery folder
+	// (images/extracted ZIPs) and the ZIP archive so stale/corrupt files
+	// don't cause the re-download to skip files or fail verification.
+	h.cleanupGalleryCache(ctx, id)
+
 	dagID := h.getGalleryDagID(ctx, id)
 	if h.DagOrch != nil {
 		if dagID != "" {
@@ -918,6 +924,47 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 	h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "status": "pending"})
 	return nil
+}
+
+// cleanupGalleryCache deletes all cached files from a previous gallery
+// download attempt so a retry starts from a clean slate. Removes:
+//   - The gallery save directory (images + extracted ZIPs): data/galleries/{title}/
+//   - The downloaded ZIP archive from gallery_download_infos.local_path
+//
+// Also resets progress-related DB fields (downloaded_size, error_msg) and
+// resets gallery_images status to 'pending' so the download node re-fetches
+// them instead of skipping "already downloaded" files.
+func (h *Handlers) cleanupGalleryCache(ctx context.Context, galleryID int) {
+	// 1. Read save_path and ZIP local_path before deleting.
+	var savePath string
+	_ = h.DB.QueryRow(ctx,
+		"SELECT COALESCE(save_path, '') FROM galleries WHERE id = ?", galleryID).Scan(&savePath)
+
+	var zipLocalPath string
+	_ = h.DB.QueryRow(ctx,
+		"SELECT COALESCE(local_path, '') FROM gallery_download_infos WHERE gallery_id = ?", galleryID).
+		Scan(&zipLocalPath)
+
+	// 2. Delete the gallery save directory (images + extracted contents).
+	if savePath != "" {
+		_ = os.RemoveAll(savePath)
+	}
+
+	// 3. Delete the downloaded ZIP archive.
+	if zipLocalPath != "" {
+		_ = os.Remove(zipLocalPath)
+	}
+
+	// 4. Reset gallery_images status to 'pending' so the download node
+	// re-fetches them instead of skipping "already downloaded" files.
+	_, _ = h.DB.Exec(ctx,
+		"UPDATE gallery_images SET status = 'pending', error_msg = '' WHERE gallery_id = ?", galleryID)
+
+	// 5. Reset progress-related DB fields.
+	_, _ = h.DB.Exec(ctx,
+		`UPDATE galleries
+		 SET downloaded_size = 0, error_msg = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`, galleryID)
 }
 
 func scanGallery(rows *sql.Rows, g *db.Gallery) error {

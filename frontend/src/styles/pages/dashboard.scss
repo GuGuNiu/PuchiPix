@@ -139,7 +139,7 @@
 
     .quick-link-icon {
       transform: scale(1.08) rotate(-3deg);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      box-shadow: var(--shadow-lg);
     }
   }
 }

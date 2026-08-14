@@ -8,17 +8,9 @@ import (
 	"backend/internal/orchestrator"
 )
 
-// DagFactory is the centralized DAG blueprint builder that embodies the
-// "DAG厂长" design from 260718. Instead of each API handler manually
-// assembling DagDefinition structs, the factory provides typed builder
-// methods for each task type, ensuring consistent node IDs, phase
-// ordering, slot requirements, timeouts, and retry policies.
-//
-// Usage:
-//
-//	factory := NewDagFactory()
-//	def := factory.NewGalleryPipeline("https://...", "aimeizizi")
-//	dagID, err := orch.SubmitDag(ctx, def)
+// factory := NewDagFactory()
+// def := factory.NewGalleryPipeline("https://...", "aimeizizi")
+// dagID, err := orch.SubmitDag(ctx, def)
 type DagFactory struct{}
 
 // NewDagFactory creates a DAG blueprint factory.
@@ -26,21 +18,42 @@ func NewDagFactory() *DagFactory {
 	return &DagFactory{}
 }
 
+// SelectGalleryPipeline chooses the appropriate gallery pipeline based
+// on the current gallery state. This implements context-aware pipeline
+// selection to avoid the cascade failure pattern where a full pipeline
+// (with scrape) is used on a gallery that already has data, causing the
+// scrape node to fail immediately and cascade to downstream nodes.
+//
+// Selection logic:
+//   - "pending" / "scraping" → Full pipeline (scrape → download → extract → verify)
+//   - "completed" / "downloaded" / "partial" / "failed" → Resume pipeline (download → extract → verify)
+//   - unknown state → Full pipeline (safe default)
+func (f *DagFactory) SelectGalleryPipeline(url, providerID string, galleryID int, status string) orchestrator.DagDefinition {
+	switch status {
+	case "pending", "scraping":
+		return f.NewGalleryPipeline(url, providerID, galleryID)
+	case "completed", "downloaded", "partial", "failed":
+		return f.NewGalleryResumePipeline(galleryID)
+	default:
+		return f.NewGalleryPipeline(url, providerID, galleryID)
+	}
+}
+
 // dagBlueprint holds the pre-configured parameters for building a node
 // within a DAG pipeline, avoiding repeated hardcoded values across
 // handler implementations.
 type dagBlueprint struct {
-	nodeID       string
-	taskType     orchestrator.TaskType
-	phase        orchestrator.TaskPhase
-	deps         []string
-	executor     string
-	slotType     string
-	priority     orchestrator.TaskPriority
-	timeout      int
-	maxRetries   int
-	retryDelay   int
-	nonCritical  bool
+	nodeID      string
+	taskType    orchestrator.TaskType
+	phase       orchestrator.TaskPhase
+	deps        []string
+	executor    string
+	slotType    string
+	priority    orchestrator.TaskPriority
+	timeout     int
+	maxRetries  int
+	retryDelay  int
+	nonCritical bool
 }
 
 // NewGalleryPipeline builds the full 4-node gallery processing DAG:
@@ -55,51 +68,51 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:   fmt.Sprintf("sc-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseScrape,
-			deps:     []string{},
-			executor: "scrape",
-			slotType: "scraping",
-			priority: orchestrator.PriorityNormal,
-			timeout:  300000,
+			nodeID:     fmt.Sprintf("sc-%d", galleryID),
+			taskType:   orchestrator.TaskTypeGallery,
+			phase:      orchestrator.PhaseScrape,
+			deps:       []string{},
+			executor:   "scrape",
+			slotType:   "scraping",
+			priority:   orchestrator.PriorityNormal,
+			timeout:    300000,
 			maxRetries: 2,
 			retryDelay: 5000,
 		},
 		{
-			nodeID:   fmt.Sprintf("dl-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseDownload,
-			deps:     []string{fmt.Sprintf("sc-%d", galleryID)},
-			executor: "download",
-			slotType: "download",
-			priority: orchestrator.PriorityNormal,
-			timeout:  3600000,
+			nodeID:     fmt.Sprintf("dl-%d", galleryID),
+			taskType:   orchestrator.TaskTypeGallery,
+			phase:      orchestrator.PhaseDownload,
+			deps:       []string{fmt.Sprintf("sc-%d", galleryID)},
+			executor:   "download",
+			slotType:   "download",
+			priority:   orchestrator.PriorityNormal,
+			timeout:    3600000,
 			maxRetries: 3,
 			retryDelay: 30000,
 		},
 		{
-			nodeID:   fmt.Sprintf("ex-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseFinalize,
-			deps:     []string{fmt.Sprintf("dl-%d", galleryID)},
-			executor: "extract",
-			slotType: "",
-			priority: orchestrator.PriorityNormal,
-			timeout:  300000,
-			maxRetries: 2,
-			retryDelay: 10000,
+			nodeID:      fmt.Sprintf("ex-%d", galleryID),
+			taskType:    orchestrator.TaskTypeGallery,
+			phase:       orchestrator.PhaseFinalize,
+			deps:        []string{fmt.Sprintf("dl-%d", galleryID)},
+			executor:    "extract",
+			slotType:    "",
+			priority:    orchestrator.PriorityNormal,
+			timeout:     300000,
+			maxRetries:  2,
+			retryDelay:  10000,
 			nonCritical: true,
 		},
 		{
-			nodeID:   fmt.Sprintf("vf-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseFinalize,
-			deps:     []string{fmt.Sprintf("ex-%d", galleryID)},
-			executor: "verify",
-			slotType: "",
-			priority: orchestrator.PriorityNormal,
-			timeout:  60000,
+			nodeID:     fmt.Sprintf("vf-%d", galleryID),
+			taskType:   orchestrator.TaskTypeGallery,
+			phase:      orchestrator.PhaseFinalize,
+			deps:       []string{fmt.Sprintf("ex-%d", galleryID)},
+			executor:   "verify",
+			slotType:   "",
+			priority:   orchestrator.PriorityNormal,
+			timeout:    60000,
 			maxRetries: 1,
 			retryDelay: 5000,
 		},
@@ -147,39 +160,39 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:   fmt.Sprintf("dl-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseDownload,
-			deps:     []string{},
-			executor: "download",
-			slotType: "download",
-			priority: orchestrator.PriorityHigh, // 恢复任务用高优先级
-			timeout:  3600000,
+			nodeID:     fmt.Sprintf("dl-%d", galleryID),
+			taskType:   orchestrator.TaskTypeGallery,
+			phase:      orchestrator.PhaseDownload,
+			deps:       []string{},
+			executor:   "download",
+			slotType:   "download",
+			priority:   orchestrator.PriorityHigh, // 恢复任务用高优先级
+			timeout:    3600000,
 			maxRetries: 3,
 			retryDelay: 30000,
 		},
 		{
-			nodeID:   fmt.Sprintf("ex-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseFinalize,
-			deps:     []string{fmt.Sprintf("dl-%d", galleryID)},
-			executor: "extract",
-			slotType: "",
-			priority: orchestrator.PriorityNormal,
-			timeout:  300000,
-			maxRetries: 2,
-			retryDelay: 10000,
+			nodeID:      fmt.Sprintf("ex-%d", galleryID),
+			taskType:    orchestrator.TaskTypeGallery,
+			phase:       orchestrator.PhaseFinalize,
+			deps:        []string{fmt.Sprintf("dl-%d", galleryID)},
+			executor:    "extract",
+			slotType:    "",
+			priority:    orchestrator.PriorityNormal,
+			timeout:     300000,
+			maxRetries:  2,
+			retryDelay:  10000,
 			nonCritical: true,
 		},
 		{
-			nodeID:   fmt.Sprintf("vf-%d", galleryID),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseFinalize,
-			deps:     []string{fmt.Sprintf("ex-%d", galleryID)},
-			executor: "verify",
-			slotType: "",
-			priority: orchestrator.PriorityNormal,
-			timeout:  60000,
+			nodeID:     fmt.Sprintf("vf-%d", galleryID),
+			taskType:   orchestrator.TaskTypeGallery,
+			phase:      orchestrator.PhaseFinalize,
+			deps:       []string{fmt.Sprintf("ex-%d", galleryID)},
+			executor:   "verify",
+			slotType:   "",
+			priority:   orchestrator.PriorityNormal,
+			timeout:    60000,
 			maxRetries: 1,
 			retryDelay: 5000,
 		},
@@ -203,7 +216,6 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 	}
 }
 
-
 // NewScrapeTask builds a single-node scrape DAG for one-off gallery
 // scraping (preview/dry-run). This is the lightweight alternative to
 // the full pipeline used in the /api/scrape endpoint.
@@ -211,14 +223,14 @@ func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefin
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:   fmt.Sprintf("sc-%s-%d", providerID, time.Now().UnixMilli()),
-			taskType: orchestrator.TaskTypeGallery,
-			phase:    orchestrator.PhaseScrape,
-			deps:     []string{},
-			executor: "scrape",
-			slotType: "scraping",
-			priority: orchestrator.PriorityHigh,
-			timeout:  120000,
+			nodeID:     fmt.Sprintf("sc-%s-%d", providerID, time.Now().UnixMilli()),
+			taskType:   orchestrator.TaskTypeGallery,
+			phase:      orchestrator.PhaseScrape,
+			deps:       []string{},
+			executor:   "scrape",
+			slotType:   "scraping",
+			priority:   orchestrator.PriorityHigh,
+			timeout:    120000,
 			maxRetries: 2,
 			retryDelay: 5000,
 		},
@@ -243,14 +255,14 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:   fmt.Sprintf("vdl-%d", taskID),
-			taskType: orchestrator.TaskTypeVideo,
-			phase:    orchestrator.PhaseDownload,
-			deps:     []string{},
-			executor: "video:download",
-			slotType: "download",
-			priority: orchestrator.PriorityNormal,
-			timeout:  7200000,
+			nodeID:     fmt.Sprintf("vdl-%d", taskID),
+			taskType:   orchestrator.TaskTypeVideo,
+			phase:      orchestrator.PhaseDownload,
+			deps:       []string{},
+			executor:   "video:download",
+			slotType:   "download",
+			priority:   orchestrator.PriorityNormal,
+			timeout:    7200000,
 			maxRetries: 1,
 			retryDelay: 30000,
 		},
@@ -282,14 +294,14 @@ func (f *DagFactory) NewSniffPipeline(url string, taskID int) orchestrator.DagDe
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:   fmt.Sprintf("sn-%d", taskID),
-			taskType: orchestrator.TaskTypeSniff,
-			phase:    orchestrator.PhaseScrape,
-			deps:     []string{},
-			executor: "sniff",
-			slotType: "sniff",
-			priority: orchestrator.PriorityLow,
-			timeout:  300000,
+			nodeID:     fmt.Sprintf("sn-%d", taskID),
+			taskType:   orchestrator.TaskTypeSniff,
+			phase:      orchestrator.PhaseScrape,
+			deps:       []string{},
+			executor:   "sniff",
+			slotType:   "sniff",
+			priority:   orchestrator.PriorityLow,
+			timeout:    300000,
 			maxRetries: 3,
 			retryDelay: 15000,
 		},

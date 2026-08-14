@@ -394,19 +394,60 @@ func truncateLine(s string, maxLen int) string {
 // based on the detected GPU type. The returned args should be used when building
 // the ffmpeg command for transcoding with GPU acceleration.
 //
-// Strategy per GPU type:
-//
-//	NVENC:        -hwaccel cuda -hwaccel_output_format cuda -c:v h264_nvenc -preset p4 -tune ull -b:v 0
-//	QSV:          -hwaccel qsv -c:v h264_qsv -preset medium -global_quality 23
-//	VAAPI:        -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -c:v h264_vaapi
-//	AMF:          -hwaccel d3d11va -c:v h264_amf -quality speed -usage ultralowlatency
-//	VideoToolbox: -c:v h264_videotoolbox -realtime true -profile:v high
+// Deprecated: Use GetHWInputArgs and GetHWOutputArgs instead. This method
+// returned a flat slice that mixed input options (e.g. -hwaccel) and output
+// options (e.g. -c:v), which caused ffmpeg to reject the command when all
+// args were placed between -i and the output file. The split methods allow
+// the caller to position each group on the correct side of -i / output.
 func (gi *GPUInfo) GetHWAccelArgs() []string {
+	input := gi.GetHWInputArgs()
+	output := gi.GetHWOutputArgs()
+	result := make([]string, 0, len(input)+len(output))
+	result = append(result, input...)
+	result = append(result, output...)
+	return result
+}
+
+// GetHWInputArgs returns ffmpeg input-side options that must appear BEFORE
+// the -i argument (e.g. -hwaccel, -hwaccel_output_format, -vaapi_device).
+// These tell ffmpeg how to decode/deliver the input frames to the encoder.
+func (gi *GPUInfo) GetHWInputArgs() []string {
 	switch gi.Type {
 	case GPUTypeNVENC:
 		return []string{
 			"-hwaccel", "cuda",
 			"-hwaccel_output_format", "cuda",
+		}
+	case GPUTypeQSV:
+		return []string{
+			"-hwaccel", "qsv",
+		}
+	case GPUTypeVAAPI:
+		// -vaapi_device is a global/per-file option that must appear
+		// before -i so the VAAPI context is available during decode.
+		device := getVAAPIDevice()
+		return []string{
+			"-vaapi_device", device,
+		}
+	case GPUTypeAMF:
+		return []string{
+			"-hwaccel", "d3d11va",
+		}
+	case GPUTypeVideotoolbox:
+		// VideoToolbox has no input-side HW decode options.
+		return nil
+	default:
+		return nil
+	}
+}
+
+// GetHWOutputArgs returns ffmpeg output-side options that must appear AFTER
+// the -i argument and BEFORE the output file path (e.g. -c:v, -preset, -vf).
+// These configure the encoder and any output filters.
+func (gi *GPUInfo) GetHWOutputArgs() []string {
+	switch gi.Type {
+	case GPUTypeNVENC:
+		return []string{
 			"-c:v", gi.EncoderName,
 			"-preset", "p4",
 			"-tune", "ull",
@@ -416,23 +457,17 @@ func (gi *GPUInfo) GetHWAccelArgs() []string {
 		}
 	case GPUTypeQSV:
 		return []string{
-			"-hwaccel", "qsv",
 			"-c:v", gi.EncoderName,
 			"-preset", "medium",
 			"-global_quality", "23",
 		}
 	case GPUTypeVAAPI:
-		// VAAPI requires device node and filter_complex for upload
-		// Try common DRI device paths for compatibility
-		device := getVAAPIDevice()
 		return []string{
-			"-vaapi_device", device,
 			"-vf", "format=nv12,hwupload",
 			"-c:v", gi.EncoderName,
 		}
 	case GPUTypeAMF:
 		return []string{
-			"-hwaccel", "d3d11va",
 			"-c:v", gi.EncoderName,
 			"-quality", "speed",
 			"-usage", "ultralowlatency",

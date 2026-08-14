@@ -665,6 +665,7 @@
   "api.gallery.allDomainsFailed": "所有域名均爬取失敗",
   "api.tasks.multipleM3u8Detected": "偵測到 {count} 個 M3U8 位址，請選擇",
   "api.tasks.unsupportedListScrape": "Provider 不支援列表頁爬取",
+  "api.tasks.unrecognizedUrl": "無法識別該 URL 的任務類型，請確認是否為有效的圖庫或影片地址",
   "api.characterDb.syncRunning": "同步任務正在執行中",
   "api.common.internalError": "伺服器內部錯誤",
   "api.common.missingParams": "缺少必需參數: {params}",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "暫停任務失敗",
   "api.tasks.resumeFailed": "恢復任務失敗",
   "api.tasks.retryFailed": "重試任務失敗",
+  "api.tasks.cancelFailed": "取消任務失敗",
   "api.tasks.startFailed": "啟動任務失敗",
   "api.tasks.unknownAction": "未知操作"
 }

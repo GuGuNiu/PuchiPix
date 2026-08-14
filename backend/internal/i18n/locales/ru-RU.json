@@ -665,6 +665,7 @@
   "api.gallery.allDomainsFailed": "Не удалось выполнить сбор со всех доменов",
   "api.tasks.multipleM3u8Detected": "Обнаружено {count} адресов M3U8, выберите",
   "api.tasks.unsupportedListScrape": "Провайдер не поддерживает сбор страниц списка",
+  "api.tasks.unrecognizedUrl": "Не удалось определить тип задачи для этого URL. Проверьте, является ли он действительным адресом галереи или видео",
   "api.characterDb.syncRunning": "Задача синхронизации уже выполняется",
   "api.common.internalError": "Внутренняя ошибка сервера",
   "api.common.missingParams": "Отсутствуют обязательные параметры: {params}",
@@ -890,6 +891,7 @@
   "api.tasks.pauseFailed": "Failed to pause task",
   "api.tasks.resumeFailed": "Failed to resume task",
   "api.tasks.retryFailed": "Failed to retry task",
+  "api.tasks.cancelFailed": "Не удалось отменить задачу",
   "api.tasks.startFailed": "Failed to start task",
   "api.tasks.unknownAction": "Unknown action"
 }

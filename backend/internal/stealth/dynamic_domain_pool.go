@@ -3,6 +3,7 @@ package stealth
 import (
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"backend/internal/infra"
@@ -24,6 +25,10 @@ var poolLogger = infra.NewLogger("DynamicDomainPool")
 // DomainPool manages dynamic domain discovery for a single site provider.
 // It maintains a static domain list (from config) and optionally fetches
 // additional domains from a publisher URL, caching the result.
+//
+// DomainPool integrates with DomainHealthTracker to provide health-aware
+// domain ordering and with an atomic round-robin counter for load-balanced
+// domain selection across concurrent requests.
 type DomainPool struct {
 	mu             sync.RWMutex
 	siteID         string
@@ -34,24 +39,31 @@ type DomainPool struct {
 	fetching       bool
 	fetchCond      *sync.Cond
 	scraper        *DomainScraper
+	healthTracker  *DomainHealthTracker
+	rrCounter      atomic.Uint64
 }
 
 // NewDomainPool creates a domain pool for a site.
 // If publisherURL is empty, only static domains are used.
+// The pool integrates with the shared DomainHealthTracker singleton
+// for health-aware domain ordering and round-robin load balancing.
 func NewDomainPool(siteID string, staticDomains []string, publisherURL string) *DomainPool {
 	p := &DomainPool{
 		siteID:        siteID,
 		staticDomains: staticDomains,
 		publisherURL:  publisherURL,
 		scraper:       NewDomainScraper(),
+		healthTracker: GetDomainHealthTracker(),
 	}
 	p.fetchCond = sync.NewCond(&p.mu)
 	return p
 }
 
-// GetDomains returns the merged domain list (static + dynamically fetched).
-// If the cache has expired, it triggers a background refresh and returns
-// the cached result immediately (or static domains if cache is empty).
+// GetDomains returns the merged domain list (static + dynamically fetched),
+// ordered by health: healthy domains first (shuffled), then rate-limited
+// domains in cooldown order. If the cache has expired, it triggers a
+// background refresh and returns the cached result immediately (or static
+// domains if cache is empty).
 func (p *DomainPool) GetDomains() []string {
 	p.mu.RLock()
 	cacheValid := time.Since(p.lastFetch) < domainCacheTTL && len(p.cachedDomains) > 0
@@ -61,18 +73,23 @@ func (p *DomainPool) GetDomains() []string {
 	copy(static, p.staticDomains)
 	p.mu.RUnlock()
 
+	var merged []string
 	if cacheValid {
-		return p.mergeDomains(static, cached)
+		merged = p.mergeDomains(static, cached)
+	} else {
+		// Trigger background refresh if not already in progress
+		go p.refreshDomains()
+
+		// Return static domains merged with whatever cache we have (even if stale)
+		if len(cached) > 0 {
+			merged = p.mergeDomains(static, cached)
+		} else {
+			merged = static
+		}
 	}
 
-	// Trigger background refresh if not already in progress
-	go p.refreshDomains()
-
-	// Return static domains merged with whatever cache we have (even if stale)
-	if len(cached) > 0 {
-		return p.mergeDomains(static, cached)
-	}
-	return static
+	// Apply health-aware ordering: healthy domains first, cooling domains last.
+	return p.healthTracker.GetAllDomainsOrdered(merged)
 }
 
 // GetDomainsForceRefresh forces a synchronous refresh and returns the
@@ -240,6 +257,41 @@ func (p *DomainPool) SetStaticDomains(domains []string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.staticDomains = domains
+}
+
+// ==================== Health-Aware Domain Selection ====================
+
+// GetNextDomain returns the next domain using round-robin rotation among
+// all domains (not just healthy ones). The rotation is atomic and safe
+// for concurrent access. This provides load distribution across all
+// configured domains, while GetDomains() provides health-ordered list
+// for scenarios where priority matters.
+func (p *DomainPool) GetNextDomain() string {
+	domains := p.GetDomains()
+	if len(domains) == 0 {
+		return ""
+	}
+	idx := p.rrCounter.Add(1) % uint64(len(domains))
+	return domains[idx]
+}
+
+// GetBestDomain returns the single highest-priority healthy domain,
+// falling back to the first domain in the list if all are in cooldown.
+func (p *DomainPool) GetBestDomain() string {
+	return p.healthTracker.GetBestDomain(p.GetDomains())
+}
+
+// MarkDomainRateLimited records that a domain has been rate-limited,
+// starting its cooldown period. The domain will be deprioritized in
+// subsequent GetDomains() calls until the cooldown expires.
+func (p *DomainPool) MarkDomainRateLimited(domain string) {
+	p.healthTracker.MarkRateLimited(domain)
+}
+
+// MarkDomainHealthy removes a domain's rate-limit record, restoring it
+// to full priority in domain selection.
+func (p *DomainPool) MarkDomainHealthy(domain string) {
+	p.healthTracker.MarkHealthy(domain)
 }
 
 // ==================== Global Pool Registry ====================
