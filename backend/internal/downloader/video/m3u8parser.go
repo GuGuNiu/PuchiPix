@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/grafov/m3u8"
+
 	"backend/internal/downloader"
 	"backend/internal/infra"
 	"backend/internal/stealth"
@@ -153,68 +155,66 @@ func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer s
 
 // ParseM3U8 parses raw M3U8 text into a structured playlist, resolving
 // all segment and variant URIs against the base URL.
+//
+// Parsing is delegated to the mature community library grafov/m3u8
+// instead of a hand-written parser. The library handles master/media
+// playlist detection, EXT-X-STREAM-INF attribute parsing, encryption
+// tags, and other HLS edge cases that the previous hand-rolled loop did
+// not. The result is mapped onto the project's M3U8Segment /
+// M3U8Variant / M3U8Playlist types so all callers and the progress
+// engine are unaffected.
 func ParseM3U8(content, baseURL string) M3U8Playlist {
-	lines := strings.Split(content, "\n")
 	playlist := M3U8Playlist{
 		TargetDuration: 10,
 	}
 
-	segmentIndex := 0
-	var mediaSequence int // #EXT-X-MEDIA-SEQUENCE offset
-	var pendingDuration float64
-	var pendingVariant *M3U8Variant
+	pl, listType, err := m3u8.DecodeFrom(strings.NewReader(content), false)
+	if err != nil {
+		return playlist
+	}
 
-	for _, rawLine := range lines {
-		line := strings.TrimSpace(rawLine)
-
-		if line == "" || line == "#EXTM3U" {
-			continue
+	switch listType {
+	case m3u8.MASTER:
+		master, ok := pl.(*m3u8.MasterPlaylist)
+		if !ok {
+			return playlist
 		}
-
-		if strings.HasPrefix(line, "#EXTINF:") {
-			pendingDuration = parseExtInfDuration(line)
-			continue
-		}
-
-		if strings.HasPrefix(line, "#EXT-X-TARGETDURATION:") {
-			playlist.TargetDuration = parseIntAfterColon(line)
-			continue
-		}
-
-		if strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE:") {
-			mediaSequence = parseIntAfterColon(line)
-			continue
-		}
-
-		if strings.HasPrefix(line, "#EXT-X-STREAM-INF:") {
-			playlist.IsMaster = true
-			pendingVariant = &M3U8Variant{
-				Resolution: extractAttr(line, "RESOLUTION="),
-				Bandwidth:  extractBandwidth(line),
+		playlist.IsMaster = true
+		for _, v := range master.Variants {
+			if v == nil {
+				continue
 			}
-			continue
-		}
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if playlist.IsMaster && pendingVariant != nil {
-			full := resolveURI(line, baseURL)
-			pendingVariant.URI = line
-			pendingVariant.FullURI = full
-			playlist.Variants = append(playlist.Variants, *pendingVariant)
-			pendingVariant = nil
-		} else if !playlist.IsMaster {
-			full := resolveURI(line, baseURL)
-			playlist.Segments = append(playlist.Segments, M3U8Segment{
-				URI:      line,
-				FullURI:  full,
-				Duration: pendingDuration,
-				Index:    mediaSequence + segmentIndex,
+			full := resolveURI(v.URI, baseURL)
+			playlist.Variants = append(playlist.Variants, M3U8Variant{
+				URI:        v.URI,
+				FullURI:    full,
+				Resolution: v.Resolution,
+				Bandwidth:  int(v.Bandwidth),
 			})
-			segmentIndex++
-			pendingDuration = 0
+		}
+	case m3u8.MEDIA:
+		media, ok := pl.(*m3u8.MediaPlaylist)
+		if !ok {
+			return playlist
+		}
+		if media.TargetDuration > 0 {
+			playlist.TargetDuration = int(media.TargetDuration)
+		}
+		seqOffset := int(media.SeqNo)
+		for i, seg := range media.Segments {
+			if seg == nil {
+				continue
+			}
+			full := resolveURI(seg.URI, baseURL)
+			// Index is the media sequence offset. It must be unique per
+			// segment because it is used as the key for progress tracking
+			// (CompletedSegments / FailedSegments) and TSID generation.
+			playlist.Segments = append(playlist.Segments, M3U8Segment{
+				URI:      seg.URI,
+				FullURI:  full,
+				Duration: seg.Duration,
+				Index:    seqOffset + i,
+			})
 		}
 	}
 
@@ -238,65 +238,4 @@ func SelectBestVariant(variants []M3U8Variant) string {
 		}
 	}
 	return best.FullURI
-}
-
-func parseExtInfDuration(line string) float64 {
-	colon := strings.IndexByte(line, ':')
-	if colon < 0 {
-		return 0
-	}
-	rest := strings.TrimSpace(line[colon+1:])
-	comma := strings.IndexByte(rest, ',')
-	if comma >= 0 {
-		rest = rest[:comma]
-	}
-	var dur float64
-	if _, err := fmt.Sscanf(rest, "%f", &dur); err != nil {
-		return 0
-	}
-	return dur
-}
-
-func parseIntAfterColon(line string) int {
-	colon := strings.IndexByte(line, ':')
-	if colon < 0 {
-		return 0
-	}
-	rest := strings.TrimSpace(line[colon+1:])
-	var n int
-	if _, err := fmt.Sscanf(rest, "%d", &n); err != nil {
-		return 0
-	}
-	return n
-}
-
-func extractAttr(line, prefix string) string {
-	idx := strings.Index(line, prefix)
-	if idx < 0 {
-		return ""
-	}
-	start := idx + len(prefix)
-	rest := line[start:]
-	if comma := strings.IndexByte(rest, ','); comma >= 0 {
-		return rest[:comma]
-	}
-	return strings.TrimSpace(rest)
-}
-
-func extractBandwidth(line string) int {
-	const prefix = "BANDWIDTH="
-	idx := strings.Index(line, prefix)
-	if idx < 0 {
-		return 0
-	}
-	start := idx + len(prefix)
-	rest := line[start:]
-	if comma := strings.IndexByte(rest, ','); comma >= 0 {
-		rest = rest[:comma]
-	}
-	var n int
-	if _, err := fmt.Sscanf(strings.TrimSpace(rest), "%d", &n); err != nil {
-		return 0
-	}
-	return n
 }

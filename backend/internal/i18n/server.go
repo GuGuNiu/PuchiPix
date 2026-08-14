@@ -4,6 +4,10 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"strings"
+	"sync"
+
+	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
 type localeCtxKey struct{}
@@ -49,37 +53,69 @@ func interpolate(template string, params map[string]string) string {
 	})
 }
 
+// localizerCache caches a go-i18n Localizer per locale. Localizers are
+// built against the shared bundle and fall back to the default locale,
+// mirroring the previous locale -> zh-CN -> raw-key fallback chain.
+var localizerCache = struct {
+	sync.Mutex
+	m map[string]*i18n.Localizer
+}{m: make(map[string]*i18n.Localizer)}
+
+func getLocalizer(locale string) *i18n.Localizer {
+	if locale == "" {
+		locale = DefaultLocale
+	}
+
+	localizerCache.Lock()
+	defer localizerCache.Unlock()
+	if l, ok := localizerCache.m[locale]; ok {
+		return l
+	}
+
+	b, err := loadBundle()
+	if err != nil || b == nil {
+		return nil
+	}
+
+	// Build the language list: the requested locale first, then the
+	// default locale so unknown locales fall back to zh-CN. NewLocalizer
+	// silently skips unparseable locale strings.
+	langs := []string{}
+	if locale != "" {
+		langs = append(langs, locale)
+	}
+	if !strings.EqualFold(locale, DefaultLocale) {
+		langs = append(langs, DefaultLocale)
+	}
+	if len(langs) == 0 {
+		langs = append(langs, DefaultLocale)
+	}
+
+	loc := i18n.NewLocalizer(b, langs...)
+	localizerCache.m[locale] = loc
+	return loc
+}
+
 // T translates a key to the given locale with optional {param} interpolation.
-// Fallback chain: current locale ??zh-CN ??raw key.
+// Fallback chain: current locale -> zh-CN -> raw key.
 func T(locale, key string, params ...map[string]string) string {
-	loaded, err := loadDicts()
-	if err != nil || loaded == nil {
+	loc := getLocalizer(locale)
+	if loc == nil {
 		return key
 	}
 
-	var template string
-	if d, ok := loaded[locale]; ok {
-		if v, ok2 := d[key]; ok2 {
-			template = v
-		}
-	}
-
-	if template == "" {
-		if d, ok := loaded[DefaultLocale]; ok {
-			if v, ok2 := d[key]; ok2 {
-				template = v
-			}
-		}
-	}
-
-	if template == "" {
+	// Localize returns the message with {param} placeholders intact
+	// (go-i18n only renders {{.field}} templates), so interpolation is
+	// applied here to preserve the project's {param} convention.
+	msg, err := loc.Localize(&i18n.LocalizeConfig{MessageID: key})
+	if err != nil {
 		return key
 	}
 
 	if len(params) > 0 && params[0] != nil {
-		return interpolate(template, params[0])
+		return interpolate(msg, params[0])
 	}
-	return template
+	return msg
 }
 
 // TCtx translates a key using the locale stored in the context.

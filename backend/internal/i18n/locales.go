@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+
+	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"golang.org/x/text/language"
 )
 
-// Supported locales ??must match src/lib/i18n/types.ts Locale union.
+// Supported locales must match src/lib/i18n/types.ts Locale union.
 const (
 	DefaultLocale = "zh-CN"
 )
@@ -28,34 +31,56 @@ var supportedSet = func() map[string]bool {
 //go:embed locales/*.json
 var localeFS embed.FS
 
-// TranslationDict is a flat dot-notation key→string map, mirroring the
-// TypeScript TranslationDict = Record<string, string>.
-type TranslationDict map[string]string
+// flatLocaleUnmarshal adapts the project's flat dot-notation JSON
+// ("key": "value", mirroring the TypeScript TranslationDict) to the
+// message-file format go-i18n expects ("key": {"other": "value"}).
+// This keeps the existing locale files and their 1:1 mapping with the
+// frontend dictionary unchanged.
+func flatLocaleUnmarshal(data []byte, v interface{}) error {
+	var flat map[string]string
+	if err := json.Unmarshal(data, &flat); err != nil {
+		return err
+	}
+	out := make(map[string]interface{}, len(flat))
+	for k, val := range flat {
+		out[k] = map[string]interface{}{"other": val}
+	}
+	// v is a *interface{} that ParseMessageFileBytes expects to fill.
+	switch vv := v.(type) {
+	case *interface{}:
+		*vv = out
+	default:
+		return fmt.Errorf("i18n: unexpected unmarshal target %T", v)
+	}
+	return nil
+}
 
 var (
-	dicts     map[string]TranslationDict
-	dictsOnce sync.Once
-	dictsErr  error
+	bundleOnce sync.Once
+	bundle     *i18n.Bundle
+	bundleErr  error
 )
 
-// loadDicts parses all embedded JSON files once and caches the result.
-func loadDicts() (map[string]TranslationDict, error) {
-	dictsOnce.Do(func() {
-		dicts = make(map[string]TranslationDict, len(supportedLocales))
+// loadBundle builds the go-i18n bundle once, loading all embedded
+// locale files. It replaces the previous hand-written JSON loading and
+// sync.Once caching with go-i18n's standard message catalog.
+func loadBundle() (*i18n.Bundle, error) {
+	bundleOnce.Do(func() {
+		b := i18n.NewBundle(language.MustParse(DefaultLocale))
+		b.RegisterUnmarshalFunc("json", flatLocaleUnmarshal)
 		for _, locale := range supportedLocales {
 			path := "locales/" + locale + ".json"
 			data, err := localeFS.ReadFile(path)
 			if err != nil {
-				dictsErr = fmt.Errorf("i18n: read %s: %w", path, err)
+				bundleErr = fmt.Errorf("i18n: read %s: %w", path, err)
 				return
 			}
-			var d TranslationDict
-			if err := json.Unmarshal(data, &d); err != nil {
-				dictsErr = fmt.Errorf("i18n: parse %s: %w", path, err)
+			if _, err := b.ParseMessageFileBytes(data, path); err != nil {
+				bundleErr = fmt.Errorf("i18n: parse %s: %w", path, err)
 				return
 			}
-			dicts[locale] = d
 		}
+		bundle = b
 	})
-	return dicts, dictsErr
+	return bundle, bundleErr
 }
