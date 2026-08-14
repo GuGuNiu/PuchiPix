@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"backend/internal/infra"
@@ -19,10 +20,26 @@ const (
 	starvationThreshold   = 30 * time.Minute
 	starvationLotteryRate = 0.1
 	lowPriorityValue      = 3 // PriorityLow
+
+	// maxScheduleIterations caps the number of PopBest attempts in a
+	// single Schedule() pass. Each iteration either dispatches a node
+	// or skips a non-fitting one; without this cap, a queue full of
+	// non-fitting nodes would spin indefinitely under the scheduling
+	// flag. The cap is set well above any realistic queue depth so
+	// legitimate batches dispatch in a single pass.
+	maxScheduleIterations = 256
 )
 
 // SchedulingStrategy is the interface for selecting the next node
 // from the ready queue given current slot availability.
+//
+// Deprecated: Strategy selection is now handled by ReadyQueue.PopBest,
+// which performs O(log n) heap-based priority selection with resource
+// fitting in a single atomic operation. The interface and its sole
+// implementation (PriorityFairStrategy) are retained only for backward
+// compatibility with GetStats().Strategy and external consumers that
+// reference the strategy name. The SelectNext method is not called by
+// the scheduler engine's hot path.
 type SchedulingStrategy interface {
 	Name() string
 	SelectNext(nodes []SchedulableNodeEntry, slots map[string]slot.SlotUsage) *SchedulableNodeEntry
@@ -99,6 +116,62 @@ type SchedulerStats struct {
 // browser contexts from it so timeouts cancel in-flight browser work.
 type ExecutorFunc func(ctx context.Context, node SchedulableNodeAdapter) (bool, error)
 
+// SchedulerMetrics tracks cumulative scheduling counters for
+// observability. All fields are accessed via atomic operations so the
+// hot path (Schedule / executeNode) never blocks on metric collection.
+// GetMetrics returns a point-in-time snapshot for API exposure.
+type SchedulerMetrics struct {
+	// TotalScheduled is the cumulative count of nodes dispatched to
+	// executors (successful AcquireBatch + goroutine launch).
+	TotalScheduled atomic.Int64
+	// TotalRejected is the cumulative count of nodes whose submission
+	// was rejected (queue full / draining).
+	TotalRejected atomic.Int64
+	// TotalSlotRaceLost is the cumulative count of nodes that won the
+	// PopBest selection but lost the AcquireBatch race (requeued).
+	TotalSlotRaceLost atomic.Int64
+	// TotalSchedulePasses is the cumulative count of Schedule() calls
+	// (including no-op passes that dispatched nothing).
+	TotalSchedulePasses atomic.Int64
+	// TotalNoopPasses is the cumulative count of Schedule() calls that
+	// dispatched zero nodes (queue empty or no fitting nodes).
+	TotalNoopPasses atomic.Int64
+	// TotalStarvationPromotions is the cumulative count of starvation
+	// lottery promotions.
+	TotalStarvationPromotions atomic.Int64
+	// LastScheduleAt is the Unix timestamp of the most recent
+	// Schedule() invocation, used to detect stalled schedulers.
+	LastScheduleAt atomic.Int64
+}
+
+// Snapshot returns a point-in-time copy of the metrics for API
+// exposure. The struct fields are read atomically so the returned
+// values may be slightly inconsistent across fields (each field is
+// individually atomic but the snapshot is not transactional).
+func (m *SchedulerMetrics) Snapshot() SchedulerMetricsSnapshot {
+	return SchedulerMetricsSnapshot{
+		TotalScheduled:           m.TotalScheduled.Load(),
+		TotalRejected:            m.TotalRejected.Load(),
+		TotalSlotRaceLost:        m.TotalSlotRaceLost.Load(),
+		TotalSchedulePasses:      m.TotalSchedulePasses.Load(),
+		TotalNoopPasses:          m.TotalNoopPasses.Load(),
+		TotalStarvationPromotions: m.TotalStarvationPromotions.Load(),
+		LastScheduleAt:           m.LastScheduleAt.Load(),
+	}
+}
+
+// SchedulerMetricsSnapshot is the value type returned by Snapshot,
+// suitable for JSON serialization in API responses.
+type SchedulerMetricsSnapshot struct {
+	TotalScheduled           int64 `json:"totalScheduled"`
+	TotalRejected            int64 `json:"totalRejected"`
+	TotalSlotRaceLost        int64 `json:"totalSlotRaceLost"`
+	TotalSchedulePasses      int64 `json:"totalSchedulePasses"`
+	TotalNoopPasses          int64 `json:"totalNoopPasses"`
+	TotalStarvationPromotions int64 `json:"totalStarvationPromotions"`
+	LastScheduleAt           int64 `json:"lastScheduleAt"`
+}
+
 // SchedulerEngine is the central scheduling engine that accepts
 // submitted nodes, selects them for execution based on the active
 // strategy, acquires slot resources, and dispatches to executors.
@@ -124,6 +197,10 @@ type SchedulerEngine struct {
 	draining   bool
 	runningWg  sync.WaitGroup
 	nodeCancel map[string]context.CancelFunc // holderID -> cancel of running node ctx
+
+	// metrics tracks cumulative scheduling counters for observability.
+	// All fields are atomic; the hot path never blocks on collection.
+	metrics SchedulerMetrics
 }
 
 // DagOrchestratorInterface is the contract the scheduler needs from
@@ -186,6 +263,7 @@ func (s *SchedulerEngine) Submit(node SchedulableNodeAdapter) bool {
 	s.mu.Lock()
 	if s.draining {
 		s.mu.Unlock()
+		s.metrics.TotalRejected.Add(1)
 		s.logger.Warn("Scheduler draining, node rejected", "nodeId", node.NodeID, "dagId", node.DagID)
 		return false
 	}
@@ -199,6 +277,7 @@ func (s *SchedulerEngine) Submit(node SchedulableNodeAdapter) bool {
 		}
 		queuedCount := s.readyQueue.CountBySlotType(req.SlotType)
 		if queuedCount >= maxSize {
+			s.metrics.TotalRejected.Add(1)
 			s.logger.Warn("Queue full, node rejected", "slotType", req.SlotType, "queued", queuedCount, "max", maxSize, "nodeId", node.NodeID, "dagId", node.DagID)
 			return false
 		}
@@ -281,10 +360,14 @@ func (s *SchedulerEngine) Schedule() {
 		s.mu.Unlock()
 	}()
 
+	s.metrics.TotalSchedulePasses.Add(1)
+	s.metrics.LastScheduleAt.Store(time.Now().Unix())
+
 	// Starvation lottery: occasionally promote the oldest starving LOW
 	// node so it can out-compete same-band peers on the FIFO tie-break.
 	if lotteryFunc() {
 		if s.readyQueue.PromoteOldestLowPriority(lowPriorityValue, starvationThreshold, nowFunc()) {
+			s.metrics.TotalStarvationPromotions.Add(1)
 			s.logger.Info("Starvation lottery promoted a LOW priority node")
 		}
 	}
@@ -308,9 +391,10 @@ func (s *SchedulerEngine) Schedule() {
 		}
 	}
 
-	for {
+	dispatched := 0
+	for i := 0; i < maxScheduleIterations; i++ {
 		if s.readyQueue.Len() == 0 {
-			return
+			break
 		}
 
 		fits := func(node SchedulableNodeAdapter) bool {
@@ -325,14 +409,15 @@ func (s *SchedulerEngine) Schedule() {
 
 		selected := s.readyQueue.PopBest(fits)
 		if selected == nil {
-			return
+			break
 		}
 
 		holderID := selected.DagID + ":" + selected.NodeID
 		if !s.slotPool.AcquireBatch(selected.ResourceRequirements, holderID) {
-			// Lost the slot race ??requeue so a later pass can retry.
+			// Lost the slot race; requeue so a later pass can retry.
 			s.readyQueue.Push(*selected)
-			return
+			s.metrics.TotalSlotRaceLost.Add(1)
+			break
 		}
 		consume(selected.ResourceRequirements)
 
@@ -358,6 +443,13 @@ func (s *SchedulerEngine) Schedule() {
 			}
 			go s.executeNode(entry, executorFn, orch)
 		}
+		dispatched++
+	}
+
+	if dispatched == 0 {
+		s.metrics.TotalNoopPasses.Add(1)
+	} else {
+		s.metrics.TotalScheduled.Add(int64(dispatched))
 	}
 }
 
@@ -608,4 +700,11 @@ func (s *SchedulerEngine) ResetSlot(slotType string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.slotPool.ResetType(slotType)
+}
+
+// GetMetrics returns a point-in-time snapshot of cumulative scheduling
+// counters for observability and API exposure. All counters are atomic
+// so this call never blocks the hot path.
+func (s *SchedulerEngine) GetMetrics() SchedulerMetricsSnapshot {
+	return s.metrics.Snapshot()
 }

@@ -191,6 +191,14 @@ export interface GalleryVideoData {
   LocalPath: string;
   FileName: string;
   Status: string;
+  /** Bytes of the downloaded MP4 (0 when not yet downloaded). */
+  FileSize?: number;
+  /** Duration in minutes (probed from the MP4 after download). */
+  Duration?: number;
+  /** Resolution string, e.g. "1920x1080". */
+  Resolution?: string;
+  Format?: string;
+  ErrorMsg?: string;
 }
 
 export interface SearchItem {

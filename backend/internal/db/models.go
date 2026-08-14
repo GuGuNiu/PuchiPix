@@ -83,6 +83,9 @@ type Gallery struct {
 	CompletedAt         *time.Time `json:"CompletedAt" db:"completed_at"`
 	CreatedAt           time.Time  `json:"CreatedAt" db:"created_at"`
 	UpdatedAt           time.Time  `json:"UpdatedAt" db:"updated_at"`
+	// Videos is populated on detail responses only (db:"-"); it is not
+	// part of the galleries row scan.
+	Videos []GalleryVideo `json:"Videos" db:"-"`
 }
 
 // GalleryImage tracks a single image within a gallery, including

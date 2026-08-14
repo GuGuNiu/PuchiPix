@@ -19,6 +19,7 @@ interface ConfigState {
 
 interface GPUInfo {
   available: boolean;
+  gpu_enabled: boolean;
   type: string;
   encoder_name: string;
   gpu_name: string;
@@ -160,6 +161,7 @@ export default function ConfigPage(): React.JSX.Element {
         download_concurrency: parseInt(data?.download_concurrency, 10) || 4,
         download_max_speed: Math.round((parseInt(data?.download_max_speed, 10) || 0) / BYTES_PER_MB),
         download_min_file_size: Math.round((parseInt(data?.download_min_file_size, 10) || BYTES_PER_MB) / BYTES_PER_MB),
+        gpu_transcode: data?.gpu_transcode === "true" || data?.gpu_transcode === true,
       });
       toast.success("config.restoredDefault");
     } catch (err: unknown) {

@@ -7,14 +7,22 @@ import (
 )
 
 // readyItem is a single entry in the priority ready queue. The ordering
-// is: priority desc -> submittedAt asc -> seq asc (FIFO within the same
-// priority and submission instant, preventing comparison instability).
+// is: priority desc -> dagDispatchCount asc -> submittedAt asc -> seq
+// asc (FIFO within the same priority and submission instant, preventing
+// comparison instability).
+//
+// dagDispatchCount provides cross-DAG fairness: when multiple DAGs
+// have nodes at the same priority level, the queue alternates between
+// them rather than dispatching all nodes from one DAG consecutively.
+// The count is sourced from the ReadyQueue's per-DAG dispatch tracker
+// at Push time and does not change while the item is queued.
 type readyItem struct {
-	node        SchedulableNodeAdapter
-	priority    int
-	submittedAt time.Time
-	seq         uint64
-	heapIndex   int
+	node              SchedulableNodeAdapter
+	priority          int
+	dagDispatchCount  int
+	submittedAt       time.Time
+	seq               uint64
+	heapIndex         int
 }
 
 // readyItemHeap implements heap.Interface as a max-priority queue.
@@ -26,6 +34,12 @@ func (h readyItemHeap) Less(i, j int) bool {
 	a, b := h[i], h[j]
 	if a.priority != b.priority {
 		return a.priority > b.priority // higher priority first
+	}
+	// Cross-DAG fairness: among same-priority nodes, prefer the DAG
+	// that has been dispatched less recently. This prevents one DAG's
+	// batch of same-priority nodes from monopolizing the scheduler.
+	if a.dagDispatchCount != b.dagDispatchCount {
+		return a.dagDispatchCount < b.dagDispatchCount
 	}
 	if !a.submittedAt.Equal(b.submittedAt) {
 		return a.submittedAt.Before(b.submittedAt) // earlier submission first
@@ -59,16 +73,27 @@ func (h *readyItemHeap) Pop() any {
 // replacing the previous map + O(n) SelectNext scan with O(log n)
 // push/pop. The starvation-lottery promotion scans the index only when
 // the lottery fires, keeping the common path allocation-free.
+//
+// Cross-DAG fairness: a dagDispatch map tracks how many nodes from
+// each DAG have been dispatched (popped) recently. When a node is
+// pushed, its dagDispatchCount is set to the DAG's current count so
+// the heap ordering alternates among same-priority DAGs. The count
+// is bumped on PopBest and reset when a DAG has no queued nodes left,
+// preventing stale counts from penalizing re-submissions.
 type ReadyQueue struct {
-	mu    sync.Mutex
-	h     readyItemHeap
-	index map[string]*readyItem // key: dagID + ":" + nodeID
-	seq   uint64
+	mu            sync.Mutex
+	h             readyItemHeap
+	index         map[string]*readyItem // key: dagID + ":" + nodeID
+	seq           uint64
+	dagDispatch   map[string]int       // dagID -> cumulative dispatch count
 }
 
 // NewReadyQueue creates an empty ready queue.
 func NewReadyQueue() *ReadyQueue {
-	q := &ReadyQueue{index: make(map[string]*readyItem)}
+	q := &ReadyQueue{
+		index:       make(map[string]*readyItem),
+		dagDispatch: make(map[string]int),
+	}
 	heap.Init(&q.h)
 	return q
 }
@@ -85,10 +110,11 @@ func (q *ReadyQueue) Push(node SchedulableNodeAdapter) bool {
 	}
 	q.seq++
 	item := &readyItem{
-		node:        node,
-		priority:    node.Priority,
-		submittedAt: node.SubmittedAt,
-		seq:         q.seq,
+		node:              node,
+		priority:          node.Priority,
+		dagDispatchCount:  q.dagDispatch[node.DagID],
+		submittedAt:       node.SubmittedAt,
+		seq:               q.seq,
 	}
 	heap.Push(&q.h, item)
 	q.index[key] = item
@@ -101,6 +127,11 @@ func (q *ReadyQueue) Push(node SchedulableNodeAdapter) bool {
 // returning, so heap order is preserved. Selection + removal is a single
 // locked operation, which keeps the engine's acquire-then-dispatch flow
 // race-free without a separate Remove call.
+//
+// On successful dispatch, the DAG's dispatch count is bumped so the
+// next same-priority node from a different DAG wins the fairness
+// tie-break. When a DAG has no more queued nodes after a pop, its
+// dispatch count is reset to prevent stale accumulation.
 func (q *ReadyQueue) PopBest(fits func(SchedulableNodeAdapter) bool) *SchedulableNodeAdapter {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -117,6 +148,11 @@ func (q *ReadyQueue) PopBest(fits func(SchedulableNodeAdapter) bool) *Schedulabl
 		if fits(item.node) {
 			restore()
 			delete(q.index, queueKeyOf(item.node.DagID, item.node.NodeID))
+			// Bump the DAG's dispatch count for cross-DAG fairness.
+			q.dagDispatch[item.node.DagID]++
+			// If the DAG has no more queued nodes, reset its count so
+			// future re-submissions are not penalized by stale history.
+			q.cleanupDagDispatchIfEmpty(item.node.DagID)
 			node := item.node
 			return &node
 		}
@@ -155,6 +191,8 @@ func (q *ReadyQueue) Remove(dagID, nodeID string) bool {
 	}
 	heap.Remove(&q.h, item.heapIndex)
 	delete(q.index, key)
+	// Clean up dagDispatch if this was the last queued node for the DAG.
+	q.cleanupDagDispatchIfEmpty(dagID)
 	return true
 }
 
@@ -235,4 +273,16 @@ func (q *ReadyQueue) Snapshot() []SchedulableNodeAdapter {
 		out = append(out, item.node)
 	}
 	return out
+}
+
+// cleanupDagDispatchIfEmpty checks whether the given DAG still has
+// queued nodes; if not, its entry in dagDispatch is deleted so future
+// re-submissions start with a fresh count. Caller must hold q.mu.
+func (q *ReadyQueue) cleanupDagDispatchIfEmpty(dagID string) {
+	for key := range q.index {
+		if key[:len(dagID)+1] == dagID+":" {
+			return // still has queued nodes
+		}
+	}
+	delete(q.dagDispatch, dagID)
 }

@@ -16,7 +16,7 @@ func TestModelFieldCount(t *testing.T) {
 	}{
 		{"DownloadTask", DownloadTask{}, 21},
 		{"VideoInfo", VideoInfo{}, 12},
-		{"Gallery", Gallery{}, 30},
+		{"Gallery", Gallery{}, 31},
 		{"GalleryImage", GalleryImage{}, 16},
 		{"GalleryVideo", GalleryVideo{}, 14},
 		{"GalleryDownloadInfo", GalleryDownloadInfo{}, 25},

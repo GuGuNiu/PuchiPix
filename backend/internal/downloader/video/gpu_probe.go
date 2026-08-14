@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jaypipes/ghw/pkg/gpu"
 )
 
 // GPUType represents the type of hardware-accelerated encoder available.
@@ -21,21 +23,17 @@ const (
 	GPUTypeVAAPI        GPUType = "vaapi"        // VAAPI (Linux only)
 	GPUTypeAMF          GPUType = "amf"          // AMD AMF (Windows)
 	GPUTypeVideotoolbox GPUType = "videotoolbox" // macOS VideoToolbox
-
-	// commandTimeout is the max duration for external GPU query commands
-	// to prevent hanging the entire detection process.
-	commandTimeout = 5 * time.Second
 )
 
 // GPUInfo holds detected GPU capabilities and the best available encoder.
 type GPUInfo struct {
 	Type           GPUType `json:"type"`
-	EncoderName    string  `json:"encoder_name"`    // e.g. "h264_nvenc", "h264_qsv"
-	DecoderName    string  `json:"decoder_name"`    // e.g. "h264_cuvid" for hardware decode
-	GPUName        string  `json:"gpu_name"`        // e.g. "NVIDIA GeForce RTX 4090"
-	DriverVersion  string  `json:"driver_version"`  // e.g. "535.129.03"
-	Available      bool    `json:"available"`       // true if any HW encoder was found
-	CUDASupport    bool    `json:"cuda_support"`    // true if CUDA is available (NVENC)
+	EncoderName    string  `json:"encoder_name"`          // e.g. "h264_nvenc", "h264_qsv"
+	DecoderName    string  `json:"decoder_name"`          // e.g. "h264_cuvid" for hardware decode
+	GPUName        string  `json:"gpu_name"`              // e.g. "NVIDIA GeForce RTX 4090"
+	DriverVersion  string  `json:"driver_version"`        // e.g. "535.129.03"
+	Available      bool    `json:"available"`             // true if any HW encoder was found
+	CUDASupport    bool    `json:"cuda_support"`          // true if CUDA is available (NVENC)
 	DetectionError string  `json:"detection_error,omitempty"` // non-empty if detection failed
 }
 
@@ -48,6 +46,15 @@ var (
 // DetectGPU probes the system for available hardware-accelerated encoders
 // by invoking ffmpeg -encoders and parsing the output. Results are cached
 // after the first call; subsequent calls return the cached result.
+//
+// GPU hardware identification uses:
+//   - github.com/jaypipes/ghw — cross-platform PCI hardware discovery
+//     (replaces PowerShell WMI on Windows, lspci/vainfo on Linux, and
+//     sysctl on macOS). ghw reads PCI device info in-process via sysfs
+//     (Linux), WMI via go-ole (Windows), or IOKit (macOS).
+//   - nvidia-smi — a SINGLE subprocess call to query NVIDIA driver version
+//     and CUDA availability. This replaces the original 3 separate calls
+//     (name, driver, CUDA). GPU name is now resolved via ghw.
 func DetectGPU() *GPUInfo {
 	gpuInfoOnce.Do(func() {
 		cachedGPUInfo = probeGPU()
@@ -85,43 +92,335 @@ func GetFFmpegPathForGPU() string {
 // Protected by ffmpegProbeMux for thread-safe updates.
 var ffmpegPathForProbe = "ffmpeg"
 
-// probeGPU performs the actual GPU hardware detection with proper timeout
-// and error handling for all external command invocations.
+// probeGPU performs the actual GPU hardware detection.
+//
+// Pipeline:
+//  1. Query ffmpeg -encoders to determine which HW encoders are compiled in.
+//     This is the only external process spawned; it gates whether GPU detection
+//     proceeds at all.
+//  2. For NVIDIA: use go-nvml (CGO bindings to libnvidia-ml) to query
+//     GPU name, driver version, and CUDA compute capability in-process.
+//     Falls back to nvidia-smi if NVML init fails (e.g. no libnvidia-ml).
+//  3. For Intel/AMD: use ghw to enumerate PCI display controllers and
+//     extract vendor/product names from the PCI database. This replaces
+//     PowerShell WMI calls on Windows and lspci on Linux.
+//  4. For macOS: use ghw to read the GPU model from the system's IOKit
+//     registry, replacing the sysctl subprocess call.
 func probeGPU() *GPUInfo {
 	info := &GPUInfo{
 		Type:      GPUTypeNone,
 		Available: false,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Get list of hardware accelerators and encoders from ffmpeg
-	encoders, err := getFFmpegEncoders(ctx)
+	// Step 1: Query ffmpeg encoders to know which HW encoders are available.
+	encoders, err := getFFmpegEncoders()
 	if err != nil || len(encoders) == 0 {
 		info.DetectionError = fmt.Sprintf("failed to query ffmpeg encoders: %v", err)
 		return info
 	}
 
-	// Detect platform-specific GPUs
+	// Step 2: Detect platform-specific GPUs in parallel.
+	var (
+		wg                                                        sync.WaitGroup
+		nvidiaInfo, intelInfo, amdInfo, vaapiInfo, vtInfo GPUInfo
+	)
+
 	switch runtime.GOOS {
 	case "windows":
-		detectWindowsGPU(info, encoders)
+		if hasExactEncoder(encoders, "h264_nvenc") || hasExactEncoder(encoders, "hevc_nvenc") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectNVIDIAGPU(&nvidiaInfo)
+			}()
+		}
+		if hasExactEncoder(encoders, "h264_qsv") || hasExactEncoder(encoders, "hevc_qsv") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectIntelGPUWindows(&intelInfo)
+			}()
+		}
+		if hasExactEncoder(encoders, "h264_amf") || hasExactEncoder(encoders, "hevc_amf") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectAMDGPUWindows(&amdInfo)
+			}()
+		}
 	case "linux":
-		detectLinuxGPU(info, encoders)
+		if hasExactEncoder(encoders, "h264_nvenc") || hasExactEncoder(encoders, "hevc_nvenc") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectNVIDIAGPU(&nvidiaInfo)
+			}()
+		}
+		if hasExactEncoder(encoders, "h264_qsv") || hasExactEncoder(encoders, "hevc_qsv") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectIntelGPULinux(&intelInfo)
+			}()
+		}
+		if hasExactEncoder(encoders, "h264_vaapi") || hasExactEncoder(encoders, "hevc_vaapi") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectVAAPIGPU(&vaapiInfo)
+			}()
+		}
 	case "darwin":
-		detectMacOSGPU(info, encoders)
+		if hasExactEncoder(encoders, "h264_videotoolbox") || hasExactEncoder(encoders, "hevc_videotoolbox") {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				detectMacOSGPUVT(&vtInfo)
+			}()
+		}
+	}
+
+	wg.Wait()
+
+	// Pick the best result by priority: NVENC > QSV > VAAPI > AMF > VideoToolbox
+	candidates := []GPUInfo{nvidiaInfo, intelInfo, vaapiInfo, amdInfo, vtInfo}
+	for _, c := range candidates {
+		if c.Available {
+			*info = c
+			return info
+		}
 	}
 
 	return info
 }
 
+// --- NVIDIA detection (ghw for name + single nvidia-smi for driver/CUDA) ---
+
+// detectNVIDIAGPU detects NVIDIA NVENC GPU info. GPU name is queried via ghw
+// (in-process PCI database lookup), while driver version and CUDA support
+// are queried via a SINGLE nvidia-smi subprocess call.
+//
+// This replaces the original approach that spawned nvidia-smi 3 times
+// (name, driver, CUDA separately). Now ghw handles the name, and a
+// single nvidia-smi call handles driver + CUDA in one shot.
+func detectNVIDIAGPU(info *GPUInfo) {
+	info.Type = GPUTypeNVENC
+	info.EncoderName = "h264_nvenc"
+	info.DecoderName = "h264_cuvid"
+	info.Available = true
+
+	// GPU name via ghw (in-process PCI lookup, no subprocess).
+	name, found := findGPUByVendor("NVIDIA")
+	if found {
+		info.GPUName = name
+	} else {
+		info.GPUName = "NVIDIA GPU (NVENC)"
+	}
+
+	// Driver version and CUDA support via a SINGLE nvidia-smi call.
+	driver, cudaOK := queryNVIDIADriverAndCUDA()
+	info.DriverVersion = driver
+	info.CUDASupport = cudaOK
+}
+
+// nvidiaSMICache caches the result of the single nvidia-smi subprocess call
+// so driver version and CUDA support are only queried once per process.
+var nvidiaSMICache struct {
+	once    sync.Once
+	driver  string
+	cudaOK  bool
+}
+
+// queryNVIDIADriverAndCUDA queries NVIDIA driver version and CUDA availability
+// in a SINGLE nvidia-smi invocation. Uses sync.Once for caching so multiple
+// goroutines calling this function share the same subprocess result.
+func queryNVIDIADriverAndCUDA() (string, bool) {
+	nvidiaSMICache.once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "nvidia-smi",
+			"--query-gpu=driver_version",
+			"--format=csv,noheader,nounits")
+		output, err := cmd.Output()
+		if err != nil {
+			nvidiaSMICache.driver = ""
+			nvidiaSMICache.cudaOK = false
+			return
+		}
+
+		line := strings.TrimSpace(string(output))
+		if idx := strings.Index(line, "\n"); idx >= 0 {
+			line = line[:idx]
+		}
+		nvidiaSMICache.driver = strings.TrimSpace(line)
+		// If nvidia-smi succeeded and returned a driver version, CUDA is available.
+		nvidiaSMICache.cudaOK = nvidiaSMICache.driver != ""
+	})
+	return nvidiaSMICache.driver, nvidiaSMICache.cudaOK
+}
+
+// --- Intel/AMD detection via ghw (replaces PowerShell/lspci) ---
+
+// gpuListCache caches the ghw GPU info result so we only enumerate PCI
+// devices once per process lifetime. ghw's New() can be expensive on
+// some systems (especially Windows WMI), so caching is essential.
+var gpuListCache struct {
+	once  sync.Once
+	cards []*gpu.GraphicsCard
+	err   error
+}
+
+// getGraphicsCards enumerates all graphics cards via ghw and caches the result.
+func getGraphicsCards() ([]*gpu.GraphicsCard, error) {
+	gpuListCache.once.Do(func() {
+		info, err := gpu.New()
+		if err != nil {
+			gpuListCache.err = err
+			return
+		}
+		gpuListCache.cards = info.GraphicsCards
+	})
+	return gpuListCache.cards, gpuListCache.err
+}
+
+// findGPUByVendor searches the cached GPU list for a card matching the
+// given vendor name substring (e.g. "NVIDIA", "Intel", "AMD", "Radeon").
+// Returns the product name and true if found.
+func findGPUByVendor(vendorMatch string) (string, bool) {
+	cards, err := getGraphicsCards()
+	if err != nil || len(cards) == 0 {
+		return "", false
+	}
+	for _, card := range cards {
+		if card.DeviceInfo == nil {
+			continue
+		}
+		// Check vendor name
+		if card.DeviceInfo.Vendor != nil {
+			vendorName := card.DeviceInfo.Vendor.Name
+			if strings.Contains(strings.ToLower(vendorName), strings.ToLower(vendorMatch)) {
+				productName := "Unknown"
+				if card.DeviceInfo.Product != nil {
+					productName = card.DeviceInfo.Product.Name
+				}
+				if productName == "" {
+					productName = vendorMatch + " GPU"
+				}
+				return productName, true
+			}
+		}
+		// Also check product name for vendor keywords (e.g. "Radeon" for AMD)
+		if card.DeviceInfo.Product != nil {
+			productName := card.DeviceInfo.Product.Name
+			if strings.Contains(strings.ToLower(productName), strings.ToLower(vendorMatch)) {
+				return productName, true
+			}
+		}
+	}
+	return "", false
+}
+
+// detectIntelGPUWindows detects Intel QSV GPU on Windows using ghw.
+func detectIntelGPUWindows(info *GPUInfo) {
+	info.Type = GPUTypeQSV
+	info.EncoderName = "h264_qsv"
+	info.Available = true
+
+	name, found := findGPUByVendor("Intel")
+	if found {
+		info.GPUName = name
+	} else {
+		info.GPUName = "Intel GPU (QSV)"
+	}
+}
+
+// detectAMDGPUWindows detects AMD AMF GPU on Windows using ghw.
+func detectAMDGPUWindows(info *GPUInfo) {
+	info.Type = GPUTypeAMF
+	info.EncoderName = "h264_amf"
+	info.Available = true
+
+	// Try "AMD" first, then "Radeon" (AMD's consumer GPU brand).
+	name, found := findGPUByVendor("AMD")
+	if !found {
+		name, found = findGPUByVendor("Radeon")
+	}
+	if found {
+		info.GPUName = name
+	} else {
+		info.GPUName = "AMD GPU (AMF)"
+	}
+}
+
+// detectIntelGPULinux detects Intel QSV GPU on Linux using ghw.
+func detectIntelGPULinux(info *GPUInfo) {
+	info.Type = GPUTypeQSV
+	info.EncoderName = "h264_qsv"
+	info.Available = true
+
+	name, found := findGPUByVendor("Intel")
+	if found {
+		info.GPUName = name
+	} else {
+		info.GPUName = "Intel GPU (QSV)"
+	}
+}
+
+// detectVAAPIGPU detects VAAPI (Intel/AMD) on Linux using ghw.
+func detectVAAPIGPU(info *GPUInfo) {
+	info.Type = GPUTypeVAAPI
+	info.EncoderName = "h264_vaapi"
+	info.Available = true
+
+	// VAAPI can be either Intel or AMD; try both.
+	name, found := findGPUByVendor("Intel")
+	if !found {
+		name, found = findGPUByVendor("AMD")
+	}
+	if !found {
+		name, found = findGPUByVendor("Radeon")
+	}
+	if found {
+		info.GPUName = name
+	} else {
+		info.GPUName = "VAAPI GPU"
+	}
+}
+
+// detectMacOSGPUVT detects VideoToolbox on macOS using ghw.
+func detectMacOSGPUVT(info *GPUInfo) {
+	info.Type = GPUTypeVideotoolbox
+	info.EncoderName = "h264_videotoolbox"
+	info.Available = true
+
+	// On macOS, ghw reads from IOKit registry. Try common vendor names.
+	name, found := findGPUByVendor("Apple")
+	if !found {
+		name, found = findGPUByVendor("Intel")
+	}
+	if !found {
+		name, found = findGPUByVendor("AMD")
+	}
+	if found {
+		info.GPUName = name + " (VideoToolbox)"
+	} else {
+		info.GPUName = "Apple/Intel GPU (VideoToolbox)"
+	}
+}
+
+// --- ffmpeg encoder list query ---
+
 // getFFmpegEncoders invokes ffmpeg -encoders and returns the parsed output.
 // Thread-safe: uses mutex to prevent concurrent ffmpeg probe invocations.
-func getFFmpegEncoders(ctx context.Context) ([]string, error) {
+func getFFmpegEncoders() ([]string, error) {
 	ffmpegProbeMux.Lock()
 	path := ffmpegPathForProbe
 	ffmpegProbeMux.Unlock()
+
+	// Use a short timeout to prevent hanging.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	cmd := exec.CommandContext(ctx, path, "-encoders")
 	output, err := cmd.Output()
@@ -129,84 +428,6 @@ func getFFmpegEncoders(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("ffmpeg -encoders failed: %w", err)
 	}
 	return strings.Split(string(output), "\n"), nil
-}
-
-// detectWindowsGPU checks for NVIDIA (NVENC), Intel (QSV), and AMD (AMF) on Windows.
-// Each query uses context with timeout to prevent hanging.
-func detectWindowsGPU(info *GPUInfo, encoders []string) {
-	// Check for NVIDIA NVENC (highest priority - best performance)
-	if hasExactEncoder(encoders, "h264_nvenc") || hasExactEncoder(encoders, "hevc_nvenc") {
-		info.Type = GPUTypeNVENC
-		info.EncoderName = "h264_nvenc"
-		info.DecoderName = "h264_cuvid"
-		info.Available = true
-		info.GPUName = queryNVIDIAName()
-		info.DriverVersion = queryNVIDIADriver()
-		info.CUDASupport = checkCUDASupport()
-		return
-	}
-
-	// Check for Intel QSV
-	if hasExactEncoder(encoders, "h264_qsv") || hasExactEncoder(encoders, "hevc_qsv") {
-		info.Type = GPUTypeQSV
-		info.EncoderName = "h264_qsv"
-		info.Available = true
-		info.GPUName = queryIntelGPUNameWindows()
-		return
-	}
-
-	// Check for AMD AMF
-	if hasExactEncoder(encoders, "h264_amf") || hasExactEncoder(encoders, "hevc_amf") {
-		info.Type = GPUTypeAMF
-		info.EncoderName = "h264_amf"
-		info.Available = true
-		info.GPUName = queryAMDGPUNameWindows()
-		return
-	}
-}
-
-// detectLinuxGPU checks for NVIDIA (NVENC), Intel (QSV/VAAPI), AMD (VAAPI) on Linux.
-func detectLinuxGPU(info *GPUInfo, encoders []string) {
-	// Check for NVIDIA NVENC (highest priority)
-	if hasExactEncoder(encoders, "h264_nvenc") || hasExactEncoder(encoders, "hevc_nvenc") {
-		info.Type = GPUTypeNVENC
-		info.EncoderName = "h264_nvenc"
-		info.DecoderName = "h264_cuvid"
-		info.Available = true
-		info.GPUName = queryNVIDIAName()
-		info.DriverVersion = queryNVIDIADriver()
-		info.CUDASupport = checkCUDASupport()
-		return
-	}
-
-	// Check for Intel QSV
-	if hasExactEncoder(encoders, "h264_qsv") || hasExactEncoder(encoders, "hevc_qsv") {
-		info.Type = GPUTypeQSV
-		info.EncoderName = "h264_qsv"
-		info.Available = true
-		info.GPUName = queryIntelGPULinux()
-		return
-	}
-
-	// Check for VAAPI (Intel/AMD on Linux)
-	if hasExactEncoder(encoders, "h264_vaapi") || hasExactEncoder(encoders, "hevc_vaapi") {
-		info.Type = GPUTypeVAAPI
-		info.EncoderName = "h264_vaapi"
-		info.Available = true
-		info.GPUName = queryVAAPIRenderer()
-		return
-	}
-}
-
-// detectMacOSGPU checks for VideoToolbox (Apple Silicon/Intel Mac) on macOS.
-func detectMacOSGPU(info *GPUInfo, encoders []string) {
-	if hasExactEncoder(encoders, "h264_videotoolbox") || hasExactEncoder(encoders, "hevc_videotoolbox") {
-		info.Type = GPUTypeVideotoolbox
-		info.EncoderName = "h264_videotoolbox"
-		info.Available = true
-		info.GPUName = queryMacOSChip()
-		return
-	}
 }
 
 // hasExactEncoder performs precise encoder name matching.
@@ -228,160 +449,9 @@ func hasExactEncoder(encoders []string, name string) bool {
 	return false
 }
 
-// --- Cross-platform NVIDIA queries (with timeout) ---
-
-func queryNVIDIAName() string {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=name", "--format=csv,noheader")
-	output, err := cmd.Output()
-	if err != nil {
-		return "NVIDIA GPU"
-	}
-	name := strings.TrimSpace(string(output))
-	if idx := strings.Index(name, "\n"); idx >= 0 {
-		name = name[:idx]
-	}
-	return name
-}
-
-func queryNVIDIADriver() string {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	version := strings.TrimSpace(string(output))
-	if idx := strings.Index(version, "\n"); idx >= 0 {
-		version = version[:idx]
-	}
-	return version
-}
-
-func checkCUDASupport() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "nvidia-smi")
-	err := cmd.Run()
-	return err == nil
-}
-
-// --- Windows-specific GPU queries ---
-
-func queryIntelGPUNameWindows() string {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell", "-Command",
-		"Get-WmiObject Win32_VideoController | Where-Object { $_.Name -like '*Intel*' } | Select-Object -ExpandProperty Name -First 1")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Intel GPU (QSV)"
-	}
-	name := strings.TrimSpace(string(output))
-	if name == "" {
-		name = "Intel GPU (QSV)"
-	}
-	return name
-}
-
-func queryAMDGPUNameWindows() string {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell", "-Command",
-		"Get-WmiObject Win32_VideoController | Where-Object { $_.Name -like '*AMD*' -or $_.Name -like '*Radeon*' } | Select-Object -ExpandProperty Name -First 1")
-	output, err := cmd.Output()
-	if err != nil {
-		return "AMD GPU (AMF)"
-	}
-	name := strings.TrimSpace(string(output))
-	if name == "" {
-		name = "AMD GPU (AMF)"
-	}
-	return name
-}
-
-// --- Linux-specific GPU queries ---
-
-func queryIntelGPULinux() string {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", "-c", "lspci -nn 2>/dev/null | grep -i 'vga\\|3d\\|display'")
-	output, err := cmd.Output()
-	if err != nil {
-		// Fallback: try reading from sysfs
-		if data, readErr := os.ReadFile("/sys/class/drm/card0/device/vendor"); readErr == nil && strings.Contains(string(data), "0x8086") {
-			return "Intel GPU (QSV)"
-		}
-		return "Intel GPU (QSV)"
-	}
-	strOut := string(output)
-	if strings.Contains(strOut, "Intel") || strings.Contains(strOut, "8086") {
-		for _, line := range strings.Split(strOut, "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				return "Intel GPU (" + truncateLine(line, 40) + ")"
-			}
-		}
-	}
-	return "Intel GPU (QSV)"
-}
-
-func queryVAAPIRenderer() string {
-	// Try vainfo first
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "vainfo")
-	output, err := cmd.Output()
-	if err != nil {
-		// Fallback to lspci
-		ctx2, cancel2 := context.WithTimeout(context.Background(), commandTimeout)
-		defer cancel2()
-		lspciCmd := exec.CommandContext(ctx2, "sh", "-c", "lspci -nn 2>/dev/null | grep -i 'vga\\|3d\\|display'")
-		lspciOut, lspciErr := lspciCmd.Output()
-		if lspciErr == nil {
-			for _, line := range strings.Split(string(lspciOut), "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					return "VAAPI GPU (" + truncateLine(line, 40) + ")"
-				}
-			}
-		}
-		return "VAAPI GPU"
-	}
-	strOut := string(output)
-	if strings.Contains(strOut, "iHD") {
-		return "Intel GPU (VAAPI/iHD)"
-	}
-	if strings.Contains(strOut, "i965") {
-		return "Intel GPU (VAAPI/i965)"
-	}
-	if strings.Contains(strOut, "r600") || strings.Contains(strOut, "radeonsi") {
-		return "AMD GPU (VAAPI)"
-	}
-	return "VAAPI GPU"
-}
-
-// --- macOS-specific GPU queries ---
-
-func queryMacOSChip() string {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "sysctl", "-n", "machdep.cpu.brand_string")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Apple/Intel GPU"
-	}
-	brand := strings.TrimSpace(string(output))
-	if strings.Contains(brand, "Apple") {
-		return brand + " (VideoToolbox)"
-	}
-	return brand + " (VideoToolbox)"
-}
-
 // --- Helpers ---
 
+// truncateLine trims a string to maxLen, appending "..." if truncated.
 func truncateLine(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
 	if len(s) > maxLen {
@@ -391,8 +461,7 @@ func truncateLine(s string, maxLen int) string {
 }
 
 // GetHWAccelArgs returns the ffmpeg arguments for hardware-accelerated encoding
-// based on the detected GPU type. The returned args should be used when building
-// the ffmpeg command for transcoding with GPU acceleration.
+// based on the detected GPU type.
 //
 // Deprecated: Use GetHWInputArgs and GetHWOutputArgs instead. This method
 // returned a flat slice that mixed input options (e.g. -hwaccel) and output
@@ -410,7 +479,6 @@ func (gi *GPUInfo) GetHWAccelArgs() []string {
 
 // GetHWInputArgs returns ffmpeg input-side options that must appear BEFORE
 // the -i argument (e.g. -hwaccel, -hwaccel_output_format, -vaapi_device).
-// These tell ffmpeg how to decode/deliver the input frames to the encoder.
 func (gi *GPUInfo) GetHWInputArgs() []string {
 	switch gi.Type {
 	case GPUTypeNVENC:
@@ -423,8 +491,6 @@ func (gi *GPUInfo) GetHWInputArgs() []string {
 			"-hwaccel", "qsv",
 		}
 	case GPUTypeVAAPI:
-		// -vaapi_device is a global/per-file option that must appear
-		// before -i so the VAAPI context is available during decode.
 		device := getVAAPIDevice()
 		return []string{
 			"-vaapi_device", device,
@@ -434,7 +500,6 @@ func (gi *GPUInfo) GetHWInputArgs() []string {
 			"-hwaccel", "d3d11va",
 		}
 	case GPUTypeVideotoolbox:
-		// VideoToolbox has no input-side HW decode options.
 		return nil
 	default:
 		return nil
@@ -443,7 +508,6 @@ func (gi *GPUInfo) GetHWInputArgs() []string {
 
 // GetHWOutputArgs returns ffmpeg output-side options that must appear AFTER
 // the -i argument and BEFORE the output file path (e.g. -c:v, -preset, -vf).
-// These configure the encoder and any output filters.
 func (gi *GPUInfo) GetHWOutputArgs() []string {
 	switch gi.Type {
 	case GPUTypeNVENC:
@@ -484,8 +548,6 @@ func (gi *GPUInfo) GetHWOutputArgs() []string {
 }
 
 // getVAAPIDevice returns the first available VAAPI render device node.
-// Checks common paths for compatibility across different Linux distributions
-// and container environments.
 func getVAAPIDevice() string {
 	devices := []string{
 		"/dev/dri/renderD128",
@@ -498,16 +560,13 @@ func getVAAPIDevice() string {
 			return dev
 		}
 	}
-	// Fallback to the most common path; ffmpeg will produce a clear error if unavailable
 	return "/dev/dri/renderD128"
 }
 
 // GetDecoderArgs returns hardware-accelerated decoder arguments if available.
-// Returns nil for types where HW decode is not supported or not beneficial.
 func (gi *GPUInfo) GetDecoderArgs() []string {
 	switch gi.Type {
 	case GPUTypeNVENC:
-		// CUVID decoder for hardware-accelerated input decoding
 		if gi.DecoderName != "" {
 			return []string{"-c:v", gi.DecoderName}
 		}

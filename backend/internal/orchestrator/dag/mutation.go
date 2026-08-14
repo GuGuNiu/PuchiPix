@@ -71,6 +71,9 @@ func (o *DagOrchestrator) AddNode(ctx context.Context, dagID string, nodeDef orc
 
 	dag.nodes[nodeDef.ID] = ni
 
+	// Adding a PENDING node makes this DAG non-terminal again.
+	dag.allTerminal = false
+
 	allDepsMet := ni.completedDeps >= len(nodeDef.Dependencies)
 	dag.mu.Unlock()
 

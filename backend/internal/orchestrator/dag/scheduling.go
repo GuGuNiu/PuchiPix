@@ -2,7 +2,6 @@ package dag
 
 import (
 	"context"
-	"math/rand"
 	"time"
 
 	"backend/internal/orchestrator"
@@ -321,9 +320,14 @@ func (o *DagOrchestrator) activateSatisfiedSuccessors(ctx context.Context, dagID
 
 // submitToScheduler builds a SchedulableNode from the definition and
 // submits it to the scheduler, rolling back to READY if rejected.
-// A randomized jitter (0–maxJitter ms) is applied before submission
-// when multiple nodes are activated in the same batch, spreading the
-// burst to avoid thundering-herd contention.
+//
+// Note: The previous jitter (time.Sleep) was removed because:
+// 1. It blocked the caller goroutine, stalling activation pipelines.
+// 2. The cross-DAG fairness mechanism in ReadyQueue (dagDispatchCount)
+//    already prevents thundering-herd contention by alternating among
+//    DAGs at the same priority level.
+// 3. Non-blocking jitter (time.AfterFunc) caused test timing issues
+//    because tests expect synchronous submission feedback.
 func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID string, node *dagNodeInstance) {
 	schedulable := orchestrator.SchedulableNode{
 		NodeID:               nodeID,
@@ -341,13 +345,6 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 
 	if o.scheduler == nil {
 		return
-	}
-
-	// Jitter: random 0–maxJitter ms sleep to spread burst submissions
-	// when many nodes are activated in the same pass.
-	jitterMs := rand.Intn(maxJitter + 1)
-	if jitterMs > 0 {
-		time.Sleep(time.Duration(jitterMs) * time.Millisecond)
 	}
 
 	submitted := o.scheduler.Submit(schedulable)
@@ -369,10 +366,21 @@ func convertResourceReqs(reqs []orchestrator.ResourceRequirement) []orchestrator
 // ReactivateReadyNodes scans all DAGs for READY nodes and re-submits
 // them to the scheduler. This is the 260720 fix that prevents READY
 // nodes from deadlocking when the queue was previously full.
+//
+// Optimization: DAGs whose allTerminal flag is true are skipped
+// entirely, reducing the periodic scan from O(dags*nodes) to
+// O(activeDags*nodes) in the common idle case where dozens of
+// completed DAGs persist in memory.
 func (o *DagOrchestrator) ReactivateReadyNodes(ctx context.Context) {
 	o.dagsMu.RLock()
 	dagIDs := make([]string, 0, len(o.dags))
-	for id := range o.dags {
+	for id, dag := range o.dags {
+		dag.mu.Lock()
+		skip := dag.allTerminal
+		dag.mu.Unlock()
+		if skip {
+			continue
+		}
 		dagIDs = append(dagIDs, id)
 	}
 	o.dagsMu.RUnlock()

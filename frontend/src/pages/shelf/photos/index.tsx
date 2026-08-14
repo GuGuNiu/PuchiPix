@@ -324,9 +324,9 @@ export default function PhotosPage(): React.JSX.Element {
                           overflow: "hidden",
                         }}
                       >
-                        {gallery.CoverURL ? (
+                        {gallery.CoverURL || gallery.CoverLocalPath || gallery.ImageCount > 0 ? (
                           <img
-                            src={`/api/shelf/${gallery.ID}?type=cover`}
+                            src={`/api/shelf/${gallery.ID}?type=cover&width=400`}
                             alt={gallery.Title}
                             loading="lazy"
                             decoding="async"
@@ -339,7 +339,18 @@ export default function PhotosPage(): React.JSX.Element {
                               const img = e.target as HTMLImageElement;
                               if (!img.dataset.fallback) {
                                 img.dataset.fallback = '1';
-                                img.src = gallery.CoverURL;
+                                if (gallery.CoverURL) {
+                                  img.src = gallery.CoverURL;
+                                } else {
+                                  img.style.display = "none";
+                                  const parent = img.parentElement;
+                                  if (parent) {
+                                    parent.style.display = "flex";
+                                    parent.style.alignItems = "center";
+                                    parent.style.justifyContent = "center";
+                                    parent.style.color = "var(--text-muted)";
+                                  }
+                                }
                               } else {
                                 img.style.display = "none";
                               }

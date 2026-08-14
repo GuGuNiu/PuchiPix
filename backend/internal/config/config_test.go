@@ -77,6 +77,7 @@ func TestLoadDownloadDefaults(t *testing.T) {
 	os.Unsetenv("DOWNLOAD_MIN_FILE_SIZE")
 	os.Unsetenv("GALLERY_IMAGE_CONCURRENT")
 	os.Unsetenv("VIDEO_MAX_CONCURRENT")
+	os.Unsetenv("TS_SEGMENT_CONCURRENT")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -87,6 +88,7 @@ func TestLoadDownloadDefaults(t *testing.T) {
 	assert.Equal(t, int64(1<<20), cfg.DownloadMinFileSize)
 	assert.Equal(t, 5, cfg.GalleryImageConcurrent)
 	assert.Equal(t, 3, cfg.VideoMaxConcurrent)
+	assert.Equal(t, 10, cfg.TSegmentConcurrent)
 }
 
 // TestLoadDownloadConcurrencyClamped verifies that concurrency is

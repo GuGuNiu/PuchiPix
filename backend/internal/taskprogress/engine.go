@@ -1,6 +1,7 @@
 package taskprogress
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"backend/internal/db"
 	"backend/internal/infra"
 )
 
@@ -24,12 +26,20 @@ import (
 //     to account for download dependencies (e.g., session cookies, rate limits).
 //  4. Video-aware: video files get dedicated retry strategies with
 //     segment-level tracking and integrity verification.
+//  5. Checkpoint-based retry: the download phase is a state machine
+//     (DownloadPhase) and per-file status is persisted to the DB so a
+//     retry resumes from what is already on disk instead of starting over.
 type Engine struct {
 	mu     sync.RWMutex
 	files  map[int]map[int]*FileProgress // galleryID -> fileIndex -> progress
 	logger *infra.Logger
 	// onProgress is an optional callback invoked when progress changes.
 	onProgress func(galleryID int, summary GalleryProgressSummary)
+	// phase tracks the download-phase state machine per gallery.
+	phase map[int]DownloadPhase
+	// db, when set, persists phase + per-file status for restart/retry
+	// recovery via the gallery_file_progress table.
+	db *db.Database
 }
 
 // NewEngine creates a progress tracking engine.
@@ -39,8 +49,124 @@ func NewEngine(logger *infra.Logger) *Engine {
 	}
 	return &Engine{
 		files:  make(map[int]map[int]*FileProgress),
+		phase:  make(map[int]DownloadPhase),
 		logger: logger,
 	}
+}
+
+// SetDatabase attaches the database used for checkpoint persistence.
+// When nil, progress tracking remains purely in-memory (tests).
+func (e *Engine) SetDatabase(database *db.Database) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.db = database
+}
+
+// tableFileProgress is the persistence table for per-file checkpoint state.
+const tableFileProgress = "gallery_file_progress"
+
+// phaseRowFileIndex is the sentinel file_index value used for the
+// gallery-level phase row, keeping it distinct from per-file rows
+// (which use file_index >= 0). This lets both share the composite
+// PRIMARY KEY (gallery_id, file_index) without collision.
+const phaseRowFileIndex = -1
+
+// ── DownloadPhase state machine ──
+
+// validDownloadPhaseTransitions enumerates legal DownloadPhase moves.
+var validDownloadPhaseTransitions = map[DownloadPhase][]DownloadPhase{
+	PhasePending:     {PhaseScanning, PhaseInProgress, PhaseFailed},
+	PhaseScanning:    {PhaseInProgress, PhaseComplete, PhaseFailed},
+	PhaseInProgress:  {PhaseVerifying, PhaseComplete, PhaseFailed, PhaseScanning},
+	PhaseVerifying:   {PhaseComplete, PhaseFailed, PhaseInProgress},
+	PhaseComplete:    {},
+	PhaseFailed:      {PhaseScanning, PhaseInProgress},
+}
+
+// SetPhase transitions the gallery's download phase, returning an error
+// for illegal transitions. The new phase is persisted when a DB is set.
+func (e *Engine) SetPhase(galleryID int, phase DownloadPhase) error {
+	e.mu.Lock()
+	current, exists := e.phase[galleryID]
+	if !exists {
+		current = PhasePending
+	}
+	allowed, ok := validDownloadPhaseTransitions[current]
+	if !ok {
+		e.mu.Unlock()
+		return fmt.Errorf("illegal download phase transition from %s", current)
+	}
+	legal := false
+	for _, s := range allowed {
+		if s == phase {
+			legal = true
+			break
+		}
+	}
+	if !legal {
+		e.mu.Unlock()
+		return fmt.Errorf("illegal download phase transition: %s -> %s", current, phase)
+	}
+	e.phase[galleryID] = phase
+	database := e.db
+	e.mu.Unlock()
+
+	if database != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := database.Exec(ctx,
+			`INSERT INTO `+tableFileProgress+` (gallery_id, file_index, phase, updated_at)
+			 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+			 ON CONFLICT (gallery_id, file_index) DO UPDATE SET phase = ?, updated_at = CURRENT_TIMESTAMP`,
+			galleryID, phaseRowFileIndex, string(phase), string(phase))
+		if err != nil {
+			e.logger.Warn("Failed to persist download phase", "galleryId", galleryID, "error", err.Error())
+		}
+	}
+	e.logger.Info("Download phase changed", "galleryId", galleryID, "phase", phase)
+	return nil
+}
+
+// GetPhase returns the current download phase for a gallery, defaulting
+// to PhasePending when unknown.
+func (e *Engine) GetPhase(galleryID int) DownloadPhase {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if p, ok := e.phase[galleryID]; ok {
+		return p
+	}
+	return PhasePending
+}
+
+// CanTransitionPhase reports whether a phase transition is legal.
+func (e *Engine) CanTransitionPhase(from, to DownloadPhase) bool {
+	allowed, ok := validDownloadPhaseTransitions[from]
+	if !ok {
+		return false
+	}
+	for _, s := range allowed {
+		if s == to {
+			return true
+		}
+	}
+	return false
+}
+
+// CanTransitionDownloadPhase is a lock-free predicate for callers that
+// already hold the Engine's state or are testing validity without a live
+// Engine instance. Use Engine.CanTransitionPhase when the Engine is
+// available.
+func CanTransitionDownloadPhase(from, to DownloadPhase) bool {
+	allowed, ok := validDownloadPhaseTransitions[from]
+	if !ok {
+		return false
+	}
+	for _, s := range allowed {
+		if s == to {
+			return true
+		}
+	}
+	return false
 }
 
 // RegisterFiles initializes file tracking for a gallery. Called after
@@ -384,4 +510,113 @@ func countFilesRecursive(dir string) int {
 // CountFilesOnDisk is a public convenience wrapper for counting files.
 func CountFilesOnDisk(dir string) int {
 	return countFilesRecursive(dir)
+}
+
+// ── DB persistence (checkpoint-based retry) ──
+
+// SaveProgress persists the current per-file progress and phase for a
+// gallery to the gallery_file_progress table. This enables retry across
+// restarts: on the next load, the Engine can reconstruct which files
+// completed and which failed, skipping re-download of completed files.
+func (e *Engine) SaveProgress(ctx context.Context, database *db.Database, galleryID int) error {
+	if database == nil {
+		return nil
+	}
+	e.mu.RLock()
+	galleryFiles, ok := e.files[galleryID]
+	phase := e.phase[galleryID]
+	e.mu.RUnlock()
+	if !ok || len(galleryFiles) == 0 {
+		return nil
+	}
+
+	// Batch-insert file status rows. The ON CONFLICT upsert ensures
+	// repeated saves are idempotent — on retry the existing completed
+	// rows are preserved.
+	for _, f := range galleryFiles {
+		_, err := database.Exec(ctx,
+			`INSERT INTO `+tableFileProgress+`
+			 (gallery_id, file_index, file_type, file_url, local_path, file_size, status, error_msg, retry_count, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			 ON CONFLICT (gallery_id, file_index) DO UPDATE SET
+			   status = EXCLUDED.status,
+			   local_path = COALESCE(EXCLUDED.local_path, `+tableFileProgress+`.local_path),
+			   file_size = CASE WHEN EXCLUDED.file_size > 0 THEN EXCLUDED.file_size ELSE `+tableFileProgress+`.file_size END,
+			   error_msg = EXCLUDED.error_msg,
+			   retry_count = EXCLUDED.retry_count,
+			   updated_at = CURRENT_TIMESTAMP`,
+			galleryID, f.FileIndex, string(f.FileType), f.FileURL,
+			f.LocalPath, f.FileSize, string(f.Status), f.ErrorMsg, f.RetryCount)
+		if err != nil {
+			e.logger.Warn("Failed to persist file progress", "galleryId", galleryID, "fileIndex", f.FileIndex, "error", err.Error())
+		}
+	}
+
+	// Persist the download phase row (file_index = -1 sentinel).
+	if phase != "" {
+		_, _ = database.Exec(ctx,
+			`INSERT INTO `+tableFileProgress+` (gallery_id, file_index, phase, updated_at)
+			 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+			 ON CONFLICT (gallery_id, file_index) DO UPDATE SET phase = ?, updated_at = CURRENT_TIMESTAMP`,
+			galleryID, phaseRowFileIndex, string(phase), string(phase))
+	}
+
+	e.logger.Info("Progress saved to DB", "galleryId", galleryID, "files", len(galleryFiles))
+	return nil
+}
+
+// LoadProgress reconstructs per-file progress for a gallery from the DB.
+// Used after restart to skip re-downloading files that already completed.
+// The phase is also restored so the state machine can continue from where
+// it left off.
+func (e *Engine) LoadProgress(ctx context.Context, database *db.Database, galleryID int) error {
+	if database == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Load phase from the sentinel row.
+	var phaseStr string
+	err := database.QueryRow(ctx,
+		`SELECT COALESCE(phase, '') FROM `+tableFileProgress+` WHERE gallery_id = ? AND file_index = ?`,
+		galleryID, phaseRowFileIndex).Scan(&phaseStr)
+	if err == nil && phaseStr != "" {
+		e.phase[galleryID] = DownloadPhase(phaseStr)
+	}
+
+	// Load per-file progress (exclude the phase sentinel row, which uses
+	// file_index = -1).
+	rows, err := database.Query(ctx,
+		`SELECT file_index, file_type, file_url, local_path, file_size, status, error_msg, retry_count
+		 FROM `+tableFileProgress+` WHERE gallery_id = ? AND file_index >= 0 ORDER BY file_index`,
+		galleryID)
+	if err != nil {
+		// Table may not exist yet (first run or migration not applied).
+		return nil
+	}
+	defer rows.Close()
+
+	if _, ok := e.files[galleryID]; !ok {
+		e.files[galleryID] = make(map[int]*FileProgress)
+	}
+	now := time.Now()
+	for rows.Next() {
+		var f FileProgress
+		var fileTypeStr, statusStr string
+		if scanErr := rows.Scan(&f.FileIndex, &fileTypeStr, &f.FileURL, &f.LocalPath, &f.FileSize, &statusStr, &f.ErrorMsg, &f.RetryCount); scanErr != nil {
+			continue
+		}
+		f.GalleryID = galleryID
+		f.FileType = FileType(fileTypeStr)
+		f.Status = FileStatus(statusStr)
+		f.CreatedAt = now
+		f.UpdatedAt = now
+		e.files[galleryID][f.FileIndex] = &f
+	}
+
+	if len(e.files[galleryID]) > 0 {
+		e.logger.Info("Progress loaded from DB", "galleryId", galleryID, "files", len(e.files[galleryID]), "phase", phaseStr)
+	}
+	return nil
 }

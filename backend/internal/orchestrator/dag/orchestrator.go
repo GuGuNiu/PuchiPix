@@ -11,11 +11,6 @@ import (
 	"backend/internal/orchestrator/slot"
 )
 
-// maxJitter is the upper bound (ms) for randomized scheduling jitter,
-// spreading out batch node submissions to prevent thundering-herd
-// effects when many nodes become ready simultaneously.
-const maxJitter = 200
-
 // defaultOnRestart returns the fallback target state for a node found in
 // a non-terminal state after a service restart. Per the design requirement,
 // ALL unfinished tasks should transition to PAUSED on restart so the user
@@ -68,6 +63,17 @@ type dagInstance struct {
 	// mu guards this DAG's nodes, FSMs, counters, and graphIdx.
 	// Lock ordering: dagsMu(R) -> dag.mu -> scheduler -> SlotPool.
 	mu sync.Mutex
+	// allTerminal caches whether every node in this DAG has reached
+	// a terminal state. Maintained by checkDagCompletion and consulted
+	// by ReactivateReadyNodes to skip DAGs that have no work left,
+	// avoiding an O(n) scan of every node in every DAG on each tick.
+	// The flag is conservative: it is only set true when
+	// checkDagCompletion confirms all nodes are terminal, and it is
+	// reset to false whenever a retry/resume/addNode introduces new
+	// non-terminal nodes. A false value means "might have work" so the
+	// periodic scan still checks, but the common idle case (dozens of
+	// completed DAGs) is reduced from O(dags*nodes) to O(activeDags).
+	allTerminal bool
 }
 
 // SchedulerInterface is the contract the orchestrator needs from the

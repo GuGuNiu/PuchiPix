@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,12 @@ const defaultGalleryImageConcurrent = 5
 // defaultVideoMaxConcurrent is the fallback when
 // DownloadDefaults.VideoMaxConcurrent is zero (unconfigured).
 const defaultVideoMaxConcurrent = 2
+
+// defaultTSegmentConcurrent is the fallback when
+// DownloadDefaults.TSegmentConcurrent is zero (unconfigured). Mirrors
+// the default in config.go so the gallery pipeline always has a sane
+// TS-segment concurrency even when constructed without config.
+const defaultTSegmentConcurrent = 10
 
 // WireExecutors registers the four gallery executors (scrape, download,
 // verify, extract) with actual production implementations, replacing
@@ -530,22 +537,34 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			return nil
 		}
 
-		// Fetch all pending gallery_images.
+		// Load any checkpointed progress for this gallery so retry resumes
+		// from already-downloaded files instead of starting over. The
+		// per-file statuses (FileIndex keyed by order_index) were persisted
+		// by SaveProgress at the end of the previous attempt.
+		if progressEngine != nil {
+			_ = progressEngine.LoadProgress(ctx, database, galleryID)
+		}
+
+		// Fetch all pending gallery_images. After a smart retry (see
+		// cleanupGalleryCache) only failed/missing images are reset to
+		// pending; already-downloaded ones keep status='downloaded' and are
+		// therefore skipped here — accurate continuation.
 		rows, err := database.Query(ctx,
-			`SELECT id, url, file_name FROM gallery_images WHERE gallery_id = ? AND status = 'pending' ORDER BY order_index`,
+			`SELECT id, url, file_name, order_index FROM gallery_images WHERE gallery_id = ? AND status = 'pending' ORDER BY order_index`,
 			galleryID)
 		if err != nil {
 			return fmt.Errorf("query gallery_images: %w", err)
 		}
 		type imgTask struct {
-			id       int
-			url      string
-			fileName string
+			id         int
+			url        string
+			fileName   string
+			orderIndex int
 		}
 		var images []imgTask
 		for rows.Next() {
 			var t imgTask
-			if err := rows.Scan(&t.id, &t.url, &t.fileName); err != nil {
+			if err := rows.Scan(&t.id, &t.url, &t.fileName, &t.orderIndex); err != nil {
 				continue
 			}
 			images = append(images, t)
@@ -555,16 +574,29 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		logger.Info("Gallery batch download starting",
 			"galleryId", galleryID, "images", len(images), "saveDir", saveDir)
 
+		// Advance the download-phase state machine. Retry enters SCANNING
+		// (checkpoint already loaded above) then IN_PROGRESS; a fresh
+		// download goes straight to IN_PROGRESS.
+		if progressEngine != nil {
+			phase := progressEngine.GetPhase(galleryID)
+			if phase == taskprogress.PhasePending || phase == taskprogress.PhaseFailed {
+				_ = progressEngine.SetPhase(galleryID, taskprogress.PhaseScanning)
+			}
+			if progressEngine.GetPhase(galleryID) != taskprogress.PhaseComplete {
+				_ = progressEngine.SetPhase(galleryID, taskprogress.PhaseInProgress)
+			}
+		}
+
 		// Register expected files with the ProgressEngine for fine-grained
-		// progress tracking. This bridges the pipeline gap where the engine
-		// was initialized and injected but never called from the download
-		// pipeline. Each image gets a FileProgress entry so that
-		// UpdateFileStatus can be called as downloads complete.
+		// progress tracking. Each image gets a FileProgress entry keyed by
+		// its stable order_index so checkpoint recovery aligns across
+		// retries (previously the slice position was used, which shifts on
+		// retry once some files are already downloaded).
 		if progressEngine != nil && len(images) > 0 {
 			fileProgress := make([]taskprogress.FileProgress, len(images))
 			for i, img := range images {
 				fileProgress[i] = taskprogress.FileProgress{
-					FileIndex: i,
+					FileIndex: img.orderIndex,
 					FileType:  taskprogress.FileTypeImage,
 					FileURL:   img.url,
 					Status:    taskprogress.FilePending,
@@ -633,9 +665,9 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			}
 		}()
 
-		for imgIdx, img := range images {
+		for _, img := range images {
 			img := img       // capture loop variable
-			imgIdx := imgIdx // capture loop variable for progress engine
+			orderIndex := img.orderIndex // stable key for progress engine
 			g.Go(func() error {
 				select {
 				case <-gctx.Done():
@@ -659,7 +691,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					totalSize += result.FileSize
 					// Update ProgressEngine with completed file status.
 					if progressEngine != nil {
-						progressEngine.UpdateFileStatus(galleryID, imgIdx,
+						progressEngine.UpdateFileStatus(galleryID, orderIndex,
 							taskprogress.FileCompleted, localPath, result.FileSize, "")
 					}
 				} else {
@@ -674,7 +706,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					logger.Warn("Image download failed", "galleryId", galleryID, "url", img.url, "error", errMsg)
 					// Update ProgressEngine with failed file status.
 					if progressEngine != nil {
-						progressEngine.UpdateFileStatus(galleryID, imgIdx,
+						progressEngine.UpdateFileStatus(galleryID, orderIndex,
 							taskprogress.FileFailed, "", 0, errMsg)
 					}
 				}
@@ -751,7 +783,16 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				// downloads from blocking the errgroup indefinitely. The timeout
 				// is scoped to each video so one slow video doesn't cancel others.
 				videoCtx, videoCancel := context.WithTimeout(videoGCtx, 10*time.Minute)
-				downloadErr := video.GalleryDownloadVideo(videoCtx, decodedURL, vidSaveDir, outputPath, sourceURL, siteDomains)
+
+				// TS-segment concurrency for this gallery video. Now sourced
+				// from DownloadDefaults (config: TS_SEGMENT_CONCURRENT) so it
+				// is tunable at runtime like the independent video pipeline's
+				// tsSegmentConcurrent, instead of a hardcoded 10.
+				segConcurrent := dlDefaults.TSegmentConcurrent
+				if segConcurrent <= 0 {
+					segConcurrent = defaultTSegmentConcurrent
+				}
+				downloadErr := video.GalleryDownloadVideo(videoCtx, decodedURL, vidSaveDir, outputPath, sourceURL, siteDomains, segConcurrent)
 				videoCancel()
 				videoMu.Lock()
 				defer videoMu.Unlock()
@@ -762,9 +803,23 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 						downloadErr.Error(), vid.id)
 					videoFailed++
 				} else {
+					// Probe the output MP4 for metadata (file size, duration,
+					// resolution) so the shelf can display them. This mirrors
+					// the independent video pipeline's probe step — previously
+					// only local_path was written, leaving file_size/duration/
+					// resolution at their zero defaults.
+					var fileSize int64
+					if info, statErr := os.Stat(outputPath); statErr == nil {
+						fileSize = info.Size()
+					}
+					probeCtx, probeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+					durationSeconds, _ := video.ProbeDuration(probeCtx, outputPath)
+					resolution, _ := video.ProbeResolution(probeCtx, outputPath)
+					probeCancel()
+					durationMinutes := math.Round(durationSeconds/60*10) / 10
 					_, _ = database.Exec(videoGCtx,
-						`UPDATE gallery_videos SET status = 'downloaded', local_path = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-						outputPath, vid.id)
+						`UPDATE gallery_videos SET status = 'downloaded', local_path = ?, file_size = ?, duration = ?, resolution = ?, format = 'mp4', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						outputPath, fileSize, durationMinutes, resolution, vid.id)
 					videoDownloaded++
 				}
 				return nil
@@ -812,14 +867,47 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			})
 		}
 
-		// Update gallery status.
+		// Update gallery status. Both image and video outcomes contribute:
+		// partial if any images or videos failed, completed only when all
+		// expected content is present. This was a gap where video failures
+		// were ignored and a gallery with failed videos was still marked
+		// "completed".
 		status := "completed"
-		if successCount < len(images) {
+		if successCount < len(images) || videoFailed > 0 {
 			status = "partial"
 		}
 		_, _ = database.Exec(ctx,
 			`UPDATE galleries SET status = ?, downloaded_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			status, totalSize, galleryID)
+
+		// Advance the download-phase state machine to its terminal state
+		// and persist the checkpoint so a future retry resumes accurately.
+		if progressEngine != nil {
+			if status == "completed" {
+				_ = progressEngine.SetPhase(galleryID, taskprogress.PhaseComplete)
+			} else {
+				_ = progressEngine.SetPhase(galleryID, taskprogress.PhaseFailed)
+			}
+			_ = progressEngine.SaveProgress(ctx, database, galleryID)
+		}
+
+		// If the gallery has no local cover path yet, set it to the
+		// first downloaded image so the shelf can display a thumbnail
+		// without relying solely on the external cover_url redirect.
+		var existingCoverPath string
+		_ = database.QueryRow(ctx,
+			"SELECT COALESCE(cover_local_path, '') FROM galleries WHERE id = ?", galleryID).Scan(&existingCoverPath)
+		if existingCoverPath == "" && successCount > 0 {
+			var firstImgPath string
+			_ = database.QueryRow(ctx,
+				`SELECT local_path FROM gallery_images WHERE gallery_id = ? AND status = 'downloaded' AND local_path != '' ORDER BY order_index LIMIT 1`,
+				galleryID).Scan(&firstImgPath)
+			if firstImgPath != "" {
+				_, _ = database.Exec(ctx,
+					`UPDATE galleries SET cover_local_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+					firstImgPath, galleryID)
+			}
+		}
 
 		// Emit task:completed (or partial) so SSE clients see the
 		// gallery finish in real-time without requiring a refresh.

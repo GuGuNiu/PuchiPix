@@ -87,6 +87,7 @@ func main() {
 		MinFileSize:            cfg.DownloadMinFileSize,
 		GalleryImageConcurrent: cfg.GalleryImageConcurrent,
 		VideoMaxConcurrent:     cfg.VideoMaxConcurrent,
+		TSegmentConcurrent:     cfg.TSegmentConcurrent,
 	}
 
 	if database != nil {
@@ -104,6 +105,9 @@ func main() {
 		// for gallery pipeline integration, and later to DownloadManager
 		// and VideoDownloadExecutor for video pipeline integration.
 		progressEngine = taskprogress.NewEngine(logger)
+		// Attach the database so per-file progress and the download-phase
+		// state machine can be persisted for checkpoint-based retry.
+		progressEngine.SetDatabase(database)
 		videoTracker = taskprogress.NewVideoProgressTracker(taskprogress.DefaultVideoRetryStrategy())
 
 		// 3a. Build title parser with embedded model/character data.

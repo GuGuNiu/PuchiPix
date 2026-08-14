@@ -55,6 +55,10 @@ type DownloadDefaults struct {
 	// VideoMaxConcurrent limits simultaneous video downloads within
 	// a gallery batch. 0 falls back to a sensible default.
 	VideoMaxConcurrent int
+	// TSegmentConcurrent limits concurrent TS segment downloads within
+	// a single gallery-embedded M3U8 stream (ts_segment_concurrent).
+	// 0 falls back to a sensible default.
+	TSegmentConcurrent int
 }
 
 // ApplyTo merges the defaults into an existing DownloadOptions,

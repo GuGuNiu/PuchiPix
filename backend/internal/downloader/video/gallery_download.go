@@ -27,7 +27,10 @@ import (
 //   - referer:         Primary Referer header (typically the gallery page URL).
 //                      Must NOT be the M3U8 URL itself — CDNs reject this.
 //   - refererDomains:  CDN anti-hotlink fallback domains from site config.
-func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, referer string, refererDomains []string) error {
+//   - segmentConcurrent: concurrent TS segment downloads within this
+//                      stream (ts_segment_concurrent). Values <= 0 fall
+//                      back to the default of 10.
+func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, referer string, refererDomains []string, segmentConcurrent int) error {
 	// Step 1: Fetch and parse M3U8 using the unified pipeline component.
 	// This handles: Referer fallback → playlist parsing → master
 	// playlist variant selection → variant playlist fetching.
@@ -49,8 +52,11 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 	// downloader. The effective Referer (which may differ from the
 	// primary Referer if a CDN fallback domain was accepted) is used
 	// for all segment downloads to avoid repeated 403 failures.
+	if segmentConcurrent <= 0 {
+		segmentConcurrent = 10
+	}
 	batchResult := DownloadSegmentsBatch(ctx, fetchResult.Segments, SegmentBatchOptions{
-		Concurrency: 10,
+		Concurrency: segmentConcurrent,
 		MaxRetries:  3,
 		SegDir:      segDir,
 		Referer:     fetchResult.EffectiveReferer,
@@ -62,9 +68,23 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		return err
 	}
 
-	// Step 5: Merge segments into MP4 output.
-	if mergeErr := MergeSegmentsToMP4(segDir, outputPath, batchResult.Total); mergeErr != nil {
-		return fmt.Errorf("merge segments: %w", mergeErr)
+	// Step 5: Transcode TS segments into MP4 using ffmpeg.
+	// This uses the same pipeline as the independent video manager,
+	// enabling hardware-accelerated transcoding (NVENC/QSV/AMF/VAAPI/
+	// VideoToolbox) when a compatible GPU is available, with automatic
+	// fallback to CPU stream copy if GPU transcoding fails.
+	//
+	// Previously this step used MergeSegmentsToMP4 which only performed
+	// a binary file concatenation — this produced a .ts file renamed
+	// to .mp4 without proper container muxing, and could not leverage
+	// GPU acceleration at all.
+	gpuInfo := DetectGPU()
+	transcodeOpts := TranscodeOptions{
+		UseGPU:       gpuInfo.SupportsHWTranscode(),
+		ForceGPUType: string(gpuInfo.Type),
+	}
+	if transcodeErr := TranscodeTSWithFallback(ctx, segDir, outputPath, transcodeOpts); transcodeErr != nil {
+		return fmt.Errorf("transcode segments to MP4: %w", transcodeErr)
 	}
 
 	return nil

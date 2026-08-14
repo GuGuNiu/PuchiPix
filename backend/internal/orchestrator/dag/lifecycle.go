@@ -428,6 +428,11 @@ func (o *DagOrchestrator) ResumeDag(ctx context.Context, dagID string, nodeID st
 		resumedCount++
 	}
 
+	// Resuming nodes makes this DAG non-terminal again.
+	dag.mu.Lock()
+	dag.allTerminal = false
+	dag.mu.Unlock()
+
 	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
 		Type:      "dag:resumed",
 		DagID:     dagID,
@@ -470,6 +475,11 @@ func (o *DagOrchestrator) RetryDag(ctx context.Context, dagID string, nodeID str
 		o.logger.Warn("No retryable nodes found", "dagId", dagID, "nodeId", nodeID)
 		return nil
 	}
+
+	// Retrying nodes makes this DAG non-terminal again.
+	dag.mu.Lock()
+	dag.allTerminal = false
+	dag.mu.Unlock()
 
 	for _, node := range nodesToRetry {
 		// Strategy layer (M6): honor the policy's retryPolicy. When
@@ -665,6 +675,7 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 		})
 	}
 	taskType := dag.definition.TaskType
+	dag.allTerminal = allTerminal
 	dag.mu.Unlock()
 
 	if !allTerminal {

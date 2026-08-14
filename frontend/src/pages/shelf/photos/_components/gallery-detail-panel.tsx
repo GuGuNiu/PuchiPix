@@ -309,6 +309,21 @@ export function GalleryDetailPanel({
                       >
                         {vid.FileName || `video_${i + 1}`}
                       </span>
+                      {(vid.FileSize || vid.Duration || vid.Resolution) && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-muted)",
+                            flexShrink: 0,
+                            display: "flex",
+                            gap: 6,
+                          }}
+                        >
+                          {vid.FileSize ? formatFileSize(vid.FileSize) : null}
+                          {vid.Duration ? `${vid.Duration.toFixed(1)} min` : null}
+                          {vid.Resolution ? vid.Resolution : null}
+                        </span>
+                      )}
                       <span
                         className={`badge ${
                           vid.Status === "completed"

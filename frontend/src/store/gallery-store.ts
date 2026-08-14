@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GalleryData, DownloadTask } from '@/types';
+import type { GalleryData, GalleryVideoData, DownloadTask } from '@/types';
 import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
 import { createLogger } from '@/lib/core/infra';
 
@@ -129,7 +129,41 @@ function normalizeGallery(raw: Record<string, unknown>): GalleryData {
     PublishTime: strOrUndef(raw.publishTime ?? raw.PublishTime),
     CreatedAt: str(raw.createdAt ?? raw.CreatedAt),
     UpdatedAt: str(raw.updatedAt ?? raw.UpdatedAt),
+    Videos: normalizeGalleryVideos(raw.videos ?? raw.Videos, raw.id ?? raw.ID),
   };
+}
+
+// Map raw gallery_videos rows into GalleryVideoData, normalizing the
+// backend 'downloaded' status to 'completed' for the UI badge contract.
+function normalizeGalleryVideos(rawVideos: unknown, galleryId: unknown): GalleryVideoData[] {
+  if (!Array.isArray(rawVideos)) return [];
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  return rawVideos.map((v: unknown) => {
+    const row = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
+    return {
+      ID: (row.id ?? row.ID) as number,
+      GalleryID: (row.galleryId ?? row.GalleryID ?? galleryId) as number,
+      URL: str(row.url ?? row.URL),
+      LocalPath: str(row.localPath ?? row.LocalPath),
+      FileName: str(row.fileName ?? row.FileName),
+      FileSize: num(row.fileSize ?? row.FileSize),
+      Duration: num(row.duration ?? row.Duration),
+      Resolution: str(row.resolution ?? row.Resolution),
+      Format: str(row.format ?? row.Format),
+      Status: normalizeGalleryVideoStatus(str(row.status ?? row.Status)),
+      ErrorMsg: str(row.errorMsg ?? row.ErrorMsg),
+    };
+  });
+}
+
+// Backend gallery_videos.status uses 'downloaded'; the UI badge renders
+// 'completed'. Normalize at the boundary so existing components that
+// check `vid.Status === 'completed'` keep working.
+function normalizeGalleryVideoStatus(status: string): string {
+  if (status === 'downloaded' || status === 'completed') return 'completed';
+  if (status === 'downloading' || status === 'pending') return status;
+  return status; // 'failed' and any unknown values pass through
 }
 
 export const useGalleryStore = create<GalleryStore>((set, get) => ({

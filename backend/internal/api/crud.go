@@ -546,6 +546,8 @@ func (h *Handlers) TaskSettingsList(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.DownloadMgr != nil {
 		result["tsSegmentConcurrent"] = h.DownloadMgr.GetMaxConcurrent()
+	} else if h.DlDefaults != nil && h.DlDefaults.TSegmentConcurrent > 0 {
+		result["tsSegmentConcurrent"] = h.DlDefaults.TSegmentConcurrent
 	}
 	if h.DlDefaults != nil {
 		if h.DlDefaults.GalleryImageConcurrent > 0 {
@@ -660,6 +662,12 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		case "tsSegmentConcurrent":
 			if h.DownloadMgr != nil {
 				h.DownloadMgr.SetMaxConcurrent(u.value)
+			}
+			// Keep the gallery pipeline's TS-segment concurrency in sync
+			// with the independent video pipeline's setting, so both
+			// channels honor the same tsSegmentConcurrent value.
+			if h.DlDefaults != nil {
+				h.DlDefaults.TSegmentConcurrent = u.value
 			}
 		case "galleryImageConcurrent":
 			if h.DlDefaults != nil {

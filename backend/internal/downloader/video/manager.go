@@ -576,7 +576,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		UseGPU:       m.gpuTranscode,
 		ForceGPUType: m.forceGPUType,
 	}
-	if err := TranscodeTS(transcodeCtx, segDir, mp4OutputPath, transcodeOpts); err != nil {
+	if err := TranscodeTSWithFallback(transcodeCtx, segDir, mp4OutputPath, transcodeOpts); err != nil {
 		return fmt.Errorf("transcode TS: %w", err)
 	}
 	m.logger.Info("MP4 transcoding completed",

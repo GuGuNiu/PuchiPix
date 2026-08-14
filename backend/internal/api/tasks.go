@@ -1086,31 +1086,44 @@ func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 	return h.DagOrch.SubmitDag(r.Context(), def)
 }
 
-// cleanupVideoTaskCache deletes all cached files from a previous download
-// attempt so a retry starts from a clean slate. Removes:
-//   - The segments directory: data/segments/task_{id}/
-//   - The output MP4 file pointed to by file_path
+// cleanupVideoTaskCache prepares a video task for retry with segment
+// preservation. Unlike the old "clean slate" behavior (which deleted the
+// segments directory, forcing a full re-download of every TS segment),
+// this keeps already-downloaded segments on disk so the retry resumes at
+// the segment level — DownloadSegment skips files that already exist
+// (os.Stat check), re-downloading only the segments that failed or were
+// never attempted.
 //
-// Also resets progress-related DB fields (progress, completed_segments,
-// total_segments, error_msg, m3u8_url) so the frontend doesn't show
-// stale data from the failed attempt.
+// Removes:
+//   - The output MP4 file (a partial/corrupt MP4 from a failed merge or
+//     transcode must be regenerated).
+//
+// Preserves:
+//   - data/segments/task_{id}/ with any completed .ts segments.
+//
+// Also resets progress-related DB fields so stale data doesn't leak into
+// the retry attempt's SSE events.
 func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) {
 	// 1. Read file_path from DB before deleting (for MP4 cleanup).
 	var filePath string
 	_ = h.DB.QueryRow(ctx,
 		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", taskID).Scan(&filePath)
 
-	// 2. Delete the output MP4 file.
+	// 2. Delete the output MP4 file. A partial MP4 from a failed merge or
+	// transcode is never valid for resume — it must be regenerated from
+	// the (preserved) segments.
 	if filePath != "" {
 		_ = os.Remove(filePath)
 	}
 
-	// 3. Delete the segments directory: data/segments/task_{id}/
-	segmentsDir := filepath.Join("..", "data", "segments", fmt.Sprintf("task_%d", taskID))
-	_ = os.RemoveAll(segmentsDir)
+	// 3. Preserve the segments directory so completed segments are reused.
+	// DownloadSegment resumes via os.Stat; only missing/failed segments are
+	// re-downloaded. (The old code removed the whole directory.)
 
 	// 4. Reset progress-related DB fields so stale data doesn't leak
-	// into the retry attempt's SSE events.
+	// into the retry attempt's SSE events. Note: completed segments on
+	// disk are not counted here — they are re-registered by the
+	// VideoProgressTracker when the download resumes.
 	_, _ = h.DB.Exec(ctx,
 		`UPDATE download_tasks
 		 SET progress = 0, completed_segments = 0, total_segments = 0,

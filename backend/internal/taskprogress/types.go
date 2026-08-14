@@ -84,6 +84,32 @@ const (
 	RetryAll RetryStrategy = "all"
 )
 
+// DownloadPhase tracks the sub-state of the download phase for a
+// gallery, enabling checkpoint-based recovery on retry. The phase
+// transitions are:
+//
+//	phase_pending → phase_in_progress → phase_verifying → phase_complete
+//	                                                      → phase_failed
+//	phase_pending → phase_scanning (retry: check disk for existing files)
+//	phase_scanning → phase_in_progress (some files exist, continue)
+//	phase_scanning → phase_complete (all files already on disk)
+type DownloadPhase string
+
+const (
+	// PhasePending download has not started yet.
+	PhasePending DownloadPhase = "phase_pending"
+	// PhaseScanning retry is scanning disk/DB for already-downloaded files.
+	PhaseScanning DownloadPhase = "phase_scanning"
+	// PhaseInProgress actively downloading files.
+	PhaseInProgress DownloadPhase = "phase_in_progress"
+	// PhaseVerifying checking downloaded files.
+	PhaseVerifying DownloadPhase = "phase_verifying"
+	// PhaseComplete all files downloaded successfully.
+	PhaseComplete DownloadPhase = "phase_complete"
+	// PhaseFailed download failed.
+	PhaseFailed DownloadPhase = "phase_failed"
+)
+
 // RetryResult reports the outcome of a retry operation.
 type RetryResult struct {
 	GalleryID      int      `json:"galleryId"`

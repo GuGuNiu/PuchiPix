@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"backend/internal/db"
@@ -494,31 +493,12 @@ func (h *Handlers) ServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent path traversal
-	clean := filepath.Clean(p)
-	if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+	// resolveDataPath handles absolute paths (stored by wire_executors.go)
+	// and relative paths (legacy `data\...` convention), returning an
+	// absolute path inside the data/ directory or empty on failure.
+	abs := resolveDataPath(p)
+	if abs == "" {
 		writeError(w, http.StatusForbidden, "invalid path")
-		return
-	}
-
-	// DB stores paths like "data\galleries\...\001.jpg".
-	// Strip the leading "data\" prefix before joining.
-	clean = strings.TrimPrefix(clean, "data"+string(filepath.Separator))
-	clean = strings.TrimPrefix(clean, "data/")
-
-	// Resolve relative to the project root's data/ directory
-	// (backend runs in backend/, data is at ../data/)
-	fullPath := filepath.Join("..", "data", clean)
-
-	// Verify the resolved file actually exists and is inside data/
-	abs, err := filepath.Abs(fullPath)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "path resolution failed")
-		return
-	}
-	dataRoot, _ := filepath.Abs(filepath.Join("..", "data"))
-	if !strings.HasPrefix(filepath.ToSlash(abs), filepath.ToSlash(dataRoot)+"/") {
-		writeError(w, http.StatusForbidden, "path escapes data directory")
 		return
 	}
 

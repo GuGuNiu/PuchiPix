@@ -114,7 +114,7 @@ function ImageCell({
         title={t("gallery.imagePage", { page: img.PageIndex + 1, order: img.OrderIndex + 1 })}
       >
         <img
-          src={img.LocalPath ? `/api/proxy?path=${encodeURIComponent(img.LocalPath)}` : img.URL}
+          src={img.LocalPath ? `/api/proxy?path=${encodeURIComponent(img.LocalPath)}&width=400` : img.URL}
           alt={`img-${img.OrderIndex + 1}`}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
           loading="lazy"

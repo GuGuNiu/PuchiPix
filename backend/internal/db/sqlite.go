@@ -24,6 +24,9 @@ var migration002FS embed.FS
 //go:embed migrations/003_game_characters_models.sql
 var migration003FS embed.FS
 
+//go:embed migrations/004_gallery_file_progress.sql
+var migration004FS embed.FS
+
 // Database wraps a *sql.DB handle with structured logging,
 // providing WAL-mode SQLite concurrency for the DAG scheduler
 // and API handlers.
@@ -136,6 +139,7 @@ func applySchema(ctx context.Context, db *sql.DB) error {
 		{"001_init.sql", mustReadEmbed(schemaFS, "migrations/001_init.sql")},
 		{"002_site_configs.sql", mustReadEmbed(migration002FS, "migrations/002_site_configs.sql")},
 		{"003_game_characters_models.sql", mustReadEmbed(migration003FS, "migrations/003_game_characters_models.sql")},
+		{"004_gallery_file_progress.sql", mustReadEmbed(migration004FS, "migrations/004_gallery_file_progress.sql")},
 	}
 
 	for _, m := range migrations {

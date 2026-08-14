@@ -25,6 +25,11 @@ type Config struct {
 	DownloadMinFileSize    int64
 	GalleryImageConcurrent int
 	VideoMaxConcurrent     int
+	// TSegmentConcurrent limits concurrent TS segment downloads within a
+	// single gallery-embedded M3U8 stream. This mirrors the independent
+	// video pipeline's ts_segment_concurrent setting so the two channels
+	// (gallery image vs video segment) stay independently tunable.
+	TSegmentConcurrent int
 }
 
 // Load reads configuration from environment variables, applying defaults
@@ -46,6 +51,7 @@ func Load() (*Config, error) {
 		DownloadMinFileSize:    getEnvInt64("DOWNLOAD_MIN_FILE_SIZE", 1<<20),
 		GalleryImageConcurrent: clampInt(getEnvInt("GALLERY_IMAGE_CONCURRENT", 5), 1, 20),
 		VideoMaxConcurrent:     clampInt(getEnvInt("VIDEO_MAX_CONCURRENT", 3), 1, 10),
+		TSegmentConcurrent:     clampInt(getEnvInt("TS_SEGMENT_CONCURRENT", 10), 1, 50),
 	}
 
 	if cfg.LogSinkCapacity < 100 {

@@ -1,11 +1,10 @@
-﻿package api
+package api
 
 import (
 	"context"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"database/sql"
 	"backend/internal/db"
 	"backend/internal/i18n"
+	"backend/internal/infra"
 	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/taskprogress"
@@ -234,12 +234,12 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 
 		// Try local cover file first
 		if coverPath != "" {
-			cleanPath := strings.TrimPrefix(filepath.FromSlash(coverPath), "data"+string(filepath.Separator))
-			cleanPath = strings.TrimPrefix(cleanPath, "data/")
-			fullPath := filepath.Join("..", "data", cleanPath)
-			if _, err := os.Stat(fullPath); err == nil {
-				serveResizedImage(w, r, fullPath, queryWidth(r))
-				return
+			fullPath := resolveDataPath(coverPath)
+			if fullPath != "" {
+				if _, err := os.Stat(fullPath); err == nil {
+					serveResizedImage(w, r, fullPath, queryWidth(r))
+					return
+				}
 			}
 		}
 
@@ -248,12 +248,12 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 		err = h.DB.QueryRow(r.Context(),
 			"SELECT local_path FROM gallery_images WHERE gallery_id = ? AND status = 'downloaded' AND local_path != '' ORDER BY order_index LIMIT 1", id).Scan(&firstImageLocalPath)
 		if err == nil && firstImageLocalPath != "" {
-			cleanPath := strings.TrimPrefix(filepath.FromSlash(firstImageLocalPath), "data"+string(filepath.Separator))
-			cleanPath = strings.TrimPrefix(cleanPath, "data/")
-			fullPath := filepath.Join("..", "data", cleanPath)
-			if _, err := os.Stat(fullPath); err == nil {
-				serveResizedImage(w, r, fullPath, queryWidth(r))
-				return
+			fullPath := resolveDataPath(firstImageLocalPath)
+			if fullPath != "" {
+				if _, err := os.Stat(fullPath); err == nil {
+					serveResizedImage(w, r, fullPath, queryWidth(r))
+					return
+				}
 			}
 		}
 
@@ -322,6 +322,30 @@ func (h *Handlers) ShelfDetail(w http.ResponseWriter, r *http.Request) {
 	g.CompletedAt = parseNullTime(completedAtStr)
 	g.CreatedAt = parseTime(createdAtStr)
 	g.UpdatedAt = parseTime(updatedAtStr)
+
+	// Populate the video list for the detail view so the frontend shelf
+	// panel can show per-video status/metadata. Previously only the count
+	// was returned, leaving the frontend's video list permanently empty.
+	vidRows, vidErr := h.DB.Query(r.Context(),
+		`SELECT id, gallery_id, url, local_path, file_name, file_size, duration, resolution, format, status, error_msg, completed_at, created_at, updated_at
+		 FROM gallery_videos WHERE gallery_id = ? ORDER BY id`, id)
+	if vidErr == nil {
+		defer vidRows.Close()
+		for vidRows.Next() {
+			var v db.GalleryVideo
+			var completedAt, createdAt, updatedAt db.SQLTime
+			if scanErr := vidRows.Scan(&v.ID, &v.GalleryID, &v.URL, &v.LocalPath, &v.FileName, &v.FileSize, &v.Duration, &v.Resolution, &v.Format, &v.Status, &v.ErrorMsg, &completedAt, &createdAt, &updatedAt); scanErr == nil {
+				// CompletedAt is a *time.Time; assign via a local so the
+				// pointer targets a stable address.
+				completedTime := completedAt.Time
+				v.CompletedAt = &completedTime
+				v.CreatedAt = createdAt.Time
+				v.UpdatedAt = updatedAt.Time
+				g.Videos = append(g.Videos, v)
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, g)
 }
 
@@ -926,41 +950,79 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 	return nil
 }
 
-// cleanupGalleryCache deletes all cached files from a previous gallery
-// download attempt so a retry starts from a clean slate. Removes:
-//   - The gallery save directory (images + extracted ZIPs): data/galleries/{title}/
-//   - The downloaded ZIP archive from gallery_download_infos.local_path
+// cleanupGalleryCache prepares a gallery for retry with checkpoint
+// preservation. Unlike the old "clean slate" behavior (which deleted the
+// whole folder and reset every image to pending, forcing a full
+// re-download), this keeps already-downloaded files on disk and in the DB
+// so a retry resumes from where it left off — only failed/missing files
+// are reset to pending for re-download.
 //
-// Also resets progress-related DB fields (downloaded_size, error_msg) and
-// resets gallery_images status to 'pending' so the download node re-fetches
-// them instead of skipping "already downloaded" files.
+// Removes:
+//   - A stale ZIP archive referenced by gallery_download_infos (it is
+//     re-downloaded on retry; keeping a corrupt partial ZIP is worse).
+//
+// Resets to pending (re-download):
+//   - gallery_images with status='failed' (retry these).
+//   - gallery_images with status='downloaded' whose local_path no longer
+//     exists on disk (file was deleted/corrupted between attempts).
+//
+// Preserves (accurate continuation):
+//   - Successfully downloaded images whose files still exist on disk.
+//   - gallery_images with status='pending' (never attempted).
 func (h *Handlers) cleanupGalleryCache(ctx context.Context, galleryID int) {
-	// 1. Read save_path and ZIP local_path before deleting.
+	// 1. Read save_path before any cleanup.
 	var savePath string
 	_ = h.DB.QueryRow(ctx,
 		"SELECT COALESCE(save_path, '') FROM galleries WHERE id = ?", galleryID).Scan(&savePath)
 
+	// 2. Delete a stale ZIP archive (from a prior ZIP-based download).
+	// The archive is re-downloaded on retry; a corrupt partial ZIP must
+	// not be left behind to confuse subsequent downloads.
 	var zipLocalPath string
 	_ = h.DB.QueryRow(ctx,
 		"SELECT COALESCE(local_path, '') FROM gallery_download_infos WHERE gallery_id = ?", galleryID).
 		Scan(&zipLocalPath)
-
-	// 2. Delete the gallery save directory (images + extracted contents).
-	if savePath != "" {
-		_ = os.RemoveAll(savePath)
-	}
-
-	// 3. Delete the downloaded ZIP archive.
 	if zipLocalPath != "" {
 		_ = os.Remove(zipLocalPath)
+		_, _ = h.DB.Exec(ctx,
+			"UPDATE gallery_download_infos SET status = 'pending', local_path = '', resolved_direct_url = '', updated_at = CURRENT_TIMESTAMP WHERE gallery_id = ?",
+			galleryID)
 	}
 
-	// 4. Reset gallery_images status to 'pending' so the download node
-	// re-fetches them instead of skipping "already downloaded" files.
+	// 3. Reset failed images to pending so they are re-downloaded.
 	_, _ = h.DB.Exec(ctx,
-		"UPDATE gallery_images SET status = 'pending', error_msg = '' WHERE gallery_id = ?", galleryID)
+		"UPDATE gallery_images SET status = 'pending', error_msg = '' WHERE gallery_id = ? AND status = 'failed'", galleryID)
 
-	// 5. Reset progress-related DB fields.
+	// 4. Reset 'downloaded' images whose file no longer exists on disk.
+	// This handles the case where the save directory was deleted between
+	// attempts (e.g. user cleared data/) — those files must be re-fetched.
+	rows, err := h.DB.Query(ctx,
+		`SELECT id, local_path FROM gallery_images
+		 WHERE gallery_id = ? AND status = 'downloaded' AND local_path != ''`, galleryID)
+	if err == nil {
+		var staleIDs []int
+		for rows.Next() {
+			var imgID int
+			var localPath string
+			if scanErr := rows.Scan(&imgID, &localPath); scanErr != nil {
+				continue
+			}
+			if info, statErr := os.Stat(localPath); statErr != nil || info.Size() == 0 {
+				staleIDs = append(staleIDs, imgID)
+			}
+		}
+		rows.Close()
+		for _, imgID := range staleIDs {
+			_, _ = h.DB.Exec(ctx,
+				"UPDATE gallery_images SET status = 'pending', error_msg = 'file missing on retry', local_path = '' WHERE id = ?", imgID)
+		}
+		if len(staleIDs) > 0 {
+			infra.NewLogger("GalleryRetry").Info("Retry: reset missing-image files to pending", "galleryId", galleryID, "count", len(staleIDs))
+		}
+	}
+
+	// 5. Reset progress-related DB fields (not the per-file statuses,
+	// which were handled above to preserve completed files).
 	_, _ = h.DB.Exec(ctx,
 		`UPDATE galleries
 		 SET downloaded_size = 0, error_msg = '', updated_at = CURRENT_TIMESTAMP
@@ -1075,10 +1137,12 @@ func (h *Handlers) GalleryFileProgress(w http.ResponseWriter, r *http.Request) {
 	if h.ProgressEngine != nil {
 		summary := h.ProgressEngine.GetSummary(id)
 		failed := h.ProgressEngine.GetFailedFiles(id)
+		phase := h.ProgressEngine.GetPhase(id)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"galleryId": id,
 			"summary":   summary,
 			"failed":    failed,
+			"phase":     string(phase),
 		})
 		return
 	}
