@@ -1,0 +1,645 @@
+{
+  "name": "碧蓝航线",
+  "nameEn": "Azur Lane",
+  "shortNames": [
+    "碧蓝",
+    "AL"
+  ],
+  "characters": [
+    {
+      "name": "阿芙乐尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿贺野",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿尔及利亚",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "爱宕",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "埃吉尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "埃塞克斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "巴尔的摩",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "贝尔法斯特",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "俾斯麦",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "标枪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "布雷默顿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "不挠",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "苍龙",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赤城",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "长门",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "出云",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "川内",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "吹雪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "大凤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "大黄蜂",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "大青花鱼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黛朵",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "岛风",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "独角兽",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "独立",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "飞龙",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "腓特烈大帝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "凤翔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "高雄",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "光辉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "光荣",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "海伦娜",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "豪",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "胡德",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "华盛顿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "皇家方舟",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "纪伊",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "加贺",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "加斯科涅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "江风",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "金刚",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "旧金山",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "骏河",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "可畏",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "克里夫兰",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "库尔斯克",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "拉菲",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "兰利",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黎塞留",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "利托里奥",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "列克星敦",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "绫波",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "龙凤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "龙骧",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "陆奥",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "罗德尼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "马萨诸塞",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "密苏里",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "明尼阿波利斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "摩耶",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "纳尔逊",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "南达科他",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "能代",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "纽卡斯尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "欧根亲王",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "欧若拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "平海",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "企业",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "齐柏林伯爵",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "前卫",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "瑞鹤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "瑞凤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "萨拉托加",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "三笠",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "沙恩霍斯特",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "山城",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "射水鱼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "胜利",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "圣路易斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "声望",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "狮",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "时雨",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "水星纪念",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "苏维埃罗西亚",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "苏维埃同盟",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "塔林",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "塔什干",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "天城",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "天狼星",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "提尔比茨",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "突击者",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "土佐",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "U-47",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "U-81",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "U-96",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "吾妻",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "夕立",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "西雅图",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "香槟",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "翔鹤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "小天鹅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "信浓",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "兴登堡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "厌战",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "伊丽莎白女王",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "伊吹",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "逸仙",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "英王乔治五世",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "约克城",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "Z46",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "扎拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "长门",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "肇和",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "芝加哥",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "肇和",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "重庆",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "柴郡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "大凤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "能代",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "布莱默顿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "欧根亲王",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "贝尔法斯特",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "圣路易斯",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "腓特烈大帝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "吾妻",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "埃吉尔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "信浓",
+      "pinyin": "",
+      "aliases": []
+    }
+  ]
+}

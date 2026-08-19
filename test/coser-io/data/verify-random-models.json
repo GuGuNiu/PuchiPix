@@ -1,0 +1,39 @@
+{
+  "code": 0,
+  "success": true,
+  "message": "刷新成功",
+  "data": [
+    {
+      "id": 685,
+      "name": "三無人型",
+      "slug": null,
+      "coverUrl": "pic/2026/01/28/dd55f3abfe01eb33869b89b9/5aPA2zLG-Jnn.webp",
+      "parentId": 68,
+      "galleryCount": 11
+    },
+    {
+      "id": 674,
+      "name": "YeonWoo",
+      "slug": null,
+      "coverUrl": "pic/2026/01/27/35a7e9310084740eb2e88749/fHwuloYRi3qB.webp",
+      "parentId": 68,
+      "galleryCount": 26
+    },
+    {
+      "id": 739,
+      "name": "湖里狸",
+      "slug": null,
+      "coverUrl": "pic/2026/02/03/2524fa01d56feb193d9239e5/73Q57BuQqbif.webp",
+      "parentId": 68,
+      "galleryCount": 8
+    },
+    {
+      "id": 706,
+      "name": "Bangni邦尼",
+      "slug": null,
+      "coverUrl": "pic/2026/02/01/388f44f823cb7524a5dc8c92/irzQpcu5n7zN.webp",
+      "parentId": 68,
+      "galleryCount": 92
+    }
+  ]
+}

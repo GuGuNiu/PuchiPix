@@ -1,0 +1,203 @@
+/**
+ * 文件描述：前台分享弹窗和跨平台分享复制交互组件。
+ * 日期：2026-07-05
+ * 作者：ike
+ */
+function shareModal() {
+  return {
+    isOpen: false,
+    shareData: null,
+    copying: false,
+
+    /**
+     * 打开分享弹窗
+     * @param {Object} data - 分享数据
+     * @param {string} data.title - 图集标题
+     * @param {string} data.url - 图集链接（相对路径）
+     * @param {number} data.imageCount - 图片数量
+     * @param {string} data.categoryName - 分类名称
+     * @param {string} data.inviteCode - 用户邀请码（可选）
+     */
+    open: function (data) {
+      this.shareData = data;
+      this.isOpen = true;
+      document.body.style.overflow = 'hidden';
+    },
+
+    /**
+     * 关闭弹窗
+     */
+    close: function () {
+      this.isOpen = false;
+      document.body.style.overflow = '';
+    },
+
+    /**
+     * 处理分类名称 - 剔除开头的数字和空格
+     * 例如："01 个人合集" -> "个人合集"
+     */
+    cleanCategoryName: function (name) {
+      if (!name) return '';
+      return name.replace(/^\d+\s*/, '');
+    },
+
+    /**
+     * 生成分享文案
+     */
+    generateShareText: function () {
+      if (!this.shareData) return '';
+
+      var title = this.shareData.title || '精彩图集';
+      var imageCount = this.shareData.imageCount || 0;
+      var categoryName = this.cleanCategoryName(this.shareData.categoryName);
+      var inviteCode = this.shareData.inviteCode;
+
+      // 构建完整 URL
+      var baseUrl = window.location.origin;
+      var shareUrl = baseUrl + this.shareData.url;
+
+      // 如果有邀请码，添加到 URL
+      if (inviteCode) {
+        shareUrl += (shareUrl.includes('?') ? '&' : '?') + 'invite=' + inviteCode;
+      }
+
+      // 构建文案
+      var text = '\u3010' + title + '\u3011\n';
+
+      if (categoryName) {
+        text += categoryName + ' 精选作品';
+      }
+
+      if (imageCount > 0) {
+        text += '\uff0c\u5171 ' + imageCount + 'P\n';
+      } else {
+        text += '\n';
+      }
+
+      text += '\n\u7acb\u5373\u67e5\u770b \ud83d\udc49 ' + shareUrl + '\n';
+      text += '\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n';
+      text += 'CoserBox - 50000+ \u5957\u9ad8\u6e05\u56fe\u96c6\u5728\u7ebf\u770b';
+
+      if (inviteCode) {
+        text +=
+          '\n\u6ce8\u518c\u586b\u5199\u9080\u8bf7\u7801\u3010' +
+          inviteCode +
+          '\u3011\u53cc\u65b9\u90fd\u6709\u5956\u52b1';
+      }
+
+      return text;
+    },
+
+    /**
+     * 检测是否为移动端
+     */
+    isMobile: function () {
+      return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      );
+    },
+
+    /**
+     * 尝试唤起 APP
+     */
+    tryOpenApp: function (scheme) {
+      if (!this.isMobile()) return;
+
+      // 创建隐藏的 iframe 尝试唤起
+      var iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = scheme;
+      document.body.appendChild(iframe);
+
+      // 2秒后移除 iframe
+      setTimeout(function () {
+        document.body.removeChild(iframe);
+      }, 2000);
+    },
+
+    /**
+     * 分享到指定平台
+     */
+    shareTo: async function (platform) {
+      if (this.copying) return;
+      this.copying = true;
+
+      try {
+        var shareText = this.generateShareText();
+        var copied = await copyToClipboard(shareText);
+
+        if (!copied) {
+          showToast('复制失败，请手动复制', 'error');
+          return;
+        }
+
+        showToast('分享文案已复制到剪贴板', 'success');
+
+        // 尝试唤起 APP（仅移动端）
+        var schemes = {
+          wechat: 'weixin://',
+          qq: 'mqq://',
+          telegram: 'tg://',
+        };
+
+        var self = this;
+        if (schemes[platform]) {
+          setTimeout(function () {
+            self.tryOpenApp(schemes[platform]);
+          }, 500);
+        }
+
+        // 关闭弹窗
+        setTimeout(function () {
+          self.close();
+        }, 1000);
+      } finally {
+        this.copying = false;
+      }
+    },
+
+    /**
+     * 仅复制链接
+     */
+    copyLink: async function () {
+      if (!this.shareData || this.copying) return;
+      this.copying = true;
+
+      try {
+        var baseUrl = window.location.origin;
+        var shareUrl = baseUrl + this.shareData.url;
+
+        // 如果有邀请码，添加到 URL
+        if (this.shareData.inviteCode) {
+          shareUrl += (shareUrl.includes('?') ? '&' : '?') + 'invite=' + this.shareData.inviteCode;
+        }
+
+        var copied = await copyToClipboard(shareUrl);
+        var self = this;
+
+        if (copied) {
+          showToast('链接已复制到剪贴板', 'success');
+          setTimeout(function () {
+            self.close();
+          }, 500);
+        } else {
+          showToast('复制失败，请手动复制', 'error');
+        }
+      } finally {
+        this.copying = false;
+      }
+    },
+  };
+}
+
+/**
+ * 全局打开分享弹窗的方法
+ * @param {Object} data - 分享数据
+ */
+function openShareModal(data) {
+  // 查找分享弹窗组件（兼容 Alpine.js 3.x）
+  var modalEl = document.querySelector('[x-data="shareModal()"]');
+  if (modalEl && modalEl._x_dataStack && modalEl._x_dataStack[0]) {
+    modalEl._x_dataStack[0].open(data);
+  }
+}

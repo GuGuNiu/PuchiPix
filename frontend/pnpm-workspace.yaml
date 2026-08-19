@@ -1,0 +1,10 @@
+packages:
+  - "."
+  - "../test"
+nodeLinker: isolated
+strictPeerDependencies: false
+enablePrePostScripts: true
+linkWorkspacePackages: true
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

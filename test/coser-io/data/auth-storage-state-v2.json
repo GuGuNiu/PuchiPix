@@ -1,0 +1,63 @@
+{
+  "cookies": [
+    {
+      "name": "sessionId",
+      "value": "a6KLUR9hQYEkqKfs46sfnCchbdg4bqTY.w0P4WIaW5ZOFnYcKroC2XcnRSZzfuVY5Ze%2FsMWRY4is",
+      "domain": "coser.io",
+      "path": "/",
+      "expires": 1785625871.374826,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.1.1963525483.1785582665",
+      "domain": ".coser.io",
+      "path": "/",
+      "expires": 1820142677.083403,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "crisp-client%2Fsession%2Fb1ac274b-36ca-4eed-80e0-190ef2b6d0a0",
+      "value": "session_cef9b877-072f-4611-b824-e60da1bb6b58",
+      "domain": ".coser.io",
+      "path": "/",
+      "expires": 1801350676,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_HPM7CVVSFC",
+      "value": "GS2.1.s1785582665$o1$g1$t1785582677$j48$l0$h0",
+      "domain": ".coser.io",
+      "path": "/",
+      "expires": 1820142677.09121,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://coser.io",
+      "localStorage": [
+        {
+          "name": "coserbox-theme",
+          "value": "dark"
+        },
+        {
+          "name": "crisp-client/session/b1ac274b-36ca-4eed-80e0-190ef2b6d0a0",
+          "value": "session_cef9b877-072f-4611-b824-e60da1bb6b58"
+        },
+        {
+          "name": "crisp-client/session/b1ac274b-36ca-4eed-80e0-190ef2b6d0a0:e",
+          "value": "1785598444547"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+[
+  {
+    "endpoint": "/web-api/v1/user/info",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/user/profile",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/user/points",
+    "statusCode": 302,
+    "hasBody": false,
+    "bodyPreview": ""
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/69218",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/69218/info",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/69218/detail",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/69218/images",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/69218/media",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/69218/content",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/galleries",
+    "statusCode": 200,
+    "contentType": "application/json; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0000\u0003��Mo\u0013G\u0018ǿJ4ggw�_�\u0006\b�HU�C�Jp��\u0017g���:!�8�\nԂ\u0002�@\b�@.@ā 5�x\u0011�����[t6�\u001b\u001b�l\u000f���\u0019?~�����n\u0002�[\u0007\u0012�\u0002��1��\u0007IY\f\\\u000b��Ϻ\u001d�\u0002Ç[��\fݮ��\u0016��� �\u0004��_���&�,H��@����'���j��\u0012��GPD\u0004-��\t�z�w��I�c�5W�TtBy[w:�؈��\u0018���\u0018\t\u0007"
+  },
+  {
+    "endpoint": "/web-api/v1/gallery/list",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/images",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/media",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/api/gallery/69218",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/api/v1/gallery/69218",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/api/gallery/69218/images",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/folder/586",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  },
+  {
+    "endpoint": "/web-api/v1/folder/586/galleries",
+    "statusCode": 404,
+    "contentType": "text/html; charset=utf-8",
+    "hasBody": true,
+    "bodyPreview": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003�UK�\u001b5\u0014��_a�\u0002\tg\u001e�Mr�� ����,�\u0005B,\u001c�\u0013��3\u001e��$a\t,*$�\u0006�7�\nA%D��\u0010H\b�ϐ��_p�ɴw(\u0014$$�\u0011���w���c��^�zz��W_Bjv��\u0001)Z-s�� ��`�\u0014�6ǂ,VJa/�i1;B(+���\tj,w9�~�e2��n��%�q#����\u0001��\u001c�@p-\u000b'�7�q\u0012&�\"YI'�\"�Q��d\u0010�@N:�g��"
+  }
+]

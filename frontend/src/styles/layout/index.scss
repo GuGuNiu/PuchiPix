@@ -1,0 +1,10 @@
+// Layout — 转发所有侧边栏布局模块
+@forward 'sidebar';
+@forward 'sidebar-header';
+@forward 'nav-items';
+@forward 'nav-group';
+@forward 'sidebar-toggle';
+@forward 'theme-toggle';
+@forward 'language-switcher';
+@forward 'bottom-nav';
+@forward 'cp-city-bg';

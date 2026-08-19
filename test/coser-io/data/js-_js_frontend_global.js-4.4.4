@@ -1,0 +1,435 @@
+/**
+ * 文件描述：前台页面共享 CSRF、提示、确认弹窗和登录态交互脚本。
+ * 日期：2026-07-05
+ * 作者：ike
+ */
+
+/* ------------------------------------------------------------------ */
+/*  CSRF Fetch 拦截                                                   */
+/* ------------------------------------------------------------------ */
+(function attachCsrfToFetch() {
+  const originalFetch = window.fetch.bind(window);
+  const methodsRequireCsrf = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+  function isSameOrigin(url) {
+    if (!url) return false;
+    if (url.startsWith('/')) return true;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return parsed.origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  }
+
+  window.fetch = function(input, init = {}) {
+    const method =
+      (init && init.method) ||
+      (input instanceof Request ? input.method : 'GET');
+    const url =
+      typeof input === 'string' || input instanceof URL
+        ? String(input)
+        : (input && 'url' in input ? input.url : '');
+
+    if (window.__csrfToken && methodsRequireCsrf.has(String(method).toUpperCase()) && isSameOrigin(url)) {
+      const headers = new Headers(
+        init.headers || (input instanceof Request ? input.headers : undefined)
+      );
+      if (!headers.has('csrf-token')) {
+        headers.set('csrf-token', window.__csrfToken);
+      }
+      init.headers = headers;
+    }
+
+    return originalFetch(input, init);
+  };
+})();
+
+function canonicalizeLegacyHtmlPath(pathWithQuery) {
+  var rawPath = String(pathWithQuery || '');
+  if (!rawPath.startsWith('/') || rawPath.startsWith('//')) return rawPath;
+
+  var hashIndex = rawPath.indexOf('#');
+  var withoutHash = hashIndex >= 0 ? rawPath.slice(0, hashIndex) : rawPath;
+  var hash = hashIndex >= 0 ? rawPath.slice(hashIndex) : '';
+  var queryIndex = withoutHash.indexOf('?');
+  var pathname = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+  var query = queryIndex >= 0 ? withoutHash.slice(queryIndex) : '';
+
+  if (/^\/latp\/\d+$/.test(pathname)) {
+    return pathname + '.html' + hash;
+  }
+  if (/^\/(folder|detail|noticle|tags)\/\d+$/.test(pathname)) {
+    return pathname + '.html' + query + hash;
+  }
+  if (pathname === '/noticle' || pathname === '/tags') {
+    return pathname + '.html' + query + hash;
+  }
+
+  return rawPath;
+}
+
+/* ------------------------------------------------------------------ */
+/*  登录重定向链接绑定                                                  */
+/* ------------------------------------------------------------------ */
+(function bindLoginRedirectLinks() {
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const link = target.closest('a[data-login-redirect]');
+    if (!(link instanceof HTMLAnchorElement)) return;
+
+    const rawRedirect = (link.getAttribute('data-login-redirect') || '').trim();
+    if (!rawRedirect) return;
+
+    const redirectPath = rawRedirect === 'current'
+      ? `${window.location.pathname}${window.location.search}`
+      : rawRedirect;
+
+    if (!redirectPath.startsWith('/') || redirectPath.startsWith('//')) return;
+
+    const loginUrl = new URL(link.getAttribute('href') || '/login.html', window.location.origin);
+    loginUrl.searchParams.set('redirect', canonicalizeLegacyHtmlPath(redirectPath));
+    link.setAttribute('href', `${loginUrl.pathname}?${loginUrl.searchParams.toString()}`);
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/*  全局确认弹窗 Alpine component                                      */
+/* ------------------------------------------------------------------ */
+function globalConfirm() {
+  return {
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    confirmText: '确定',
+    cancelText: '取消',
+
+    show(options) {
+      this.title = options.title || '确认操作';
+      this.message = options.message || '';
+      this.type = options.type || 'info';
+      this.confirmText = options.confirmText || '确定';
+      this.cancelText = options.cancelText || '取消';
+      this.visible = true;
+    },
+
+    confirm() {
+      this.visible = false;
+      window.dispatchEvent(new CustomEvent('confirm-result', { detail: true }));
+    },
+
+    cancel() {
+      this.visible = false;
+      window.dispatchEvent(new CustomEvent('confirm-result', { detail: false }));
+    }
+  };
+}
+
+/**
+ * 全局 showConfirm 函数，可在任何脚本中直接调用
+ * @param {string} message - 确认消息
+ * @param {object} options - 配置选项
+ * @returns {Promise<boolean>}
+ */
+window.showConfirm = function(message, options = {}) {
+  return new Promise((resolve) => {
+    const handler = (e) => {
+      resolve(e.detail);
+      window.removeEventListener('confirm-result', handler);
+    };
+    window.addEventListener('confirm-result', handler);
+
+    window.dispatchEvent(new CustomEvent('show-confirm', {
+      detail: {
+        message,
+        title: options.title || '确认操作',
+        type: options.type || 'info',
+        confirmText: options.confirmText || '确定',
+        cancelText: options.cancelText || '取消'
+      }
+    }));
+  });
+};
+
+/* ------------------------------------------------------------------ */
+/*  全局 Toast 通知 Alpine component                                   */
+/* ------------------------------------------------------------------ */
+function globalToast() {
+  return {
+    toasts: [],
+    nextId: 0,
+
+    show(message, type = 'info', duration, isHtml = false) {
+      const id = this.nextId++;
+      const toast = { id, message, type, visible: true, isHtml };
+      this.toasts.push(toast);
+
+      // 根据类型设置默认时长
+      const durations = {
+        success: 2000,
+        error: 5000,
+        warning: 4000,
+        info: 3000
+      };
+      const finalDuration = duration || durations[type] || 3000;
+
+      setTimeout(() => this.dismiss(id), finalDuration);
+    },
+
+    dismiss(id) {
+      const toast = this.toasts.find(t => t.id === id);
+      if (toast) {
+        toast.visible = false;
+        setTimeout(() => {
+          this.toasts = this.toasts.filter(t => t.id !== id);
+        }, 300);
+      }
+    }
+  };
+}
+
+/**
+ * 全局 showToast 函数
+ * @param {string} message - 提示消息
+ * @param {string} type - 类型：success/error/warning/info
+ * @param {number} duration - 显示时长（毫秒）
+ * @param {boolean} isHtml - 是否为 HTML 内容
+ */
+window.showToast = function(message, type = 'info', duration, isHtml = false) {
+  window.dispatchEvent(new CustomEvent('show-toast', {
+    detail: { message, type, duration, isHtml }
+  }));
+};
+
+window.globalConfirm = globalConfirm;
+window.globalToast = globalToast;
+
+/* ------------------------------------------------------------------ */
+/*  收藏处理                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 全局收藏处理函数
+ * 登录用户触发收藏/取消收藏，未登录用户跳转登录页
+ */
+window.handleFavorite = async function(btn, galleryId) {
+  if (!window.isLoggedIn) {
+    window.location.href = '/login.html?redirect=' + encodeURIComponent(canonicalizeLegacyHtmlPath(window.location.pathname + window.location.search));
+    return;
+  }
+
+  const isFavorited = btn.classList.contains('is-favorited');
+  const countSpan = btn.querySelector('.favorite-count') || btn.querySelector('span');
+  const currentCount = parseInt(countSpan ? countSpan.textContent : '0') || 0;
+
+  try {
+    const response = await fetch('/web-api/v1/favorite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ galleryId, action: isFavorited ? 'remove' : 'add' })
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      if (isFavorited) {
+        btn.classList.remove('is-favorited');
+        if (countSpan) {
+          countSpan.textContent = Math.max(0, currentCount - 1);
+        }
+        showToast('已取消收藏', 'info');
+        ga4Track('remove_from_wishlist', { item_id: String(galleryId) });
+      } else {
+        btn.classList.add('is-favorited');
+        if (countSpan) {
+          countSpan.textContent = currentCount + 1;
+        }
+        // 触发心形弹跳动画
+        btn.classList.add('favorite-animating');
+        setTimeout(() => btn.classList.remove('favorite-animating'), 600);
+        // 显示带快捷链接的 toast
+        showToast('收藏成功，<a href="/user/favorites" style="color:#fff;text-decoration:underline;font-weight:600;">查看收藏夹</a>', 'success', 4000, true);
+        ga4Track('add_to_wishlist', { item_id: String(galleryId) });
+      }
+    } else {
+      showToast(result.message || '操作失败', 'error');
+    }
+  } catch (error) {
+    showToast('网络错误，请重试', 'error');
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/*  合集订阅处理                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 合集订阅处理函数
+ * 登录用户触发订阅/取消订阅合集，未登录用户跳转登录页
+ */
+window.handleCategorySubscribe = async function(btn, categoryId) {
+  if (!window.isLoggedIn) {
+    window.location.href = '/login.html?redirect=' + encodeURIComponent(canonicalizeLegacyHtmlPath(window.location.pathname + window.location.search));
+    return;
+  }
+
+  const isSubscribed = btn.classList.contains('is-subscribed');
+
+  try {
+    const response = await fetch('/user/subscription', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: categoryId, type: isSubscribed ? 'off' : 'on' })
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      if (isSubscribed) {
+        btn.classList.remove('is-subscribed');
+        showToast('已取消订阅', 'info');
+      } else {
+        btn.classList.add('is-subscribed');
+        showToast('订阅成功', 'success');
+      }
+    } else {
+      showToast(result.message || '操作失败', 'error');
+    }
+  } catch (error) {
+    showToast('网络错误，请重试', 'error');
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/*  积分不足引导弹窗                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 积分不足引导弹窗
+ * 运行时用 window.__enablePointsGuide 做守卫
+ * @param {number} points - 当前积分余额
+ * @param {number} requiredPoints - 所需积分
+ * @param {object} options - 可选配置
+ * @param {boolean} options.skipRefresh - 是否跳过服务器积分刷新
+ */
+window.showPointsGuideModal = async function(points, requiredPoints, options = {}) {
+  if (!window.__enablePointsGuide) return;
+
+  let currentPoints = points;
+
+  // 仅在需要时从服务器获取最新积分（非预检查场景）
+  if (!options.skipRefresh) {
+    try {
+      const response = await fetch('/web-api/v1/user/points');
+      const result = await response.json();
+      if (result.success && typeof result.data?.points === 'number') {
+        currentPoints = result.data.points;
+      }
+    } catch (e) {
+      console.warn('获取积分余额失败，使用缓存值', e);
+    }
+  }
+
+  // 创建弹窗遮罩
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 z-[10001] flex items-center justify-center';
+  overlay.style.cssText = 'background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); transition: opacity 0.3s ease;';
+
+  const pointsNeeded = Math.max(0, requiredPoints - currentPoints);
+
+  overlay.innerHTML = `
+    <div class="relative mx-4 py-6 px-5 rounded-2xl shadow-2xl" style="background: var(--bg-card); width: 320px; max-width: calc(100vw - 32px);">
+      <div class="flex flex-col items-center gap-4">
+        <!-- 图标 -->
+        <div class="w-14 h-14 rounded-full flex items-center justify-center" style="background: rgba(255, 36, 66, 0.1);">
+          <svg class="w-7 h-7" style="color: var(--color-primary);" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z"/>
+          </svg>
+        </div>
+
+        <!-- 内容区域 -->
+        <div class="text-center">
+          <h3 class="text-lg font-bold mb-2" style="color: var(--color-primary);">积分不足</h3>
+          <p class="text-sm mb-1" style="color: var(--text-secondary);">
+            当前余额：<span style="color: var(--color-primary); font-weight: 600;">${currentPoints}</span> 积分
+          </p>
+          <p class="text-sm" style="color: var(--text-secondary);">
+            还需：<span style="color: var(--color-primary); font-weight: 600;">${pointsNeeded}</span> 积分
+          </p>
+        </div>
+
+        <!-- 分割线 -->
+        <div class="w-full h-px" style="background: var(--border-color);"></div>
+
+        <!-- 获取积分方式 -->
+        <div class="w-full space-y-3">
+          <p class="text-xs font-medium text-center" style="color: var(--text-muted);">获取积分的方式</p>
+
+          <!-- 升级会员 -->
+          <a href="/member.html" class="flex items-center gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(234, 88, 12, 0.1) 100%); border: 1px solid rgba(245, 158, 11, 0.3);">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background: linear-gradient(135deg, #facc15 0%, #f59e0b 100%);">
+              <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium" style="color: var(--color-primary);">升级会员</p>
+              <p class="text-xs" style="color: var(--text-muted);">每日免费解锁，更划算</p>
+            </div>
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+
+          <!-- 充值积分 -->
+          <a href="/recharge.html" class="flex items-center gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]" style="background: var(--bg-tertiary); border: 1px solid var(--border-color);">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background: rgba(99, 102, 241, 0.15);">
+              <svg class="w-4 h-4" style="color: var(--color-primary);" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z"/>
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium" style="color: var(--color-primary);">充值积分</p>
+              <p class="text-xs" style="color: var(--text-muted);">1元=1积分，永久有效</p>
+            </div>
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+
+          <!-- 邀请好友 -->
+          <a href="/invite.html" class="flex items-center gap-3 p-3 rounded-xl transition-all hover:scale-[1.02]" style="background: var(--bg-tertiary); border: 1px solid var(--border-color);">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background: rgba(236, 72, 153, 0.15);">
+              <svg class="w-4 h-4" style="color: #ec4899;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium" style="color: var(--color-primary);">邀请好友</p>
+              <p class="text-xs" style="color: var(--text-muted);">邀请注册，双方得积分</p>
+            </div>
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+        </div>
+
+        <!-- 关闭按钮 -->
+        <button onclick="event.stopPropagation(); const el=this.closest('.fixed'); el.style.opacity='0'; setTimeout(()=>el.remove(), 300);" class="w-full py-2.5 rounded-full text-sm font-medium transition-all hover:opacity-90" style="background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);">
+          知道了
+        </button>
+      </div>
+    </div>
+  `;
+
+  // 点击遮罩关闭
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.style.opacity = '0';
+      setTimeout(() => overlay.remove(), 300);
+    }
+  });
+
+  document.body.appendChild(overlay);
+};

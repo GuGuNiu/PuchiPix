@@ -1,0 +1,76 @@
+# Dependabot auto dependency update config
+# Docs: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  # Frontend npm/pnpm dependencies
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 10
+    reviewers:
+      - PuchiPix Team
+    labels:
+      - dependencies
+      - automerge
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    groups:
+      # Next.js ecosystem
+      next-js:
+        patterns:
+          - next
+          - react
+          - react-dom
+          - eslint-config-next
+      # TypeScript ecosystem
+      typescript:
+        patterns:
+          - typescript
+          - '@types/*'
+      # Tailwind CSS
+      tailwind:
+        patterns:
+          - tailwindcss
+          - '@tailwindcss/*'
+    ignore:
+      # Major version updates need manual review
+      - dependency-name: next
+        update-types: ['version-update:semver-major']
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+
+  # Backend Go modules
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    labels:
+      - dependencies
+      - automerge
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    labels:
+      - ci
+      - automerge
+    commit-message:
+      prefix: 'chore(ci)'
+      include: scope

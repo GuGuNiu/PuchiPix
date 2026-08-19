@@ -1,0 +1,350 @@
+// ============================================================
+// PuchiPix — Design Tokens (设计令牌)
+//
+// 存放全局 CSS 自定义属性（颜色、间距、阴影、动画等）。
+// 日间浅色主题变量在 :root，夜间璀璨黑主题在 [data-theme="dark"]。
+// ============================================================
+
+// ===== 动画关键帧 =====
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+  50% { opacity: 0.5; box-shadow: 0 0 12px currentColor; }
+}
+
+@keyframes data-stream {
+  0% { transform: translateY(0); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes scan-line {
+  0% { top: 0%; }
+  100% { top: 100%; }
+}
+
+@keyframes number-tick {
+  0% { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes card-entrance {
+  0% { opacity: 0; transform: translateY(16px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes border-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes status-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+// ===== SSE Live Update Animations =====
+@keyframes sse-row-pulse {
+  0% { background-color: transparent; }
+  15% { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+}
+
+@keyframes sse-table-flash {
+  0% { opacity: 1; }
+  10% { opacity: 0.85; }
+  100% { opacity: 1; }
+}
+
+@keyframes sse-row-slide-in {
+  0% { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sse-status-changed {
+  0% { background-color: transparent; }
+  20% { background-color: rgba(99, 102, 241, 0.1); }
+  100% { background-color: transparent; }
+}
+
+// ===== Surfaces (日间浅色主题) =====
+:root {
+  color-scheme: light;
+
+  --bg-base: #f0f4f8;
+  --bg-gradient: linear-gradient(135deg, #e0e7ff 0%, #f0f4f8 40%, #fdf2f8 100%);
+  --bg-card: rgba(255, 255, 255, 0.75);
+  --bg-card-solid: #ffffff;
+  --bg-sidebar: rgba(255, 255, 255, 0.65);
+  --bg-hover: rgba(241, 245, 249, 0.8);
+  --bg-inset: rgba(248, 250, 252, 0.6);
+  --bg-overlay: rgba(255, 255, 255, 0.92);
+
+  // ─── Glass ───
+  --glass-blur: blur(16px) saturate(1.4);
+  --glass-blur-lg: blur(20px) saturate(1.5);
+  --glass-border: rgba(255, 255, 255, 0.5);
+
+  // ─── Borders ───
+  --border: #e2e8f0;
+  --border-light: rgba(226, 232, 240, 0.6);
+  --border-strong: #cbd5e1;
+
+  // ─── Text ───
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-inverse: #ffffff;
+
+  // ─── Inverse Background (tooltip / floating label) ───
+  --bg-inverse: #1e293b;
+
+  // ─── Accent (璀璨黑) ───
+  --accent: #0f0f1a;
+  --accent-hover: #050508;
+  --accent-light: #2a2a3e;
+  --accent-soft: rgba(15, 15, 26, 0.06);
+  --accent-glow: rgba(15, 15, 26, 0.12);
+  --accent-shimmer: linear-gradient(135deg, #0a0a12 0%, #1a1a2e 40%, #2a2a3e 60%, #0a0a12 100%);
+
+  // ─── Status ───
+  --success: #16a34a;
+  --success-soft: #f0fdf4;
+  --warning: #d97706;
+  --warning-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+  --purple: #9333ea;
+  --purple-soft: #faf5ff;
+
+  // ─── Hover Variants ───
+  --danger-hover: #b91c1c;
+  --warning-hover: #b45309;
+
+  // ─── Status Pills (state indicators, white text on colored bg) ───
+  --status-pending: #64748b;
+  --status-scrape-pending: #0891b2;
+  --status-scraping: #0ea5e9;
+  --status-download-pending: #4f6e9e;
+  --status-downloading: #3b82f6;
+  --status-paused: #f59e0b;
+  --status-completed: #22c55e;
+  --status-partial: #f59e0b;
+  --status-failed: #ef4444;
+  --status-cancelled: #94a3b8;
+  --status-transcoding: #8b5cf6;
+
+  // ─── Chip Colors (search page tags) ───
+  --chip-category-fg: #3b82f6;
+  --chip-category-bg: rgba(59, 130, 246, 0.12);
+  --chip-tag-fg: #9333ea;
+  --chip-tag-bg: rgba(168, 85, 247, 0.12);
+  --chip-actor-fg: #ec4899;
+  --chip-actor-bg: rgba(236, 72, 153, 0.12);
+
+  // ─── Overlay Scrim (modal / popover backdrop) ───
+  --overlay-scrim: rgba(15, 23, 42, 0.4);
+
+  // ─── Nav Active/Hover Effects ───
+  --nav-hover-border: rgba(15, 15, 26, 0.06);
+  --nav-hover-shadow: 0 2px 8px rgba(15, 15, 26, 0.04);
+  --nav-active-border: rgba(255, 255, 255, 0.1);
+  --nav-active-shadow: 0 4px 12px rgba(15, 15, 26, 0.18), 0 1px 3px rgba(15, 15, 26, 0.12);
+  --nav-icon-glow: rgba(255, 255, 255, 0.3);
+
+  // ─── Neon Highlights (Ops 面板专用) ───
+  --neon-cyan: #0891b2;
+  --neon-cyan-glow: rgba(8, 145, 178, 0.35);
+  --neon-violet: #7c3aed;
+  --neon-violet-glow: rgba(124, 58, 237, 0.3);
+  --neon-green: #059669;
+  --neon-green-glow: rgba(5, 150, 105, 0.3);
+
+  // ─── Shadows ───
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+  --shadow-glow-accent: 0 0 20px rgba(15, 15, 26, 0.15), 0 0 60px rgba(15, 15, 26, 0.05);
+  --shadow-glow-success: 0 0 16px rgba(22, 163, 74, 0.2);
+  --shadow-glow-danger: 0 0 16px rgba(220, 38, 38, 0.2);
+
+  // ─── Layout ───
+  --sidebar-width: 260px;
+  --sidebar-width-collapsed: 64px;
+  --header-height: 56px;
+
+  // ─── Radius ───
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
+  --radius-full: 9999px;
+
+  // ─── Transitions ───
+  --transition: 0.15s ease;
+  --transition-slow: 0.25s ease;
+  --transition-bounce: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  // ─── Fonts ───
+  --font-dancing-script: "Dancing Script", cursive;
+
+  // ─── Spacing ───
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  // ─── 内嵌高光（浅色主题下白色 inset） ───
+  --inset-highlight: rgba(255, 255, 255, 0.4);
+  --inset-highlight-soft: rgba(255, 255, 255, 0.3);
+  --sidebar-glow: rgba(255, 255, 255, 0.5);
+
+  // ─── 赛博朋克城市背景（日间：淡蓝银灰，可见但不突兀） ───
+  --cp-city-building-top: rgba(148, 163, 184, 0.55);
+  --cp-city-building-btm: rgba(148, 163, 184, 0.18);
+  --cp-city-win-on: rgba(148, 163, 184, 0.7);
+  --cp-city-win-off: rgba(148, 163, 184, 0.12);
+  --cp-city-fog-top: rgba(241, 245, 249, 0);
+  --cp-city-fog-mid: rgba(241, 245, 249, 0.4);
+  --cp-city-fog-btm: rgba(255, 255, 255, 0.92);
+  --cp-city-scan: rgba(148, 163, 184, 0.18);
+  --cp-city-neon: rgba(148, 163, 184, 0.25);
+}
+
+// ===== Surfaces (夜间璀璨黑主题) =====
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-base: #06060a;
+  --bg-gradient: linear-gradient(135deg, #030306 0%, #08080f 40%, #0a0a14 100%);
+  --bg-card: rgba(14, 14, 22, 0.68);
+  --bg-card-solid: #0e0e16;
+  --bg-sidebar: rgba(8, 8, 14, 0.65);
+  --bg-hover: rgba(22, 22, 36, 0.7);
+  --bg-inset: rgba(16, 16, 26, 0.5);
+  --bg-overlay: rgba(14, 14, 22, 0.96);
+
+  --glass-blur: blur(18px) saturate(1.6);
+  --glass-blur-lg: blur(24px) saturate(1.8);
+  --glass-border: rgba(139, 148, 255, 0.1);
+
+  --border: #18181f;
+  --border-light: rgba(24, 24, 31, 0.45);
+  --border-strong: #252533;
+
+  --text-primary: #f0f0ff;
+  --text-secondary: #8b8fa8;
+  --text-muted: #4a4d63;
+  --text-inverse: #06060a;
+
+  // ─── Inverse Background (tooltip / floating label) ───
+  --bg-inverse: #1a1a2e;
+
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-light: #6366f1;
+  --accent-soft: rgba(129, 140, 248, 0.12);
+  --accent-glow: rgba(129, 140, 248, 0.2);
+  --accent-shimmer: linear-gradient(135deg, #6366f1 0%, #818cf8 25%, #a5b4fc 50%, #818cf8 75%, #6366f1 100%);
+
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.14);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --info: #0ea5e9;
+  --info-soft: rgba(14, 165, 233, 0.14);
+  --purple: #a855f7;
+  --purple-soft: rgba(168, 85, 247, 0.14);
+
+  // ─── Hover Variants (brighter on dark) ───
+  --danger-hover: #f87171;
+  --warning-hover: #fbbf24;
+
+  // ─── Status Pills (brighter on dark backgrounds) ───
+  --status-pending: #64748b;
+  --status-scrape-pending: #06b6d4;
+  --status-scraping: #38bdf8;
+  --status-download-pending: #6366f1;
+  --status-downloading: #60a5fa;
+  --status-paused: #fbbf24;
+  --status-completed: #4ade80;
+  --status-partial: #fbbf24;
+  --status-failed: #f87171;
+  --status-cancelled: #94a3b8;
+  --status-transcoding: #a78bfa;
+
+  // ─── Chip Colors (lighter shades for dark mode) ───
+  --chip-category-fg: #60a5fa;
+  --chip-category-bg: rgba(59, 130, 246, 0.15);
+  --chip-tag-fg: #c084fc;
+  --chip-tag-bg: rgba(168, 85, 247, 0.15);
+  --chip-actor-fg: #f472b6;
+  --chip-actor-bg: rgba(236, 72, 153, 0.15);
+
+  // ─── Overlay Scrim (stronger on dark) ───
+  --overlay-scrim: rgba(0, 0, 0, 0.6);
+
+  // ─── Nav Active/Hover Effects (accent-tinted on dark) ───
+  --nav-hover-border: rgba(129, 140, 248, 0.08);
+  --nav-hover-shadow: 0 2px 8px rgba(129, 140, 248, 0.06);
+  --nav-active-border: rgba(129, 140, 248, 0.2);
+  --nav-active-shadow: 0 4px 12px rgba(129, 140, 248, 0.18), 0 1px 3px rgba(129, 140, 248, 0.12);
+  --nav-icon-glow: rgba(129, 140, 248, 0.4);
+
+  --neon-cyan: #06b6d4;
+  --neon-cyan-glow: rgba(6, 182, 212, 0.5);
+  --neon-violet: #8b5cf6;
+  --neon-violet-glow: rgba(139, 92, 246, 0.45);
+  --neon-green: #10b981;
+  --neon-green-glow: rgba(16, 185, 129, 0.45);
+
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.7), 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.7), 0 2px 4px -2px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.75), 0 4px 6px -4px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.85), 0 8px 10px -6px rgba(0, 0, 0, 0.65);
+  --shadow-glow-accent: 0 0 30px rgba(129, 140, 248, 0.2), 0 0 100px rgba(99, 102, 241, 0.08);
+  --shadow-glow-success: 0 0 20px rgba(16, 185, 129, 0.35);
+  --shadow-glow-danger: 0 0 20px rgba(239, 68, 68, 0.35);
+
+  --inset-highlight: rgba(129, 140, 248, 0.06);
+  --inset-highlight-soft: rgba(129, 140, 248, 0.03);
+  --sidebar-glow: rgba(139, 148, 255, 0.04);
+
+  // ─── 赛博朋克城市背景（夜间：霓虹紫/靛蓝，明显可见） ───
+  --cp-city-building-top: rgba(99, 102, 241, 0.55);
+  --cp-city-building-btm: rgba(139, 92, 246, 0.18);
+  --cp-city-win-on: rgba(129, 140, 248, 0.75);
+  --cp-city-win-off: rgba(99, 102, 241, 0.15);
+  --cp-city-fog-top: rgba(6, 6, 10, 0);
+  --cp-city-fog-mid: rgba(6, 6, 10, 0.45);
+  --cp-city-fog-btm: rgba(6, 6, 10, 0.85);
+  --cp-city-scan: rgba(129, 140, 248, 0.25);
+  --cp-city-neon: rgba(129, 140, 248, 0.4);
+}

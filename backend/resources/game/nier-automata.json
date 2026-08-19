@@ -1,0 +1,10 @@
+{
+  "name": "尼尔：机械纪元",
+  "nameEn": "NieR: Automata",
+  "shortNames": ["尼尔", "NieR"],
+  "characters": [
+    {"name": "2B", "pinyin": "2B", "aliases": ["YoRHa No.2 Type B", "2B小姐姐", "2B本"]},
+    {"name": "A2", "pinyin": "A2", "aliases": ["YoRHa Type A No.2"]},
+    {"name": "9S", "pinyin": "9S", "aliases": ["YoRHa No.9 Type S"]}
+  ]
+}

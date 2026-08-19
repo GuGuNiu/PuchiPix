@@ -1,0 +1,35 @@
+[
+  {
+    "url": "https://coser.io/",
+    "statusCode": 200,
+    "headers": {
+      "server": "nginx",
+      "content-type": "text/html; charset=utf-8",
+      "x-frame-options": "DENY",
+      "content-security-policy": "Present"
+    }
+  },
+  {
+    "url": "https://coser.io/latp/69218.html",
+    "statusCode": 200,
+    "headers": {
+      "server": "nginx",
+      "content-type": "text/html; charset=utf-8",
+      "x-frame-options": "DENY",
+      "content-security-policy": "Present"
+    }
+  },
+  {
+    "url": "https://coser.io/web-api/v1/galleries",
+    "statusCode": 200,
+    "headers": {
+      "server": "nginx",
+      "content-type": "application/json; charset=utf-8",
+      "set-cookie": [
+        "sessionId=ZkkcR_A_BrZ3_ZOSPPA51E8vnphz3kbV.cYFwD6VViqSW%2BkQi7c%2BoGDxSq4sTnyXtNCiA3K2tz3g; Path=/; Expires=Sat, 01 Aug 2026 21:52:30 GMT; HttpOnly; Secure; SameSite=None"
+      ],
+      "x-frame-options": "DENY",
+      "content-security-policy": "Present"
+    }
+  }
+]

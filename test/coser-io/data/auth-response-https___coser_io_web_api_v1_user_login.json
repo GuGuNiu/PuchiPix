@@ -1,0 +1,13 @@
+{
+  "url": "https://coser.io/web-api/v1/user/login",
+  "status": 200,
+  "method": "POST",
+  "body": {
+    "code": 0,
+    "success": true,
+    "message": "登录成功",
+    "data": {
+      "userId": 110011
+    }
+  }
+}

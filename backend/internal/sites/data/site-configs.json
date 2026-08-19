@@ -1,0 +1,254 @@
+{
+  "version": "2.0",
+  "sites": {
+    "kanav": {
+      "module": {
+        "id": "kanav",
+        "nameCn": "KanAV",
+        "nameEn": "KanAV",
+        "baseUrl": "https://kanav.ad",
+        "type": "video",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #3b82f6, #2563eb)",
+          "solidColor": "#2563eb",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "scrapingStrategy": "auto",
+        "domains": [
+          "https://kanav.ad",
+          "https://v1.kanav.work",
+          "https://kanav.work",
+          "https://v1.kanav.onl"
+        ]
+      },
+      "provider": {
+        "publisherUrl": ""
+      }
+    },
+    "aimeizizi": {
+      "module": {
+        "id": "aimeizizi",
+        "nameCn": "爱妹子",
+        "nameEn": "LoveCutes",
+        "baseUrl": "https://www.lovecutes.com",
+        "type": "photo",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #e91e63, #f8bbd0)",
+          "solidColor": "#e91e63",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "domains": [
+          "https://lovecutes.com",
+          "https://www.lovecutes.com",
+          "https://xx.knit.bid",
+          "https://lovecutes.net",
+          "https://www.lovecutes.net"
+        ]
+      },
+      "provider": {
+        "placeholderFragment": "/static/zde/timg.gif",
+        "publisherUrl": "https://www.9999998.best/",
+        "titleSuffixPatterns": [
+          "(?i)\\s*[|\\-]\\s*(爱妹子|爱妹子网|Aimeizizi|LoveCutes)\\s*$"
+        ],
+        "publisherPrefixes": [
+          "[爱妹子]",
+          "【爱妹子】",
+          "[LoveCutes]",
+          "【LoveCutes】"
+        ],
+        "blockedTitleKeywords": [
+          "AI Nudes",
+          "AI Porn"
+        ],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
+    "exhentai": {
+      "module": {
+        "id": "exhentai",
+        "nameCn": "E-Hentai",
+        "nameEn": "E-Hentai",
+        "baseUrl": "https://e-hentai.org",
+        "type": "photo",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #6366f1, #8b5cf6)",
+          "solidColor": "#6366f1",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "domains": [
+          "https://e-hentai.org",
+          "https://exhentai.org"
+        ]
+      },
+      "provider": {
+        "baseEURL": "https://e-hentai.org",
+        "baseExURL": "https://exhentai.org",
+        "imageBatchSize": 4,
+        "imageFetchTimeout": 15000,
+        "thumbsPerPage": 40,
+        "categoryLabels": {
+          "Doujinshi": 2,
+          "Manga": 4,
+          "ArtistCG": 8,
+          "GameCG": 16,
+          "Western": 512,
+          "NonH": 256,
+          "ImageSet": 32,
+          "Cosplay": 64,
+          "AsianPorn": 128,
+          "Misc": 1
+        },
+        "categoryNames": {
+          "1": "Doujinshi",
+          "2": "Manga",
+          "3": "ArtistCG",
+          "4": "GameCG",
+          "5": "Western",
+          "6": "NonH",
+          "7": "ImageSet",
+          "8": "Cosplay",
+          "9": "AsianPorn",
+          "10": "Misc"
+        }
+      }
+    },
+    "sjs": {
+      "module": {
+        "id": "sjs",
+        "nameCn": "司机社",
+        "nameEn": "SJS",
+        "baseUrl": "https://sjs66.com",
+        "type": "photo",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #f59e0b, #d97706)",
+          "solidColor": "#d97706",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "domains": [
+          "https://xsijishe.ink",
+          "https://sjs96.com",
+          "https://sjs66.com",
+          "https://sjs47.com",
+          "https://sjs47.net",
+          "https://sjslt.cc",
+          "https://xsijishe.net"
+        ]
+      },
+      "provider": {
+        "publisherUrl": "",
+        "primaryDomain": "https://xsijishe.ink",
+        "discuzCookiePrefix": "SgL6_2132_",
+        "placeholderGif": "/static/image/common/none.gif",
+        "urlPatterns": {
+          "threadId": "thread-(\\d+)-\\d+-\\d+\\.html",
+          "threadIdQuery": "[?&]tid=(\\d+)",
+          "forumId": "forum-(\\d+)-\\d+\\.html"
+        },
+        "titleCleanPatterns": [
+          "(?i)\\s*-\\s*司机社\\s*-\\s*求出处.*$",
+          "(?i)\\s*-\\s*司机社.*$",
+          "(?i)\\s*-\\s*(视图写真|飙车场|求出处|国产视频|欧美视频|日本AV|网黄博主资源|VR视频|AI合成视频|图生视频|2D动漫|3D动漫|本子|PC游戏|手机游戏|悬赏区|色情文学|闲聊|GIF出处)\\s*$"
+        ]
+      }
+    },
+    "xsnvshen": {
+      "module": {
+        "id": "xsnvshen",
+        "nameCn": "秀色女神",
+        "nameEn": "XsNvShen",
+        "baseUrl": "https://www.xsnvshen.co",
+        "type": "photo",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #ec4899, #be185d)",
+          "solidColor": "#be185d",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "domains": [
+          "https://xsnvshen.co",
+          "https://www.xsnvshen.co",
+          "https://xsnvshen.com",
+          "https://www.xsnvshen.com"
+        ]
+      },
+      "provider": {
+        "imgCdnDomain": "https://img.xsnvshen.co",
+        "resCdnDomain": "https://res.xsnvshen.co",
+        "ageVerifyField": "simple-submit-response",
+        "ageVerifyValue": "点此确认进入秀色女神",
+        "ageVerifyCookie": "gcha_sfc_ec22ca15b1",
+        "urlPatterns": {
+          "albumId": "/album/(\\d+)",
+          "modelId": "/album/(\\d+)/(\\d+)/"
+        },
+        "titleSuffixPatterns": [
+          "(?i)\\s*[_|]\\s*(秀色女神|xsnvshen|XsNvShen)\\s*$"
+        ],
+        "blockedTitleKeywords": [],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
+      "fourkhd": {
+      "module": {
+        "id": "fourkhd",
+        "nameCn": "4KHD",
+        "nameEn": "4KHD",
+        "baseUrl": "https://www.4khd.com",
+        "type": "photo",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #00A2E8, #2184f9)",
+          "solidColor": "#00A2E8",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "scrapingStrategy": "http",
+        "domains": [
+          "https://www.4khd.com",
+          "https://iftye.uuss.uk",
+          "https://jchd.ssuu.uk",
+          "https://qbep.uuss.uk"
+        ]
+      },
+      "provider": {
+        "placeholderFragment": "/static/images/Loading",
+        "publisherUrl": "",
+        "titleSuffixPatterns": [
+          "(?i)\\s*[-–—]\\s*4KHD\\s*$",
+          "\\[\\d+(?:\\.\\d+)?(?:MB|GB)-\\d+photos\\]$",
+          "\\(\\d+(?:\\.\\d+)?(?:MB|GB)\\)\\(\\d+photos\\)$"
+        ],
+        "publisherPrefixes": [],
+        "blockedTitleKeywords": [],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
+    "universal": {
+      "module": {
+        "id": "universal",
+        "nameCn": "通用下载器",
+        "nameEn": "Universal",
+        "baseUrl": "",
+        "type": "video",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #10b981, #059669)",
+          "solidColor": "#059669",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "domains": []
+      },
+      "provider": {}
+    }
+  }
+}

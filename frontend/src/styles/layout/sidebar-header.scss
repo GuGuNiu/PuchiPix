@@ -1,0 +1,131 @@
+// ============================================================
+// Sidebar Header — 侧边栏头部（Logo / 版本号）
+// ============================================================
+
+.sidebar-header {
+  padding: var(--space-6) var(--space-5) var(--space-5);
+  border-bottom: 1px solid var(--border-light);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  transition: padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  // 折叠状态
+  .sidebar.collapsed:not(.hover-expand) & {
+    padding: var(--space-5) var(--space-2) var(--space-4);
+  }
+}
+
+.sidebar-logo {
+  font-family: var(--font-dancing-script), "Brush Script MT", "Segoe Script", cursive;
+  font-size: 45px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  line-height: 52px;
+  text-align: center;
+  filter: drop-shadow(0 1px 2px var(--accent-glow));
+  padding: var(--space-4) 0;
+  margin-bottom: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: font-size 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              padding 0.3s ease,
+              margin 0.3s ease;
+
+  // 文字渐变色（浏览器支持时）
+  @supports (-webkit-background-clip: text) and (background-clip: text) {
+    background: var(--accent-shimmer);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .sidebar.collapsed:not(.hover-expand) & {
+    font-size: 32px;
+    line-height: 38px;
+    padding: var(--space-3) 0;
+    margin-bottom: 0;
+  }
+}
+
+.sidebar-logo-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  line-height: 14px;
+  text-align: center;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-logo-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  opacity: 1;
+  max-height: 20px;
+  transition: opacity 0.2s ease 0.12s, max-height 0.2s ease 0.12s;
+
+  .sidebar.collapsed:not(.hover-expand) & {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    transition: opacity 0.1s ease, max-height 0.1s ease;
+  }
+}
+
+// ─── 版本号 ───
+.sidebar-version {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 14px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.sidebar-version-divider {
+  width: 1px;
+  height: 10px;
+  background: var(--border-light);
+  flex-shrink: 0;
+}
+
+// ─── 折叠时图标 ───
+.sidebar-logo-collapsed {
+  display: none;
+
+  .sidebar.collapsed:not(.hover-expand) & {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: var(--text-inverse);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    animation: logoFadeIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+@keyframes logoFadeIn {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+// 折叠时隐藏完整 Logo
+.sidebar.collapsed:not(.hover-expand) .sidebar-logo {
+  display: none;
+}

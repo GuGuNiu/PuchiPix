@@ -1,0 +1,429 @@
+// ===== 1100px 以下 — Ops 面板 =====
+@media (max-width: 1100px) {
+  .ops-two-col {
+    grid-template-columns: 1fr;
+
+    > .ops-activity-feed,
+    > .ops-log-console {
+      height: auto;
+    }
+  }
+
+  .ops-activity-body {
+    max-height: 400px;
+  }
+
+  .ops-log-body {
+    max-height: 320px;
+  }
+}
+
+// ===== 900px 以下 =====
+@media (max-width: 900px) {
+  .dashboard-top-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .quick-links {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+// ===== 768px 以下 — 平板/小屏：底部导航栏 =====
+@media (max-width: 768px) {
+  // 隐藏桌面侧边栏
+  .sidebar {
+    display: none;
+  }
+
+  // 显示底部导航栏
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    height: 60px;
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur-lg);
+    -webkit-backdrop-filter: var(--glass-blur-lg);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: var(--transition);
+    cursor: pointer;
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &.active {
+      color: var(--accent);
+    }
+
+    &:active {
+      transform: scale(0.92);
+    }
+  }
+
+  // "更多"展开菜单
+  .bottom-nav-more {
+    flex: 1;
+    position: relative;
+
+    > summary {
+      list-style: none;
+
+      &::-webkit-details-marker {
+        display: none;
+      }
+    }
+  }
+
+  .bottom-nav-more-menu {
+    position: absolute;
+    bottom: 68px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur-lg);
+    -webkit-backdrop-filter: var(--glass-blur-lg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    white-space: nowrap;
+    animation: bottomNavPop 0.15s ease;
+  }
+
+  @keyframes bottomNavPop {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
+  .bottom-nav-more-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: var(--transition);
+
+    &:hover,
+    &.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+  }
+
+  .bottom-nav-more-menu button.bottom-nav-more-item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  // 主区域不额外留左 margin
+  .main-area {
+    width: 100%;
+  }
+
+  // 内容区底部留出导航栏高度
+  .content-area {
+    padding: var(--space-4);
+    padding-bottom: 76px;
+
+    &:has(.tasks-layout) {
+      padding: 0;
+      padding-bottom: 60px;
+    }
+  }
+
+  // 通用布局
+  .form-row {
+    flex-direction: column;
+  }
+
+  .config-actions {
+    flex-direction: column;
+  }
+
+  // 仪表盘
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-3);
+  }
+
+  .quick-links {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-input-actions {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .format-pills {
+    justify-content: center;
+  }
+
+  .dashboard-page {
+    padding: var(--space-4);
+    gap: var(--space-4);
+  }
+
+  .ops-ticker {
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  // 嗅探
+  .sniff-control {
+    flex-direction: column;
+    margin: 0 var(--space-4) var(--space-4);
+  }
+
+  .sniff-status-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sniff-results-list {
+    padding: 0 var(--space-4) var(--space-3);
+  }
+
+  // 历史
+  .history-toolbar {
+    flex-direction: column;
+    padding: 0 var(--space-4);
+  }
+
+  // 配置
+  .config-section {
+    padding: 0 var(--space-4);
+  }
+
+  .config-actions {
+    padding: var(--space-4) var(--space-4) 0;
+  }
+
+  .debug-toggle {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  // 任务工具栏
+  .tasks-toolbar {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
+
+  // 详情悬浮窗
+  .task-detail-popover {
+    width: calc(100vw - 24px);
+    right: 12px;
+    left: 12px;
+    max-width: none;
+    top: 12px;
+    bottom: 68px;
+    transform: none;
+    max-height: none;
+  }
+
+  @keyframes taskDetailSlideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .task-detail-overlay {
+    bottom: 60px;
+  }
+
+  .task-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  // 模态框分栏响应式
+  .modal-split {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-split-right {
+    max-height: 200px;
+    order: -1;
+  }
+
+  // 批量导入
+  .batch-import-area {
+    margin: var(--space-3) var(--space-4) 0;
+    padding: var(--space-3);
+  }
+
+  // 模态框组件响应式
+  .modal-tab-bar {
+    flex-wrap: wrap;
+  }
+
+  .modal-tab {
+    flex: 1 1 auto;
+    min-width: 100px;
+  }
+
+  .modal-footer {
+    padding: var(--space-3) var(--space-4);
+    flex-direction: column-reverse;
+    gap: var(--space-2);
+
+    .btn,
+    .btn-block-primary {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+
+  .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+
+    .toggle {
+      align-self: flex-end;
+    }
+  }
+}
+
+// ===== 480px 以下 — 手机 =====
+@media (max-width: 480px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-card-value {
+    font-size: 22px;
+  }
+
+  .ops-ticker {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .ops-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  // 任务工具栏：垂直排列
+  .tasks-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+
+    > div {
+      width: 100%;
+    }
+
+    .pill {
+      justify-content: center;
+    }
+  }
+
+  // 表格紧凑化
+  .tasks-list-card {
+    .table-wrapper {
+      thead th,
+      tbody td {
+        padding: 10px 12px;
+        font-size: 12px;
+      }
+    }
+  }
+
+  // 详情悬浮窗全屏（底部导航栏上方）
+  .task-detail-popover {
+    top: 0;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: none;
+    border-radius: 0;
+    transform: none;
+    animation: taskDetailSlideUp 0.2s ease;
+  }
+
+  @keyframes taskDetailSlideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .task-detail-overlay {
+    bottom: 60px;
+  }
+
+  // 详情信息栏换行
+  .task-detail-info-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .info-bar-item {
+    border-right: none;
+    padding: 0 8px;
+  }
+
+  // 分类和标签垂直排列
+  .task-detail-row {
+    flex-direction: column;
+  }
+
+  .task-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  // 模态框全屏
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    border-radius: 0;
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .modal-overlay {
+    padding: 0;
+  }
+}
