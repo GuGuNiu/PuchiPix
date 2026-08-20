@@ -21,9 +21,13 @@ const (
 
 // ActiveDownload tracks the state of a video download in progress,
 // including completed/failed segments for resume and verification.
+// The ctx field holds the per-download context so that segment downloads
+// can be cancelled when the user pauses or cancels the task.
 type ActiveDownload struct {
 	TaskID            int
 	Status            DownloadStatus
+	ctx               context.Context
+	cancel            context.CancelFunc
 	Segments          []M3U8Segment
 	CompletedSegments map[int]bool
 	FailedSegments    map[int]error
@@ -33,6 +37,20 @@ type ActiveDownload struct {
 	StartTime         time.Time
 	LastProgressTime  time.Time
 	Referer           string
+}
+
+// Context returns the per-download context, used by segment downloads
+// to propagate cancellation. Safe for concurrent use.
+func (d *ActiveDownload) Context() context.Context {
+	return d.ctx
+}
+
+// Cancel invokes the per-download cancel function. Safe for concurrent
+// use and idempotent (subsequent calls are no-ops).
+func (d *ActiveDownload) Cancel() {
+	if d.cancel != nil {
+		d.cancel()
+	}
 }
 
 // CompletedCount returns the number of successfully downloaded segments.
@@ -46,10 +64,13 @@ func (d *ActiveDownload) FailedCount() int {
 }
 
 // QueueItem represents a segment pending download in the queue.
+// The ctx field carries the per-download cancellation context so that
+// segment goroutines can be terminated on pause/cancel.
 type QueueItem struct {
 	TaskID  int
 	Segment M3U8Segment
 	Referer string
+	ctx     context.Context
 }
 
 // ProgressFunc is the callback signature for progress reporting.
@@ -184,6 +205,10 @@ func (q *SegmentQueue) ProcessQueue() {
 			continue
 		}
 
+		// Inherit the per-download context so segment downloads can be
+		// cancelled on pause/cancel (fixes 260816 P0-1).
+		item.ctx = download.Context()
+
 		q.currentRunning++
 		q.mu.Unlock()
 
@@ -210,7 +235,9 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 
 	tsid := GenerateTSID(item.Segment.URI, item.Segment.Index)
 
-	result := DownloadSegment(context.Background(), SegmentTask{
+	// Use the per-download context instead of context.Background() so
+	// that pause/cancel propagates to in-flight HTTP requests.
+	result := DownloadSegment(item.ctx, SegmentTask{
 		Segment: item.Segment,
 		DestDir: download.SegDir,
 		TSID:    tsid,

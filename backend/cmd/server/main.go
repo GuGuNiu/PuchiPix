@@ -89,6 +89,8 @@ func main() {
 		VideoMaxConcurrent:     cfg.VideoMaxConcurrent,
 		TSegmentConcurrent:     cfg.TSegmentConcurrent,
 	}
+	// Configure the process-wide aggregate download cap (pressure valve).
+	downloader.SetGlobalDownloadConcurrent(cfg.GlobalDownloadConcurrent)
 
 	if database != nil {
 		logger.Info("Initializing DAG scheduler")
@@ -461,6 +463,17 @@ func main() {
 		dmCfg.DownloadPath = filepath.Join(cfg.DataDir, "videos")
 		dmCfg.SegmentsPath = filepath.Join(cfg.DataDir, "segments")
 		dm := video.NewDownloadManager(database, eventBus, dmCfg)
+
+		// Auto-enable GPU transcoding on discrete GPUs and disable it on
+		// integrated/unknown GPUs (the user can override from the config
+		// page). Runs once when no persisted choice exists.
+		dm.AutoConfigureGPU()
+		// Mirror the GPU decision to the gallery pipeline so gallery video
+		// merge honors the same gpu_transcode setting as the independent
+		// video pipeline.
+		gpuEnabled, gpuForce, _ := dm.GetGPUTranscodeStatus()
+		dlDefaults.GPUTranscode = gpuEnabled
+		dlDefaults.ForceGPUType = gpuForce
 
 		// Inject the video segment tracker into the download manager so
 		// that RegisterSegments and UpdateSegment are called from the

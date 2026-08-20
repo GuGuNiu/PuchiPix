@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	pageNavPattern  = regexp.MustCompile(`第\s*(\d+)\s*[页頁].*?共\s*(\d+)\s*[页頁]`)
-	m3u8URLPattern  = regexp.MustCompile(`(?i)https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
+	pageNavPattern   = regexp.MustCompile(`第\s*(\d+)\s*[页頁].*?共\s*(\d+)\s*[页頁]`)
+	m3u8URLPattern   = regexp.MustCompile(`(?i)https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`)
 	dateInURLPattern = regexp.MustCompile(`/(\d{4})/(\d{2})/(\d{2})/`)
+	ouoURLPattern    = regexp.MustCompile(`(?i)https?://(?:www\.)?(?:ouo\.io|ouo\.press)/[A-Za-z0-9]+`)
 )
 
 // ParseArticlePageConfig extracts the ArticlePageConfig JSON from the
@@ -228,24 +229,32 @@ func ParseSearchResults(doc *goquery.Document, baseURL, placeholder string) []Se
 
 // ZipInfoFromHtml holds parsed ZIP download information.
 type ZipInfoFromHtml struct {
-	Title          string
-	FileCount      int
-	FileSizeText   string
+	Title           string
+	FileCount       int
+	FileSizeText    string
 	ImageDimensions string
-	Password       string
-	DownloadURL    string
-	Provider       string
-	RequiresLogin  bool
-	RequiresEmail  bool
+	Password        string
+	DownloadURL     string
+	Provider        string
+	RequiresLogin   bool
+	RequiresEmail   bool
+	OuoURL          string
+	DownloadSource  string
 }
 
 // ParseZipInfoFromHtml extracts ZIP download info from a document.
+// It detects both traditional download boxes and OUO short links that
+// may appear at the top of the page.
 func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml {
 	box := doc.Find(".download-info-box")
 	section := doc.Find(".download-section")
 	btn := doc.Find(".btn-download")
 
-	if box.Length() == 0 && section.Length() == 0 {
+	// Search for OUO short links anywhere in the page
+	ouoURL := extractOuoURL(doc)
+
+	// If no download box and no OUO link found, return nil
+	if box.Length() == 0 && section.Length() == 0 && ouoURL == "" {
 		return nil
 	}
 
@@ -302,11 +311,62 @@ func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml
 		info.RequiresEmail = true
 	}
 
-	if info.FileCount == 0 && info.FileSizeText == "" && info.DownloadURL == "" {
+	// Store detected OUO URL
+	if ouoURL != "" {
+		info.OuoURL = ouoURL
+		info.DownloadSource = "ouo"
+	}
+
+	if info.FileCount == 0 && info.FileSizeText == "" && info.DownloadURL == "" && info.OuoURL == "" {
 		return nil
 	}
 
 	return info
+}
+
+// extractOuoURL searches the document for OUO short links (ouo.io or ouo.press).
+// It checks <a> tags, script content, and inline text to find the first OUO URL.
+func extractOuoURL(doc *goquery.Document) string {
+	// First check <a> tags with href containing ouo.io/ouo.press
+	var ouoURL string
+	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
+		if ouoURL != "" {
+			return
+		}
+		href, _ := a.Attr("href")
+		if matched := ouoURLPattern.FindString(href); matched != "" {
+			ouoURL = matched
+		}
+	})
+
+	if ouoURL != "" {
+		return ouoURL
+	}
+
+	// Then check script tags for embedded OUO URLs
+	doc.Find("script").Each(func(_ int, script *goquery.Selection) {
+		if ouoURL != "" {
+			return
+		}
+		content := script.Text()
+		if matched := ouoURLPattern.FindString(content); matched != "" {
+			ouoURL = matched
+		}
+	})
+
+	if ouoURL != "" {
+		return ouoURL
+	}
+
+	// Finally check the entire page text for OUO URLs
+	// This catches cases where the URL might be in data attributes or
+	// other non-standard locations
+	pageText := doc.Text()
+	if matched := ouoURLPattern.FindString(pageText); matched != "" {
+		return matched
+	}
+
+	return ""
 }
 
 func firstNonEmpty(values ...string) string {

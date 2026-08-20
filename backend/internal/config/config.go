@@ -30,6 +30,12 @@ type Config struct {
 	// video pipeline's ts_segment_concurrent setting so the two channels
 	// (gallery image vs video segment) stay independently tunable.
 	TSegmentConcurrent int
+	// GlobalDownloadConcurrent caps the TOTAL number of simultaneous
+	// HTTP download requests (images, files, and video TS segments) across
+	// the process. Acts as an aggregate pressure valve on top of the DAG
+	// scheduler's task-level slot pool so a large batch import cannot
+	// burst past this many in-flight requests. 0 restores the default.
+	GlobalDownloadConcurrent int
 }
 
 // Load reads configuration from environment variables, applying defaults
@@ -52,6 +58,7 @@ func Load() (*Config, error) {
 		GalleryImageConcurrent: clampInt(getEnvInt("GALLERY_IMAGE_CONCURRENT", 5), 1, 20),
 		VideoMaxConcurrent:     clampInt(getEnvInt("VIDEO_MAX_CONCURRENT", 3), 1, 10),
 		TSegmentConcurrent:     clampInt(getEnvInt("TS_SEGMENT_CONCURRENT", 10), 1, 50),
+		GlobalDownloadConcurrent: clampInt(getEnvInt("GLOBAL_DOWNLOAD_CONCURRENT", 64), 4, 256),
 	}
 
 	if cfg.LogSinkCapacity < 100 {

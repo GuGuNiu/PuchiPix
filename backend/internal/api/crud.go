@@ -742,6 +742,14 @@ func (h *Handlers) GPUSettingUpdate(w http.ResponseWriter, r *http.Request) {
 
 	h.DownloadMgr.SetGPUTranscode(req.Enabled, req.ForceGPUType)
 
+	// Keep the gallery pipeline's GPU decision in sync so embedded gallery
+	// video merge honors the same runtime toggle as the independent video
+	// pipeline.
+	if h.DlDefaults != nil {
+		h.DlDefaults.GPUTranscode = req.Enabled
+		h.DlDefaults.ForceGPUType = req.ForceGPUType
+	}
+
 	// Return updated status
 	enabled, forceType, gpuInfo := h.DownloadMgr.GetGPUTranscodeStatus()
 	writeJSON(w, http.StatusOK, map[string]any{

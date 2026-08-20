@@ -178,19 +178,7 @@ func (m *DownloadManager) SetGPUTranscode(enabled bool, forceType string) {
 	m.forceGPUType = forceType
 	m.mu.Unlock()
 
-	// Persist to app_configs for restart survival
-	if m.db != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, _ = m.db.Exec(ctx,
-			`INSERT INTO app_configs (key, value) VALUES (?, ?)
-			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
-			"gpu_transcode", boolToStr(enabled), boolToStr(enabled))
-		_, _ = m.db.Exec(ctx,
-			`INSERT INTO app_configs (key, value) VALUES (?, ?)
-			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
-			"gpu_force_type", forceType, forceType)
-	}
+	m.persistGPUSettings(enabled, forceType)
 
 	ResetGPUCache()
 
@@ -207,6 +195,56 @@ func (m *DownloadManager) SetGPUTranscode(enabled bool, forceType string) {
 	} else {
 		m.logger.Info("GPU transcoding disabled", nil)
 	}
+}
+
+// persistGPUSettings writes the GPU transcoding choice to app_configs so
+// it survives restarts and is honored as the user/explicit choice.
+func (m *DownloadManager) persistGPUSettings(enabled bool, forceType string) {
+	if m.db == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = m.db.Exec(ctx,
+		`INSERT INTO app_configs (key, value) VALUES (?, ?)
+		 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+		"gpu_transcode", boolToStr(enabled), boolToStr(enabled))
+	_, _ = m.db.Exec(ctx,
+		`INSERT INTO app_configs (key, value) VALUES (?, ?)
+		 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+		"gpu_force_type", forceType, forceType)
+}
+
+// AutoConfigureGPU chooses the GPU transcoding default when the user has
+// not made an explicit choice. Discrete GPUs auto-enable hardware
+// transcoding; integrated/unknown GPUs auto-disable it (users can still
+// enable it explicitly from the config page). The auto decision is
+// persisted so it is not re-evaluated and acts as the user choice on the
+// next start. Call after LoadGPUTranscodeFromDB.
+func (m *DownloadManager) AutoConfigureGPU() {
+	if m.db == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var v string
+	if err := m.db.QueryRow(ctx, "SELECT value FROM app_configs WHERE key = 'gpu_transcode'").Scan(&v); err == nil {
+		return // an explicit choice already exists, honor it
+	}
+
+	gpuInfo := DetectGPU()
+	enable := gpuInfo.SupportsHWTranscode() && gpuInfo.IsDiscrete()
+	m.mu.Lock()
+	m.gpuTranscode = enable
+	m.forceGPUType = string(gpuInfo.Type)
+	m.mu.Unlock()
+	m.persistGPUSettings(enable, string(gpuInfo.Type))
+
+	m.logger.Info("Auto-configured GPU transcoding",
+		infra.LogContext{Extra: map[string]any{
+			"enabled": enable,
+			"gpu":     gpuInfo.String(),
+		}})
 }
 
 func (m *DownloadManager) GetGPUTranscodeStatus() (enabled bool, forceType string, gpuInfo *GPUInfo) {
@@ -442,9 +480,12 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		cancel2()
 	}
 
+	downloadCtx, downloadCancel := context.WithCancel(ctx)
 	download := &ActiveDownload{
 		TaskID:            task.ID,
 		Status:            StatusActive,
+		ctx:               downloadCtx,
+		cancel:            downloadCancel,
 		Segments:          segments,
 		CompletedSegments: make(map[int]bool),
 		FailedSegments:    make(map[int]error),
@@ -473,10 +514,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	}
 	m.segQueue.ProcessQueue()
 
-	waitCtx, waitCancel := context.WithCancel(context.Background())
-	defer waitCancel()
-
-	if err := m.segQueue.WaitForSegments(waitCtx, task.ID, firstScreenCount); err != nil {
+	if err := m.segQueue.WaitForSegments(downloadCtx, task.ID, firstScreenCount); err != nil {
 		return err
 	}
 
@@ -492,7 +530,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	}
 	m.segQueue.ProcessQueue()
 
-	if err := m.segQueue.WaitForAllSegments(waitCtx, task.ID); err != nil {
+	if err := m.segQueue.WaitForAllSegments(downloadCtx, task.ID); err != nil {
 		return err
 	}
 
@@ -527,39 +565,40 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			failedCount, totalSegments, strings.Join(details, "; "))
 	}
 
-	verification := VerifySegments(segDir, totalSegments)
-	if !verification.Valid {
-		var parts []string
-		if len(verification.Missing) > 0 {
-			parts = append(parts, fmt.Sprintf("missing segment indices: %v", verification.Missing))
-		}
-		if len(verification.EmptyFiles) > 0 {
-			parts = append(parts, fmt.Sprintf("empty files: %v", verification.EmptyFiles))
-		}
-		return fmt.Errorf("segment verification failed ??expected %d, actual %d: %s",
-			totalSegments, verification.ActualCount, strings.Join(parts, "; "))
+	// Build initial success set from segments confirmed by SegmentQueue.
+	successSet := make(map[int]bool, len(download.CompletedSegments))
+	for idx := range download.CompletedSegments {
+		successSet[idx] = true
 	}
 
-	m.logger.Info("Segment verification passed",
-		infra.LogContext{Extra: map[string]any{
-			"taskId":    task.ID,
-			"segments":  verification.ActualCount,
-			"totalSize": verification.TotalSize,
-		}})
-
-	m.emitProgress(task.ID, 95, completedCount, totalSegments, "downloading", "")
-
-	m.logger.Info("Merging TS segments",
-		infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
-	mergeResult, err := MergeSegments(segDir, tsOutputPath)
-	if err != nil {
-		return fmt.Errorf("merge segments: %w", err)
+	// Validate + merge with automatic retry loop. On failure, the loop
+	// redownloads corrupted segments and their ±5 neighborhood.
+	retryOpts := DefaultMergeRetryOptions(tsOutputPath, segDir)
+	retryOpts.BatchOpts = SegmentBatchOptions{
+		Concurrency: m.maxConcurrent,
+		MaxRetries:  m.maxRetries,
+		Referer:     referer,
 	}
-	m.logger.Info("Merge completed",
+	retryOpts.ExpectedDuration = SumSegmentDurations(segments)
+	retryOpts.OnRetry = func(attempt, count int, reason string) {
+		m.logger.Info("Merge retry triggered",
+			infra.LogContext{Extra: map[string]any{
+				"taskId":  task.ID,
+				"attempt": attempt,
+				"count":   count,
+				"reason":  reason,
+			}})
+		m.emitProgress(task.ID, 90, completedCount, totalSegments, fmt.Sprintf("retry #%d", attempt), "")
+	}
+
+	if err := MergeRetryLoop(downloadCtx, segments, successSet, retryOpts); err != nil {
+		return fmt.Errorf("merge retry loop: %w", err)
+	}
+
+	m.logger.Info("Merge validation passed",
 		infra.LogContext{Extra: map[string]any{
-			"taskId":     task.ID,
-			"totalFiles": mergeResult.TotalFiles,
-			"totalSize":  mergeResult.TotalSize,
+			"taskId":   task.ID,
+			"segments": len(segments),
 		}})
 
 	m.emitProgress(task.ID, 97, completedCount, totalSegments, "transcoding", "")
@@ -763,6 +802,7 @@ func (m *DownloadManager) PauseDownload(taskID int) error {
 		return fmt.Errorf("task %d is not active", taskID)
 	}
 	download.Status = StatusPaused
+	download.Cancel()
 	totalSegments := download.TotalSegments
 	completedCount := download.CompletedCount()
 	m.mu.Unlock()
@@ -827,6 +867,7 @@ func (m *DownloadManager) CancelDownload(taskID int) {
 	download, ok := m.activeDownloads[taskID]
 	if ok {
 		download.Status = StatusCancelled
+		download.Cancel()
 	}
 	m.mu.Unlock()
 
@@ -892,6 +933,7 @@ func (m *DownloadManager) Stop() {
 	var updates []*ActiveDownload
 	for _, download := range m.activeDownloads {
 		download.Status = StatusCancelled
+		download.Cancel()
 		updates = append(updates, download)
 	}
 	m.activeDownloads = make(map[int]*ActiveDownload)

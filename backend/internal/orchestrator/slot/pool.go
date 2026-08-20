@@ -54,6 +54,10 @@ type SlotPool struct {
 	mu               sync.Mutex
 	pools            map[string]*slotEntry
 	schedulerCallback func(slotType string)
+	// maxUpdateCallback is invoked (outside the pool lock) whenever a
+	// slot type's max capacity changes, so consumers (e.g. the
+	// scheduler) can re-sync their derived limits.
+	maxUpdateCallback func(slotType string, newMax int)
 	// dagQuotas maps dagID -> slotType -> quota. A value <= 0 means the
 	// task has no quota for that slot type (unlimited within the global
 	// max). SetDagQuota merges entries; ClearDagQuota removes a task's
@@ -98,6 +102,16 @@ func (p *SlotPool) SetSchedulerCallback(cb func(slotType string)) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.schedulerCallback = cb
+}
+
+// SetMaxUpdateCallback installs a callback invoked (outside the pool
+// lock) whenever a slot type's max capacity changes. The scheduler uses
+// this to re-sync its queue size limits so that raising the slot cap
+// immediately allows more queued nodes.
+func (p *SlotPool) SetMaxUpdateCallback(cb func(slotType string, newMax int)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.maxUpdateCallback = cb
 }
 
 // SetStateChangeCallback installs a callback invoked (outside the pool
@@ -536,6 +550,9 @@ func (p *SlotPool) UpdateMax(slotType string, newMax int) {
 	})
 	if p.schedulerCallback != nil {
 		p.schedulerCallback(slotType)
+	}
+	if p.maxUpdateCallback != nil {
+		p.maxUpdateCallback(slotType, newMax)
 	}
 }
 

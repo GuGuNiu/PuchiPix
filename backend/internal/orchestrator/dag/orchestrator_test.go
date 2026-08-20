@@ -83,6 +83,10 @@ func (m *mockSlotPool) SetSchedulerCallback(cb func(string)) {
 	m.callbacks = append(m.callbacks, cb)
 }
 
+func (m *mockSlotPool) SetMaxUpdateCallback(cb func(string, int)) {
+	// no-op in tests; max updates are not exercised by orchestrator tests.
+}
+
 func (m *mockSlotPool) ReleaseAll(holderID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

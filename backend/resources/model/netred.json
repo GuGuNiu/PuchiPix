@@ -1,8 +1,8 @@
 {
   "stats": {
-    "total": 5,
-    "withAliases": 1,
-    "withPinyin": 5
+    "total": 8,
+    "withAliases": 2,
+    "withPinyin": 8
   },
   "models": [
     {
@@ -36,6 +36,26 @@
       "name": "杨晨晨",
       "pinyin": "yang chen chen",
       "aliases": [],
+      "category": "netred"
+    },
+    {
+      "pinyin": "li xing er",
+      "aliases": [],
+      "name": "李星儿",
+      "category": "netred"
+    },
+    {
+      "pinyin": "lu xuan xuan",
+      "aliases": [],
+      "name": "陆萱萱",
+      "category": "netred"
+    },
+    {
+      "pinyin": "yuan yuan",
+      "aliases": [
+        "Yuan Yuan"
+      ],
+      "name": "袁圆",
       "category": "netred"
     }
   ]

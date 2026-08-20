@@ -312,7 +312,11 @@ func buildScrapeResult(ctx context.Context, doc *goquery.Document, pageURL, used
 		title = deps.CleanTitle(firstPageData.RawTitle)
 	}
 
-	protagonist := deps.ExtractProtagonist(title, firstPageData.Tags)
+	// Prefer protagonist from meta description (xsnvshen-specific extraction)
+	protagonist := firstPageData.Protagonist
+	if protagonist == "" {
+		protagonist = deps.ExtractProtagonist(title, firstPageData.Tags)
+	}
 	description := deps.ExtractDescription(title, protagonist)
 
 	blockCheck, err := deps.CheckBlockedAsync(ctx, title, firstPageData.Category, protagonist)

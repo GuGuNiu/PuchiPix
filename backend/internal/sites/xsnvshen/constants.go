@@ -23,14 +23,22 @@ var BlockedProtagonists []string
 var BlockedProtagonistsEnabled bool
 
 var (
-	albumIDPattern   = regexp.MustCompile(`/album/(\d+)`)
-	modelIDPattern   = regexp.MustCompile(`/album/(\d+)/(\d+)/`)
-	siteSuffixPattern = regexp.MustCompile(`(?i)\s*[_|]\s*(秀色女神|xsnvshen|XsNvShen)\s*$`)
-	publisherPrefix   = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
-	bracketPrefix     = regexp.MustCompile(`^\[.*?\]\s*`)
-	trailingSeparator = regexp.MustCompile(`(?i)\s*[-\s]*$`)
-	datePattern       = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
-	descCountPattern  = regexp.MustCompile(`(?i)\s*\d+P\d*V?\s*$`)
+	albumIDPattern      = regexp.MustCompile(`/album/(\d+)`)
+	modelIDPattern      = regexp.MustCompile(`/album/(\d+)/(\d+)/`)
+	siteSuffixPattern   = regexp.MustCompile(`(?i)\s*[_|]\s*(秀色女神|xsnvshen|XsNvShen)\s*$`)
+	publisherPrefix     = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
+	bracketPrefix       = regexp.MustCompile(`^\[.*?\]\s*`)
+	trailingSeparator   = regexp.MustCompile(`(?i)\s*[-\s]*$`)
+	datePattern         = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
+	descCountPattern    = regexp.MustCompile(`(?i)\s*\d+P\d*V?\s*$`)
+	
+	// xsnvshen-specific patterns for title cleaning
+	// Matches prefixes like "[XiuRen]高清写真图 2025.11.27 No.11037 "
+	xiuRenPrefixPattern = regexp.MustCompile(`^\[.*?\]高清写真图\s+\d{4}\.\d{2}\.\d{2}\s+No\.\d+\s*`)
+	// Matches suffixes like "秀人网性感" or "女神私房照"
+	xiuRenSuffixPattern = regexp.MustCompile(`\s*秀人网.*$`)
+	// Extracts model name from meta description: "模特@模特名"
+	descModelPattern = regexp.MustCompile(`模特[@:：]\s*(\S+)`)
 )
 
 // GalleryPageMetadata holds parsed data from a gallery album page.
@@ -44,6 +52,7 @@ type GalleryPageMetadata struct {
 	ModelID     string
 	AlbumID     string
 	Images      []GalleryImageEntry
+	Protagonist string // extracted model/protagonist name
 }
 
 // GalleryImageEntry represents a single image URL with its page index.
@@ -105,6 +114,30 @@ func CleanTitle(rawTitle string) string {
 	title = siteSuffixPattern.ReplaceAllString(title, "")
 	title = trailingSeparator.ReplaceAllString(title, "")
 	return strings.TrimSpace(title)
+}
+
+// CleanTitleXsnvshen removes xsnvshen-specific prefixes and suffixes.
+// Strips "[XiuRen]高清写真图 2025.11.27 No.11037 " prefix and "秀人网..." suffix
+// to expose the model name and theme description.
+func CleanTitleXsnvshen(rawTitle string) string {
+	if rawTitle == "" {
+		return ""
+	}
+	title := strings.TrimSpace(rawTitle)
+	// Remove "[XiuRen]高清写真图 YYYY.MM.DD No.XXXXX " prefix
+	title = xiuRenPrefixPattern.ReplaceAllString(title, "")
+	// Remove trailing "秀人网性感..." suffix
+	title = xiuRenSuffixPattern.ReplaceAllString(title, "")
+	return strings.TrimSpace(title)
+}
+
+// ExtractModelFromDescription extracts the model name from meta description.
+// Pattern: "模特@模特名" or "模特:模特名"
+func ExtractModelFromDescription(desc string) string {
+	if m := descModelPattern.FindStringSubmatch(desc); len(m) >= 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
 }
 
 // CleanDescription removes the protagonist name from the title,

@@ -1,6 +1,7 @@
 package xsnvshen
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -14,9 +15,18 @@ type SearchEntry struct {
 	Date     string
 }
 
+// thumbPattern matches the thumbnail size prefix in image URLs.
+// e.g. "thumb_600x900/" should be stripped to get the original image URL.
+var thumbPattern = regexp.MustCompile(`thumb_\d+x\d+/`)
+
 // ParseGalleryPageHtml extracts gallery metadata from a parsed album page,
 // collecting image URLs from data-original attributes and deriving
 // model/album identifiers from the first image path segment.
+//
+// Upgrade: Uses more precise selector ".gallery .swi-hd img" to capture
+// ALL images including the cover (class="nolazy"), and normalizes
+// thumbnail URLs back to original quality. Also extracts protagonist
+// name from meta description for cleaner model identification.
 func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 	result := GalleryPageMetadata{
 		Tags:   []string{},
@@ -25,6 +35,15 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 
 	result.H1Title = strings.TrimSpace(doc.Find("h1").First().Text())
 	result.RawTitle = strings.TrimSpace(doc.Find("title").First().Text())
+
+	// Extract protagonist from meta description (most reliable source)
+	// Pattern: "模特@模特名" or "模特:模特名"
+	if metaDesc := doc.Find(`meta[name="description"]`).First(); metaDesc.Length() > 0 {
+		descContent := metaDesc.AttrOr("content", "")
+		if modelName := ExtractModelFromDescription(descContent); modelName != "" {
+			result.Protagonist = modelName
+		}
+	}
 
 	tagSet := make(map[string]bool)
 	doc.Find(`a[href*="/album/t"]`).Each(func(_ int, el *goquery.Selection) {
@@ -35,17 +54,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 		}
 	})
 
-	bigImg := doc.Find("#bigImg").First()
-	if bigImg.Length() > 0 {
-		result.CoverURL = bigImg.AttrOr("src", "")
-	}
-	if result.CoverURL == "" {
-		viewBigImg := doc.Find("#viewbigimg").First()
-		if viewBigImg.Length() > 0 {
-			result.CoverURL = viewBigImg.AttrOr("href", "")
-		}
-	}
-
 	timeEl := doc.Find("#time").First()
 	if timeEl.Length() > 0 {
 		timeText := strings.TrimSpace(timeEl.Text())
@@ -54,16 +62,23 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 		}
 	}
 
-	doc.Find("img.origin_image.lazy").Each(func(index int, img *goquery.Selection) {
+	// Primary: use .gallery .swi-hd selector which captures all images
+	// including the cover (class="nolazy") and lazy-loaded ones.
+	seenURLs := make(map[string]bool)
+	doc.Find(".gallery .swi-hd img").Each(func(index int, img *goquery.Selection) {
+		// Prefer data-original (contains the real image URL)
 		dataOriginal := img.AttrOr("data-original", "")
 		src := img.AttrOr("src", "")
 
-		fullURL := dataOriginal
-		if fullURL == "" {
-			fullURL = src
-		}
-		if fullURL == "" {
+		fullURL := normalizeImageURL(dataOriginal, src)
+		if fullURL == "" || seenURLs[fullURL] {
 			return
+		}
+		seenURLs[fullURL] = true
+
+		// Set cover if not yet set (first image is always the cover)
+		if result.CoverURL == "" {
+			result.CoverURL = fullURL
 		}
 
 		result.Images = append(result.Images, GalleryImageEntry{
@@ -78,11 +93,87 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 		}
 	})
 
-	if result.CoverURL == "" && len(result.Images) > 0 {
-		result.CoverURL = result.Images[0].URL
+	// Fallback: if .gallery selector found nothing, try old selectors
+	if len(result.Images) == 0 {
+		fallbackExtractImages(doc, &result)
 	}
 
 	return result
+}
+
+// normalizeImageURL converts thumbnail URLs to original quality URLs.
+// Handles the following cases:
+//   - Protocol-relative URLs (//img.xsnvshen.co/...) → add https: prefix
+//   - Thumbnail URLs (...thumb_600x900/album/...) → strip thumb prefix for original
+func normalizeImageURL(dataOriginal, src string) string {
+	raw := dataOriginal
+	if raw == "" {
+		raw = src
+	}
+	if raw == "" {
+		return ""
+	}
+
+	// Skip loading GIFs and data URIs
+	if strings.Contains(raw, "loading.gif") || strings.HasPrefix(raw, "data:") {
+		return ""
+	}
+
+	// Add protocol if missing
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+
+	// Strip thumbnail size prefix to get original image URL
+	// e.g. https://img.xsnvshen.co/thumb_600x900/album/0/45373/001.jpg
+	//   → https://img.xsnvshen.co/album/0/45373/001.jpg
+	raw = thumbPattern.ReplaceAllString(raw, "")
+
+	return raw
+}
+
+// fallbackExtractImages provides backward-compatible extraction when
+// the primary .gallery selector fails to find images.
+func fallbackExtractImages(doc *goquery.Document, result *GalleryPageMetadata) {
+	// Try old selector: img.origin_image.lazy
+	doc.Find("img.origin_image.lazy").Each(func(index int, img *goquery.Selection) {
+		dataOriginal := img.AttrOr("data-original", "")
+		src := img.AttrOr("src", "")
+
+		fullURL := normalizeImageURL(dataOriginal, src)
+		if fullURL == "" {
+			return
+		}
+
+		if result.CoverURL == "" {
+			result.CoverURL = fullURL
+		}
+
+		result.Images = append(result.Images, GalleryImageEntry{
+			URL:       fullURL,
+			PageIndex: index,
+		})
+
+		if index == 0 {
+			modelID, albumID := ExtractModelIDFromImageUrl(fullURL)
+			result.ModelID = modelID
+			result.AlbumID = albumID
+		}
+	})
+
+	// If still no images, try #bigImg src and #viewbigimg href from cover
+	if len(result.Images) == 0 {
+		bigImg := doc.Find("#bigImg").First()
+		if bigImg.Length() > 0 {
+			result.CoverURL = bigImg.AttrOr("src", "")
+		}
+		if result.CoverURL == "" {
+			viewBigImg := doc.Find("#viewbigimg").First()
+			if viewBigImg.Length() > 0 {
+				result.CoverURL = viewBigImg.AttrOr("href", "")
+			}
+		}
+	}
 }
 
 // ParseSearchResults extracts album entries from listing or search pages,

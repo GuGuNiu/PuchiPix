@@ -25,6 +25,19 @@ const (
 	GPUTypeVideotoolbox GPUType = "videotoolbox" // macOS VideoToolbox
 )
 
+// GPUKind classifies the detected GPU as discrete (dedicated) or
+// integrated (part of the CPU/chipset). Used to decide whether GPU
+// transcoding should be enabled by default: discrete GPUs are preferred
+// for hardware accelerate, while integrated GPUs are conservatively
+// disabled (users can enable them explicitly).
+type GPUKind string
+
+const (
+	GPUKindDiscrete   GPUKind = "discrete"
+	GPUKindIntegrated GPUKind = "integrated"
+	GPUKindUnknown    GPUKind = "unknown"
+)
+
 // GPUInfo holds detected GPU capabilities and the best available encoder.
 type GPUInfo struct {
 	Type           GPUType `json:"type"`
@@ -34,7 +47,15 @@ type GPUInfo struct {
 	DriverVersion  string  `json:"driver_version"`        // e.g. "535.129.03"
 	Available      bool    `json:"available"`             // true if any HW encoder was found
 	CUDASupport    bool    `json:"cuda_support"`          // true if CUDA is available (NVENC)
+	Kind           GPUKind `json:"kind"`                  // discrete / integrated / unknown
 	DetectionError string  `json:"detection_error,omitempty"` // non-empty if detection failed
+}
+
+// IsDiscrete reports whether the GPU was classified as a discrete
+// (dedicated) GPU. Unknown/integrated GPUs return false so callers
+// treat them conservatively (i.e. do not auto-enable GPU transcoding).
+func (gi *GPUInfo) IsDiscrete() bool {
+	return gi != nil && gi.Kind == GPUKindDiscrete
 }
 
 var (
@@ -208,6 +229,8 @@ func detectNVIDIAGPU(info *GPUInfo) {
 	info.EncoderName = "h264_nvenc"
 	info.DecoderName = "h264_cuvid"
 	info.Available = true
+	// NVIDIA GPUs are always dedicated/discrete accelerators.
+	info.Kind = GPUKindDiscrete
 
 	// GPU name via ghw (in-process PCI lookup, no subprocess).
 	name, found := findGPUByVendor("NVIDIA")
@@ -330,9 +353,30 @@ func detectIntelGPUWindows(info *GPUInfo) {
 	name, found := findGPUByVendor("Intel")
 	if found {
 		info.GPUName = name
+		info.Kind = classifyIntelKind(name)
 	} else {
 		info.GPUName = "Intel GPU (QSV)"
+		info.Kind = GPUKindIntegrated
 	}
+}
+
+// classifyIntelKind distinguishes discrete Intel Arc GPUs from the
+// integrated iGPU built into Intel CPUs.
+func classifyIntelKind(name string) GPUKind {
+	if strings.Contains(strings.ToLower(name), "arc") {
+		return GPUKindDiscrete
+	}
+	return GPUKindIntegrated
+}
+
+// classifyAMDKind distinguishes discrete Radeon GPUs from the integrated
+// Radeon graphics embedded in AMD APUs.
+func classifyAMDKind(name string) GPUKind {
+	n := strings.ToLower(name)
+	if strings.Contains(n, "radeon") && !strings.Contains(n, "graphics") {
+		return GPUKindDiscrete
+	}
+	return GPUKindIntegrated
 }
 
 // detectAMDGPUWindows detects AMD AMF GPU on Windows using ghw.
@@ -348,8 +392,10 @@ func detectAMDGPUWindows(info *GPUInfo) {
 	}
 	if found {
 		info.GPUName = name
+		info.Kind = classifyAMDKind(name)
 	} else {
 		info.GPUName = "AMD GPU (AMF)"
+		info.Kind = GPUKindUnknown
 	}
 }
 
@@ -362,8 +408,10 @@ func detectIntelGPULinux(info *GPUInfo) {
 	name, found := findGPUByVendor("Intel")
 	if found {
 		info.GPUName = name
+		info.Kind = classifyIntelKind(name)
 	} else {
 		info.GPUName = "Intel GPU (QSV)"
+		info.Kind = GPUKindIntegrated
 	}
 }
 
@@ -383,8 +431,13 @@ func detectVAAPIGPU(info *GPUInfo) {
 	}
 	if found {
 		info.GPUName = name
+		info.Kind = classifyIntelKind(name)
+		if strings.Contains(strings.ToLower(name), "radeon") || strings.Contains(strings.ToLower(name), "amd") {
+			info.Kind = classifyAMDKind(name)
+		}
 	} else {
 		info.GPUName = "VAAPI GPU"
+		info.Kind = GPUKindIntegrated
 	}
 }
 
@@ -404,8 +457,16 @@ func detectMacOSGPUVT(info *GPUInfo) {
 	}
 	if found {
 		info.GPUName = name + " (VideoToolbox)"
+		// Apple Silicon / Intel iGPU are integrated; discrete AMD/other
+		// discrete GPUs are rarer on macOS and conservatively treated as
+		// integrated so GPU transcoding is not force-enabled by default.
+		info.Kind = GPUKindIntegrated
+		if strings.Contains(strings.ToLower(name), "radeon") || strings.Contains(strings.ToLower(name), "amd") {
+			info.Kind = GPUKindDiscrete
+		}
 	} else {
 		info.GPUName = "Apple/Intel GPU (VideoToolbox)"
+		info.Kind = GPUKindIntegrated
 	}
 }
 

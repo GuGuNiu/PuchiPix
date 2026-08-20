@@ -414,6 +414,156 @@ func TestParseZipInfoFromHtml_EmptyInfoReturnsNil(t *testing.T) {
 	assert.Nil(t, ParseZipInfoFromHtml(doc, "https://www.lovecutes.com"))
 }
 
+// --- OUO URL Detection ---
+
+// TestParseZipInfoFromHtml_OUOFromAnchor verifies that an OUO short link
+// embedded in an <a> tag is detected and extracted, enabling the downloader
+// to resolve the short link to the actual ZIP file.
+func TestParseZipInfoFromHtml_OUOFromAnchor(t *testing.T) {
+	html := `<html><body>
+		<article>
+			<a href="https://ouo.io/abc123">Download ZIP</a>
+			<img data-src="https://example.com/img1.jpg" />
+		</article>
+		</body></html>`
+	doc := mustDoc(t, html)
+
+	info := ParseZipInfoFromHtml(doc, "https://www.lovecutes.com")
+	require.NotNil(t, info)
+	assert.Equal(t, "https://ouo.io/abc123", info.OuoURL)
+	assert.Equal(t, "ouo", info.DownloadSource)
+}
+
+// TestParseZipInfoFromHtml_OUOFromScript verifies that an OUO URL
+// embedded in a JavaScript script tag is detected, as some pages
+// dynamically inject download links via scripts.
+func TestParseZipInfoFromHtml_OUOFromScript(t *testing.T) {
+	html := `<html><body>
+		<script>var downloadLink = "https://ouo.io/xyz789";</script>
+		</body></html>`
+	doc := mustDoc(t, html)
+
+	info := ParseZipInfoFromHtml(doc, "https://www.lovecutes.com")
+	require.NotNil(t, info)
+	assert.Equal(t, "https://ouo.io/xyz789", info.OuoURL)
+	assert.Equal(t, "ouo", info.DownloadSource)
+}
+
+// TestParseZipInfoFromHtml_OUOFromText verifies that an OUO URL
+// appearing in plain text anywhere on the page is detected.
+func TestParseZipInfoFromHtml_OUOFromText(t *testing.T) {
+	html := `<html><body>
+		<p>Download: https://ouo.io/text456</p>
+		</body></html>`
+	doc := mustDoc(t, html)
+
+	info := ParseZipInfoFromHtml(doc, "https://www.lovecutes.com")
+	require.NotNil(t, info)
+	assert.Equal(t, "https://ouo.io/text456", info.OuoURL)
+	assert.Equal(t, "ouo", info.DownloadSource)
+}
+
+// TestParseZipInfoFromHtml_OUOPressDomain verifies that ouo.press
+// short links are also recognized as OUO URLs.
+func TestParseZipInfoFromHtml_OUOPressDomain(t *testing.T) {
+	html := `<html><body>
+		<a href="https://ouo.press/press789">Download</a>
+		</body></html>`
+	doc := mustDoc(t, html)
+
+	info := ParseZipInfoFromHtml(doc, "https://www.lovecutes.com")
+	require.NotNil(t, info)
+	assert.Equal(t, "https://ouo.press/press789", info.OuoURL)
+	assert.Equal(t, "ouo", info.DownloadSource)
+}
+
+// TestParseZipInfoFromHtml_OUOWithDownloadBox verifies that when both
+// a download box and an OUO link exist, both are captured.
+func TestParseZipInfoFromHtml_OUOWithDownloadBox(t *testing.T) {
+	html := `<html><body>
+		<div class="download-info-box">
+			<div class="info-title">Archive Name</div>
+			<div class="info-item"><strong>文件数量</strong> 50</div>
+		</div>
+		<a class="btn-download" href="https://ouo.io/combined123" data-provider="ouo">
+			<span class="download-label">Download</span>
+		</a>
+		</body></html>`
+	doc := mustDoc(t, html)
+
+	info := ParseZipInfoFromHtml(doc, "https://www.lovecutes.com")
+	require.NotNil(t, info)
+	assert.Equal(t, "Archive Name", info.Title)
+	assert.Equal(t, 50, info.FileCount)
+	assert.Equal(t, "https://ouo.io/combined123", info.OuoURL)
+	assert.Equal(t, "ouo", info.DownloadSource)
+}
+
+// TestParseZipInfoFromHtml_NoOUOWhenNoLink verifies that when no OUO
+// link exists, the OuoURL field remains empty.
+func TestParseZipInfoFromHtml_NoOUOWhenNoLink(t *testing.T) {
+	html := `<html><body>
+		<div class="download-info-box">
+			<div class="info-item"><strong>Files</strong> 10</div>
+		</div>
+		<a class="btn-download" href="https://mediafire.com/download/abc" data-provider="mediafire">Download</a>
+		</body></html>`
+	doc := mustDoc(t, html)
+
+	info := ParseZipInfoFromHtml(doc, "https://www.lovecutes.com")
+	require.NotNil(t, info)
+	assert.Empty(t, info.OuoURL)
+	assert.Equal(t, "https://mediafire.com/download/abc", info.DownloadURL)
+}
+
+// TestExtractOuoURL verifies the extractOuoURL helper function directly.
+func TestExtractOuoURL(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "anchor_tag",
+			html: `<a href="https://ouo.io/test1">Link</a>`,
+			want: "https://ouo.io/test1",
+		},
+		{
+			name: "script_tag",
+			html: `<script>var x = "https://ouo.io/test2";</script>`,
+			want: "https://ouo.io/test2",
+		},
+		{
+			name: "plain_text",
+			html: `<p>URL: https://ouo.io/test3</p>`,
+			want: "https://ouo.io/test3",
+		},
+		{
+			name: "ouo_press",
+			html: `<a href="https://ouo.press/test4">Link</a>`,
+			want: "https://ouo.press/test4",
+		},
+		{
+			name: "no_ouo",
+			html: `<a href="https://example.com/file.zip">Link</a>`,
+			want: "",
+		},
+		{
+			name: "www_prefix",
+			html: `<a href="https://www.ouo.io/test5">Link</a>`,
+			want: "https://www.ouo.io/test5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := mustDoc(t, `<html><body>`+tt.html+`</body></html>`)
+			got := extractOuoURL(doc)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // --- Constants functions ---
 
 // TestExtractArticleID verifies that the numeric article ID is

@@ -625,12 +625,84 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(galleryConcurrent)
 
+		// Query gallery videos before starting the progress ticker so
+		// the ticker can include video counts in its progress
+		// calculation. Previously the ticker only counted images,
+		// causing "100% downloading" when images finished before videos.
+		videoRows, err := database.Query(ctx,
+			`SELECT id, url, file_name FROM gallery_videos WHERE gallery_id = ? AND status = 'pending'`,
+			galleryID)
+		videoDownloaded := 0
+		videoFailed := 0
+		type vidTask struct {
+			id       int
+			url      string
+			fileName string
+		}
+		var videos []vidTask
+		if err == nil {
+			for videoRows.Next() {
+				var v vidTask
+				if err := videoRows.Scan(&v.id, &v.url, &v.fileName); err != nil {
+					continue
+				}
+				videos = append(videos, v)
+			}
+			videoRows.Close()
+		}
+
+		// Run video downloads in their own errgroup so they execute
+		// concurrently with image downloads. Each video processes
+		// independently; failures are tolerated (the TS behavior allowed
+		// individual video failures without aborting the batch).
+		var videoMu sync.Mutex
+
+		// Per-video segment/merge progress so the overall gallery
+		// progress can fold in TS segment counts and the merge step,
+		// instead of counting each video as a single opaque unit.
+		// Guarded by videoMu.
+		type galVideoState struct {
+			segTotal int
+			segDone  int
+			merged   bool
+		}
+		videoProgress := map[int]*galVideoState{}
+
+		// aggregateVideo is the single source of truth for the video
+		// side of the gallery progress calculation (avoid duplication &
+		// drift). It returns:
+		//   segTotals   - total known TS segment count across videos
+		//   segDone     - total done (completed + failed) segments
+		//   discovered  - videos whose segment count is known; each
+		//                 contributes one merge unit to the denominator
+		//   merged      - videos whose TS→MP4 merge finished
+		// Caller MUST hold videoMu.
+		aggregateVideo := func() (segTotals, segDone, discovered, merged int) {
+			for _, st := range videoProgress {
+				if st.segTotal > 0 {
+					segTotals += st.segTotal
+					discovered++
+				}
+				segDone += st.segDone
+				if st.merged {
+					merged++
+				}
+			}
+			return
+		}
+
 		// Periodic progress reporter: emit task:progress every 2s so
 		// the SSE-connected frontend can show real-time download progress
 		// instead of staying at 0% until the entire batch finishes.
 		// The payload also carries downloadedSize (accumulated bytes of
-		// successfully downloaded images) so the frontend size column
-		// updates live instead of only appearing after completion.
+		// successfully downloaded images AND videos) so the frontend
+		// size column updates live instead of only appearing after
+		// completion.
+		//
+		// The progress calculation accounts for both images and videos.
+		// Previously this only counted images, which caused progress to
+		// reach 100% while videos were still downloading — the frontend
+		// displayed a confusing "100% downloading" state.
 		progressDone := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(2 * time.Second)
@@ -641,22 +713,36 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					return
 				case <-ticker.C:
 					mu.Lock()
-					done := successCount + failedCount
-					pct := 0
-					if totalImages > 0 {
-						pct = done * 100 / totalImages
-					}
+					imgDone := successCount + failedCount
 					downloaded := totalSize
-					failed := failedCount
+					imgFailed := failedCount
 					mu.Unlock()
+					videoMu.Lock()
+					segTotals, segDone, discovered, merged := aggregateVideo()
+					vidFailed := videoFailed
+					videoMu.Unlock()
+					// Denominator = images + known TS segments + one merge
+					// unit per discovered video. Numerator = done images +
+					// done segments + merged videos. This makes segment
+					// counts drive the percentage (e.g. 10 imgs + 10 segs =>
+					// 20 units) and folds the merge step into the tail.
+					totalContent := totalImages + segTotals + discovered
+					done := imgDone + segDone + merged
+					pct := 0
+					if totalContent > 0 {
+						pct = done * 100 / totalContent
+						if pct > 99 {
+							pct = 99 // Cap at 99 until fully completed
+						}
+					}
 					if eventBus != nil {
 						eventBus.Emit("task:progress", map[string]any{
 							"taskId":         galleryID,
 							"taskType":       "gallery",
 							"progress":       pct,
 							"completed":      done,
-							"total":          totalImages,
-							"failed":         failed,
+							"total":          totalContent,
+							"failed":         imgFailed + vidFailed,
 							"status":         "downloading",
 							"downloadedSize": downloaded,
 						})
@@ -720,33 +806,11 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// slot but are independently concurrent. Each video is an M3U8
 		// stream: segments are saved to data/galleries/{id}_title/video_{vid}/
 		// and merged into an MP4 file.
-		videoRows, err := database.Query(ctx,
-			`SELECT id, url, file_name FROM gallery_videos WHERE gallery_id = ? AND status = 'pending'`,
-			galleryID)
-		videoDownloaded := 0
-		videoFailed := 0
-		type vidTask struct {
-			id       int
-			url      string
-			fileName string
-		}
-		var videos []vidTask
-		if err == nil {
-			for videoRows.Next() {
-				var v vidTask
-				if err := videoRows.Scan(&v.id, &v.url, &v.fileName); err != nil {
-					continue
-				}
-				videos = append(videos, v)
-			}
-			videoRows.Close()
-		}
-
-		// Run video downloads in their own errgroup so they execute
-		// concurrently with image downloads. Each video processes
-		// independently; failures are tolerated (the TS behavior allowed
-		// individual video failures without aborting the batch).
-		var videoMu sync.Mutex
+		//
+		// Video query, variable declarations (videoDownloaded,
+		// videoFailed, videos, videoMu) and the progress ticker are
+		// declared earlier in the function so the ticker can include
+		// video counts in its progress calculation.
 		videoG, videoGCtx := errgroup.WithContext(ctx)
 		videoConcurrent := dlDefaults.VideoMaxConcurrent
 		if videoConcurrent <= 0 {
@@ -757,6 +821,13 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		for _, vid := range videos {
 			vid := vid
 			videoG.Go(func() error {
+				// Register this video's segment/merge state up front so the
+				// progress callback can update it asynchronously.
+				videoMu.Lock()
+				st := &galVideoState{}
+				videoProgress[vid.id] = st
+				videoMu.Unlock()
+
 				vidSaveDir := filepath.Join(saveDir, fmt.Sprintf("video_%d", vid.id))
 				if mkdirErr := os.MkdirAll(vidSaveDir, 0755); mkdirErr != nil {
 					logger.Warn("Failed to create video save dir", "vid", vid.id, "error", mkdirErr.Error())
@@ -792,16 +863,37 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				if segConcurrent <= 0 {
 					segConcurrent = defaultTSegmentConcurrent
 				}
-				downloadErr := video.GalleryDownloadVideo(videoCtx, decodedURL, vidSaveDir, outputPath, sourceURL, siteDomains, segConcurrent)
+				// Fold this video's TS segments and merge step into the
+				// gallery-wide progress via the shared per-video state.
+				downloadErr := video.GalleryDownloadVideo(
+					videoCtx, decodedURL, vidSaveDir, outputPath, sourceURL, siteDomains,
+					video.GalleryVideoOptions{
+						SegmentConcurrent: segConcurrent,
+						UseGPU:            dlDefaults.GPUTranscode,
+						ForceGPUType:      dlDefaults.ForceGPUType,
+						OnProgress: func(ev video.GalleryVideoProgressEvent) {
+							videoMu.Lock()
+							if ev.SegmentsTotal > 0 {
+								st.segTotal = ev.SegmentsTotal
+							}
+							if ev.SegmentsDone > 0 {
+								st.segDone = ev.SegmentsDone
+							}
+							if ev.Merged {
+								st.merged = true
+							}
+							videoMu.Unlock()
+						},
+					})
 				videoCancel()
-				videoMu.Lock()
-				defer videoMu.Unlock()
 				if downloadErr != nil {
 					logger.Warn("Gallery video download failed", "vid", vid.id, "url", vid.url, "error", downloadErr.Error())
 					_, _ = database.Exec(videoGCtx,
 						`UPDATE gallery_videos SET status = 'failed', error_msg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						downloadErr.Error(), vid.id)
+					videoMu.Lock()
 					videoFailed++
+					videoMu.Unlock()
 				} else {
 					// Probe the output MP4 for metadata (file size, duration,
 					// resolution) so the shelf can display them. This mirrors
@@ -820,7 +912,35 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 					_, _ = database.Exec(videoGCtx,
 						`UPDATE gallery_videos SET status = 'downloaded', local_path = ?, file_size = ?, duration = ?, resolution = ?, format = 'mp4', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						outputPath, fileSize, durationMinutes, resolution, vid.id)
+
+					// Add the video file size to the gallery's total
+					// downloaded_size. Previously this was missing — only
+					// image file sizes were accumulated into totalSize,
+					// causing the shelf size column to under-report the
+					// total downloaded bytes for galleries with videos.
+					//
+					// We lock the shared mu (not videoMu) because totalSize
+					// is protected by mu and is read later for the final
+					// DB update and progress emission.
+					mu.Lock()
+					totalSize += fileSize
+					mu.Unlock()
+
+					// Clean up the segments directory to reclaim disk space.
+					// The TS segment files are intermediate artifacts that
+					// are no longer needed after the MP4 transcoding
+					// succeeds. Failing to clean up leaves potentially
+					// hundreds of MB of .ts files on disk, inflating the
+					// gallery folder size significantly.
+					segDir := filepath.Join(vidSaveDir, "segments")
+					if rmErr := os.RemoveAll(segDir); rmErr != nil {
+						logger.Warn("Failed to clean up video segments dir",
+							"vid", vid.id, "path", segDir, "error", rmErr.Error())
+					}
+
+					videoMu.Lock()
 					videoDownloaded++
+					videoMu.Unlock()
 				}
 				return nil
 			})
@@ -850,18 +970,40 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		// Final progress emission: always flush current state after
 		// the batch finishes so the frontend displays the final count
 		// even if the periodic ticker hasn't fired recently.
+		//
+		// The progress calculation must account for both images AND
+		// videos. Previously this only counted images (successCount /
+		// totalImages), which caused two bugs:
+		//   1. When all images finished but a video was still
+		//      downloading, progress was emitted as 100% with status
+		//      "downloading" — the frontend displayed a confusing
+		//      "100% downloading" state that never resolved.
+		//   2. The video's file size was never added to totalSize,
+		//      so the shelf size column under-reported the actual
+		//      downloaded bytes.
 		if eventBus != nil {
+			// Recompute the video side from the authoritative per-video
+			// state so the final event reflects segments + merge.
+			videoMu.Lock()
+			segTotals, segDone, discovered, merged := aggregateVideo()
+			vidFailedFinal := videoFailed
+			videoMu.Unlock()
+			totalContent := totalImages + segTotals + discovered
+			doneContent := successCount + segDone + merged
 			finalPct := 100
-			if successCount < totalImages {
-				finalPct = successCount * 100 / totalImages
+			if doneContent < totalContent {
+				finalPct = doneContent * 100 / totalContent
+				if finalPct > 99 {
+					finalPct = 99 // Cap at 99 until fully completed
+				}
 			}
 			eventBus.Emit("task:progress", map[string]any{
 				"taskId":         galleryID,
 				"taskType":       "gallery",
 				"progress":       finalPct,
-				"completed":      successCount,
-				"total":          totalImages,
-				"failed":         failedCount,
+				"completed":      doneContent,
+				"total":          totalContent,
+				"failed":         failedCount + vidFailedFinal,
 				"status":         "downloading",
 				"downloadedSize": totalSize,
 			})

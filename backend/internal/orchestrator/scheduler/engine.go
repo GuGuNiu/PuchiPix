@@ -349,6 +349,12 @@ func (s *SchedulerEngine) Schedule() {
 		s.mu.Unlock()
 		return
 	}
+	// Fast-exit during drain to prevent post-shutdown scheduling passes
+	// from scan-ticker goroutines that haven't yet observed stopCh.
+	if s.draining {
+		s.mu.Unlock()
+		return
+	}
 	s.scheduling = true
 	nowFunc := s.nowFunc
 	lotteryFunc := s.lotteryFunc

@@ -152,12 +152,26 @@ type SegmentBatchOptions struct {
 	// Referer is the Referer header for segment HTTP requests.
 	// Should be the EffectiveReferer from FetchAndParseM3U8 result.
 	Referer string
+
+	// OnSegmentDone is invoked (from each segment worker, under the same
+	// mutex protecting the counters) after a segment finishes, whether
+	// it succeeded or failed. index is the segment's position in the
+	// playlist; completed is true on success. This lets callers fold
+	// segment-level progress into an aggregate progress percentage
+	// (e.g. images + TS segments + merge step) instead of treating an
+	// entire video as a single opaque unit.
+	OnSegmentDone func(index int, completed bool)
 }
 
 // SegmentBatchResult holds the outcome of a batch segment download.
 type SegmentBatchResult struct {
 	// Downloaded is the count of successfully downloaded segments.
 	Downloaded int
+
+	// DownloadedIndices holds the indices of successfully downloaded
+	// segments. Used by MergeRetryLoop to build the incremental
+	// success set.
+	DownloadedIndices []int
 
 	// Failed holds the indices of segments that failed all retries.
 	Failed []int
@@ -189,6 +203,7 @@ func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts Seg
 	total := len(segments)
 	var segMu sync.Mutex
 	var downloadedSegs int
+	var downloadedIndices []int
 	var failedSegs []int
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, opts.Concurrency)
@@ -213,6 +228,10 @@ func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts Seg
 				failedSegs = append(failedSegs, i)
 			} else {
 				downloadedSegs++
+				downloadedIndices = append(downloadedIndices, i)
+			}
+			if opts.OnSegmentDone != nil {
+				opts.OnSegmentDone(i, result.Error == nil)
 			}
 			segMu.Unlock()
 		}()
@@ -220,9 +239,10 @@ func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts Seg
 	wg.Wait()
 
 	return SegmentBatchResult{
-		Downloaded: downloadedSegs,
-		Failed:     failedSegs,
-		Total:      total,
+		Downloaded:        downloadedSegs,
+		DownloadedIndices: downloadedIndices,
+		Failed:            failedSegs,
+		Total:             total,
 	}
 }
 

@@ -59,6 +59,13 @@ type DownloadDefaults struct {
 	// a single gallery-embedded M3U8 stream (ts_segment_concurrent).
 	// 0 falls back to a sensible default.
 	TSegmentConcurrent int
+	// GPUTranscode enables hardware-accelerated TS→MP4 merge/transcode for
+	// gallery-embedded videos. Mirrors the independent video pipeline's
+	// gpu_transcode setting so the two channels stay consistent. When true
+	// but no compatible GPU is present, the merge falls back to CPU.
+	GPUTranscode bool
+	// ForceGPUType overrides the auto-detected GPU encoder type ("" = auto).
+	ForceGPUType string
 }
 
 // ApplyTo merges the defaults into an existing DownloadOptions,
@@ -93,6 +100,13 @@ func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptio
 	if opts == nil {
 		opts = &DownloadOptions{}
 	}
+
+	// Respect the process-wide in-flight download cap (aggregate HTTP
+	// pressure valve). One file occupies one slot regardless of internal
+	// multi-threading. Waiting here is bounded by the global cap so a
+	// large batch import cannot burst past it.
+	release := AcquireGlobalDownload()
+	defer release()
 
 	timeout := opts.Timeout
 	if timeout == 0 {

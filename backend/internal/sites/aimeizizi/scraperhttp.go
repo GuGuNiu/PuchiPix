@@ -370,15 +370,17 @@ func convertZipInfo(info *ZipInfoFromHtml) *sites.GalleryZipInfo {
 		return nil
 	}
 	return &sites.GalleryZipInfo{
-		Title:          info.Title,
-		FileCount:      info.FileCount,
-		FileSizeText:   info.FileSizeText,
+		Title:           info.Title,
+		FileCount:       info.FileCount,
+		FileSizeText:    info.FileSizeText,
 		ImageDimensions: info.ImageDimensions,
-		Password:       info.Password,
-		DownloadURL:    info.DownloadURL,
-		Provider:       info.Provider,
-		RequiresLogin:  info.RequiresLogin,
-		RequiresEmail:  info.RequiresEmail,
+		Password:        info.Password,
+		DownloadURL:     info.DownloadURL,
+		Provider:        info.Provider,
+		RequiresLogin:   info.RequiresLogin,
+		RequiresEmail:   info.RequiresEmail,
+		OuoURL:          info.OuoURL,
+		DownloadSource:  info.DownloadSource,
 	}
 }
 

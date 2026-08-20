@@ -230,6 +230,43 @@ func (h *Handlers) DagSchedulerStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+// DagSchedulerMetrics returns the cumulative scheduling counters for
+// observability. These metrics expose slot race frequency, starvation
+// lottery triggers, noop pass ratio, and scheduler staleness — all
+// critical for diagnosing scheduling bottlenecks in production.
+func (h *Handlers) DagSchedulerMetrics(w http.ResponseWriter, r *http.Request) {
+	if h.Sched == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"totalScheduled":           int64(0),
+			"totalRejected":            int64(0),
+			"totalSlotRaceLost":        int64(0),
+			"totalSchedulePasses":      int64(0),
+			"totalNoopPasses":          int64(0),
+			"totalStarvationPromotions": int64(0),
+			"lastScheduleAt":           int64(0),
+			"ageSec":                   int64(0),
+		})
+		return
+	}
+	m := h.Sched.GetMetrics()
+	// ageSec: seconds since the last Schedule() call. A high value
+	// while the queue is non-empty indicates a stalled scheduler.
+	ageSec := int64(0)
+	if m.LastScheduleAt > 0 {
+		ageSec = time.Now().Unix() - m.LastScheduleAt
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"totalScheduled":           m.TotalScheduled,
+		"totalRejected":            m.TotalRejected,
+		"totalSlotRaceLost":        m.TotalSlotRaceLost,
+		"totalSchedulePasses":      m.TotalSchedulePasses,
+		"totalNoopPasses":          m.TotalNoopPasses,
+		"totalStarvationPromotions": m.TotalStarvationPromotions,
+		"lastScheduleAt":           m.LastScheduleAt,
+		"ageSec":                   ageSec,
+	})
+}
+
 // DagLink adds a runtime dependency edge between two nodes in a DAG.
 func (h *Handlers) DagLink(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch == nil {

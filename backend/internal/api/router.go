@@ -36,6 +36,7 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Get("/", h.DagList)
 			r.Get("/stream", h.DagStreamSSE)
 			r.Get("/scheduler", h.DagSchedulerStats)
+			r.Get("/scheduler/metrics", h.DagSchedulerMetrics)
 			r.Get("/{id}", h.DagDetail)
 			r.Delete("/{id}", h.DagDelete)
 			r.Post("/{id}/control", h.DagControl)

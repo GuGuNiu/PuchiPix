@@ -59,6 +59,15 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	e.logger.Info("Starting sniff",
 		"nodeId", node.NodeID, "dagId", node.DagID, "url", url)
 
+	// Emit progress event so the frontend can show the sniff is running.
+	if e.eventBus != nil && sniffID > 0 {
+		e.eventBus.Emit("task:progress", map[string]any{
+			"taskId":   sniffID,
+			"taskType": "sniff",
+			"status":   "sniffing",
+		})
+	}
+
 	sniffCtx, sniffCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer sniffCancel()
 
@@ -84,6 +93,7 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 			"taskId":   sniffID,
 			"taskType": "sniff",
 			"status":   "completed",
+			"urlsFound": found,
 		})
 	}
 	return true, nil

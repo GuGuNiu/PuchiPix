@@ -94,6 +94,7 @@ type SchedulerInterface interface {
 // slot pool.
 type SlotPoolInterface interface {
 	SetSchedulerCallback(cb func(slotType string))
+	SetMaxUpdateCallback(cb func(slotType string, newMax int))
 	ReleaseAll(holderID string)
 }
 
@@ -145,13 +146,25 @@ func NewDagOrchestrator(es *orchestrator.EventStore, sp SlotPoolInterface) *DagO
 }
 
 // SetScheduler connects the scheduler and wires the slot pool's
-// scheduler callback to the scheduler's OnSlotFreed method.
+// scheduler callback to the scheduler's OnSlotFreed method. It also
+// wires the max-update callback so that slot capacity changes are
+// immediately reflected in the scheduler's queue size limits.
 func (o *DagOrchestrator) SetScheduler(s SchedulerInterface) {
 	o.dagsMu.Lock()
 	defer o.dagsMu.Unlock()
 	o.scheduler = s
 	if o.slotPool != nil {
 		o.slotPool.SetSchedulerCallback(s.OnSlotFreed)
+		// Sync queue capacity immediately and subscribe to future changes
+		// so that PUT /api/slots/{type} raises are immediately effective.
+		if syncer, ok := s.(interface{ SyncQueueCapacityFromSlotPool() }); ok {
+			syncer.SyncQueueCapacityFromSlotPool()
+		}
+		o.slotPool.SetMaxUpdateCallback(func(slotType string, newMax int) {
+			if syncer, ok := s.(interface{ SyncQueueCapacityFromSlotPool() }); ok {
+				syncer.SyncQueueCapacityFromSlotPool()
+			}
+		})
 	}
 }
 
