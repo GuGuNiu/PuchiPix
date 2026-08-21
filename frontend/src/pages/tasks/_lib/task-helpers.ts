@@ -72,7 +72,6 @@ export function getProgressStage(task: DownloadTask, t: TranslateFunction): stri
   if (task.ProgressStage) {
     return t(task.ProgressStage);
   }
-  // Fallback for older server responses without ProgressStage field.
   if (task.TaskType === "sniff") {
     if (task.Status === "scraping") return t("tasks.progressStageAnalyzing");
     if (task.Status === "completed") return t("tasks.progressStageCompleted");

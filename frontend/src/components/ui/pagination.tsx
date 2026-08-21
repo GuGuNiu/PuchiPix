@@ -33,10 +33,7 @@ export interface PaginationProps {
   };
 }
 
-/**
- * A reusable pagination component with first/prev/numbers/next/last controls.
- * Replaces the inline pagination in pages like tasks/page.tsx.
- */
+/** Pagination component with first/prev/numbers/next/last controls. */
 export function Pagination({
   currentPage,
   totalPages,
@@ -62,7 +59,6 @@ export function Pagination({
   const canGoBack = clampedPage > 1;
   const canGoForward = clampedPage < totalPages;
 
-  // Generate page numbers with ellipsis
   const pages = generatePages(clampedPage, totalPages, maxVisible);
 
   return (
@@ -75,7 +71,6 @@ export function Pagination({
         fontSize: 13,
       }}
     >
-      {/* First page */}
       <button
         className="btn btn-outline btn-sm"
         onClick={() => onPageChange(1)}
@@ -86,7 +81,6 @@ export function Pagination({
         <ChevronsLeft size={14} />
       </button>
 
-      {/* Previous page */}
       <button
         className="btn btn-outline btn-sm"
         onClick={() => onPageChange(clampedPage - 1)}
@@ -97,7 +91,6 @@ export function Pagination({
         <ChevronLeft size={14} />
       </button>
 
-      {/* Page numbers */}
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {pages.map((page, idx) =>
           typeof page === "string" ? (
@@ -125,7 +118,6 @@ export function Pagination({
         )}
       </div>
 
-      {/* Next page */}
       <button
         className="btn btn-outline btn-sm"
         onClick={() => onPageChange(clampedPage + 1)}
@@ -136,7 +128,6 @@ export function Pagination({
         <ChevronRight size={14} />
       </button>
 
-      {/* Last page */}
       <button
         className="btn btn-outline btn-sm"
         onClick={() => onPageChange(totalPages)}
@@ -147,7 +138,6 @@ export function Pagination({
         <ChevronsRight size={14} />
       </button>
 
-      {/* Page info */}
       {showTotal && (
         <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
           {clampedPage} {l.of} {totalPages}

@@ -7,8 +7,6 @@ import (
 	"backend/internal/i18n"
 )
 
-// TestAllLocalesLoaded verifies that all 12 locale dictionaries are loaded
-// and contain at least one translation key.
 func TestAllLocalesLoaded(t *testing.T) {
 	locales := []string{
 		"zh-CN", "en-US", "ja-JP", "ko-KR",

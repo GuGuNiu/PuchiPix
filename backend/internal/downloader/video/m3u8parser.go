@@ -88,13 +88,11 @@ func FetchM3U8Content(ctx context.Context, m3u8URL, referer string) (string, err
 // subsequent calls. This provides adaptive failover that learns from
 // previous failures across all concurrent requests.
 func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer string, fallbackDomains []string) (string, string, error) {
-	// Try the primary referer first.
 	content, err := FetchM3U8Content(ctx, m3u8URL, referer)
 	if err == nil {
 		return content, referer, nil
 	}
 
-	// If no fallback domains, return the original error.
 	if len(fallbackDomains) == 0 {
 		return "", referer, err
 	}
@@ -114,11 +112,9 @@ func FetchM3U8ContentWithRefererFallback(ctx context.Context, m3u8URL, referer s
 			"fallbackCount":  len(orderedDomains),
 		}})
 
-	// Try each fallback domain as the referer, in health-priority order.
 	var lastErr error
 	for _, domain := range orderedDomains {
 		fallbackReferer := domain
-		// Ensure the referer looks like a full URL.
 		if !strings.HasPrefix(fallbackReferer, "http://") && !strings.HasPrefix(fallbackReferer, "https://") {
 			fallbackReferer = "https://" + fallbackReferer
 		}

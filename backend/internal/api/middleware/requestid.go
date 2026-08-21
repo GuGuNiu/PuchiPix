@@ -11,8 +11,6 @@ type ctxKey string
 
 const reqIDKey ctxKey = "requestID"
 
-// RequestID wraps chi's built-in RequestID to also store the value
-// in a typed context key for downstream logger retrieval.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := middleware.GetReqID(r.Context())

@@ -6,14 +6,11 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// commandGroup defines a titled group of commands for help output.
 type commandGroup struct {
 	title string
 	cmds  []string
 }
 
-// commandGroups controls the grouping and display order of commands
-// in the help output.
 var commandGroups = []commandGroup{
 	{"System & Monitoring", []string{"health", "system", "stats", "sites"}},
 	{"DAG Monitoring", []string{"status", "dag", "node", "events", "watch", "logs", "scheduler", "slots", "worker", "trace"}},
@@ -22,7 +19,6 @@ var commandGroups = []commandGroup{
 	{"Database Access", []string{"db"}},
 }
 
-// PrintHelp prints the full help text or command-specific help.
 func PrintHelp(registry *Registry, args []string) {
 	if len(args) > 0 && args[0] != "" {
 		cmd := registry.Find(args[0])

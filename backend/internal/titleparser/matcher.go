@@ -30,8 +30,8 @@ const (
 type matchCandidate struct {
 	name       string
 	score      float64
-	sourceKey  string  // the key that matched (name or alias)
-	sourceType string  // matchSourceName, matchSourceAlias, or matchSourcePinyin
+	sourceKey  string
+	sourceType string
 }
 
 const (
@@ -66,9 +66,6 @@ func (p *Parser) scoredMatch(seg string) (string, bool) {
 	//   2. Exact alias matches for very short aliases (≤2 runes)
 	// Longer exact alias matches (e.g. "NAGISA", "shimo") are trusted.
 	if best.sourceType == matchSourceAlias {
-		// Cross-validation for alias SUBSTRING matches prevents false
-		// positives from generic aliases like "Sally", "Yuki" matching
-		// as substrings in unrelated names.
 		if best.score < scoreExactAlias {
 			if !p.crossValidate(seg, best.name, best.sourceKey) {
 				return "", false
@@ -287,8 +284,6 @@ func isPlausibleModelName(seg string) bool {
 	return true
 }
 
-// cosplaySubTerms are cosplay-related keywords that indicate a segment is
-// metadata rather than a model name when combined with metadata markers.
 var cosplaySubTerms = []string{"私拍", "合集", "写真", "图包", "套图", "福利", "同人"}
 
 // metadataMarkerRE matches auto-generated metadata patterns: underscore-digit,

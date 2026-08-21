@@ -31,7 +31,6 @@ export function useUrlState<T extends Record<string, string>>(
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
-  /* Stable defaults so object literals at call sites do not force the update callback to be rebuilt on every render. */
   const stableDefaults = useStableDefaults(defaults);
 
   const values = {} as Record<string, string>;

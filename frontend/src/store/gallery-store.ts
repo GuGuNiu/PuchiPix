@@ -72,7 +72,6 @@ function normalizeGallery(raw: Record<string, unknown>): GalleryData {
   const strOrUndef = (v: unknown): string | undefined =>
     typeof v === 'string' ? v : undefined;
 
-  // Go stores tags as a JSON array string, parse it if needed
   let tags: string[] = [];
   const rawTags = raw.tags ?? raw.Tags;
   if (Array.isArray(rawTags)) {
@@ -113,7 +112,6 @@ function normalizeGallery(raw: Record<string, unknown>): GalleryData {
       const rawGc = raw.gameCharacters ?? raw.GameCharacters;
       if (Array.isArray(rawGc)) return rawGc;
       if (typeof rawGc === 'string') {
-        // Fall back to undefined when the stored string is not valid JSON.
         try {
           return JSON.parse(rawGc) as string[];
         } catch {
@@ -154,14 +152,9 @@ function normalizeGalleryVideos(rawVideos: unknown, galleryId: unknown): Gallery
 function normalizeGalleryVideoStatus(status: string): string {
   if (status === 'downloaded' || status === 'completed') return 'completed';
   if (status === 'downloading' || status === 'pending') return status;
-  return status; // 'failed' and any unknown values pass through
+  return status;
 }
 
-// ────────────────────────────────────────────────────────────────
-// 引用稳定性工具：只有在某张图包真正发生变化时才重建数组，
-// 让未变化的条目保持原对象引用，从而让 React.memo / zustand
-// selector 能够跳过大部分无谓的重渲染。
-// ────────────────────────────────────────────────────────────────
 
 interface StatusPatch {
   status?: string;
@@ -190,13 +183,6 @@ function updateGalleryStatuses(
   return next ?? galleries;
 }
 
-// ────────────────────────────────────────────────────────────────
-// SSE task:progress 高频节流批处理
-//
-// 缩略图/图片下载时会以非常高的频率推送 task:progress 事件，
-// 若逐条 set() 会造成大量无意义的 store 更新。这里把 120ms
-// 窗口内的更新合并为一次 set，并在合并时做引用稳定性检测。
-// ────────────────────────────────────────────────────────────────
 
 const PROGRESS_FLUSH_MS = 120;
 
@@ -352,7 +338,6 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       }
 
       if (gallery) {
-        // 只替换对应图包，保持其他条目的对象引用稳定
         set((s) => {
           const idx = s.galleries.findIndex((g) => g.ID === id);
           if (idx === -1) return { galleries: [gallery, ...s.galleries] };
@@ -462,7 +447,6 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     }),
 
   connectSSE: () => {
-    /* Shared resident connection: route switching no longer tears down and re-establishes the stream. Pages only subscribe/unsubscribe. */
     const unsubs: Array<() => void> = [];
 
     unsubs.push(
@@ -509,7 +493,6 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
           };
           if (payload.taskType !== 'gallery') return;
 
-          // 合并进 120ms 批处理窗口，避免高频事件逐条触发 store 更新
           enqueueProgress(payload.taskId, {
             ...(payload.status ? { status: payload.status } : {}),
             ...(payload.total !== undefined && payload.total > 0

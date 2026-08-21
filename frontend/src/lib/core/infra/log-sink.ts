@@ -27,13 +27,10 @@ export class LogSink {
     if (this.buffer.length > this.capacity) {
       this.buffer = this.buffer.slice(-this.capacity);
     }
-    // Notify listeners
     for (const listener of this.listeners) {
-      // Swallow listener errors
       try {
         listener(entry);
-      } catch {
-      }
+      } catch {}
     }
   }
 
@@ -82,16 +79,13 @@ export class LogSink {
     };
   }
 
-  /** Current buffer size */
   get size(): number {
     return this.buffer.length;
   }
 
-  /** Clear all buffered entries */
   clear(): void {
     this.buffer = [];
   }
 }
 
-// Global singleton
 export const logSink = new LogSink();

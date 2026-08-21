@@ -19,10 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
 // rangeServer is a configurable HTTP test server that supports Range
 // requests for multi-thread download testing.
 type rangeServer struct {
@@ -81,7 +77,6 @@ func (rs *rangeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	rangeHdr := r.Header.Get("Range")
 
-	// 无 Range 头或配置为忽略 Range 时返回 200 完整内容
 	if rs.ignoreRange || rangeHdr == "" {
 		w.Header().Set("Content-Length", strconv.Itoa(len(rs.data)))
 		w.WriteHeader(http.StatusOK)
@@ -95,7 +90,7 @@ func (rs *rangeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 仅对分片请求（排除 bytes=0-0 探测）实施首次失败
+	// Fail the first N requests per chunk (excludes the probe request).
 	if rs.failFirstNPerChk > 0 && rangeHdr != "bytes=0-0" {
 		var count int32
 		val, _ := rs.chunkReqCounts.LoadOrStore(rangeHdr, &count)
@@ -179,10 +174,6 @@ func defaultMTOpts() *DownloadOptions {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// 12 test scenarios (sub-ticket 01-03)
-// ---------------------------------------------------------------------------
-
 // Test01_ChunksOutOfOrderCorrectAssembly verifies that chunks arriving in
 // arbitrary order are correctly assembled into the original content.
 func Test01_ChunksOutOfOrderCorrectAssembly(t *testing.T) {
@@ -227,7 +218,7 @@ func Test02_ConcurrencyNotExceedConfig(t *testing.T) {
 	require.True(t, result.Success)
 
 	maxC := rs.maxConcurrent.Load()
-	// 探测请求也算一个并发，所以允许 concurrency + 1
+	// The probe request counts as one concurrent request, so allow concurrency + 1.
 	assert.LessOrEqual(t, maxC, int64(4), "max concurrent requests should not exceed concurrency+1 (probe)")
 }
 
@@ -275,7 +266,6 @@ func Test04_SmallFileDoesNotEnterMultiThread(t *testing.T) {
 	got, err := os.ReadFile(dst)
 	require.NoError(t, err)
 	assert.Equal(t, data, got)
-	// 小文件应跳过多线程路径，不创建 staging 文件
 	assert.Equal(t, 0, countMtmpFiles(dir), "no staging files should be created for small files")
 }
 
@@ -323,7 +313,7 @@ func Test06_SingleChunkRetrySucceeds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, data, got, "content must match after retry")
 
-	// 每个分片第一次失败、第二次成功 → 4 分片 × 2 = 8 + 探测 1 = 9
+	// Each chunk fails once then succeeds: 4 chunks × 2 = 8 + 1 probe = 9.
 	totalReqs := rs.totalRequests.Load()
 	assert.GreaterOrEqual(t, totalReqs, int64(9), "should have retry requests")
 }
@@ -368,7 +358,7 @@ func Test08_FinalPathEmptyBeforeSuccess(t *testing.T) {
 		done <- DownloadFile(ctx, rs.URL, dst, defaultMTOpts())
 	}()
 
-	// 下载进行中时，最终文件不应存在
+	// While the download is in progress, the final file must not exist.
 	time.Sleep(100 * time.Millisecond)
 	_, err := os.Stat(dst)
 	assert.True(t, os.IsNotExist(err), "final file should not exist during download")
@@ -393,7 +383,7 @@ func Test09_ExistingFilePreservedOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "existing.bin")
 
-	// 在最终路径写入已知内容
+	// Write known content to the final path before download.
 	oldContent := []byte("ORIGINAL_CONTENT_DO_NOT_OVERWRITE")
 	require.NoError(t, os.WriteFile(dst, oldContent, 0644))
 
@@ -403,7 +393,7 @@ func Test09_ExistingFilePreservedOnFailure(t *testing.T) {
 	result := DownloadFile(ctx, rs.URL, dst, defaultMTOpts())
 	assert.False(t, result.Success)
 
-	// 原文件内容应保持不变
+	// The original file content must be preserved on failure.
 	got, err := os.ReadFile(dst)
 	require.NoError(t, err)
 	assert.Equal(t, oldContent, got, "existing file must not be modified on failure")
@@ -414,9 +404,6 @@ func Test09_ExistingFilePreservedOnFailure(t *testing.T) {
 // limiter prevents per-worker rate multiplication — the aggregate rate
 // across all workers stays within the configured ceiling.
 func Test10_SharedRateLimiterNoMultiplication(t *testing.T) {
-	// 4 workers, each consuming 2000 bytes in 100-byte chunks.
-	// Shared limiter at 4000 bytes/sec: burst=4000, remaining 4000 at 4000/sec ≈ 1s.
-	// If each worker had its own limiter: 4 × 4000 burst = instant.
 	const rate = 4000
 	rl := NewSharedRateLimiter(rate)
 	require.NotNil(t, rl)
@@ -436,7 +423,6 @@ func Test10_SharedRateLimiterNoMultiplication(t *testing.T) {
 	wg.Wait()
 	elapsed := time.Since(start)
 
-	// 共享限速器下，8000 字节中 4000 来自 burst，剩余 4000 需要 1 秒
 	assert.Greater(t, elapsed, 500*time.Millisecond,
 		"shared limiter should throttle aggregate rate, not multiply per worker")
 }
@@ -448,7 +434,7 @@ func Test11_NoGoroutineLeak(t *testing.T) {
 	data := makeTestData(4096)
 	dir := t.TempDir()
 
-	// --- 成功路径 ---
+	// Success path.
 	rsOk := newRangeServer(data)
 	before := runtime.NumGoroutine()
 
@@ -460,10 +446,9 @@ func Test11_NoGoroutineLeak(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 	after := runtime.NumGoroutine()
-	// HTTP transport 和 httptest server 的后台 goroutine 可能残留数个
 	assert.LessOrEqual(t, after-before, 8, "no goroutine leak on success path")
 
-	// --- 失败路径 ---
+	// Failure path.
 	rsFail := newRangeServer(data, withWrongCR())
 	before = runtime.NumGoroutine()
 
@@ -477,7 +462,7 @@ func Test11_NoGoroutineLeak(t *testing.T) {
 	after = runtime.NumGoroutine()
 	assert.LessOrEqual(t, after-before, 8, "no goroutine leak on failure path")
 
-	// --- 取消路径 ---
+	// Cancel path.
 	rsCancel := newRangeServer(data, withChunkDelay(500*time.Millisecond))
 	before = runtime.NumGoroutine()
 
@@ -512,7 +497,6 @@ func Test12_DefaultOffSingleThreadBehavior(t *testing.T) {
 	}
 	result := DownloadFile(ctx, rs.URL, dst, opts)
 
-	// 返回值结构不变
 	assert.True(t, result.Success)
 	assert.Equal(t, int64(len(data)), result.FileSize)
 	assert.Equal(t, dst, result.SavedPath)

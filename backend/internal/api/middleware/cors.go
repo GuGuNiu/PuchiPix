@@ -6,9 +6,6 @@ import (
 	"github.com/go-chi/cors"
 )
 
-// CORS returns a permissive CORS middleware that allows the Next.js
-// frontend origin and standard headers, matching the development
-// behavior of the TypeScript backend.
 func CORS(next http.Handler) http.Handler {
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},

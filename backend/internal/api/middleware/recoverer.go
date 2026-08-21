@@ -7,9 +7,6 @@ import (
 	"backend/internal/infra"
 )
 
-// Recoverer catches panics in handler goroutines, logs the stack trace,
-// and returns a 500 error so a single handler bug does not crash the
-// entire process.
 func Recoverer(next http.Handler) http.Handler {
 	logger := infra.NewLogger("Recoverer")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

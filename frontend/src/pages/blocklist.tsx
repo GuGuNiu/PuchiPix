@@ -54,7 +54,6 @@ export default function BlocklistPage(): React.JSX.Element {
     try {
       const res = await fetch("/api/blocklist");
       const data = await res.json();
-      // Go backend returns a bare array; tolerate a {data:[...]} wrapper too.
       setRules(Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []));
     } catch {
       toast.error("blocklist.loadFailed");
@@ -101,10 +100,6 @@ export default function BlocklistPage(): React.JSX.Element {
 
   const handleToggle = async (rule: BlocklistRule): Promise<void> => {
     try {
-      /*
-       * PUT /api/blocklist/{id} with the full rule (Go backend has no
-       * PATCH route; PATCH 405s).
-       */
       const res = await fetch(`/api/blocklist/${rule.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

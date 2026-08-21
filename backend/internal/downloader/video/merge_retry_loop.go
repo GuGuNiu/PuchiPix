@@ -47,15 +47,10 @@ func DefaultMergeRetryOptions(outputPath, segDir string) MergeRetryOptions {
 	}
 }
 
-// MergeRetryLoop orchestrates download → merge → validate → retry cycles.
-//
-// On the first attempt it downloads all segments. If the merge or validation
-// fails, it computes a targeted redownload set (failed segments ±5
-// neighborhood) and retries up to MaxMergeRetries times.
-//
-// The successSet parameter tracks indices already confirmed good so that
-// incremental retries never re-download working segments. Pass an empty
-// map for a fresh start.
+// MergeRetryLoop orchestrates download, merge, validate, and retry cycles.
+// On failure it computes a targeted redownload set (failed segments and
+// their neighborhood) and retries up to MaxMergeRetries times. The successSet
+// tracks confirmed-good indices to avoid re-downloading working segments.
 func MergeRetryLoop(
 	ctx context.Context,
 	segments []M3U8Segment,
@@ -86,20 +81,17 @@ func MergeRetryLoop(
 	remaining := segments
 
 	for attempt := 0; attempt <= opts.MaxMergeRetries; attempt++ {
-		// 1. Determine which segments still need downloading.
 		toDownload := filterSegments(remaining, successSet)
 		if len(toDownload) == 0 {
 			// All expected segments are confirmed good. Try merge.
 			logger.Info("All segments confirmed good, attempting merge",
 				"attempt", attempt+1)
 		} else {
-			// 2. Download segments.
 			logger.Info("Downloading segments",
 				"count", len(toDownload), "attempt", attempt+1)
 
 			batchResult := DownloadSegmentsBatch(ctx, toDownload, opts.BatchOpts)
 
-			// 3. Update success set.
 			for _, idx := range batchResult.DownloadedIndices {
 				successSet[idx] = true
 			}
@@ -110,7 +102,6 @@ func MergeRetryLoop(
 			}
 		}
 
-		// 4. Merge.
 		mergeResult, err := MergeSegments(opts.SegDir, opts.OutputPath)
 		if err != nil {
 			logger.Warn("Merge failed",
@@ -127,7 +118,6 @@ func MergeRetryLoop(
 			"files", mergeResult.TotalFiles, "size", mergeResult.TotalSize,
 			"attempt", attempt+1)
 
-		// 5. Validate.
 		validation := ValidateMergeOutput(
 			ctx,
 			opts.SegDir,
@@ -143,13 +133,11 @@ func MergeRetryLoop(
 			return nil // Success.
 		}
 
-		// 6. Validation failed — check if we have retries left.
 		if attempt == opts.MaxMergeRetries {
 			return fmt.Errorf("merge validation failed after %d attempts: %d missing, %d corrupted",
 				attempt+1, len(validation.MissingIndices), len(validation.CorruptedIndices))
 		}
 
-		// 7. Compute redownload range: failed + corrupted + empty + their neighborhoods.
 		failedSet := make([]int, 0,
 			len(validation.MissingIndices)+len(validation.CorruptedIndices)+len(validation.EmptyIndices))
 		failedSet = append(failedSet, validation.MissingIndices...)
@@ -168,7 +156,6 @@ func MergeRetryLoop(
 				len(validation.MissingIndices))
 		}
 
-		// 8. Report retry (optional).
 		if opts.OnRetry != nil {
 			opts.OnRetry(attempt+1, len(redownloadIndices),
 				fmt.Sprintf("missing=%d corrupted=%d empty=%d",
@@ -177,7 +164,6 @@ func MergeRetryLoop(
 					len(validation.EmptyIndices)))
 		}
 
-		// 9. Clean up failed segments and narrow to redownload set.
 		cleanupFailedSegments(opts.SegDir,
 			append(append(validation.MissingIndices, validation.EmptyIndices...),
 				validation.CorruptedIndices...))

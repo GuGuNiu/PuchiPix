@@ -9,9 +9,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// tasksCommand manages video download tasks (the download_tasks table),
-// distinct from DAG-level commands. Supports list, detail, action
-// (start/pause/resume/cancel/retry), and delete subcommands.
 type tasksCommand struct{}
 
 func (tasksCommand) Name() string        { return "tasks" }
@@ -264,7 +261,6 @@ func tasksDelete(ctx CommandContext) error {
 	return nil
 }
 
-// taskStatusPill returns a colored status string for download task statuses.
 func taskStatusPill(status string) string {
 	colors := map[string]string{
 		"pending":   ui.Gray,

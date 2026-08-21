@@ -12,8 +12,6 @@ import (
 	"backend/internal/orchestrator"
 )
 
-// DagList returns all active DAG snapshots. Each entry carries the DAG
-// ID, node count, and aggregate state for the frontend DAG dashboard.
 func (h *Handlers) DagList(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -37,7 +35,6 @@ func (h *Handlers) DagList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// DagDelete removes a completed, cancelled, or failed DAG from memory.
 func (h *Handlers) DagDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch == nil {
 		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
@@ -54,8 +51,6 @@ func (h *Handlers) DagDelete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DagDetail returns the full state of a single DAG instance by ID,
-// including all node states for the frontend DAG detail view.
 func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 	dagID := chi.URLParam(r, "id")
 	if h.DagOrch == nil {
@@ -76,7 +71,6 @@ func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute aggregate state from node states
 	infos := make([]orchestrator.NodeSnapshotInfo, len(status.Nodes))
 	for i, n := range status.Nodes {
 		infos[i] = orchestrator.NodeSnapshotInfo{
@@ -85,11 +79,9 @@ func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 			NonCritical: false,
 		}
 	}
-	// Default taskType; will be overridden if snapshot available
 	taskType := orchestrator.TaskTypeGallery
 	aggregateState := orchestrator.AggregateTaskStatus(taskType, infos)
 
-	// Get additional metadata from snapshot
 	var sourceURL string
 	var createdAt string
 	snap := h.DagOrch.GetDagSnapshot(dagID)
@@ -98,8 +90,7 @@ func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 		createdAt = snap.CreatedAt.Format("2006-01-02 15:04:05")
 		if snap.Definition.TaskType != "" {
 			taskType = snap.Definition.TaskType
-			// Recompute aggregate with correct task type
-			aggregateState = orchestrator.AggregateTaskStatus(taskType, infos)
+				aggregateState = orchestrator.AggregateTaskStatus(taskType, infos)
 		}
 	}
 
@@ -122,8 +113,6 @@ func (h *Handlers) DagDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DagControl accepts pause, resume, cancel, and retry commands for a
-// DAG or individual node, routing to the DagOrchestrator.
 func (h *Handlers) DagControl(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.dag.schedulerRequired"))
@@ -150,9 +139,6 @@ func (h *Handlers) DagControl(w http.ResponseWriter, r *http.Request) {
 	case "retry":
 		err = h.DagOrch.RetryDag(ctx, dagID, req.NodeID)
 	case "setPriority":
-		// Dynamic priority adjustment: nodeId is required, priority is
-		// the new TaskPriority value (1..10). Applied to the queued node
-		// immediately and persisted for future submissions.
 		if req.NodeID == "" {
 			writeError(w, http.StatusBadRequest, "nodeId required for setPriority")
 			return
@@ -173,8 +159,6 @@ func (h *Handlers) DagControl(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// DagNodes returns the node list for a DAG instance as a lightweight
-// array for the frontend task panel.
 func (h *Handlers) DagNodes(w http.ResponseWriter, r *http.Request) {
 	dagID := chi.URLParam(r, "id")
 	if h.DagOrch == nil {
@@ -197,7 +181,6 @@ func (h *Handlers) DagNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, nodes)
 }
 
-// DagSnapshot returns the latest persisted snapshot for a DAG.
 func (h *Handlers) DagSnapshot(w http.ResponseWriter, r *http.Request) {
 	dagID := chi.URLParam(r, "id")
 	if h.DagOrch == nil {
@@ -215,7 +198,6 @@ func (h *Handlers) DagSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap)
 }
 
-// DagSchedulerStats returns the scheduler queue statistics for monitoring.
 func (h *Handlers) DagSchedulerStats(w http.ResponseWriter, r *http.Request) {
 	if h.Sched == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -230,10 +212,6 @@ func (h *Handlers) DagSchedulerStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
-// DagSchedulerMetrics returns the cumulative scheduling counters for
-// observability. These metrics expose slot race frequency, starvation
-// lottery triggers, noop pass ratio, and scheduler staleness — all
-// critical for diagnosing scheduling bottlenecks in production.
 func (h *Handlers) DagSchedulerMetrics(w http.ResponseWriter, r *http.Request) {
 	if h.Sched == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -249,8 +227,6 @@ func (h *Handlers) DagSchedulerMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := h.Sched.GetMetrics()
-	// ageSec: seconds since the last Schedule() call. A high value
-	// while the queue is non-empty indicates a stalled scheduler.
 	ageSec := int64(0)
 	if m.LastScheduleAt > 0 {
 		ageSec = time.Now().Unix() - m.LastScheduleAt
@@ -267,7 +243,6 @@ func (h *Handlers) DagSchedulerMetrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DagLink adds a runtime dependency edge between two nodes in a DAG.
 func (h *Handlers) DagLink(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch == nil {
 		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
@@ -297,9 +272,6 @@ func (h *Handlers) DagLink(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DagTrigger re-activates pending/ready nodes in a DAG, useful for
-// recovering stuck nodes after dependency modifications or slot pool
-// recovery.
 func (h *Handlers) DagTrigger(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch == nil {
 		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
@@ -316,10 +288,6 @@ func (h *Handlers) DagTrigger(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DagStreamSSE pushes DAG state change events in real-time via SSE,
-// subscribing to the EventBus dag:* namespace and forwarding to the
-// CLI/frontend with 15s heartbeats so clients can detect dead
-// connections and reconnect proactively.
 func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 	stream := sse.NewSSEStream(w)
 	if stream == nil {
@@ -335,11 +303,6 @@ func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 
 	stream.SendEvent("status", map[string]string{"state": "connected"})
 
-	// Subscribe to dag:* events with proper cleanup via defer,
-	// matching the TaskStreamSSE pattern to avoid memory leaks.
-	// 260809 fix: business events use TrySendEvent (non-blocking) so a
-	// slow client cannot block the EventBus caller; heartbeat also uses
-	// the non-blocking path.
 	unsubNodeState := h.EventBus.On("dag:nodeStateChanged", func(payload any) {
 		raw, err := json.Marshal(payload)
 		if err != nil {
@@ -392,9 +355,6 @@ func (h *Handlers) DagStreamSSE(w http.ResponseWriter, r *http.Request) {
 		unsubResumed()
 	}()
 
-	// Heartbeat: send a named event every 15s so clients can detect
-	// dead connections and trigger proactive reconnection (mirrors
-	// TaskStreamSSE; previously this endpoint had no heartbeat at all).
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	defer stream.Close()

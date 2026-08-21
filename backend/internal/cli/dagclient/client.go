@@ -12,15 +12,12 @@ import (
 	"time"
 )
 
-// Client is the HTTP client for the PuchiPix Go backend API, mirroring
-// the TypeScript DagClient SDK.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	headers    map[string]string
 }
 
-// New creates a Client targeting the given host and port.
 func New(host, port string) *Client {
 	baseURL := fmt.Sprintf("http://%s:%s", host, port)
 	return &Client{
@@ -34,7 +31,6 @@ func New(host, port string) *Client {
 	}
 }
 
-// BaseURL returns the fully qualified base URL the client connects to.
 func (c *Client) BaseURL() string {
 	return c.baseURL
 }
@@ -92,7 +88,6 @@ func (c *Client) CancelDag(dagID string) (*DagControlResponse, error) {
 	return c.controlDag(dagID, ActionCancel, "")
 }
 
-// CreateDag submits a new DAG definition to the backend.
 func (c *Client) CreateDag(req DagCreateRequest) (*DagCreateResponse, error) {
 	var resp DagCreateResponse
 	if err := c.post("/api/dag", req, &resp); err != nil {
@@ -101,8 +96,6 @@ func (c *Client) CreateDag(req DagCreateRequest) (*DagCreateResponse, error) {
 	return &resp, nil
 }
 
-// CreateTask submits a new task via POST /api/tasks, mirroring the
-// frontend's fetch("/api/tasks", { method: "POST", body: { url } }).
 func (c *Client) CreateTask(req TaskCreateRequest) (*TaskCreateResponse, error) {
 	var resp TaskCreateResponse
 	if err := c.post("/api/tasks", req, &resp); err != nil {
@@ -111,7 +104,6 @@ func (c *Client) CreateTask(req TaskCreateRequest) (*TaskCreateResponse, error) 
 	return &resp, nil
 }
 
-// AddDependency adds a runtime dependency edge between two nodes in a DAG.
 func (c *Client) AddDependency(dagID, parentID, childID string) (*DagLinkResponse, error) {
 	body := DagLinkRequest{ParentID: parentID, ChildID: childID}
 	var resp DagLinkResponse
@@ -122,8 +114,6 @@ func (c *Client) AddDependency(dagID, parentID, childID string) (*DagLinkRespons
 	return &resp, nil
 }
 
-// TriggerDag re-activates any pending/ready nodes in a DAG, useful after
-// modifying dependencies or recovering from a stuck state.
 func (c *Client) TriggerDag(dagID string) (*DagControlResponse, error) {
 	var resp DagControlResponse
 	path := fmt.Sprintf("/api/dag/%s/trigger", url.PathEscape(dagID))
@@ -133,8 +123,6 @@ func (c *Client) TriggerDag(dagID string) (*DagControlResponse, error) {
 	return &resp, nil
 }
 
-// DeleteDag removes a completed, cancelled, or failed DAG from the
-// orchestrator's memory. Active DAGs must be cancelled first.
 func (c *Client) DeleteDag(dagID string) (*DagDeleteResponse, error) {
 	var resp DagDeleteResponse
 	path := fmt.Sprintf("/api/dag/%s", url.PathEscape(dagID))

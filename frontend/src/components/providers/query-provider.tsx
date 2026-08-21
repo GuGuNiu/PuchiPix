@@ -7,8 +7,7 @@ interface QueryProviderProps {
 
 /**
  * React Query provider with a lazy-initialized QueryClient.
- * Configures sensible defaults: 30s stale time, 3 retries,
- * and keeps previous data on refetch.
+ * Configures a 30s stale time with 3 retries on queries.
  */
 export function QueryProvider({ children }: QueryProviderProps): React.JSX.Element {
   const [queryClient] = useState(

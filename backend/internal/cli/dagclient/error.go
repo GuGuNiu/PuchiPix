@@ -5,8 +5,6 @@ import (
 	"fmt"
 )
 
-// DagClientError classifies API failures so the CLI can apply
-// differentiated error handling (network, not-found, server error).
 type DagClientError struct {
 	Message      string
 	StatusCode   int
@@ -18,19 +16,14 @@ func (e *DagClientError) Error() string {
 	return e.Message
 }
 
-// IsNetworkError reports whether the failure originated from a network
-// condition (connection refused, timeout, DNS) rather than an HTTP
-// response.
 func (e *DagClientError) IsNetworkError() bool {
 	return e.StatusCode == 0
 }
 
-// IsNotFound reports whether the server returned 404.
 func (e *DagClientError) IsNotFound() bool {
 	return e.StatusCode == 404
 }
 
-// IsServerError reports whether the server returned a 5xx status.
 func (e *DagClientError) IsServerError() bool {
 	return e.StatusCode >= 500
 }
@@ -55,8 +48,6 @@ func newHTTPError(body []byte, status int, endpoint string) *DagClientError {
 	}
 }
 
-// extractErrorMessage attempts to pull an "error" field from a JSON
-// error body, matching the Go backend's writeError contract.
 func extractErrorMessage(body []byte) string {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {

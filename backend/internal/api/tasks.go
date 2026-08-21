@@ -22,8 +22,6 @@ import (
 	"backend/internal/urlutil"
 )
 
-// getTaskDagID retrieves the DAG ID associated with a video task.
-// Returns empty string if no DAG has been created for this task or DB is unavailable.
 func (h *Handlers) getTaskDagID(ctx context.Context, taskID int) string {
 	if h.DB == nil {
 		return ""
@@ -36,22 +34,17 @@ func (h *Handlers) getTaskDagID(ctx context.Context, taskID int) string {
 	return dagID
 }
 
-// updateTaskDagID stores the DAG ID in the download_tasks table.
 func (h *Handlers) updateTaskDagID(ctx context.Context, taskID int, dagID string) {
 	h.DB.Exec(ctx, "UPDATE download_tasks SET dag_id = ? WHERE id = ?", dagID, taskID)
 }
 
-// unicodeEscapeRe matches literal \uXXXX sequences (backslash-u-hex4)
-// that appear when regex-extracted JSON values bypass json.Unmarshal.
 var unicodeEscapeRe = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
 
-// decodeUnicodeEscapes converts literal \uXXXX sequences in a string to
-// actual Unicode characters. This handles legacy DB rows where the old
-// regex-based scraper stored undecoded escape sequences (e.g. "\u5973\u795e"
-// instead of "女神").
+// decodeUnicodeEscapes handles legacy DB rows where the regex-based
+// scraper stored undecoded escape sequences (e.g. "\u5973\u795e" instead of "女神").
 func decodeUnicodeEscapes(s string) string {
 	return unicodeEscapeRe.ReplaceAllStringFunc(s, func(match string) string {
-		hex := match[2:] // strip leading \u
+		hex := match[2:]
 		if code, err := strconv.ParseInt(hex, 16, 32); err == nil {
 			return string(rune(code))
 		}
@@ -59,20 +52,13 @@ func decodeUnicodeEscapes(s string) string {
 	})
 }
 
-// parsePersonForDisplay converts the DB-stored actors JSON string (e.g.
-// `["女神ジュン"]` or legacy `["\u5973\u795e..."]`) into a human-readable
-// comma-separated display string (e.g. "女神ジュン").
-//
-// This fixes the double-serialization issue where the JSON array string
-// from the DB was re-serialized by writeJSON, producing escaped output
-// like `["\\u5973..."]` instead of the actual actor name.
-//
-// Returns "" for empty/null/[] values.
+// parsePersonForDisplay converts the DB-stored actors JSON string into a
+// human-readable comma-separated display string. Fixes the double-serialization
+// issue where the JSON array was re-serialized by writeJSON.
 func parsePersonForDisplay(raw string) string {
 	if raw == "" || raw == "null" || raw == "[]" {
 		return ""
 	}
-	// Try parsing as a JSON string array.
 	var actors []string
 	if err := json.Unmarshal([]byte(raw), &actors); err == nil {
 		for i, a := range actors {
@@ -80,26 +66,9 @@ func parsePersonForDisplay(raw string) string {
 		}
 		return strings.Join(actors, ", ")
 	}
-	// Fallback: if it's not valid JSON, decode escapes and return as-is.
 	return decodeUnicodeEscapes(raw)
 }
 
-// TaskList returns a paginated list of video download tasks.
-//
-// NOTE: This endpoint ONLY queries the download_tasks table, which stores
-// video/M3U8 download tasks. It does NOT include gallery (写真包) tasks,
-// which are stored in the galleries table and served via ShelfList.
-//
-// Task type distinction:
-//   - download_tasks: Video tasks (M3U8 streams, video files)
-//   - galleries: Gallery tasks (photo sets/写真包, primarily images with optional videos)
-//
-// For a unified view of ALL task types (video + gallery + sniff), use
-// TaskListUnified (/api/tasks/all) instead. The frontend fetchTasks()
-// should use that endpoint to avoid clearing gallery/sniff tasks from
-// the store on every page mount — a bug that caused "前端全部消失".
-//
-// See: gallery.go ShelfList for gallery task queries
 func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -136,9 +105,7 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 		t.Person = parsePersonForDisplay(t.Person)
 		t.CreatedAt = ca.Time
 		t.UpdatedAt = ua.Time
-		// Strip person/model name prefix from title for display.
 		t.Title = task_compute.StripPersonFromTitle(t.Title, t.Person)
-		// Populate computed fields for frontend consumption.
 		t.EffectiveStatus = task_compute.ComputeEffectiveStatus(t.Status, "video", 0, 0)
 		t.ProgressStage = task_compute.ComputeProgressStage(t.Status, "video", t.Progress)
 		t.AllowedActions = task_compute.ComputeAllowedActions(t.Status, "video")
@@ -147,16 +114,6 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
-// TaskListUnified returns ALL task types (video + gallery + sniff) in a
-// single response, using the same UNION ALL query as the SSE initial
-// event. This is the correct endpoint for the frontend's fetchTasks()
-// fallback — using /api/tasks (video only) caused all gallery/sniff tasks
-// to vanish from the store every time fetchTasks() was called (page mount,
-// error recovery, batch search completion).
-//
-// The response format matches the SSE initial event exactly: each task is
-// a map[string]any with PascalCase keys, enriched with EffectiveStatus,
-// ProgressStage, and AllowedActions computed fields.
 func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -264,7 +221,6 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
-// TaskCreate creates a new download task from the request body.
 func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -284,35 +240,17 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// URL normalization: clean invisible characters (zero-width, BOM,
-	// newlines) and normalize the URL (lowercase hostname, http→https,
-	// strip trailing slash, sort query params, remove fragment) for
-	// consistent dedup matching. Ports TS cleanUrl() + normalizeUrl().
 	cleanedURL := urlutil.CleanURL(req.URL)
 	normalizedURL := urlutil.NormalizeURL(cleanedURL)
 
-	// Task type pre-processor: determine the correct task pipeline
-	// (gallery / sniff / video) based on the site module's configured
-	// type field, NOT just on whether the provider implements the
-	// GallerySiteProvider interface.
-	//
-	// This fixes the critical bug where video sites like Kanav (which
-	// implement GallerySiteProvider for M3U8 sniffing capabilities)
-	// were incorrectly routed to the gallery pipeline, causing the
-	// frontend to display "图片" type and "图包" toast for video tasks.
-	//
-	// Routing logic:
-	//   1. Match provider via GetProviderByUrl()
-	//   2. Look up the site module config (type: "photo" | "video")
-	//   3. Only route to gallery/sniff pipeline if module type == "photo"
-	//   4. Video-type providers fall through to video task creation
+	// Route based on the site module's type field, not just whether the
+	// provider implements GallerySiteProvider. Video sites like Kanav
+	// implement that interface for M3U8 sniffing but must still be
+	// treated as video downloads.
 	providerMatched := false
 	if h.SiteReg != nil && !urlutil.IsM3U8URL(cleanedURL) {
 		if provider, ok := h.SiteReg.GetProviderByUrl(cleanedURL); ok {
 			providerMatched = true
-			// Check the site module's type field to determine the
-			// correct task pipeline. This is the pre-processor that
-			// correctly assigns sub-processors based on site type.
 			siteType := "photo" // default to photo for legacy providers
 			if mod, modOk := h.SiteReg.GetModule(provider.SiteID()); modOk && mod.Type != "" {
 				siteType = mod.Type
@@ -320,36 +258,19 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 
 			if siteType == "photo" {
 				if _, ok := provider.(sites.GallerySiteProvider); ok {
-					// Listing page detection: if the URL is a listing/search page
-					// (not a single gallery detail page), create a sniff task to
-					// crawl all gallery links from that page. This mirrors the TS
-					// implementation's isListingPage() → sniff task routing that
-					// was lost during the Go migration.
 					if listProvider, ok := provider.(interface {
 						IsListingPage(url string) bool
 					}); ok && listProvider.IsListingPage(cleanedURL) {
 						h.createSniffTask(w, r, cleanedURL, provider.SiteID(), req.Seq)
 						return
 					}
-					// Gallery detail page: run full scrape → download → verify pipeline.
 					h.createGalleryTask(w, r, cleanedURL, normalizedURL, provider, req.Seq)
 					return
 				}
 			}
-			// siteType == "video": fall through to video task creation
-			// below. The provider implements GallerySiteProvider for
-			// M3U8 sniffing, but the task should be treated as a video
-			// download, not a gallery task.
 		}
 	}
 
-	// Fallback detection: if the URL didn't match any known provider
-	// and isn't a recognizable M3U8/HLS stream URL, reject it instead
-	// of silently creating a video download task. This prevents users
-	// from accidentally submitting non-media URLs (e.g., random web
-	// pages) as download tasks.
-	//
-	// Per design spec (260725/01-03): "禁止无法识别→当普通下载任务处理"
 	if !providerMatched && !urlutil.IsM3U8URL(cleanedURL) && h.SiteReg != nil {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unrecognizedUrl"))
 		return
@@ -362,11 +283,6 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		req.Priority = 1
 	}
 
-	// ── Module identification for video tasks ──
-	// Even without a dedicated Provider, identify the site module
-	// from the URL so the task carries site_id metadata. This enables
-	// frontend module badges, domain-based dedup, and mirror-domain
-	// fallback during M3U8 scraping.
 	siteID := ""
 	if h.SiteReg != nil {
 		if mod, ok := h.SiteReg.GetModuleByUrl(cleanedURL); ok {
@@ -374,10 +290,6 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ── 3-tier dedup (ported from TS task-dedup.ts) ──
-	// Tier 1: Exact match on normalized URL.
-	// Tier 2: Mirror-domain match (same content, different mirror domain).
-	// Tier 3: Path-signature match (domain-agnostic path + query matching).
 	if dup := h.checkVideoTaskDuplicate(r, normalizedURL); dup != nil {
 		writeJSON(w, http.StatusConflict, dup)
 		return
@@ -406,8 +318,6 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-start video task: submit DAG pipeline so the task enters
-	// "scraping" status immediately, matching gallery task behavior.
 	dagID := ""
 	if h.DagOrch != nil {
 		def := dag.NewDagFactory().NewVideoPipeline(id)
@@ -423,18 +333,8 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		h.updateTaskDagID(r.Context(), id, dagID)
 	}
 
-	// The task's entity status is now driven by the DAG orchestrator's
-	// status sync (statusSyncFn): a successfully queued video:scrape node
-	// reports "scraping" (识别中); a scheduler-rejected node (queue full)
-	// reports "pending" (等待中) so batch-created tasks beyond the
-	// scraping-slot capacity are honestly shown as waiting instead of all
-	// appearing to identify simultaneously ("全部启动识别/满仓" fix).
-	// No unconditional UPDATE to 'scraping' happens here.
-
-	// Emit task:created so SSE clients receive real-time upsert
 	if h.EventBus != nil {
 		now := time.Now()
-		// Read the actual post-submit status for the event payload.
 		eventStatus := "pending"
 		_ = h.DB.QueryRow(r.Context(),
 			"SELECT status FROM download_tasks WHERE id = ?", id).Scan(&eventStatus)
@@ -452,7 +352,6 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Return full DownloadTask object (replaces partial {ID, DisplayID, ...} response)
 	var created db.DownloadTask
 	var ca, ua db.SQLTime
 	err = h.DB.QueryRow(r.Context(),
@@ -475,21 +374,13 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		created.AllowedActions = task_compute.ComputeAllowedActions(created.Status, "video")
 		writeJSON(w, http.StatusCreated, created)
 	} else {
-		// Fallback: return minimal response if query fails
 		writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "scraping", "SiteID": siteID, "dagId": dagID})
 	}
 }
 
-// createGalleryTask handles gallery URL submission by creating a
-// gallery record in the database and submitting a gallery DAG pipeline
-// (scrape → download → extract → verify) to the orchestrator. The
-// scrape node will populate title, protagonist, images, and videos
-// via the registered GallerySiteProvider. The normalizedURL is stored
-// as source_url for consistent dedup matching across mirror domains.
 func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pageURL, normalizedURL string, provider sites.SiteProvider, userSeq string) {
 	siteID := provider.SiteID()
 
-	// Gallery dedup: 3-tier matching before creating a new record.
 	if dup := h.checkGalleryDuplicate(r, normalizedURL, pageURL); dup != nil {
 		writeJSON(w, http.StatusConflict, dup)
 		return
@@ -503,7 +394,6 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		seqPtr = &generated
 	}
 
-	// Extract domain for the scraped_domain field.
 	scrapedDomain := ""
 	if parsed, err := url.Parse(pageURL); err == nil {
 		scrapedDomain = parsed.Hostname()
@@ -520,16 +410,12 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		return
 	}
 
-	// Submit gallery DAG pipeline for scraping + downloading.
 	dagID := ""
 	if h.DagOrch != nil {
 		def := dag.NewDagFactory().NewGalleryPipeline(normalizedURL, siteID, galleryID)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
-			// DAG submission failed: mark the gallery as failed so the
-			// user can retry rather than leaving an orphaned "pending"
-			// record with no pipeline attached.
 			h.DB.Exec(r.Context(),
 				"UPDATE galleries SET status = 'failed', error_msg = ? WHERE id = ?",
 				"DAG submission failed: "+submitErr.Error(), galleryID)
@@ -543,18 +429,8 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
 		}
-		// Store the DAG ID for future lookups.
 		h.updateGalleryDagID(r.Context(), galleryID, dagID)
 
-		// The gallery's entity status is driven by the orchestrator's
-		// status sync: a queued scrape node reports "scraping", a
-		// scheduler-rejected node stays "pending" (等待中). No
-		// unconditional UPDATE to 'scraping' happens here (this is part
-		// of the "全部启动识别/满仓" fix — only nodes that actually entered
-		// the scheduling queue are shown as identifying).
-
-		// Emit task:progress so SSE clients see the status transition
-		// from "pending" to "scraping" immediately.
 		if h.EventBus != nil {
 			h.EventBus.Emit("task:progress", map[string]any{
 				"taskId":   galleryID,
@@ -564,12 +440,6 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		}
 	}
 
-	// Emit gallery:created event for SSE clients (PascalCase keys
-	// for consistency with task:created and SSE initial events).
-	// Uses "ID" (not "GalleryID") so the frontend taskKey() can
-	// directly use it without field-name translation.
-	// Status reflects the post-submit reality (scraping when the scrape
-	// node was queued, pending when it was scheduler-rejected).
 	if h.EventBus != nil {
 		eventStatus := "pending"
 		_ = h.DB.QueryRow(r.Context(),
@@ -605,10 +475,6 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	})
 }
 
-// createSniffTask handles listing page URL submission by creating a
-// sniff task record and submitting a sniff DAG pipeline for crawling.
-// This mirrors the TS implementation's isListingPage() → sniff task →
-// scrapeListingAndEnqueue() routing that was lost during the Go migration.
 func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageURL, siteID, userSeq string) {
 	var seqPtr *string
 	if userSeq != "" {
@@ -629,7 +495,6 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 		return
 	}
 
-	// Submit sniff DAG pipeline for crawling (chromedp-based M3U8 capture).
 	dagID := ""
 	if h.DagOrch != nil {
 		def := dag.NewDagFactory().NewSniffPipeline(pageURL, sniffID)
@@ -649,11 +514,9 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
 		}
-		// Store the DAG ID for future lookups.
 		h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, sniffID)
 	}
 
-	// Emit sniff task creation event for SSE clients.
 	if h.EventBus != nil {
 		h.EventBus.Emit("task:created", map[string]any{
 			"ID":         sniffID,
@@ -683,16 +546,11 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 	})
 }
 
-// checkVideoTaskDuplicate implements the 3-tier dedup for the
-// download_tasks table: exact (normalized URL) → mirror (mirror-domain
-// variants) → path-signature (domain-agnostic). Returns a 409 response
-// map if a duplicate is found, or nil if no duplicate exists.
-//
-// Ported from TS: src/lib/utils/task-dedup.ts → checkVideoTaskDuplicate()
+// checkVideoTaskDuplicate returns a 409 response if a duplicate video
+// task is found via exact URL, mirror-domain, or path-signature matching.
 func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string) map[string]any {
 	ctx := r.Context()
 
-	// Tier 1: Exact match on normalized URL.
 	var existingID int
 	var existingStatus string
 	var existingSeq *string
@@ -714,13 +572,12 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 		}
 	}
 
-	// Tier 2: Mirror-domain match.
 	if h.SiteReg != nil {
 		if mod, ok := h.SiteReg.GetModuleByUrl(normalizedURL); ok && len(mod.Domains) > 1 {
 			mirrorInfo := urlutil.GenerateMirrorURLs(normalizedURL, mod.Domains)
 			for _, mirrorURL := range mirrorInfo.Mirrors {
 				if mirrorURL == normalizedURL {
-					continue // already checked in tier 1
+					continue
 				}
 				err := h.DB.QueryRow(ctx,
 					`SELECT id, status, seq FROM download_tasks WHERE url = ? LIMIT 1`,
@@ -743,7 +600,6 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 		}
 	}
 
-	// Tier 3: Path-signature match (domain-agnostic).
 	signature := urlutil.GetURLSignature(normalizedURL)
 	if len(signature) > 1 {
 		rows, err := h.DB.Query(ctx,
@@ -779,15 +635,11 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 	return nil
 }
 
-// checkGalleryDuplicate implements the 3-tier dedup for the galleries
-// table: exact (normalized URL) → mirror → path-signature. Returns a
-// 409 response map if a duplicate is found, or nil if no duplicate exists.
-//
-// Ported from TS: src/lib/utils/task-dedup.ts → checkGalleryDuplicate()
+// checkGalleryDuplicate returns a 409 response if a duplicate gallery
+// is found via exact URL, mirror-domain, or path-signature matching.
 func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL string) map[string]any {
 	ctx := r.Context()
 
-	// Tier 1: Exact match on normalized URL.
 	var galleryID int
 	var galleryStatus string
 	var gallerySeq *string
@@ -811,7 +663,6 @@ func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL 
 		}
 	}
 
-	// Tier 2: Mirror-domain match.
 	if h.SiteReg != nil {
 		if mod, ok := h.SiteReg.GetModuleByUrl(normalizedURL); ok && len(mod.Domains) > 1 {
 			mirrorInfo := urlutil.GenerateMirrorURLs(normalizedURL, mod.Domains)
@@ -905,20 +756,15 @@ func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.Person = parsePersonForDisplay(t.Person)
-	// Strip person/model name prefix from title for display.
 	t.Title = task_compute.StripPersonFromTitle(t.Title, t.Person)
-	// Populate computed fields for frontend consumption.
 	t.EffectiveStatus = task_compute.ComputeEffectiveStatus(t.Status, "video", 0, 0)
 	t.ProgressStage = task_compute.ComputeProgressStage(t.Status, "video", t.Progress)
 	t.AllowedActions = task_compute.ComputeAllowedActions(t.Status, "video")
 	writeJSON(w, http.StatusOK, t)
 }
 
-// TaskAction handles start/pause/resume/cancel/retry operations
-// on download tasks. Start and retry are now routed through the DAG
-// orchestrator for proper slot pool concurrency control, replacing
-// the legacy direct DownloadManager invocation that bypassed all
-// scheduling and resource limits.
+// TaskAction routes start/pause/resume/cancel/retry operations through the
+// DAG orchestrator for slot pool concurrency control.
 func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 	if h.DownloadMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.tasks.schedulerRequired"))
@@ -992,7 +838,6 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "cancelled"})
 			return
 		}
-		// Legacy fallback for tasks without DAG (e.g., pre-DAG tasks).
 		h.DownloadMgr.CancelDownload(id)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "cancelled"})
 
@@ -1002,18 +847,10 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// ── Clean up cached files from the previous attempt ──
-		// Retry must start from a clean slate: delete the old MP4 output
-		// and the segments directory so stale/corrupt files don't cause
-		// the re-download to skip segments or fail at merge/transcode.
 		h.cleanupVideoTaskCache(r.Context(), id)
 
-		// Use RetryDag to reuse the existing DAG rather than CancelDag +
-		// SubmitDag, which creates a new DAG and has a race window between
-		// cancel and re-submit. RetryDag resets retry counts and
-		// re-transitions Failed/Timeout/NeedsRetry nodes to Ready within
-		// the same DAG instance, eliminating the race and preventing
-		// duplicate DAGs (§4 Service Layer: "do not create duplicate DAGs").
+		// RetryDag reuses the existing DAG instead of cancel+resubmit,
+		// avoiding a race window that can produce duplicate DAGs.
 		dagID := h.getTaskDagID(r.Context(), id)
 		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
 			if err := h.DagOrch.RetryDag(r.Context(), dagID, ""); err != nil {
@@ -1023,8 +860,6 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
 			return
 		}
-		// No active DAG found: fall back to creating a fresh DAG via
-		// submitVideoDag (first-time start or DAG was already cleaned up).
 		if h.DownloadMgr != nil {
 			h.DownloadMgr.CancelDownload(id)
 		}
@@ -1033,7 +868,6 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
 			return
 		}
-		// Store the new DAG ID for future lookups.
 		h.updateTaskDagID(r.Context(), id, dagID)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
 
@@ -1042,8 +876,6 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// submitVideoDag builds a video download DAG via the centralized
-// DagFactory and submits it to the orchestrator.
 func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 	if h.DagOrch == nil {
 		return "", fmt.Errorf("DAG orchestrator not available")
@@ -1053,44 +885,18 @@ func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 	return h.DagOrch.SubmitDag(r.Context(), def)
 }
 
-// cleanupVideoTaskCache prepares a video task for retry with segment
-// preservation. Unlike the old "clean slate" behavior (which deleted the
-// segments directory, forcing a full re-download of every TS segment),
-// this keeps already-downloaded segments on disk so the retry resumes at
-// the segment level — DownloadSegment skips files that already exist
-// (os.Stat check), re-downloading only the segments that failed or were
-// never attempted.
-//
-// Removes:
-//   - The output MP4 file (a partial/corrupt MP4 from a failed merge or
-//     transcode must be regenerated).
-//
-// Preserves:
-//   - data/segments/task_{id}/ with any completed .ts segments.
-//
-// Also resets progress-related DB fields so stale data doesn't leak into
-// the retry attempt's SSE events.
+// cleanupVideoTaskCache deletes the output MP4 (a partial file from a
+// failed merge/transcode must be regenerated) but preserves the segments
+// directory so the retry resumes at the segment level.
 func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) {
-	// 1. Read file_path from DB before deleting (for MP4 cleanup).
 	var filePath string
 	_ = h.DB.QueryRow(ctx,
 		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", taskID).Scan(&filePath)
 
-	// 2. Delete the output MP4 file. A partial MP4 from a failed merge or
-	// transcode is never valid for resume — it must be regenerated from
-	// the (preserved) segments.
 	if filePath != "" {
 		_ = os.Remove(filePath)
 	}
 
-	// 3. Preserve the segments directory so completed segments are reused.
-	// DownloadSegment resumes via os.Stat; only missing/failed segments are
-	// re-downloaded. (The old code removed the whole directory.)
-
-	// 4. Reset progress-related DB fields so stale data doesn't leak
-	// into the retry attempt's SSE events. Note: completed segments on
-	// disk are not counted here — they are re-registered by the
-	// VideoProgressTracker when the download resumes.
 	_, _ = h.DB.Exec(ctx,
 		`UPDATE download_tasks
 		 SET progress = 0, completed_segments = 0, total_segments = 0,
@@ -1098,8 +904,6 @@ func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) {
 		 WHERE id = ?`, taskID)
 }
 
-// TaskDelete removes a download task from the database and cleans up
-// local files (video file + segments directory).
 func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -1110,12 +914,10 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 1: Read task info before deletion (for file cleanup).
 	var filePath string
 	_ = h.DB.QueryRow(r.Context(),
 		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", id).Scan(&filePath)
 
-	// Step 2: Cancel any active DAG for this video task to stop ongoing downloads.
 	if h.DagOrch != nil {
 		dagID := h.getTaskDagID(r.Context(), id)
 		if dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
@@ -1123,7 +925,6 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 3: Delete from database.
 	result, err := h.DB.Exec(r.Context(),
 		"DELETE FROM download_tasks WHERE id = ?", id)
 	if err != nil {
@@ -1135,16 +936,12 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Clean up local files (best-effort, non-blocking).
-	// Delete video file if it exists.
 	if filePath != "" {
 		_ = os.Remove(filePath)
 	}
-	// Delete segments directory: data/segments/task_{id}/
 	segmentsDir := filepath.Join("..", "data", "segments", fmt.Sprintf("task_%d", id))
 	_ = os.RemoveAll(segmentsDir)
 
-	// Emit task:cancelled so SSE notifies clients
 	if h.EventBus != nil {
 		h.EventBus.Emit("task:cancelled", map[string]any{
 			"taskId":   id,

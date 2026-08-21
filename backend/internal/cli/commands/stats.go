@@ -7,7 +7,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// statsCommand shows aggregate dashboard statistics.
 type statsCommand struct{}
 
 func (statsCommand) Name() string        { return "stats" }
@@ -67,7 +66,6 @@ func (statsCommand) Execute(ctx CommandContext) error {
 	return nil
 }
 
-// toInt safely extracts an int from an any value.
 func toInt(v any) int {
 	switch n := v.(type) {
 	case int:

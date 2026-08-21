@@ -10,9 +10,8 @@ import (
 	"backend/internal/infra"
 )
 
-// OuoOrchestrator handles OUO short-link resolution, mirroring the
-// TypeScript OUOOrchestrator that resolves ouo.io relay URLs to
-// their direct download targets.
+// OuoOrchestrator resolves OUO short links (ouo.io, ouo.press) to their
+// direct download URLs.
 type OuoOrchestrator struct {
 	logger *infra.Logger
 	client *http.Client

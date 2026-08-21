@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestWriteJSON verifies that writeJSON sets the correct content type
-// and encodes the payload, ensuring the API contract is consistent.
 func TestWriteJSON(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeJSON(w, http.StatusOK, map[string]string{"key": "value"})
@@ -20,8 +18,6 @@ func TestWriteJSON(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"key":"value"`)
 }
 
-// TestWriteJSONNilData verifies that a nil payload produces an empty
-// body without errors, allowing handlers to signal "no content" cleanly.
 func TestWriteJSONNilData(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeJSON(w, http.StatusNoContent, nil)
@@ -30,8 +26,6 @@ func TestWriteJSONNilData(t *testing.T) {
 	assert.Empty(t, w.Body.String())
 }
 
-// TestWriteError verifies that error responses follow the uniform
-// {"error":"message"} envelope expected by the frontend.
 func TestWriteError(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeError(w, http.StatusBadRequest, "something went wrong")
@@ -41,8 +35,6 @@ func TestWriteError(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"error":"something went wrong"`)
 }
 
-// TestDecodeJSONValid verifies that a well-formed JSON body is
-// decoded into the target struct.
 func TestDecodeJSONValid(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/test", strings.NewReader(`{"name":"test"}`))
 	w := httptest.NewRecorder()
@@ -53,8 +45,6 @@ func TestDecodeJSONValid(t *testing.T) {
 	assert.Equal(t, "test", dst.Name)
 }
 
-// TestDecodeJSONMissingBody verifies that a missing body returns
-// false and writes a 400 error.
 func TestDecodeJSONMissingBody(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/test", nil)
 	w := httptest.NewRecorder()
@@ -65,8 +55,6 @@ func TestDecodeJSONMissingBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestDecodeJSONMalformed verifies that malformed JSON returns
-// false and writes a 400 error.
 func TestDecodeJSONMalformed(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/test", strings.NewReader(`{invalid`))
 	w := httptest.NewRecorder()
@@ -77,8 +65,6 @@ func TestDecodeJSONMalformed(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestQueryInt verifies that queryInt parses numeric params and
-// falls back to the default for missing or non-numeric values.
 func TestQueryInt(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -12,8 +12,6 @@ import (
 	"backend/internal/infra"
 )
 
-// VideoSegmentStatus tracks the download state of individual TS segments
-// within a video download task.
 type VideoSegmentStatus string
 
 const (
@@ -23,7 +21,6 @@ const (
 	SegFailed     VideoSegmentStatus = "failed"
 )
 
-// VideoSegmentProgress tracks a single TS segment within a video.
 type VideoSegmentProgress struct {
 	TaskID     int                `json:"taskId"`
 	SegmentIdx int                `json:"segmentIdx"`
@@ -36,7 +33,6 @@ type VideoSegmentProgress struct {
 	UpdatedAt  time.Time          `json:"updatedAt"`
 }
 
-// VideoProgressSummary aggregates segment-level progress for a video.
 type VideoProgressSummary struct {
 	TaskID            int     `json:"taskId"`
 	TotalSegments     int     `json:"totalSegments"`
@@ -188,7 +184,6 @@ func (vt *VideoProgressTracker) computeSummaryLocked(taskID int) VideoProgressSu
 		summary.Progress = math.Round(float64(summary.CompletedSegments)/float64(summary.TotalSegments)*100*100) / 100
 	}
 
-	// Compute integrity score: verify file sizes for completed segments.
 	if vt.strategy.VerifyIntegrity && summary.CompletedSegments > 0 {
 		integrity := vt.computeIntegrityLocked(taskSegments)
 		summary.IntegrityScore = integrity
@@ -280,7 +275,6 @@ func (vt *VideoProgressTracker) VerifySegmentIntegrity(localPath string) error {
 		return fmt.Errorf("segment file is empty: %s", localPath)
 	}
 
-	// Quick TS sync byte check for .ts files.
 	if filepath.Ext(localPath) == ".ts" {
 		data, err := os.ReadFile(localPath)
 		if err != nil {

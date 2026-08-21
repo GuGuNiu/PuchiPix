@@ -14,7 +14,6 @@ const (
 	FileSkipped     FileStatus = "skipped"
 )
 
-// FileType distinguishes between image and video assets.
 type FileType string
 
 const (
@@ -22,7 +21,6 @@ const (
 	FileTypeVideo FileType = "video"
 )
 
-// FileProgress tracks the download state of a single file in a gallery.
 type FileProgress struct {
 	GalleryID  int        `json:"galleryId"`
 	FileIndex  int        `json:"fileIndex"`
@@ -37,8 +35,6 @@ type FileProgress struct {
 	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
-// GalleryProgressSummary aggregates file-level progress into a
-// single progress percentage and breakdown.
 type GalleryProgressSummary struct {
 	GalleryID       int     `json:"galleryId"`
 	TotalFiles      int     `json:"totalFiles"`
@@ -46,11 +42,11 @@ type GalleryProgressSummary struct {
 	FailedFiles     int     `json:"failedFiles"`
 	PendingFiles    int     `json:"pendingFiles"`
 	SkippedFiles    int     `json:"skippedFiles"`
-	Progress        float64 `json:"progress"`         // 0-100
-	PartialProgress float64 `json:"partialProgress"`  // including skipped
+	Progress        float64 `json:"progress"`
+	PartialProgress float64 `json:"partialProgress"` // including skipped
 	ImageCount      int     `json:"imageCount"`
 	VideoCount      int     `json:"videoCount"`
-	Status          string  `json:"status"`            // aggregate status
+	Status          string  `json:"status"`
 }
 
 // RetryRequest specifies which files to retry.
@@ -110,7 +106,6 @@ const (
 	PhaseFailed DownloadPhase = "phase_failed"
 )
 
-// RetryResult reports the outcome of a retry operation.
 type RetryResult struct {
 	GalleryID      int      `json:"galleryId"`
 	RetriedCount   int      `json:"retriedCount"`

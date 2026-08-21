@@ -11,7 +11,6 @@ import (
 	"backend/internal/infra"
 )
 
-// SSEClient holds the writer and flusher for a single SSE connection.
 type SSEClient struct {
 	w        http.ResponseWriter
 	flusher  http.Flusher
@@ -34,7 +33,6 @@ type sseEvent struct {
 	ack   chan struct{}
 }
 
-// SSEStream wraps an HTTP response for Server-Sent Events streaming.
 type SSEStream struct {
 	client *SSEClient
 
@@ -89,7 +87,6 @@ func UnwrapResponseWriter(w http.ResponseWriter) (http.Flusher, writeDeadliner) 
 	return flush, dl
 }
 
-// NewSSEStream sets SSE headers and returns a stream ready to send events.
 func NewSSEStream(w http.ResponseWriter) *SSEStream {
 	flusher, deadline := UnwrapResponseWriter(w)
 	if flusher == nil {
@@ -186,16 +183,10 @@ func (s *SSEStream) writeFrame(frame []byte) bool {
 	return true
 }
 
-// SendEvent writes a named SSE event with JSON-encoded data. It is
-// synchronous from the caller's perspective: the frame is written and
-// flushed before SendEvent returns (bounded by sseSyncWaitTimeout).
 func (s *SSEStream) SendEvent(event string, data any) {
 	s.enqueue(event, data, true)
 }
 
-// TrySendEvent enqueues an event without blocking the caller. If the
-// queue is full, the oldest event is dropped to make room.
-// Returns false when the connection is already closed.
 func (s *SSEStream) TrySendEvent(event string, data any) bool {
 	return s.enqueue(event, data, false)
 }
@@ -270,14 +261,12 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 	}
 }
 
-// Dropped reports how many events were discarded due to queue overflow.
 func (s *SSEStream) Dropped() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.dropped
 }
 
-// Close stops the writer goroutine and releases the connection.
 func (s *SSEStream) Close() {
 	select {
 	case <-s.done:
@@ -287,13 +276,10 @@ func (s *SSEStream) Close() {
 	}
 }
 
-// SendKeepalive writes a comment line to keep the connection alive.
 func (s *SSEStream) SendKeepalive() {
 	s.enqueueRaw("", []byte(": keepalive\n\n"), true)
 }
 
-// StreamLogs subscribes to the global LogSink and pushes filtered
-// entries to the SSE client.
 func StreamLogs(sse *SSEStream, filter infra.LogQueryFilter, ctx <-chan struct{}) {
 	sink := infra.GetGlobalSink()
 

@@ -163,11 +163,6 @@ func ComputeProgressStage(status, taskType string, progress float64) string {
 	}
 }
 
-// StripPersonFromTitle removes the protagonist name prefix from a gallery
-// title for display, since the name is already shown separately in the
-// Person field. Tries progressively more aggressive cleaning strategies
-// to handle site-added prefixes, dual-person separator mismatches, and
-// parenthetical suffixes injected by source websites.
 func StripPersonFromTitle(title, person string) string {
 	if title == "" || person == "" {
 		return title
@@ -177,7 +172,6 @@ func StripPersonFromTitle(title, person string) string {
 		return stripped
 	}
 
-	// Sites use "&" while the DB uses the CJK conjunction; normalize before matching.
 	normTitle := normalizeDualPerson(title)
 	normPerson := normalizeDualPerson(person)
 	if normTitle != title || normPerson != person {
@@ -186,7 +180,6 @@ func StripPersonFromTitle(title, person string) string {
 		}
 	}
 
-	// Source websites inject category tags and labels before the name.
 	cleaned := stripSitePrefixes(title)
 	if cleaned != title {
 		if stripped := stripPersonPrefix(cleaned, person); stripped != "" {
@@ -214,9 +207,6 @@ func StripPersonFromTitle(title, person string) string {
 	return title
 }
 
-// stripPersonPrefix removes a name prefix and any parenthetical suffix
-// that follows it (e.g., an alias in parentheses after the name),
-// then trims separator characters to expose the description.
 func stripPersonPrefix(title, name string) string {
 	if !strings.HasPrefix(title, name) {
 		return ""

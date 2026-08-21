@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// ConfigLayer is a single level of the layered configuration hierarchy.
 type ConfigLayer struct {
 	Name     string         `json:"name"`
 	Settings map[string]any `json:"settings"`
@@ -32,9 +31,7 @@ func NewConfigOverlay() *ConfigOverlay {
 	}
 }
 
-// subtypeKey composes the map key for subtype layers. Colon is safe as a
-// separator because site IDs are lowercase alphanumeric identifiers that
-// never contain one.
+// subtypeKey composes the map key for subtype layers.
 func subtypeKey(siteID, subtype string) string {
 	return siteID + ":" + subtype
 }

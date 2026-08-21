@@ -174,33 +174,22 @@ func parseIntSafe(s string) int {
 }
 
 // buildHWAccelArgs constructs ffmpeg arguments for hardware-accelerated
-// transcoding using the best available GPU encoder. If forceGPUType is
-// non-empty, it attempts to use that specific encoder type; otherwise
-// it auto-detects the best available GPU. Falls back to stream copy
-// if no suitable HW encoder is found.
-//
-// Auto-fallback logic: If GPU is requested but GPU args construction
-// returns nil (no GPU detected), falls back to stream copy with a warning
-// logged at the call site.
+// transcoding. Falls back to stream copy if no suitable GPU is found.
 func buildHWAccelArgs(concatPath, outputPath, forceGPUType string) []string {
 	gpuInfo := DetectGPU()
 
-	// If a specific GPU type is forced, check if it's available
 	if forceGPUType != "" {
 		forcedType := GPUType(forceGPUType)
 		if gpuInfo.Type == forcedType && gpuInfo.Available {
 			return buildHWArgsForType(gpuInfo, concatPath, outputPath)
 		}
-		// Forced type not detected as primary but encoder might still exist
 		return buildForcedHWArgs(forcedType, concatPath, outputPath)
 	}
 
-	// Auto-detect: use the best available GPU
 	if gpuInfo.SupportsHWTranscode() {
 		return buildHWArgsForType(gpuInfo, concatPath, outputPath)
 	}
 
-	// No GPU available - fall back to stream copy
 	return []string{
 		"-f", "concat",
 		"-safe", "0",
@@ -212,34 +201,24 @@ func buildHWAccelArgs(concatPath, outputPath, forceGPUType string) []string {
 	}
 }
 
-// TranscodeTSWithFallback attempts GPU transcoding first, and if it fails,
-// automatically falls back to CPU stream copy. This ensures that enabling
-// GPU transcoding never results in complete failure - at worst, the user
-// gets CPU performance instead of an error.
-//
-// Returns:
-//   - nil if successful (either GPU or fallback)
-//   - error only if both GPU and fallback methods fail
+// TranscodeTSWithFallback attempts GPU transcoding first, then falls back to
+// CPU stream copy on failure. Returns an error only if both methods fail.
 func TranscodeTSWithFallback(ctx context.Context, inputDir, outputPath string, opts TranscodeOptions) error {
 	if !opts.UseGPU {
 		return TranscodeTS(ctx, inputDir, outputPath, opts)
 	}
 
-	// First attempt: GPU transcoding
 	gpuErr := TranscodeTS(ctx, inputDir, outputPath, opts)
 	if gpuErr == nil {
-		return nil // GPU success
+		return nil
 	}
 
-	// GPU failed - attempt fallback to stream copy
-	// Note: We use the direct copy args here to bypass any GPU detection overhead
 	fallbackOpts := TranscodeOptions{UseGPU: false}
 	fallbackErr := transcodeCopyDirect(ctx, inputDir, outputPath, fallbackOpts)
 	if fallbackErr == nil {
-		return nil // Fallback success
+		return nil
 	}
 
-	// Both failed - return combined error
 	return fmt.Errorf("GPU transcoding failed (%v) and CPU fallback also failed (%v)", gpuErr, fallbackErr)
 }
 
@@ -249,36 +228,29 @@ func transcodeCopyDirect(ctx context.Context, inputDir, outputPath string, opts 
 	return TranscodeTS(ctx, inputDir, outputPath, TranscodeOptions{UseGPU: false})
 }
 
-// buildHWArgsForType builds ffmpeg args for a detected and verified GPU type.
-//
-// ffmpeg requires input-side options (e.g. -hwaccel) to appear BEFORE the
-// -i argument, and output-side options (e.g. -c:v, -preset, -vf) to appear
-// AFTER -i but BEFORE the output file. Mixing them between -i and the
-// output path causes "you are trying to apply an input option to an output
-// file or vice versa" errors.
+// buildHWArgsForType builds ffmpeg args for a detected GPU type. Input-side
+// options (e.g. -hwaccel) must precede -i; output-side options (e.g. -c:v)
+// must follow -i but precede the output path. Swapping the order causes
+// ffmpeg to reject the command with an input/output option mismatch error.
 func buildHWArgsForType(gpu *GPUInfo, concatPath, outputPath string) []string {
 	inputArgs := gpu.GetHWInputArgs()
 	outputArgs := gpu.GetHWOutputArgs()
 
 	args := make([]string, 0, len(inputArgs)+len(outputArgs)+6)
-	// Input-side HW accel options must come before -i
 	args = append(args, inputArgs...)
-	// Concat demuxer input
 	args = append(args,
 		"-f", "concat",
 		"-safe", "0",
 		"-i", concatPath,
 	)
-	// Output-side encoder options must come after -i, before output path
 	args = append(args, outputArgs...)
 	args = append(args, "-y", outputPath)
 
 	return args
 }
 
-// buildForcedHWArgs builds ffmpeg args for a user-forced GPU type
-// that may not have been auto-detected. This allows users to experiment
-// with encoders that exist but weren't detected as primary.
+// buildForcedHWArgs builds ffmpeg args for a user-specified GPU encoder type
+// that may not have been auto-detected.
 func buildForcedHWArgs(forceType GPUType, concatPath, outputPath string) []string {
 	tempInfo := &GPUInfo{Type: forceType, Available: true}
 	switch forceType {
@@ -293,7 +265,6 @@ func buildForcedHWArgs(forceType GPUType, concatPath, outputPath string) []strin
 	case GPUTypeVideotoolbox:
 		tempInfo.EncoderName = "h264_videotoolbox"
 	default:
-		// Unknown type - fall back to copy
 		return []string{
 			"-f", "concat", "-safe", "0",
 			"-i", concatPath,

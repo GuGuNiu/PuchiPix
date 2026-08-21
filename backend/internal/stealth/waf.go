@@ -194,7 +194,6 @@ func ShouldFallbackToBrowser(title string, imageCount, videoCount, pageCount int
 }
 
 func parseExpectedImageCount(title string) int {
-	// Match "P" suffix like 73P, 100P
 	for i := len(title) - 1; i >= 0; i-- {
 		if (title[i] == 'P' || title[i] == 'p') && i > 0 {
 			numStart := i

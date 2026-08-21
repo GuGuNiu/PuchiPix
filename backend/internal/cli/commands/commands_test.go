@@ -7,7 +7,6 @@ import (
 	"backend/internal/cli/commands"
 )
 
-// TestRegistryHasCommands verifies that all expected commands are registered.
 func TestRegistryHasCommands(t *testing.T) {
 	registry := commands.NewRegistry()
 	cmds := registry.Commands()
@@ -35,8 +34,6 @@ func TestRegistryHasCommands(t *testing.T) {
 	}
 }
 
-// TestCommandMetadata verifies that every registered command has non-empty
-// Name, Description, and Usage fields.
 func TestCommandMetadata(t *testing.T) {
 	registry := commands.NewRegistry()
 

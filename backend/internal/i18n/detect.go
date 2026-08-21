@@ -51,9 +51,8 @@ func ParseLangTag(lang string) string {
 	return ""
 }
 
-// LocaleFromAcceptHeader parses an Accept-Language header value and
-// returns the first matching supported locale, falling back to the
-// default locale. Mirrors localeFromAcceptHeader in detect.ts.
+// LocaleFromAcceptHeader parses an Accept-Language header and returns
+// the first matching supported locale, or the default.
 func LocaleFromAcceptHeader(acceptLang string) string {
 	if acceptLang == "" {
 		return DefaultLocale
@@ -75,9 +74,7 @@ func LocaleFromAcceptHeader(acceptLang string) string {
 	return DefaultLocale
 }
 
-// LocaleFromHeader parses a raw x-locale header value. Returns empty
-// string if the value is empty or unrecognized. Mirrors localeFromHeader
-// in detect.ts.
+// LocaleFromHeader detects the locale from an x-locale header value.
 func LocaleFromHeader(headerValue string) string {
 	if headerValue == "" {
 		return ""
@@ -85,10 +82,8 @@ func LocaleFromHeader(headerValue string) string {
 	return ParseLangTag(headerValue)
 }
 
-// DetectLocale extracts the locale from HTTP headers following the
-// detection order: x-locale header ??locale cookie ??Accept-Language
-// header ??default zh-CN. This replaces the TypeScript
-// setLocaleFromHeaders function.
+// DetectLocale resolves the locale from HTTP headers in priority order:
+// x-locale header, locale cookie, Accept-Language, then default zh-CN.
 func DetectLocale(headers http.Header) string {
 	if v := headers.Get("x-locale"); v != "" {
 		if result := LocaleFromHeader(v); result != "" {
@@ -111,7 +106,6 @@ func DetectLocale(headers http.Header) string {
 	return DefaultLocale
 }
 
-// parseCookieValue extracts a named cookie value from a raw Cookie header.
 func parseCookieValue(cookieHeader, name string) string {
 	parts := strings.Split(cookieHeader, ";")
 	for _, part := range parts {

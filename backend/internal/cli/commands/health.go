@@ -7,7 +7,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// healthCommand checks server health and database connectivity.
 type healthCommand struct{}
 
 func (healthCommand) Name() string        { return "health" }

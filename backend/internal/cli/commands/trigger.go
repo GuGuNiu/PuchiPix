@@ -8,8 +8,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// dagTriggerCommand re-activates pending/ready nodes in a DAG, useful
-// after modifying dependencies or recovering from a stuck state.
 type dagTriggerCommand struct{}
 
 func (c dagTriggerCommand) Name() string        { return "trigger" }

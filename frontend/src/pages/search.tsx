@@ -30,7 +30,6 @@ export default function SearchPage(): React.JSX.Element {
   const [searched, setSearched] = useState(false);
 
   useEffect(() => {
-    // Restore a pending query from the URL (?q=...) on first paint.
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q");
     if (q) setKeywords(q);

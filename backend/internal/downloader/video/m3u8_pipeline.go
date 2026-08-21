@@ -9,9 +9,6 @@ import (
 )
 
 // M3U8FetchOptions configures the M3U8 fetch-and-parse behavior.
-// All business callers (independent video pipeline, gallery video
-// pipeline, future pipelines) must use this struct to pass Referer
-// and CDN anti-hotlink fallback domains.
 type M3U8FetchOptions struct {
 	// Referer is the primary Referer header sent with M3U8 content
 	// requests. Typically the source page URL (e.g. the video detail
@@ -56,37 +53,22 @@ type M3U8FetchResult struct {
 	VariantURL string
 }
 
-// FetchAndParseM3U8 is the unified entry point for M3U8 content
-// fetching and parsing. It consolidates the following steps that were
-// previously duplicated across the independent video pipeline
-// (manager.go) and the gallery video pipeline (gallery_download.go):
-//
-//  1. Fetch M3U8 content with CDN anti-hotlink Referer fallback
-//  2. Parse the M3U8 playlist
-//  3. For master playlists: select the best variant and fetch its
-//     media playlist
-//  4. Return the resolved segment list and the effective Referer
-//
-// All business callers MUST use this function instead of directly
-// calling FetchM3U8Content or FetchM3U8ContentWithRefererFallback.
-// This ensures consistent protocol interaction, Referer handling,
-// and error reporting across all pipelines.
+// FetchAndParseM3U8 is the unified entry point for M3U8 content fetching
+// and parsing. Callers MUST use this function instead of FetchM3U8Content
+// or FetchM3U8ContentWithRefererFallback directly to ensure consistent
+// Referer handling and error reporting across all pipelines.
 func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOptions) (*M3U8FetchResult, error) {
 	if m3u8URL == "" {
 		return nil, fmt.Errorf("M3U8 URL is empty")
 	}
 
-	// Step 1: Fetch M3U8 content with Referer fallback.
 	content, effectiveReferer, err := FetchM3U8ContentWithRefererFallback(ctx, m3u8URL, opts.Referer, opts.FallbackDomains)
 	if err != nil {
 		return nil, fmt.Errorf("fetch M3U8 content: %w", err)
 	}
 
-	// Step 2: Parse the playlist.
 	playlist := ParseM3U8(content, m3u8URL)
 
-	// Step 3: Handle master playlist — select best variant and fetch
-	// its media playlist to obtain the actual segment list.
 	var segments []M3U8Segment
 	var variantURL string
 	if playlist.IsMaster && len(playlist.Variants) > 0 {
@@ -122,7 +104,6 @@ func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOption
 		segments = playlist.Segments
 	}
 
-	// Step 4: Validate that we have segments to download.
 	if len(segments) == 0 {
 		return nil, fmt.Errorf("no segments found in M3U8 playlist")
 	}
@@ -180,18 +161,9 @@ type SegmentBatchResult struct {
 	Total int
 }
 
-// DownloadSegmentsBatch downloads M3U8 segments concurrently with
-// fault-tolerant behavior: individual segment failures do NOT cancel
-// other in-flight segments (no fail-fast cascading cancellation).
-//
-// This function replaces the duplicated WaitGroup + semaphore pattern
-// that existed in both gallery_download.go and (conceptually)
-// manager.go's segment queue. It uses DownloadSegment for exponential
-// backoff retry and built-in resume (os.Stat check skips already-
-// downloaded files).
-//
-// Callers should check Failed/Total ratio to decide whether to
-// tolerate partial failures or abort.
+// DownloadSegmentsBatch downloads M3U8 segments concurrently. Individual
+// segment failures do not cancel other in-flight segments. Callers should
+// check the Failed/Total ratio to decide whether to tolerate partial failures.
 func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts SegmentBatchOptions) SegmentBatchResult {
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 10

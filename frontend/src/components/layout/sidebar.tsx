@@ -171,7 +171,6 @@ export default function Sidebar(): React.JSX.Element {
     setOpenGroups((prev) => ({ ...prev, [labelKey]: !prev[labelKey] }));
   }, []);
 
-  // Auto-expand group if any of its children is active
   useEffect(() => {
     navItems.forEach((entry) => {
       if (isNavGroup(entry)) {

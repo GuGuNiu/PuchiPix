@@ -85,8 +85,6 @@ func (logsCommand) Execute(ctx CommandContext) error {
 	return sse.Connect()
 }
 
-// getArg extracts a flag value from args, supporting both --flag=value
-// and --flag value syntaxes.
 func getArg(args []string, flag string) string {
 	prefix := flag + "="
 	for _, a := range args {

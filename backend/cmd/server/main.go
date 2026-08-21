@@ -63,24 +63,18 @@ func main() {
 		"dataDir", cfg.DataDir,
 		"databasePath", cfg.DatabasePath)
 
-	// ── Database ──
 	database, dbErr := db.NewDatabase(cfg.DatabasePath, nil)
 	if dbErr != nil {
 		logger.Warn("Database unavailable, starting in degraded mode",
 			"error", dbErr.Error())
 	}
 
-	// ── DAG Scheduler (only when database is available) ──
 	var dagOrch *dag.DagOrchestrator
 	var sched *orchsched.SchedulerEngine
 	var exeReg *executors.Registry
 	var progressEngine *taskprogress.Engine
 	var videoTracker *taskprogress.VideoProgressTracker
 
-	// dlDefaults is declared outside the if-block so both the first
-	// (WireExecutors) and second (WithDownloadDefaults) if-database
-	// scopes can access it. Task-settings updates mutate this pointer
-	// at runtime to change gallery/video concurrency live.
 	dlDefaults := &downloader.DownloadDefaults{
 		MultiThread:            cfg.DownloadMultiThread,
 		Concurrency:            cfg.DownloadConcurrency,
@@ -90,32 +84,20 @@ func main() {
 		VideoMaxConcurrent:     cfg.VideoMaxConcurrent,
 		TSegmentConcurrent:     cfg.TSegmentConcurrent,
 	}
-	// Configure the process-wide aggregate download cap (pressure valve).
-	downloader.SetGlobalDownloadConcurrent(cfg.GlobalDownloadConcurrent)
+		downloader.SetGlobalDownloadConcurrent(cfg.GlobalDownloadConcurrent)
 
 	if database != nil {
 		logger.Info("Initializing DAG scheduler")
 
-		// 1. EventStore ??persistence + event sourcing for DAG recovery
 		eventStore := orchestrator.NewEventStore(database, eventBus)
 		eventStore.StartAsyncWriter()
 
-		// 2. Site Registry ??provider lookup for scrape executor
 		siteReg := sites.GetSiteRegistry()
 
-		// 3. Initialize progress tracking engine and video segment tracker.
-		// These are created early so they can be passed to WireExecutors
-		// for gallery pipeline integration, and later to DownloadManager
-		// and VideoDownloadExecutor for video pipeline integration.
 		progressEngine = taskprogress.NewEngine(logger)
-		// Attach the database so per-file progress and the download-phase
-		// state machine can be persisted for checkpoint-based retry.
 		progressEngine.SetDatabase(database)
 		videoTracker = taskprogress.NewVideoProgressTracker(taskprogress.DefaultVideoRetryStrategy())
 
-		// 3a. Build title parser with embedded model/character data.
-		// The parser is used in the scrape pipeline to extract protagonist
-		// names from gallery titles when the site provider does not return one.
 		titleParser := titleparser.New()
 		if models, err := titleparser.LoadModelsFromJSON(resources.CoserJSON); err == nil {
 			titleParser.LoadModels(models)
@@ -144,7 +126,6 @@ func main() {
 		exeReg = executors.NewRegistry()
 		orchestrator.WireExecutors(exeReg, siteReg, database, eventBus, titleParser, progressEngine, videoTracker, cfg.DataDir, dlDefaults)
 
-		// 4. Slot Pool ??concurrency control
 		slotPool := slot.NewSlotPool()
 		slotPool.RegisterType(slot.SlotTypeDefinition{
 			Key:        "scraping",
@@ -168,21 +149,10 @@ func main() {
 			Max:        10,
 		})
 
-		// 4a. Load persisted concurrency settings from app_configs so the
-		// user's saved "识别中最大数量" / "下载并发" / "嗅探并发" values are
-		// applied at startup. Previously these were only written by the
-		// settings API and applied to the live pool at save time — a
-		// restart silently reverted the pool to the hardcoded defaults,
-		// which made a raised scraping cap appear to "顶破设计范围".
 		applyPersistedSlotMax(slotPool, database, logger, "max_concurrent_tasks", "download")
 		applyPersistedSlotMax(slotPool, database, logger, "max_scraping_tasks", "scraping")
 		applyPersistedSlotMax(slotPool, database, logger, "max_concurrent_sniff_tasks", "sniff")
 
-		// 4b. Stream slot state changes over the EventBus so SSE clients
-		// (via /api/tasks/stream, which forwards slot:stateChanged) observe
-		// acquire / release / max / quota updates in real-time without
-		// polling. Payload mirrors the SlotStateChange shape with an extra
-		// timestamp.
 		slotPool.SetStateChangeCallback(func(change slot.SlotStateChange) {
 			eventBus.Emit("slot:stateChanged", map[string]any{
 				"event":     change.Event,
@@ -196,53 +166,21 @@ func main() {
 			})
 		})
 
-		// 4c. Periodic slot-pool health check: self-heal running-vs-
-		// activeSlots drift (P-SLOT-01 ghost slots) and release stale
-		// holders that outlive the 10-minute video/download timeout.
-		// Runs until the process exits (background context, cancelled
-		// by the deferred cancel below).
 		healthCtx, healthCancel := context.WithCancel(context.Background())
 		go slotPool.StartHealthCheck(healthCtx, 5*time.Second, 10*time.Minute)
 		defer healthCancel()
 
-		// 5. DagOrchestrator ??full lifecycle management
 		dagOrch = dag.NewDagOrchestrator(eventStore, slotPool)
 
-		// 5b. StateReconciler ??verifies node side effects (needs_retry
-		// auto-retry for interrupted scrapes, RESUME_VERIFY checkpoint
-		// recovery). Injected into the orchestrator so the scheduler's
-		// GetNodeForVerification callback can route to it.
 		stateReconciler := orchestrator.NewStateReconciler(database)
 		dagOrch.SetReconciler(stateReconciler)
 
-		// 5c. TaskTypeRegistry ??registers per-TaskType TransitionPolicy
-		// so nodes get config-driven state-machine behavior (guards,
-		// actions, retryPolicy, onPause/onResume/onRestart) even when
-		// their DagNodeDefinition was persisted before the strategy
-		// layer existed. This ports the 260720 TS TaskTypeRegistry.
 		taskTypeRegistry := orchestrator.NewTaskTypeRegistry()
 		taskTypeRegistry.RegisterTransitionPolicy(orchestrator.TaskTypeGallery, policies.GalleryNodePolicy)
 		dagOrch.SetTaskTypeRegistry(taskTypeRegistry)
 
-		// Wire EventBus into DagOrchestrator so SSE/WS clients receive
-		// dag:nodeProgress events for real-time gallery DAG progress.
 		dagOrch.SetEventBus(eventBus)
 
-		// 5d. Node-level DB status sync: push FSM states back to the
-		// entity tables (galleries / download_tasks / sniff_tasks) via
-		// orchestrator.StatusReporter. Unlike the previous
-		// terminal-states-only mapping, every user-observable state is
-		// now reported:
-		//   QUEUED/ALLOCATED/RUNNING → scraping/downloading/sniffing
-		//   READY (scheduler-rejected) → pending (等待中)
-		//   PAUSED → paused; FAILED/TIMEOUT → failed; CANCELLED → cancelled
-		// This closes the defect where rejected nodes left the DB stuck
-		// at "scraping" — every batch-created task looked like it was
-		// identifying ("全部启动识别/满仓") while the scheduler had never
-		// dispatched it (metrics showed totalScheduled << task count).
-		// "completed" is intentionally NOT written here: the executors
-		// write it with richer data (file counts, paths, partial).
-		// Best-effort: failures are logged, never fatal.
 		statusReporter := orchestrator.NewStatusReporter()
 		dagOrch.SetStatusSyncFn(func(ctx context.Context, dagID, nodeID string, nodeDef orchestrator.DagNodeDefinition, state orchestrator.NodeState) {
 			dbStatus, ok := statusReporter.MapNodeToEntityStatus(nodeDef, state)
@@ -283,17 +221,14 @@ func main() {
 			}
 		})
 
-		// 6. SchedulerEngine ??node selection and dispatch
 		sched = orchsched.NewSchedulerEngine(slotPool)
 
-		// 7. Wire scheduler ??orchestrator via adapters (both directions)
 		schedAdapter := &schedulerAdapter{sched: sched}
 		dagOrch.SetScheduler(schedAdapter)
 
 		orchAdapter := &orchestratorAdapter{orch: dagOrch}
 		sched.SetDagOrchestrator(orchAdapter)
 
-		// 8. Wire executor function ??the bridge from scheduler to executors
 		sched.SetExecutorFunc(func(ctx context.Context, node orchsched.SchedulableNodeAdapter) (bool, error) {
 			exec := exeReg.Get(node.ExecutorKey)
 			if exec == nil {
@@ -310,30 +245,11 @@ func main() {
 			return exec.Execute(ctx, en)
 		})
 
-		// 9. Initialize (restore from snapshots, replay events)
 		ctx := context.Background()
 		if err := dagOrch.Initialize(ctx); err != nil {
 			logger.Error("DAG orchestrator init failed", err)
 		}
 
-		// 9b. Per the design requirement, ALL unfinished tasks should
-		// transition to PAUSED on restart — no auto-execution. The
-		// onRestart policy in restoreDag (snapshot.go) handles the
-		// DAG-level state transitions (RUNNING/QUEUED/READY/etc. →
-		// PAUSED). We intentionally do NOT call ReactivateReadyNodes
-		// here, because that would immediately re-submit paused nodes
-		// for execution. The periodic auto-reactivation ticker (started
-		// below) only processes READY nodes, and since all restored
-		// nodes are PAUSED, it remains a no-op until the user manually
-		// starts or resumes tasks via the UI.
-
-		// 9c. Crash recovery: reset stale gallery and video statuses to
-		// 'pending' so the user sees them as "等待中" in the UI. We do
-		// NOT auto-recreate DAGs — the user decides when to start each
-		// task. After a server crash, in-flight galleries are left with
-		// "downloading" or "scraped" status; this step resets them to
-		// "pending" and leaves DAG recreation to the user's "start"
-		// action.
 		{
 			recoveryCtx := context.Background()
 			staleStatuses := []string{"downloading", "scraped", "scraping"}
@@ -361,45 +277,23 @@ func main() {
 					logger.Info("Crash recovery: resetting stale galleries",
 						"status", staleStatus, "count", len(orphans))
 					for _, o := range orphans {
-						// Reset gallery status to pending — do NOT recreate
-						// the DAG; the user starts it manually.
-						_, _ = database.Exec(recoveryCtx,
+					_, _ = database.Exec(recoveryCtx,
 							`UPDATE galleries SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 							o.id)
 					}
 				}
 			}
 
-		// Also reset stale gallery_videos statuses.
-		_, _ = database.Exec(recoveryCtx,
+			_, _ = database.Exec(recoveryCtx,
 			`UPDATE gallery_videos SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'failed')`)
 
-		// Reset stale video tasks (download_tasks) status to 'pending'.
-		// NOTE: Must include 'scraping' (identifying phase) — tasks
-		// crashed during identification were previously left stranded
-		// in 'scraping' because this query only covered
-		// 'downloading' + 'pending'.
-		_, _ = database.Exec(recoveryCtx,
+			_, _ = database.Exec(recoveryCtx,
 			`UPDATE download_tasks SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'pending', 'scraping')`)
 		}
 
-		// 10. Start periodic scan + queue capacity sync
 		sched.SyncQueueCapacityFromSlotPool()
 		sched.StartScanTimer(2 * time.Second)
 
-		// 10a. Sync DAG terminal failures back to the galleries table.
-		// The DAG orchestrator emits gallery:stateChanged when a gallery
-		// DAG ends failed/cancelled; executors may have left
-		// galleries.status at 'completed'/'partial' (their local view),
-		// so without this the frontend shows a completed gallery that
-		// actually failed verification. This subscription keeps the DB
-		// the single source of truth for the shelf UI.
-		//
-		// The DB write runs in a fire-and-forget goroutine so the
-		// EventBus emitter (DAG orchestrator) is never blocked on DB
-		// I/O. The write is idempotent (UPDATE ... WHERE dag_id = ?)
-		// and best-effort (failures only lose a status sync that the
-		// next event or manual refresh will correct).
 		eventBus.On("gallery:stateChanged", func(payload any) {
 			ev, ok := payload.(map[string]any)
 			if !ok || database == nil {
@@ -419,23 +313,14 @@ func main() {
 			}(dagID, status)
 		})
 
-		// 10b. Periodic READY-node reactivation. A node whose Submit was
-		// rejected (queue full / draining) is rolled back to READY by
-		// submitToScheduler; nothing else ever re-submits it, so without
-		// this ticker such nodes (and their DAGs) stall forever until a
-		// manual `puchipix-cli trigger`. The scan converges once the
-		// scheduler queue frees up.
 		reactivationCtx, reactivationCancel := context.WithCancel(context.Background())
 		dagOrch.StartAutoReactivation(reactivationCtx, 5*time.Second)
 		defer reactivationCancel()
 
 		logger.Info("DAG scheduler initialized")
 
-		// Shutdown hook for graceful DAG teardown.
-		// Shutdown sequence: drain scheduler ??flush event store ??snapshot.
-		// eventStore.Flush() is invoked inside dagOrch.Shutdown; do NOT call
-		// it again here ??Flush is idempotent (guarded by asyncStarted) but a
-		// duplicate call obscures the ownership of the persistence sequence.
+		// Do NOT call eventStore.Flush() here: dagOrch.Shutdown already
+		// invokes it. A duplicate call obscures the persistence ownership.
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -445,12 +330,10 @@ func main() {
 			sched.Stop()
 		}()
 
-		// 11. Supporting services ??blocklist, accounts, OUO, downloads
 		dataStore := sites.GetSiteDataStore()
 		blocklistSvc := sites.NewBlocklistService(database)
 		accountMgr := sites.NewSiteAccountManager(database)
 
-		// 12. Register all site providers onto the registry
 		siteReg.Register(aimeizizi.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(kanav.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(siteSjs.NewProvider(dataStore, accountMgr))
@@ -461,10 +344,8 @@ func main() {
 		logger.Info("Site providers registered", "count", 7)
 	}
 
-	// ── HTTP Handlers ──
 	h := api.New(database, eventBus)
 
-	// Inject DAG and service dependencies when database is available
 	if database != nil {
 		siteReg := sites.GetSiteRegistry()
 		ouoOrch := orchestrator.NewOuoOrchestrator()
@@ -490,11 +371,9 @@ func main() {
 		// initialized but never connected to the segment queue.
 		dm.SetTracker(videoTracker)
 
-		// Register the video download executor now that DownloadManager
-		// is available. WireExecutors (called during DAG init above) only
-		// registers gallery executors because DownloadManager is created
-		// later. Without this, video DAGs fail with "no executor
-		// registered for key: video:download".
+		// WireExecutors (called during DAG init above) only registers gallery
+		// executors; DownloadManager is created later. Video DAGs would fail
+		// with "no executor registered for key: video:download" without this.
 		if exeReg != nil {
 			statusFn := func(ctx context.Context, taskID int) (string, string, bool) {
 				var status, errMsg string
@@ -536,18 +415,9 @@ func main() {
 			}))
 		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
 
-		// Post-executor-registration video DAG recovery is intentionally
-		// skipped. Per the design requirement, unfinished tasks should
-		// remain in 'pending' status after restart — the user decides when
-		// to start each task via the UI. The DB status reset (earlier in
-		// the crash recovery block) already marked these tasks 'pending';
-		// no DAG recreation is needed because the user's "start" action
-		// will create a fresh DAG when ready.
+		// No DAG recovery here: unfinished tasks stay 'pending' after restart.
+		// The user's "start" action creates a fresh DAG when ready.
 	}
-
-		// Progress engine and video tracker were created earlier during
-		// DAG initialization so they could be passed to WireExecutors.
-		// Here we just inject them into the API handlers.
 
 		h.WithDag(dagOrch, sched, exeReg)
 		h.WithServices(ouoOrch, dm, siteReg)

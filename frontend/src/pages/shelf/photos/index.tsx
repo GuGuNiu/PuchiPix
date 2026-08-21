@@ -22,7 +22,6 @@ import { GalleryDetailPanel } from "./_components/gallery-detail-panel";
 
 export default function PhotosPage(): React.JSX.Element {
   const { t } = useI18n();
-  // 细粒度 selector 订阅：每个字段独立订阅，避免无关 store 更新触发本页重渲染。
   const galleries = useGalleryStore((s) => s.galleries);
   const listLoading = useGalleryStore((s) => s.loading);
   const fetchGalleries = useGalleryStore((s) => s.fetchGalleries);
@@ -81,9 +80,6 @@ export default function PhotosPage(): React.JSX.Element {
       if (s === "partial") {
         counts["completed"] = (counts["completed"] || 0) + 1;
       }
-      // download_pending is a sub-state of the downloading phase;
-      // count it under "downloading" so the filter pill reflects the
-      // true number of galleries still in progress.
       if (s === "download_pending") {
         counts["downloading"] = (counts["downloading"] || 0) + 1;
       }
@@ -182,8 +178,6 @@ export default function PhotosPage(): React.JSX.Element {
     [retryDownload]
   );
 
-  // 展开图包对象：find 只在该图包自身更新时才产生新引用，
-  // 配合 GalleryDetailPanel 的 memo 避免面板随列表更新而重渲染。
   const expandedGallery = useMemo(
     () => (expandedId === null ? null : galleries.find((g) => g.ID === expandedId) ?? null),
     [galleries, expandedId]

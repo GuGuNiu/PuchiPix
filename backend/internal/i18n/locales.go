@@ -31,11 +31,8 @@ var supportedSet = func() map[string]bool {
 //go:embed locales/*.json
 var localeFS embed.FS
 
-// flatLocaleUnmarshal adapts the project's flat dot-notation JSON
-// ("key": "value", mirroring the TypeScript TranslationDict) to the
-// message-file format go-i18n expects ("key": {"other": "value"}).
-// This keeps the existing locale files and their 1:1 mapping with the
-// frontend dictionary unchanged.
+// flatLocaleUnmarshal adapts flat dot-notation JSON to the message-file
+// format go-i18n expects, preserving the 1:1 mapping with the frontend dictionary.
 func flatLocaleUnmarshal(data []byte, v interface{}) error {
 	var flat map[string]string
 	if err := json.Unmarshal(data, &flat); err != nil {
@@ -61,9 +58,7 @@ var (
 	bundleErr  error
 )
 
-// loadBundle builds the go-i18n bundle once, loading all embedded
-// locale files. It replaces the previous hand-written JSON loading and
-// sync.Once caching with go-i18n's standard message catalog.
+// loadBundle builds the go-i18n bundle once from embedded locale files.
 func loadBundle() (*i18n.Bundle, error) {
 	bundleOnce.Do(func() {
 		b := i18n.NewBundle(language.MustParse(DefaultLocale))

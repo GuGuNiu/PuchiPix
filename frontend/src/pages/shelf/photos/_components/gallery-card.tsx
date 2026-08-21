@@ -20,13 +20,6 @@ export interface GalleryCardProps {
   onExpand: (id: number) => void;
 }
 
-/**
- * 单张图包卡片。
- *
- * 通过 zustand selector 只订阅自己的 progressMap[id]：
- * 其他图包的进度/状态变化不会导致本卡片重渲染。
- * React.memo 进一步保证：当 props（gallery 对象引用、回调）未变化时跳过渲染。
- */
 function GalleryCardComponent({
   gallery,
   isExpanded,

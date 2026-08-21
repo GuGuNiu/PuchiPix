@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRequestIDGenerated verifies that a request without a chi
-// request ID gets one auto-generated and set in the response header.
 func TestRequestIDGenerated(t *testing.T) {
 	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := w.Header().Get("X-Request-Id")
@@ -24,8 +22,6 @@ func TestRequestIDGenerated(t *testing.T) {
 	assert.NotEmpty(t, w.Header().Get("X-Request-Id"))
 }
 
-// TestRequestIDResponseHeader verifies that the X-Request-Id header
-// is always set on the response, allowing clients to correlate logs.
 func TestRequestIDResponseHeader(t *testing.T) {
 	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

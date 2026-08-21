@@ -1,16 +1,13 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 
 interface RouteStateEntry {
-  /** Arbitrary serializable state data. */
   data: Record<string, unknown>;
-  /** Scroll position in pixels. */
   scrollTop: number;
-  /** Timestamp (ms) when the entry was saved. */
   savedAt: number;
 }
 
 interface RouteStateConfig {
-  /** State TTL in milliseconds; expired entries are not restored. Defaults to 5 minutes. */
+  /** Expired entries are not restored. Defaults to 5 minutes. */
   ttl?: number;
   /** Whether to persist scroll position. Defaults to true. */
   saveScroll?: boolean;
@@ -18,20 +15,12 @@ interface RouteStateConfig {
   scrollSelector?: string;
 }
 
-/**
- * In-memory cache; preserves state between unmount/remount cycles within a
- * single SPA session.
- */
 const memCache = new Map<string, RouteStateEntry>();
 
-/** Prevents concurrent debounced writes for the same routeKey. */
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 
 const SAVE_DEBOUNCE_MS = 800;
 
-/**
- * Loads route state from the server.
- */
 async function loadFromServer(routeKey: string): Promise<RouteStateEntry | null> {
   try {
     const prefKey = `route_state:${routeKey}`;
@@ -50,9 +39,6 @@ async function loadFromServer(routeKey: string): Promise<RouteStateEntry | null>
   }
 }
 
-/**
- * Debounced write to the server.
- */
 function saveToServer(routeKey: string, entry: RouteStateEntry): void {
   memCache.set(routeKey, entry);
 
@@ -79,14 +65,8 @@ function saveToServer(routeKey: string, entry: RouteStateEntry): void {
 }
 
 /**
- * Route state persistence hook.
- *
- * State is persisted to the server-side UserPreference table (category=
- * `route_state`), while an in-memory cache enables fast restoration within
- * the same SPA session.
- *
- * @param routeKey - Route identifier (typically from react-router's `useLocation().pathname`).
- * @param config - Configuration options.
+ * Persists route state to the server-side UserPreference table and caches
+ * in-memory for fast restoration within the same SPA session.
  */
 export function useRouteState(
   routeKey: string,
@@ -133,7 +113,6 @@ export function useRouteState(
     };
   }, [routeKey, ttl]);
 
-  // Restore scroll position.
   useEffect(() => {
     if (!saveScroll) return;
     const entry = memCache.get(routeKey);
@@ -151,7 +130,6 @@ export function useRouteState(
     }
   }, [routeKey, saveScroll, scrollSelector]);
 
-  // Track scroll position changes.
   useEffect(() => {
     if (!saveScroll) return;
 

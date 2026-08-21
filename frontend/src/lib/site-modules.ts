@@ -1,10 +1,3 @@
-/**
- * Site Modules Service
- *
- * Fetches full site configuration (including domains list) from GET /api/sites at startup.
- * Backend is the single source of truth for site information.
- */
-
 import { createLogger } from "@/lib/core/infra";
 
 const logger = createLogger("SiteModules");
@@ -27,15 +20,10 @@ export interface SiteModuleConfig {
   readonly gallery?: boolean;
 }
 
-// In-memory cache populated at startup
 let siteModules: Record<string, SiteModuleConfig> = {};
 let allModules: SiteModuleConfig[] = [];
 let loaded = false;
 
-/**
- * Fetch site configuration from backend at startup.
- * Call from app entry point (e.g., useEffect in root layout).
- */
 export async function initSiteModules(): Promise<void> {
   try {
     const res = await fetch('/api/sites');
@@ -55,16 +43,10 @@ export async function initSiteModules(): Promise<void> {
   }
 }
 
-/**
- * Get site module by ID (synchronous, available after initSiteModules completes).
- */
 export function getSiteModule(id: string): SiteModuleConfig | undefined {
   return siteModules[id];
 }
 
-/**
- * Get display name for a site module based on locale.
- */
 export function getSiteModuleName(
   module: SiteModuleConfig,
   locale: string = 'zh-CN'
@@ -88,9 +70,6 @@ function hostnameFromUrl(url: string): string | undefined {
   }
 }
 
-/**
- * Find matching site module by URL (iterates baseUrl + domains list).
- */
 export function getSiteModuleByUrl(url: string): SiteModuleConfig | undefined {
   const hostname = hostnameFromUrl(url);
   if (!hostname) return undefined;
@@ -100,41 +79,27 @@ export function getSiteModuleByUrl(url: string): SiteModuleConfig | undefined {
     try {
       const host = new URL(m.baseUrl).hostname.toLowerCase();
       if (hostMatches(hostname, host)) return true;
-        } catch {
-          // baseUrl may be empty
-        }
+        } catch {}
     if (m.domains) {
       for (const domain of m.domains) {
         try {
           const host = new URL(domain).hostname.toLowerCase();
           if (hostMatches(hostname, host)) return true;
-        } catch {
-          // Invalid domain, skip
-        }
+        } catch {}
       }
     }
     return false;
   });
 }
 
-/**
- * Get all enabled site modules.
- */
 export function getAllSiteModules(): SiteModuleConfig[] {
   return allModules;
 }
 
-/**
- * Get currently loaded modules array for static access scenarios.
- * Ensure initSiteModules() has completed before first access.
- */
 export function getEnabledSiteModules(): readonly SiteModuleConfig[] {
   return allModules;
 }
 
-/**
- * Check if initialization is complete.
- */
 export function isSiteModulesLoaded(): boolean {
   return loaded;
 }

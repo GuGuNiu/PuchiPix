@@ -7,9 +7,8 @@ import zhCN, { type TranslationKey } from "./locales/zh-CN";
 import { usePreferenceStore } from "@/store/preference-store";
 
 
-/** LoadDictionary memoryCache */
 const dictCache = new Map<Locale, TranslationDict>();
-dictCache.set("zh-CN", zhCN); // Preload default locale synchronously
+dictCache.set("zh-CN", zhCN);
 
 
 const dictLoaders: Record<Locale, () => Promise<{ default: TranslationDict }>> = {
@@ -44,8 +43,6 @@ function interpolate(template: string, params?: Record<string, string | number>)
   });
 }
 
-// ─── Context ───
-
 interface I18nContextValue {
   locale: Locale;
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
@@ -63,8 +60,6 @@ export function useI18n(): I18nContextValue {
 }
 
 export type { TranslationKey };
-
-// ─── Provider ───
 
 export function I18nProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const storeLocale = usePreferenceStore((s) => s.locale);

@@ -9,9 +9,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// dagCreateCommand creates a new task via POST /api/tasks, mirroring
-// the frontend's add-task flow. The backend creates a download_tasks
-// record and returns { ID, DisplayID, Status }.
 type dagCreateCommand struct{}
 
 func (c dagCreateCommand) Name() string        { return "create" }

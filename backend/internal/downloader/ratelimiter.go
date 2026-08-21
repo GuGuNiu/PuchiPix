@@ -62,7 +62,6 @@ func (lr *limitedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// SleepBriefly pauses for a short duration used between retry attempts.
 func SleepBriefly(d time.Duration) {
 	time.Sleep(d)
 }

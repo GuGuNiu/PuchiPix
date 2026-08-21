@@ -188,8 +188,6 @@ func sortQueryParams(rawQuery string) string {
 // ReplaceDomain swaps the domain of rawURL to baseDomain when the URL
 // starts with any of the given domain prefixes, preserving the rest of
 // the path. If no prefix matches, the original URL is returned unchanged.
-// This consolidates the per-site ReplaceDomain implementations that were
-// duplicated across sjs, xsnvshen, and aimeizizi providers.
 func ReplaceDomain(rawURL, baseDomain string, domains []string) string {
 	if rawURL == "" || baseDomain == "" {
 		return rawURL
@@ -203,24 +201,15 @@ func ReplaceDomain(rawURL, baseDomain string, domains []string) string {
 }
 
 // IsM3U8URL checks whether a URL is likely an M3U8/HLS stream URL using
-// multiple detection signals rather than just the .m3u8 suffix. This
-// prevents false negatives where M3U8 URLs use non-standard extensions
-// or are embedded in query parameters.
-//
-// Detection signals (any match → true):
-//  1. Path ends with .m3u8 or .m3u (most common)
-//  2. Path contains /m3u8/ or /hls/ or /stream/ or /playlist/ segments
-//  3. Query parameters contain m3u8-related keys
-//  4. Known CDN domains that primarily serve HLS content
+// multiple detection signals to avoid false negatives from non-standard
+// extensions or embedded query parameters.
 func IsM3U8URL(rawURL string) bool {
 	lower := strings.ToLower(rawURL)
 
-	// Signal 1: Standard M3U8/M3U file extensions.
 	if strings.HasSuffix(lower, ".m3u8") || strings.HasSuffix(lower, ".m3u") {
 		return true
 	}
 
-	// Signal 2: Path contains HLS-related segments.
 	parsed, err := url.Parse(rawURL)
 	if err == nil {
 		pathLower := strings.ToLower(parsed.Path)
@@ -229,7 +218,6 @@ func IsM3U8URL(rawURL string) bool {
 				return true
 			}
 		}
-		// Signal 3: Query parameters hint at M3U8 content.
 		queryLower := strings.ToLower(parsed.RawQuery)
 		for _, key := range []string{"m3u8", "m3u", "hls", "playlist"} {
 			if strings.Contains(queryLower, key) {
@@ -238,7 +226,6 @@ func IsM3U8URL(rawURL string) bool {
 		}
 	}
 
-	// Signal 4: Known HLS CDN domains (patterns that almost always serve M3U8).
 	knownCDNPatterns := []string{
 		".m3u8.", "hls.", "cdn", "11yun.space", "stream.",
 	}
@@ -253,8 +240,7 @@ func IsM3U8URL(rawURL string) bool {
 
 // ReplaceHost unconditionally swaps the scheme and host of the original
 // URL to the given domain while preserving the path and query string.
-// If the URL has no scheme, it is returned unchanged. This consolidates
-// the universal scraper's buildURLForDomain implementation.
+// If the URL has no scheme, it is returned unchanged.
 func ReplaceHost(originalURL, newDomain string) string {
 	newDomain = strings.TrimPrefix(newDomain, "https://")
 	newDomain = strings.TrimPrefix(newDomain, "http://")

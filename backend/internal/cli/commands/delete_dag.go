@@ -8,8 +8,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// dagDeleteCommand removes a completed, cancelled, or failed DAG from
-// the orchestrator's memory.
 type dagDeleteCommand struct{}
 
 func (c dagDeleteCommand) Name() string        { return "delete" }

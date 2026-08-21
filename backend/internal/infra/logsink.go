@@ -26,9 +26,8 @@ type LogSinkStats struct {
 	Listeners int
 }
 
-// LogSink is a thread-safe ring buffer that mirrors the TypeScript LogSink.
-// It holds structured log entries for API/CLI queries and real-time SSE
-// fan-out via Subscribe.
+// LogSink is a thread-safe ring buffer holding structured log entries for
+// API/CLI queries and real-time SSE fan-out.
 type LogSink struct {
 	mu             sync.RWMutex
 	buffer         []StructuredLogEntry
@@ -50,13 +49,8 @@ func NewLogSink(capacity int) *LogSink {
 }
 
 // Push appends an entry, evicting the oldest when full, then fans out
-// to every subscriber. Listener panics are recovered so a faulty
-// subscriber cannot crash the logger.
-//
-// Listeners are invoked OUTSIDE the lock: a slow SSE subscriber
-// previously blocked every concurrent Push/Query call because the
-// RLock was held during listener dispatch. The copy-under-lock →
-// invoke-outside pattern mirrors EventBus.Emit.
+// to every subscriber. Listeners are invoked outside the lock so a slow
+// subscriber cannot block concurrent Push/Query calls.
 func (s *LogSink) Push(entry StructuredLogEntry) {
 	s.mu.Lock()
 	s.buffer = append(s.buffer, entry)
@@ -73,7 +67,6 @@ func (s *LogSink) Push(entry StructuredLogEntry) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					// A faulty listener must not crash the logger.
 					_ = r
 				}
 			}()

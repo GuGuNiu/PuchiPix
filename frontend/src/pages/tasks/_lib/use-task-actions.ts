@@ -90,11 +90,6 @@ export function useTaskActions({
           .then((data) => {
             if (data === null) return;
 
-            /*
-             * API now returns complete DownloadTask object for all types.
-             * No more placeholder construction needed — SSE gallery:created
-             * event will also arrive for real-time updates.
-             */
             if (data?.ID) {
               useTaskStore.getState().addTask(data as DownloadTask);
             }
@@ -107,12 +102,9 @@ export function useTaskActions({
           .finally(() => {
             succeeded++;
             finished++;
-            // Launch the next queued URL to keep concurrency bounded.
             if (nextIndex < total) {
               submitOne(urls[nextIndex++]);
             } else if (finished === total) {
-              // All done — coalesced summary toast (single-task case
-              // keeps the original per-type toast for familiarity).
               if (total > 1) {
                 if (failed === 0) {
                   toast.success("tasks.batchSubmitComplete", { count: succeeded });
@@ -124,7 +116,6 @@ export function useTaskActions({
           });
       };
 
-      // Seed the first SUBMIT_CONCURRENCY requests.
       const seedCount = Math.min(SUBMIT_CONCURRENCY, total);
       for (let i = 0; i < seedCount; i++) {
         submitOne(urls[nextIndex++]);
@@ -141,7 +132,6 @@ export function useTaskActions({
 
       const resolveEndpoint = (): string | null => {
         if (isSniff) {
-          // Sniff tasks are managed under /api/sniff, not /api/tasks.
           return action === "delete" ? `/api/sniff?id=${taskId}` : null;
         }
         if (isGallery) {
@@ -166,24 +156,12 @@ export function useTaskActions({
 
         const fetchOpts: RequestInit = { method };
         if (!isSniff && action !== "delete") {
-          /*
-           * Generic action name sent directly to backend.
-           * Backend routes to specific operation based on task status.
-           * (Previously frontend translated: start → resume/retry-failed, etc.)
-           */
           fetchOpts.headers = { "Content-Type": "application/json" };
           fetchOpts.body = JSON.stringify({ action });
         }
         const res = await fetch(endpoint, fetchOpts);
         if (!res.ok) throw new Error(await res.text());
 
-        /*
-         * Optimistic UI update: immediately reflect the new status in
-         * the task list instead of waiting for the next SSE event
-         * (which may be delayed by backend work such as domain
-         * switching, DAG scheduling, etc.). The SSE stream will
-         * eventually correct any discrepancy.
-         */
         const optimistic = computeOptimisticStatus(task, action);
         if (optimistic) {
           useTaskStore.getState().updateTask(
@@ -200,12 +178,6 @@ export function useTaskActions({
     [t]
   );
 
-  /*
-   * computeOptimisticStatus returns the immediate UI state change for
-   * a given action, so the user sees instant feedback without waiting
-   * for the backend to emit the first progress event. Returns null if
-   * no optimistic update applies.
-   */
   function computeOptimisticStatus(
     task: DownloadTask,
     action: string,
@@ -218,11 +190,9 @@ export function useTaskActions({
       case "retry":
       case "resume":
         if (isGallery) {
-          // Gallery tasks: scraped results mean download phase, else scrape phase.
           const status: TaskStatus = hasScraped ? "download_pending" : "scraping";
           return { Status: status, AllowedActions: ["pause", "delete"] };
         }
-        // Video / sniff tasks enter pending (waiting for slot).
         return { Status: "pending", AllowedActions: ["pause", "delete"] };
 
       case "pause":
@@ -259,11 +229,6 @@ export function useTaskActions({
     [fetchTasks, t]
   );
 
-  /*
-   * Batch action: frontend uses server-provided AllowedActions field
-   * to determine applicable tasks, eliminating 40+ lines of hardcoded
-   * status-action qualification logic.
-   */
   const handleBatchAction = useCallback(
     async (action: string) => {
       if (selectedIds.size === 0) {
@@ -317,11 +282,6 @@ export function useTaskActions({
         return;
       }
 
-      /*
-       * Use server-provided AllowedActions to determine which tasks
-       * can perform the requested action. Tasks without the action
-       * in their AllowedActions are skipped.
-       */
       const applicable: DownloadTask[] = [];
       let skipped = 0;
 
@@ -339,11 +299,6 @@ export function useTaskActions({
         return;
       }
 
-      /*
-       * Batch optimistic update: immediately reflect the new status for
-       * all applicable tasks before the API calls resolve. This gives
-       * instant visual feedback for bulk operations.
-       */
       for (const t of applicable) {
         const tt = t.TaskType === "gallery" ? "gallery" : t.TaskType === "sniff" ? "sniff" : "video";
         const optimistic = computeOptimisticStatus(t, action);

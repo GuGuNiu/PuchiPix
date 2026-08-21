@@ -8,8 +8,7 @@ import (
 )
 
 // CommandContext carries the API client, parsed arguments, and global
-// flags to each command executor. DB is an optional direct SQLite
-// connection used by the "db" command for local database access.
+// flags to each command executor.
 type CommandContext struct {
 	Client *dagclient.Client
 	DB     *sql.DB
@@ -18,8 +17,7 @@ type CommandContext struct {
 	Ctx    context.Context
 }
 
-// Command defines the interface for CLI commands, mirroring the
-// TypeScript Command interface.
+// Command defines the interface for CLI commands.
 type Command interface {
 	Name() string
 	Description() string

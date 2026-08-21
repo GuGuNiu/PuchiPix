@@ -126,7 +126,6 @@ func splitRanges(totalSize int64, n int) []chunkRange {
 	for i := 0; i < n; i++ {
 		end := start + chunkSize - 1
 		if i == n-1 {
-			// Last chunk takes the remainder.
 			end = totalSize - 1
 		}
 		if end > totalSize-1 {
@@ -175,7 +174,6 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 		minFileSize = 1 << 20 // 1 MB
 	}
 	if totalSize < minFileSize {
-		// File too small — single-thread is more efficient.
 		return nil //nolint:nilnil // signals caller to fall back
 	}
 
@@ -188,8 +186,7 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 		return &DownloadResult{Success: false, Error: err}
 	}
 
-	// 创建 staging 文件并预分配到 totalSize，确保后续 WriteAt
-	// 在任意偏移写入都有效。os.Create 等价于 O_RDWR|O_CREATE|O_TRUNC。
+	// Truncate to totalSize so WriteAt works at any offset.
 	f, err := os.Create(stagingPath)
 	if err != nil {
 		return &DownloadResult{Success: false, Error: fmt.Errorf("create staging: %w", err)}
@@ -203,8 +200,7 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 		f.Close()
 	}()
 
-	// 在失败路径中先关闭文件句柄再删除，否则 Windows 上
-	// 会因文件锁导致 os.Remove 静默失败。
+	// Closing before remove avoids failure on Windows where os.Remove fails on locked files.
 	cleanup := func() {
 		f.Close()
 		os.Remove(stagingPath)
@@ -227,7 +223,6 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 		return &DownloadResult{Success: false, Error: err}
 	}
 
-	// Validate staging file size before publishing.
 	fi, err := f.Stat()
 	if err != nil {
 		cleanup()
@@ -239,7 +234,6 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 	}
 	f.Close()
 
-	// Atomic publish: rename staging to final path.
 	if err := os.Rename(stagingPath, filePath); err != nil {
 		cleanup()
 		return &DownloadResult{Success: false, Error: fmt.Errorf("rename staging: %w", err)}

@@ -21,9 +21,6 @@ const thumbnailQuality = 80
 const maxThumbnailWidth = 1200
 const thumbnailCacheRoot = ".." + string(filepath.Separator) + "data" + string(filepath.Separator) + "thumbnails"
 
-// ServeResizedImage reads an image from disk, resizes it to the requested
-// width, and writes the result. Generated thumbnails are cached under
-// data/thumbnails/{XX}/{hash}.jpg using hex-sharded directories.
 func ServeResizedImage(w http.ResponseWriter, r *http.Request, absPath string, targetWidth int) {
 	if targetWidth <= 0 {
 		http.ServeFile(w, r, absPath)
@@ -101,15 +98,12 @@ func ServeResizedImage(w http.ResponseWriter, r *http.Request, absPath string, t
 	io.Copy(w, &buf)
 }
 
-// ThumbnailCachePath computes the disk cache path using hex-sharded
-// directories (00..ff) derived from an MD5 hash of the source path + width.
 func ThumbnailCachePath(absPath string, width int) string {
 	key := fmt.Sprintf("%s:%d", filepath.ToSlash(absPath), width)
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(key)))
 	return filepath.Join(thumbnailCacheRoot, hash[:2], hash[2:]+".jpg")
 }
 
-// QueryInt extracts an integer query parameter with a fallback default.
 func QueryWidth(r *http.Request) int {
 	v := r.URL.Query().Get("width")
 	if v == "" {
@@ -122,9 +116,6 @@ func QueryWidth(r *http.Request) int {
 	return n
 }
 
-// ResolveDataPath resolves a stored local path to an absolute filesystem
-// path that the API can serve. It handles three path formats that may
-// exist in the database.
 func ResolveDataPath(storedPath string) string {
 	if storedPath == "" {
 		return ""

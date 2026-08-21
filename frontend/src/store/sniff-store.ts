@@ -3,19 +3,12 @@ import { createLogger } from '@/lib/core/infra';
 
 const logger = createLogger('SniffStore');
 
-/*
- * SniffTask mirrors the backend SniffTask JSON (PascalCase keys from
- * internal/db/models.go). The /api/sniff endpoints manage sniff tasks:
- * GET  /api/sniff      - task list
- * POST /api/sniff      - { url, siteId } creates a task, executed via DAG
- * DELETE /api/sniff?id= - remove a task
- */
 export interface SniffTask {
   ID: number;
   DisplayID: string | null;
   URL: string;
   SiteID: string;
-  Status: string; // Possible values: pending, scraping, running, completed, failed
+  Status: string;
   TotalFound: number;
   TotalCreated: number;
   TotalSkipped: number;

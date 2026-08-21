@@ -11,8 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// dbCommand provides direct SQLite database access for local querying,
-// schema inspection, and data dumping without going through the API.
 type dbCommand struct{}
 
 func (dbCommand) Name() string        { return "db" }
@@ -76,7 +74,6 @@ func dbTables(ctx CommandContext) error {
 		return err
 	}
 
-	// Query sqlite_master for all user tables, excluding internal tables.
 	query := `
 		SELECT name FROM sqlite_master
 		WHERE type='table'
@@ -95,8 +92,7 @@ func dbTables(ctx CommandContext) error {
 	}
 	var tables []tableInfo
 
-	// Collect all table names first to avoid nested queries
-	// (would deadlock with MaxOpenConns=1).
+	// Collect table names first to avoid nested queries (deadlocks with MaxOpenConns=1).
 	var tableNames []string
 	for rows.Next() {
 		var name string
@@ -107,7 +103,6 @@ func dbTables(ctx CommandContext) error {
 	}
 	rows.Close()
 
-	// Now query counts sequentially.
 	for _, name := range tableNames {
 		var count int64
 		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", name)
@@ -166,7 +161,6 @@ func dbSchema(ctx CommandContext) error {
 	}
 
 	ui.PrintDivider(fmt.Sprintf("Schema: %s", tableName))
-	// Pretty-print the SQL with indentation.
 	formatted := formatSQL(createSQL)
 	fmt.Println(formatted)
 
@@ -193,7 +187,6 @@ func dbQuery(ctx CommandContext) error {
 
 	sqlQuery := strings.Join(args, " ")
 
-	// Safety check: only allow SELECT queries.
 	trimmed := strings.TrimSpace(strings.ToUpper(sqlQuery))
 	if !strings.HasPrefix(trimmed, "SELECT") && !strings.HasPrefix(trimmed, "PRAGMA") && !strings.HasPrefix(trimmed, "EXPLAIN") {
 		fmt.Printf("%sError: Only SELECT, PRAGMA, and EXPLAIN queries are allowed%s\n", ui.Red, ui.Reset)
@@ -212,7 +205,6 @@ func dbQuery(ctx CommandContext) error {
 		return fmt.Errorf("get columns: %w", err)
 	}
 
-	// Read all rows.
 	var results []map[string]any
 	for rows.Next() {
 		columns := make([]any, len(cols))
@@ -226,7 +218,6 @@ func dbQuery(ctx CommandContext) error {
 		row := make(map[string]any, len(cols))
 		for i, col := range cols {
 			val := columns[i]
-			// Convert []byte (SQLite returns text as []byte) to string.
 			if b, ok := val.([]byte); ok {
 				row[col] = string(b)
 			} else {
@@ -242,7 +233,6 @@ func dbQuery(ctx CommandContext) error {
 		return nil
 	}
 
-	// Render as table.
 	renderTable(cols, results)
 	return nil
 }
@@ -366,7 +356,6 @@ func renderTable(cols []string, rows []map[string]any) {
 		return
 	}
 
-	// Calculate column widths.
 	widths := make([]int, len(cols))
 	for i, col := range cols {
 		widths[i] = len(col)
@@ -377,14 +366,12 @@ func renderTable(cols []string, rows []map[string]any) {
 			if len(val) > widths[i] {
 				widths[i] = len(val)
 			}
-			// Cap column width at 40.
 			if widths[i] > 40 {
 				widths[i] = 40
 			}
 		}
 	}
 
-	// Print header.
 	header := "  "
 	sep := "  "
 	for i, col := range cols {
@@ -398,7 +385,6 @@ func renderTable(cols []string, rows []map[string]any) {
 	fmt.Printf("%s%s%s\n", ui.Bold, header, ui.Reset)
 	fmt.Printf("%s%s%s\n", ui.Dim, sep, ui.Reset)
 
-	// Print rows.
 	for _, row := range rows {
 		line := "  "
 		for i, col := range cols {
@@ -434,21 +420,16 @@ func formatSQL(sql string) string {
 	return strings.Join(result, "\n")
 }
 
-// openDB opens a SQLite database at the given path with read-only settings.
-// It returns a *sql.DB configured for safe CLI querying.
 func openDB(dbPath string) (*sql.DB, error) {
-	// Use URI mode to enable read-only access.
 	uri := fmt.Sprintf("file:%s?mode=ro", dbPath)
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	// Set conservative connection limits.
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
 
-// ensureDBPath checks if the database file exists and returns an error if not.
 func ensureDBPath(dbPath string) error {
 	if _, err := os.Stat(dbPath); err != nil {
 		if os.IsNotExist(err) {

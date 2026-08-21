@@ -3,11 +3,8 @@ import { Grid, useGridRef } from "react-window";
 import type { GalleryData } from "@/types";
 import { GalleryCard } from "./gallery-card";
 
-/** 网格列宽（与卡片内容尺寸匹配） */
 const COL_WIDTH = 288;
-/** 卡片间距 */
 const GAP = 16;
-/** 虚拟化行高：封面 220px + 文本区（固定高度，超出的 pill 行裁剪） */
 const ROW_HEIGHT = 356;
 
 interface GalleryGridProps {
@@ -23,12 +20,6 @@ interface GalleryGridCellData {
   onExpand: (id: number) => void;
 }
 
-/**
- * 图包主网格（虚拟化）。
- *
- * 只渲染视口内的卡片，配合 GalleryCard 的 React.memo 与 store
- * 引用稳定性，数百张图包也能流畅滚动/更新。
- */
 export function GalleryGrid({ items, expandedId, onExpand }: GalleryGridProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const gridRef = useGridRef(null);

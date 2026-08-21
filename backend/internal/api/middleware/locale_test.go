@@ -10,9 +10,6 @@ import (
 	"backend/internal/i18n"
 )
 
-// TestLocaleDetectionHeader verifies that the x-locale header takes
-// priority over other detection sources, allowing the frontend to
-// explicitly control the locale.
 func TestLocaleDetectionHeader(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,9 +24,6 @@ func TestLocaleDetectionHeader(t *testing.T) {
 	assert.Equal(t, "ja-JP", detected)
 }
 
-// TestLocaleDetectionCookie verifies that the locale cookie is used
-// when the x-locale header is absent, preserving user preference
-// across page reloads.
 func TestLocaleDetectionCookie(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +38,6 @@ func TestLocaleDetectionCookie(t *testing.T) {
 	assert.Equal(t, "en-US", detected)
 }
 
-// TestLocaleDetectionAcceptLanguage verifies that Accept-Language
-// is used as a fallback when no explicit locale is provided.
 func TestLocaleDetectionAcceptLanguage(t *testing.T) {
 	var detected string
 	handler := LocaleDetection(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

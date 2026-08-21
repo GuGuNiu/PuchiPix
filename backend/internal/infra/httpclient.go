@@ -12,9 +12,7 @@ import (
 const DefaultHTTPTimeout = 120 * time.Second
 
 // NewHTTPClient returns an *http.Client configured for connection reuse
-// and sane timeouts, replacing the TypeScript shared HttpClient. The
-// transport pool keeps idle connections alive to avoid TCP handshake
-// overhead on repeated requests to the same host.
+// and sane timeouts.
 func NewHTTPClient(timeout time.Duration) *http.Client {
 	if timeout <= 0 {
 		timeout = DefaultHTTPTimeout

@@ -27,8 +27,7 @@ interface LogConsoleProps {
 /*
  * Go backend serializes LogContext as a nested {context: {dagId, nodeId,
  * traceId, ...}} object; the frontend reads these at the top level.
- * Flatten the nested context onto the entry so dag/node/trace tags render
- * (F8).
+ * Flatten the nested context onto the entry so dag/node/trace tags render.
  */
 function flattenLogContext(raw: Record<string, unknown>): Record<string, unknown> {
   const ctx = raw.context;
@@ -93,16 +92,13 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
     const qs = params.toString();
     const url = qs ? `/api/logs?${qs}` : "/api/logs";
 
-    // SseConnection provides exponential backoff reconnection, heartbeat watchdog, and connection state broadcast.
-    // Backend /api/logs pushes a named heartbeat event every 15s; watchdog uses it to determine liveness.
     const conn = new SseConnection(url);
 
     const unsubHistory = conn.subscribe("history", (e) => {
       try {
         const raw = JSON.parse(e.data) as Array<Record<string, unknown>>;
         setLogs(raw.map(flattenLogContext) as unknown as LogEntry[]);
-      } catch {
-      }
+      } catch {}
     });
 
     const unsubLog = conn.subscribe("log", (e) => {
@@ -115,8 +111,7 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
         } else {
           setLogs((prev) => [...prev.slice(-499), entry]);
         }
-      } catch {
-      }
+      } catch {}
     });
 
     const unsubState = conn.onStateChange((state) => {

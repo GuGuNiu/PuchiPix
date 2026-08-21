@@ -8,7 +8,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// dagLinkCommand adds a runtime dependency edge between two nodes in a DAG.
 type dagLinkCommand struct{}
 
 func (c dagLinkCommand) Name() string        { return "link" }

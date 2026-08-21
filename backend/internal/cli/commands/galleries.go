@@ -9,8 +9,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// galleriesCommand manages gallery records (the galleries table),
-// supporting list, detail, progress, retry, pause, resume, and delete.
 type galleriesCommand struct{}
 
 func (galleriesCommand) Name() string        { return "galleries" }
@@ -285,7 +283,6 @@ func galleriesProgress(ctx CommandContext) error {
 
 func galleriesAction(ctx CommandContext, action string) error {
 	args := ctx.Args
-	// Skip subcommand name if present
 	if len(args) > 0 && (args[0] == "retry" || args[0] == "retry-failed" ||
 		args[0] == "pause" || args[0] == "resume") {
 		args = args[1:]
@@ -358,7 +355,6 @@ func galleriesDelete(ctx CommandContext) error {
 	return nil
 }
 
-// galleryStatusPill returns a colored status string for gallery statuses.
 func galleryStatusPill(status string) string {
 	colors := map[string]string{
 		"pending":     ui.Gray,

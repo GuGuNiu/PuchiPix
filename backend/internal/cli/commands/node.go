@@ -55,8 +55,5 @@ func (nodeCommand) Execute(ctx CommandContext) error {
 	}
 	fmt.Println()
 
-	// Result and full state history are not returned by the simplified
-	// GET /api/dag/{id} endpoint; use `dag <id> --logs` or events for
-	// deeper tracing.
 	return nil
 }

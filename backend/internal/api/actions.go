@@ -16,8 +16,6 @@ import (
 	"backend/internal/sites"
 )
 
-// searchResult is the unified response type for Search and SearchBatch
-// endpoints, representing a gallery search hit.
 type searchResult struct {
 	ID          int    `json:"id"`
 	Title       string `json:"title"`
@@ -29,11 +27,8 @@ type searchResult struct {
 	Status      string `json:"status"`
 }
 
-// Scrape triggers a gallery scrape operation using the registered
-// site provider that matches the given URL. The scrape is now routed
-// through the DAG orchestrator for proper slot pool concurrency
-// control, replacing the legacy direct provider invocation that
-// bypassed all scheduling and resource limits.
+// Scrape routes a gallery scrape through the DAG orchestrator for slot pool
+// concurrency control instead of invoking the provider directly.
 func (h *Handlers) Scrape(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL    string `json:"url"`
@@ -62,7 +57,6 @@ func (h *Handlers) Scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Route through DAG orchestrator for proper slot pool concurrency control.
 	if h.DagOrch == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.scrape.notAvailable"))
 		return
@@ -80,15 +74,12 @@ func (h *Handlers) Scrape(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// submitScrapeDag builds a scrape DAG via the DagFactory
-// and submits it to the orchestrator for slot-pool-controlled execution.
 func (h *Handlers) submitScrapeDag(r *http.Request, url, siteID string) (string, error) {
 	def := dag.NewDagFactory().NewScrapeTask(url, siteID)
 
 	return h.DagOrch.SubmitDag(r.Context(), def)
 }
 
-// SniffList returns all sniff tasks from the database.
 func (h *Handlers) SniffList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -114,10 +105,6 @@ func (h *Handlers) SniffList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
-// SniffCreate creates a new sniff task and submits it through the
-// DAG orchestrator for execution via the sniff executor (chromedp-based
-// M3U8 capture). Previously sniff tasks were only inserted into the DB
-// with no actual execution path, leaving them permanently in "pending".
 func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -144,8 +131,6 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Submit sniff DAG for execution via the orchestrator.
-	// Falls back gracefully when the DAG system is unavailable.
 	dagID := ""
 	if h.DagOrch != nil {
 		def := dag.NewDagFactory().NewSniffPipeline(req.URL, id)
@@ -165,7 +150,6 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
 			return
 		}
-		// Store the DAG ID for future lookups.
 		h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, id)
 	}
 
@@ -189,8 +173,6 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Search returns gallery search results. Queries the database
-// directly until the SearchEngine is implemented (Phase 4).
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	keywords := r.URL.Query().Get("keywords")
 	if keywords == "" {
@@ -231,8 +213,6 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
-// SearchBatch performs a batch search across multiple keywords in a
-// single SQL query using OR conditions to avoid N+1 round trips.
 func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Keywords []string `json:"keywords"`
@@ -249,8 +229,6 @@ func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build single query with OR conditions: (LIKE ? OR LIKE ? ...)
-	// Each keyword expands to 3 placeholders (title/protagonist/tags).
 	args := make([]any, 0, len(req.Keywords)*3)
 	conditions := make([]string, len(req.Keywords))
 	for i, kw := range req.Keywords {
@@ -280,7 +258,6 @@ func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, allResults)
 }
 
-// Ouo resolves an OUO short link to its final download URL.
 func (h *Handlers) Ouo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL string `json:"url"`
@@ -305,7 +282,6 @@ func (h *Handlers) Ouo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"resolvedUrl": resolved})
 }
 
-// Sjs handles SJS forum operations (checkin/buy/hide).
 func (h *Handlers) Sjs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Action string `json:"action"`
@@ -335,7 +311,6 @@ func (h *Handlers) Sjs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Proxy forwards a request to a target URL, bypassing CORS.
 func (h *Handlers) Proxy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL     string            `json:"url"`
@@ -381,7 +356,6 @@ func (h *Handlers) Proxy(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-// CharacterDB queries the game character database by name or pinyin.
 func (h *Handlers) CharacterDB(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	if name == "" {
@@ -412,8 +386,6 @@ func (h *Handlers) CharacterDB(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, persons)
 }
 
-// GameCharacters returns all game characters from the database,
-// grouped by game, for the frontend "游戏资料" display page.
 func (h *Handlers) GameCharacters(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
@@ -438,7 +410,6 @@ func (h *Handlers) GameCharacters(w http.ResponseWriter, r *http.Request) {
 		GameNameEn string   `json:"gameNameEn"`
 	}
 
-	// Group by game
 	type gameGroup struct {
 		GameName   string      `json:"gameName"`
 		GameNameEn string      `json:"gameNameEn"`
@@ -454,9 +425,7 @@ func (h *Handlers) GameCharacters(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&c.ID, &c.Name, &c.Pinyin, &aliasesJSON, &c.GameName, &c.GameNameEn); err != nil {
 			continue
 		}
-		// Parse aliases JSON array
 		if aliasesJSON != "" && aliasesJSON != "[]" {
-			// Simple parse - handles our JSON format
 			aliasesStr := strings.Trim(aliasesJSON, "[]")
 			for _, a := range strings.Split(aliasesStr, ",") {
 				a = strings.Trim(strings.TrimSpace(a), "\"")
@@ -485,8 +454,6 @@ func (h *Handlers) GameCharacters(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// ServeFile serves local files from the data/ directory via
-// GET /api/proxy?path=... matching the TypeScript frontend convention.
 func (h *Handlers) ServeFile(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Query().Get("path")
 	if p == "" {
@@ -494,9 +461,6 @@ func (h *Handlers) ServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// resolveDataPath handles absolute paths (stored by wire_executors.go)
-	// and relative paths (legacy `data\...` convention), returning an
-	// absolute path inside the data/ directory or empty on failure.
 	abs := image.ResolveDataPath(p)
 	if abs == "" {
 		writeError(w, http.StatusForbidden, "invalid path")
@@ -508,12 +472,10 @@ func (h *Handlers) ServeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Support on-the-fly thumbnail generation via ?width=N
 	width := image.QueryWidth(r)
 	image.ServeResizedImage(w, r, abs, width)
 }
 
-// SniffDelete removes a sniff task by ID (query param ?id=).
 func (h *Handlers) SniffDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -537,7 +499,6 @@ func (h *Handlers) SniffDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// SjsShelfCreate creates SJS shelf items from URLs.
 func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -564,7 +525,6 @@ func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		// RowsAffected == 1 表示新插入，== 0 表示已存在（跳过）
 		n, _ := res.RowsAffected()
 		if n > 0 {
 			created++
@@ -574,7 +534,6 @@ func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 			results = append(results, sjsImportResult{URL: u, Status: "skipped"})
 		}
 	}
-	// 返回逐条结果与汇总，供前端展示导入明细
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"results": results,
 		"summary": map[string]int{
@@ -586,7 +545,6 @@ func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SjsShelfDelete removes SJS shelf items. Query params: ?id= (single) or ?id=all (all).
 func (h *Handlers) SjsShelfDelete(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -603,7 +561,6 @@ func (h *Handlers) SjsShelfDelete(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "delete failed")
 			return
 		}
-		// 书签删除是多用户操作，发射事件通知前端实时移除
 		if h.EventBus != nil {
 			h.EventBus.Emit("task:cancelled", map[string]any{
 				"taskId":   idStr,

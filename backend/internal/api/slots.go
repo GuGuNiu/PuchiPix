@@ -9,9 +9,6 @@ import (
 	"backend/internal/i18n"
 )
 
-// SlotList returns the current snapshot of all slot types with their
-// usage, max, available counts, and utilization rates for real-time
-// monitoring dashboards and the frontend config panel.
 func (h *Handlers) SlotList(w http.ResponseWriter, r *http.Request) {
 	if h.Sched == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -44,7 +41,6 @@ func (h *Handlers) SlotList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Also include scheduler queue depth.
 	schedStats := h.Sched.GetStats()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"slots":         slots,
@@ -55,9 +51,6 @@ func (h *Handlers) SlotList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SlotUpdate accepts a new max value for a slot type, clamped to the
-// type's configured [Min, Max] range, and triggers scheduler re-scan.
-// PUT /api/slots/{type}  {"max": 5}
 func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 	slotType := chi.URLParam(r, "type")
 	if slotType == "" {
@@ -83,12 +76,7 @@ func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 
 	h.Sched.UpdateSlotMax(slotType, req.Max)
 
-	// Persist the new max to app_configs so the value survives restarts.
-	// Startup re-applies these keys via applyPersistedSlotMax in the
-	// server main; without this, a CLI/API raise of the slot cap would
-	// silently revert to the default after every restart.
 	if h.DB != nil {
-		// Map slot type → app_configs key (mirrors TaskSettingsUpdate).
 		dbKey := ""
 		switch slotType {
 		case "download":
@@ -106,7 +94,6 @@ func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Return updated usage for this slot type.
 	stats := h.Sched.GetSlotSnapshot()
 	usage, ok := stats[slotType]
 	if !ok {
@@ -121,8 +108,6 @@ func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SlotHolders returns the list of active holder IDs for all slot types,
-// useful for diagnosing slot leaks and identifying stuck tasks.
 func (h *Handlers) SlotHolders(w http.ResponseWriter, r *http.Request) {
 	if h.Sched == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"holders": map[string][]string{}})
@@ -132,8 +117,6 @@ func (h *Handlers) SlotHolders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"holders": holders})
 }
 
-// SlotDetail returns detailed information for a single slot type
-// including active holders, queue depth, and utilization.
 func (h *Handlers) SlotDetail(w http.ResponseWriter, r *http.Request) {
 	slotType := chi.URLParam(r, "type")
 	if slotType == "" {
@@ -179,15 +162,13 @@ func (h *Handlers) SlotDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// roundTo2 rounds a float64 to 2 decimal places.
 func roundTo2(v float64) float64 {
 	return float64(int(v*100+0.5)) / 100
 }
 
 // SlotReset clears all usage for a single slot type. Emergency tool for
-// ghost-slot recovery (P-SLOT-01): when the running counter drifts from
-// the activeSlots map and tasks are starved, `DELETE /api/slots/{type}`
-// (or `cli slots reset <type>`) restores availability immediately.
+// ghost-slot recovery: when the running counter drifts from the activeSlots
+// map and tasks are starved, DELETE /api/slots/{type} restores availability.
 func (h *Handlers) SlotReset(w http.ResponseWriter, r *http.Request) {
 	slotType := chi.URLParam(r, "type")
 	if slotType == "" {

@@ -50,19 +50,10 @@ func DefaultNeighborOptions(totalSegments int) NeighborOptions {
 	}
 }
 
-// ValidateMergeOutput checks the merge output for completeness. It performs
-// three levels of verification:
-//
-//  1. File-level: output file exists and is non-empty; all expected segment
-//     files are present and non-zero.
-//  2. Count-level: actual segment count matches expected count.
-//  3. Duration-level (best-effort): if ffmpeg is available, the output
-//     duration is compared to the sum of EXTINF values. A deviation > 10%
-//     marks the merge as corrupted.
-//
-// The function never returns an error for validation failures — it encodes
-// them in the MergeValidationResult. Errors are only returned for unexpected
-// I/O problems.
+// ValidateMergeOutput checks the merge output for completeness at three levels:
+// file-level (output and segments exist, non-empty), count-level (segment count
+// matches), and duration-level (deviation within 10% of expected). Validation
+// failures are encoded in the result, not returned as errors.
 func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expectedSegments int, expectedDuration time.Duration) MergeValidationResult {
 	result := MergeValidationResult{
 		OutputPath:       outputPath,
@@ -70,7 +61,6 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expecte
 		ExpectedDuration: expectedDuration,
 	}
 
-	// --- Level 1: Check output file ---
 	if info, err := os.Stat(outputPath); err == nil {
 		result.OutputSize = info.Size()
 	} else {
@@ -79,7 +69,6 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expecte
 		return result
 	}
 
-	// --- Level 2: Check segment files on disk ---
 	entries, err := os.ReadDir(segDir)
 	if err != nil {
 		result.MissingIndices = allIndices(expectedSegments)
@@ -116,7 +105,6 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expecte
 		result.Valid = true
 	}
 
-	// --- Level 3: Duration-level verification (best-effort) ---
 	if expectedDuration > 0 {
 		if outputDur, err := ProbeDuration(ctx, outputPath); err == nil && outputDur > 0 {
 			result.OutputDuration = time.Duration(outputDur * float64(time.Second))
@@ -229,8 +217,6 @@ func filterSegments(segments []M3U8Segment, successSet map[int]bool) []M3U8Segme
 	}
 	return filtered
 }
-
-// --- Helper functions ---
 
 // allIndices returns [0, n-1].
 func allIndices(n int) []int {

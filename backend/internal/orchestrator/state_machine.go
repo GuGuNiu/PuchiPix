@@ -26,13 +26,6 @@ type StateMachineContext struct {
 // TaskStateMachine manages the state transitions of a single DAG node,
 // enforcing the validTransitions table and recording history for
 // audit and snapshot recovery.
-//
-// Strategy layer (260720 port): when a non-nil TransitionPolicy is
-// supplied, Transition() first consults the policy's guards via
-// resolveTargetState (which may redirect the target), validates against
-// the policy's transition rules, then runs matching actions. When the
-// policy is nil or has no matching rule, the FSM falls back to the
-// global validTransitions table ??preserving backward compatibility.
 type TaskStateMachine struct {
 	mu        sync.Mutex
 	state     NodeState
@@ -47,10 +40,7 @@ type TaskStateMachine struct {
 	logger    *infra.Logger
 }
 
-// NewTaskStateMachine creates a state machine starting in PENDING state,
-// mirroring the TypeScript TaskStateMachine constructor. The optional
-// policy parameter enables per-node transition differentiation; pass nil
-// to use the global validTransitions table (backward compatible).
+// NewTaskStateMachine creates a state machine starting in PENDING state.
 func NewTaskStateMachine(dagID, nodeID string, phase TaskPhase, def DagNodeDefinition) *TaskStateMachine {
 	now := time.Now()
 	fsm := &TaskStateMachine{
@@ -131,20 +121,12 @@ func (fsm *TaskStateMachine) ResetRetryCount() {
 
 // Transition attempts to move the node to the target state, enforcing
 // the validTransitions table and recording the transition in history.
-//
-// Strategy layer (260720 port): when a non-nil policy is installed, the
-// target state is first resolved through the policy's guards
-// (resolveTargetState may redirect it), then validated against the
-// policy's transition rules (falling back to validTransitions when the
-// policy has no matching rule). After the transition, matching actions
-// run via runActions.
 func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext) error {
 	fsm.mu.Lock()
 
 	fromState := fsm.state
 	resolvedTo := toState
 
-	// Strategy layer: policy guards may redirect the target state.
 	if fsm.policy != nil {
 		resolvedTo = fsm.resolveTargetStateLocked(fromState, toState, ctx)
 		if resolvedTo != toState {
@@ -152,9 +134,6 @@ func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext
 		}
 	}
 
-	// Validate the (possibly redirected) transition. Policy transitions
-	// take precedence when present; otherwise fall back to the global
-	// validTransitions table.
 	if !fsm.transitionAllowedLocked(fromState, resolvedTo) {
 		fsm.mu.Unlock()
 		return fmt.Errorf("%w: node %s from %s to %s", ErrIllegalTransition, fsm.nodeID, fromState, resolvedTo)
@@ -192,8 +171,6 @@ func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext
 		fsm.context.RetryCount++
 	}
 
-	// Strategy layer: run matching actions under the lock so they can
-	// safely mutate context.Extras / timing fields.
 	if fsm.policy != nil {
 		fsm.runActionsLocked(prevState, resolvedTo, ctx)
 	}
@@ -221,15 +198,14 @@ func (fsm *TaskStateMachine) resolveTargetStateLocked(from, to NodeState, event 
 			continue
 		}
 		if rule.Guard == nil || rule.Guard(fsm.context, event) {
-			return to // guard passed (or no guard)
+			return to
 		}
-		// Guard rejected ??redirect to fallback if set.
 		if rule.Fallback != "" {
 			return rule.Fallback
 		}
-		return to // no fallback: keep target, let validation reject it
+		return to
 	}
-	return to // no matching rule: keep target, fall back to global validation
+	return to
 }
 
 // transitionAllowedLocked checks whether a transition is permitted,
@@ -244,12 +220,7 @@ func (fsm *TaskStateMachine) transitionAllowedLocked(from, to NodeState) bool {
 					return true
 				}
 			}
-			// Policy defined transitions for this source state but none
-			// match the target. We still allow the global table to permit
-			// it ??this keeps backward compatibility for transitions that
-			// the policy didn't explicitly enumerate (e.g. CANCELLED from
-			// any state). Only when the policy explicitly wants to deny
-			// should it omit the rule AND rely on guard rejection.
+		// No matching rule in the policy; fall back to the global table.
 		}
 	}
 	return CanTransition(from, to)
@@ -335,16 +306,8 @@ func (fsm *TaskStateMachine) RestoreFromSnapshot(history []StateTransitionRecord
 }
 
 // AggregateTaskStatus computes the aggregate status of a DAG from its
-// node states, implementing the 260720 fix priority ordering.
-//
-// Priority order (highest first):
-//  1. Cancelled (terminal, overrides everything)
-//  2. Failed (non-retryable terminal)
-//  3. Timeout (treated as failed)
-//  4. NeedsRetry (retryable failure, not terminal)
-//  5. Paused
-//  6. All completed
-//  7. Pending (default)
+// node states. Priority order: cancelled, failed, timeout, needs_retry,
+// paused, all completed, pending.
 func AggregateTaskStatus(taskType TaskType, nodes []NodeSnapshotInfo) string {
 	if len(nodes) == 0 {
 		return "pending"
@@ -363,18 +326,12 @@ func AggregateTaskStatus(taskType TaskType, nodes []NodeSnapshotInfo) string {
 			hasCancelled = true
 			allCompleted = false
 		case NodeStateFailed:
-			// NonCritical failures count as "completed" for aggregate status,
-			// allowing the DAG to succeed despite best-effort node failures.
-			if n.NonCritical {
-				// Treat as completed
-			} else {
+			if !n.NonCritical {
 				hasFailed = true
 				allCompleted = false
 			}
 		case NodeStateTimeout:
-			if n.NonCritical {
-				// Treat as completed
-			} else {
+			if !n.NonCritical {
 				hasTimeout = true
 				allCompleted = false
 			}

@@ -8,8 +8,7 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// PrintStructuredLog prints a single log entry in the structured format
-// matching the TypeScript printStructuredLog function.
+// PrintStructuredLog prints a single structured log entry.
 func PrintStructuredLog(entry dagclient.LogEntry) {
 	ts := ui.FormatTime(entry.Timestamp)
 	level := ui.LogLevelLabel(entry.Level)

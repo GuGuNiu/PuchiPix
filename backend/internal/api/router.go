@@ -23,8 +23,6 @@ func NewRouter(h *Handlers) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", h.Health)
-		// NOTE: /admin/fix-galleries endpoint removed (2026-08-21) — was a temporary
-		// endpoint with no auth. Use direct DB operations if recovery is needed.
 		r.Get("/system", h.System)
 		r.Get("/stats", h.Stats)
 		r.Get("/sites", h.Sites)
@@ -47,14 +45,6 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Get("/{id}/snapshot", h.DagSnapshot)
 		})
 
-		// Slot pool monitoring and dynamic configuration endpoints.
-		// GET   /api/slots            - real-time slot usage snapshot
-		// GET   /api/slots/holders    - active holder IDs for leak diagnosis
-		// GET   /api/slots/{type}     - detailed info for a single slot type
-		// PUT   /api/slots/{type}     - dynamically adjust max concurrency
-		// DELETE /api/slots/{type}    - emergency reset of a slot type (ghost slots)
-		// NOTE: /api/slots/stream was removed (260806) — slot:stateChanged is
-		// already streamed by /api/tasks/stream; snapshots use GET /api/slots.
 		r.Route("/slots", func(r chi.Router) {
 			r.Get("/", h.SlotList)
 			r.Get("/holders", h.SlotHolders)
@@ -86,7 +76,6 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Get("/{id}/images", h.GalleryImages)
 			r.Delete("/{id}", h.ShelfDelete)
 			r.Post("/{id}", h.ShelfAction)
-			// Fine-grained retry: retry individual files or ranges.
 			r.Post("/{id}/files/retry", h.GalleryFileRetry)
 			r.Get("/{id}/files/progress", h.GalleryFileProgress)
 		})

@@ -17,10 +17,8 @@ import { JobResults } from "./job-results";
  * Backend contract: POST /api/search/batch with { keywords: string[] }
  * returns a bare array of { id, title, protagonist, tags, coverUrl,
  * siteId, imageCount, status } matched against the local gallery
- * database. The previous "batch search job" flow (job polling via
- * /api/search/{id}?type=batch, DELETE cancel) never existed on the
- * backend and has been removed — this panel now performs a single
- * synchronous batch lookup and reports found / not_found per title.
+ * database. Performs a single synchronous batch lookup and reports
+ * found / not_found per title.
  */
 interface SearchHit {
   id: number;

@@ -14,10 +14,8 @@ const (
 	domainCacheTTL = 24 * time.Hour
 )
 
-// domainMatchPattern extracts the core site name from configured domains
-// for filtering dynamically discovered domains. For example:
-// - "www.lovecutes.com" -> "lovecutes"
-// - "xx.knit.bid" -> "knit"
+// domainMatchPattern extracts the core site name (e.g. "lovecutes" from
+// "www.lovecutes.com") for filtering dynamically discovered domains.
 var domainMatchPattern = regexp.MustCompile(`(?:^|\.)([a-z0-9][a-z0-9\-]*)\.[a-z]{2,}(?:\.[a-z]{2,})?$`)
 
 var poolLogger = infra.NewLogger("DynamicDomainPool")
@@ -77,10 +75,9 @@ func (p *DomainPool) GetDomains() []string {
 	if cacheValid {
 		merged = p.mergeDomains(static, cached)
 	} else {
-		// Trigger background refresh if not already in progress
 		go p.refreshDomains()
 
-		// Return static domains merged with whatever cache we have (even if stale)
+		// Return stale cache rather than block on a synchronous fetch.
 		if len(cached) > 0 {
 			merged = p.mergeDomains(static, cached)
 		} else {
@@ -185,21 +182,18 @@ func (p *DomainPool) fetchPublisherDomains(publisherURL string) []string {
 // filterSiteDomains filters discovered domains to only include those
 // matching known site domain patterns (e.g., "lovecutes", "knit").
 func (p *DomainPool) filterSiteDomains(domains []string) []string {
-	// Extract core site names from static domains
 	siteNames := make(map[string]bool)
 	for _, d := range p.staticDomains {
 		host := ExtractHostname(d)
 		if host == "" {
 			continue
 		}
-		// Extract core name: e.g., "www.lovecutes.com" -> "lovecutes"
 		matches := domainMatchPattern.FindStringSubmatch(host)
 		if len(matches) >= 2 {
 			siteNames[matches[1]] = true
 		}
 	}
 
-	// Filter discovered domains
 	filtered := make([]string, 0, len(domains))
 	for _, d := range domains {
 		host := ExtractHostname(d)
@@ -259,8 +253,6 @@ func (p *DomainPool) SetStaticDomains(domains []string) {
 	p.staticDomains = domains
 }
 
-// ==================== Health-Aware Domain Selection ====================
-
 // GetNextDomain returns the next domain using round-robin rotation among
 // all domains (not just healthy ones). The rotation is atomic and safe
 // for concurrent access. This provides load distribution across all
@@ -293,8 +285,6 @@ func (p *DomainPool) MarkDomainRateLimited(domain string) {
 func (p *DomainPool) MarkDomainHealthy(domain string) {
 	p.healthTracker.MarkHealthy(domain)
 }
-
-// ==================== Global Pool Registry ====================
 
 var (
 	poolRegistryMu sync.RWMutex

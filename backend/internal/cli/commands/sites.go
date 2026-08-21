@@ -7,7 +7,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// sitesCommand lists all supported site providers.
 type sitesCommand struct{}
 
 func (sitesCommand) Name() string        { return "sites" }

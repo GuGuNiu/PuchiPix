@@ -72,7 +72,6 @@ type stealthTransport struct {
 	plainOnce      sync.Once
 	plainTransport *http.Transport
 
-	// http2Transport is lazily initialized and reused for HTTP/2 requests.
 	h2Once      sync.Once
 	h2Transport *http2.Transport
 }
@@ -95,7 +94,6 @@ func (t *stealthTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return t.plainTransport.RoundTrip(req)
 	}
 
-	// Connect TCP.
 	host := req.URL.Hostname()
 	port := req.URL.Port()
 	if port == "" {
@@ -112,7 +110,6 @@ func (t *stealthTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return nil, fmt.Errorf("dial tcp: %w", err)
 	}
 
-	// Wrap with uTLS using Chrome's ClientHello spec.
 	tlsConn := utls.UClient(rawConn, &utls.Config{
 		ServerName: host,
 	}, utls.HelloChrome_Auto)
@@ -122,7 +119,6 @@ func (t *stealthTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return nil, fmt.Errorf("tls handshake: %w", err)
 	}
 
-	// Check ALPN negotiation result.
 	state := tlsConn.ConnectionState()
 	switch state.NegotiatedProtocol {
 	case "h2":

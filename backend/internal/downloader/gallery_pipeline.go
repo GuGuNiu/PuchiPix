@@ -12,20 +12,14 @@ import (
 	"backend/internal/taskprogress"
 )
 
-// SanitizeFileName replaces characters that are invalid in file names
-// and truncates over-long names for filesystem compatibility.
-//
-// Truncation is by rune count, NOT byte length. Chinese/CJK characters
-// are 3 bytes in UTF-8; slicing at a byte boundary (e.g. s[:80]) can
-// split a multi-byte character in half, producing invalid UTF-8 that
-// renders as the replacement character "".
+// SanitizeFileName replaces invalid filename characters and truncates by
+// rune count (not byte length) to avoid splitting multi-byte UTF-8 characters.
 func SanitizeFileName(name string) string {
 	replacer := strings.NewReplacer(
 		"/", "_", "\\", "_", ":", "_", "*", "_",
 		"?", "_", "\"", "_", "<", "_", ">", "_", "|", "_",
 	)
 	s := replacer.Replace(name)
-	// Truncate by rune count to avoid splitting multi-byte chars.
 	if runes := []rune(s); len(runes) > 80 {
 		s = string(runes[:80])
 	}
@@ -42,15 +36,7 @@ type ResolveOUOFn func(ctx context.Context, ouoURL string) (string, error)
 // download URL. Returns true if ZIP download + extraction succeeded,
 // false if no ZIP is available or the download failed (caller falls back
 // to page-by-page image download).
-//
-// The full flow mirrors the TS downloadAndExtractZip() implementation:
-//  1. Query gallery_download_infos for the download URL
-//  2. For OUO links: resolve the short link via resolveOUO (HTTP redirect chain)
-//  3. Download the ZIP file using DownloadFileWithDomainFallback
-//  4. Extract ZIP contents to the gallery save directory
-//  5. Update gallery status with extracted file counts
 func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID int, saveDir string, logger *infra.Logger, resolveOUO ResolveOUOFn, dlDefaults DownloadDefaults) bool {
-	// Check if ZIP download info exists for this gallery.
 	if database == nil {
 		return false
 	}
@@ -67,11 +53,9 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	logger.Info("ZIP download available, attempting archive download",
 		"galleryId", galleryID, "source", downloadSource, "url", dlURL)
 
-	// Resolve OUO short links. The TS implementation used Playwright
-	// (headless browser) to interact with OUO's "I'm a human" button.
-	// The Go HTTP-only resolution via redirect chain may fail if OUO
-	// requires JavaScript interaction. When it fails, we fall back to
-	// page-by-page image download.
+	// OUO short links are resolved via HTTP redirect chain (no headless browser).
+	// If OUO requires JavaScript interaction, resolution fails and we fall back
+	// to page-by-page image download.
 	downloadURL := dlURL
 	if downloadSource == "ouo" {
 		if resolveOUO == nil {
@@ -86,7 +70,7 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 		if resolveErr != nil || resolved == dlURL {
 			logger.Warn("OUO resolution failed, falling back to page-by-page download",
 				"galleryId", galleryID, "url", dlURL, "error", resolveErr)
-			// Mark as failed so we don't keep retrying the broken OUO link.
+			// Mark as failed to prevent retrying the broken OUO link.
 			database.Exec(ctx,
 				`UPDATE gallery_download_infos SET status = 'failed', updated_at = CURRENT_TIMESTAMP
 				 WHERE gallery_id = ?`, galleryID)
@@ -99,7 +83,6 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 		logger.Info("OUO link resolved", "galleryId", galleryID, "resolved", resolved)
 	}
 
-	// Download the ZIP file.
 	zipFileName := fmt.Sprintf("gallery_%d.zip", galleryID)
 	zipPath := filepath.Join(saveDir, zipFileName)
 	opts := dlDefaults.ApplyTo(&DownloadOptions{
@@ -123,8 +106,7 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	logger.Info("ZIP downloaded, extracting archive",
 		"galleryId", galleryID, "size", result.FileSize, "path", zipPath)
 
-	// Extract the ZIP archive. Password-protected archives use the
-	// password stored in gallery_download_infos (extracted from the
+	// Archive password comes from gallery_download_infos (extracted from the
 	// download-info-box during page scraping).
 	extractErr := archiver.ExtractZip(zipPath, saveDir, password)
 	if extractErr != nil {
@@ -136,12 +118,10 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 		return false
 	}
 
-	// Count extracted files for the gallery status.
 	actualFiles := taskprogress.CountFilesOnDisk(saveDir)
 	logger.Info("ZIP extraction completed",
 		"galleryId", galleryID, "extractedFiles", actualFiles)
 
-	// Update gallery_download_infos with success.
 	_, _ = database.Exec(ctx,
 		`UPDATE gallery_download_infos SET
 			status = 'downloaded', local_path = ?, extracted_path = ?,

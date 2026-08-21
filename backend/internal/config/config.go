@@ -38,8 +38,6 @@ type Config struct {
 	GlobalDownloadConcurrent int
 }
 
-// Load reads configuration from environment variables, applying defaults
-// for any missing values so the server can start without a .env file.
 func Load() (*Config, error) {
 	dbPath := dbconfig.GetDSN()
 
@@ -94,19 +92,9 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// resolveDataDir computes an absolute data directory path so that
-// downloads always land in PuchiPix/data/ regardless of the current
-// working directory.
-//
-// Resolution order:
-//  1. DATA_DIR environment variable (resolved to absolute if relative)
-//  2. Parent directory of the already-resolved database path
-//     (dbconfig.GetDSN() handles exe-relative and CWD-relative
-//     candidate logic, so filepath.Dir(dbPath) is the canonical
-//     data directory)
-//  3. Fallback: ../data resolved to absolute against CWD
+// resolveDataDir computes an absolute data directory path so downloads
+// always land in PuchiPix/data/ regardless of the current working directory.
 func resolveDataDir(dbPath string) string {
-	// 1. Explicit env var wins.
 	if envDir := os.Getenv("DATA_DIR"); envDir != "" {
 		if abs, err := filepath.Abs(envDir); err == nil {
 			return abs
@@ -114,7 +102,6 @@ func resolveDataDir(dbPath string) string {
 		return envDir
 	}
 
-	// 2. Derive from the DB path (already resolved by dbconfig).
 	if dbPath != "" {
 		dir := filepath.Dir(dbPath)
 		if abs, err := filepath.Abs(dir); err == nil {
@@ -123,7 +110,6 @@ func resolveDataDir(dbPath string) string {
 		return dir
 	}
 
-	// 3. Final fallback.
 	abs, _ := filepath.Abs("../data")
 	return abs
 }

@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// Health returns a simple status check that the server is alive and
-// the database pool is reachable.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	status := map[string]any{
 		"status": "ok",
@@ -27,7 +25,6 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-// System returns runtime information for the system info dashboard.
 func (h *Handlers) System(w http.ResponseWriter, r *http.Request) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -44,9 +41,6 @@ func (h *Handlers) System(w http.ResponseWriter, r *http.Request) {
 
 var startTime = time.Now()
 
-// Stats returns aggregate counts for the dashboard overview panel,
-// now including real-time slot pool usage and scheduler queue depth
-// for operational visibility into concurrency control health.
 func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
 		"galleries":         0,
@@ -54,9 +48,6 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 		"downloadHistory":   0,
 		"current_speed_str": "0 B/s",
 		"disk_io_str":       "--",
-		// Speed fields consumed by the dashboard (frontend falls back to
-		// 0 / "0 B/s" when absent, but providing them keeps the contract
-		// explicit — F13).
 		"avg_speed":       0,
 		"avg_speed_str":   "0 B/task",
 		"current_speed":   0,
@@ -74,7 +65,6 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 		result["downloadHistory"] = historyCount
 	}
 
-	// Include real-time slot pool and scheduler stats.
 	if h.Sched != nil {
 		slotSnapshot := h.Sched.GetSlotSnapshot()
 		slots := make(map[string]any, len(slotSnapshot))
@@ -97,7 +87,6 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 		result["schedulerByPriority"] = schedStats.ByPriority
 	}
 
-	// Include DAG orchestrator stats.
 	if h.DagOrch != nil {
 		dagStats := h.DagOrch.GetStats()
 		result["dagTotal"] = dagStats.TotalDags
@@ -107,8 +96,6 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// Sites returns the list of supported site providers, sourced
-// dynamically from the injected SiteRegistry.
 func (h *Handlers) Sites(w http.ResponseWriter, r *http.Request) {
 	if h.SiteReg == nil {
 		writeJSON(w, http.StatusOK, []any{})

@@ -75,7 +75,6 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// Verify PRAGMAs are effective on the first pooled connection.
 	pragmas := []string{
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
@@ -99,7 +98,6 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 	db.SetMaxIdleConns(4)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
-	// Ping: verify the connection is alive with a short timeout.
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer pingCancel()
 	if err := db.PingContext(pingCtx); err != nil {
@@ -130,7 +128,6 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 // failure in one table/index creation does not mask the exact location
 // (the error includes the failed SQL snippet).
 func applySchema(ctx context.Context, db *sql.DB) error {
-	// Ordered list of migrations to apply.
 	type migration struct {
 		name string
 		data []byte
@@ -212,7 +209,6 @@ func tryAddMissingColumn(ctx context.Context, db *sql.DB, sqlStmt string, origEr
 	if idx < 0 {
 		return false
 	}
-	// Extract column name from error message: "no such column: <name> (code)"
 	colPart := errStr[idx+len("no such column:"):]
 	colName := strings.TrimSpace(colPart)
 	if spaceIdx := strings.Index(colName, " "); spaceIdx > 0 {
@@ -222,7 +218,6 @@ func tryAddMissingColumn(ctx context.Context, db *sql.DB, sqlStmt string, origEr
 		return false
 	}
 
-	// Extract table name from CREATE INDEX ... ON <table>(...)
 	upper := strings.ToUpper(sqlStmt)
 	onIdx := strings.Index(upper, " ON ")
 	if onIdx < 0 {
@@ -260,21 +255,17 @@ func splitSQL(script string) []string {
 
 	for i := 0; i < len(script); i++ {
 		ch := script[i]
-		// Toggle quote states.
 		if ch == '\'' && !inDoubleQuote {
 			inSingleQuote = !inSingleQuote
 		} else if ch == '"' && !inSingleQuote {
 			inDoubleQuote = !inDoubleQuote
 		}
-		// Skip single-line comments when not inside a string.
 		if !inSingleQuote && !inDoubleQuote && ch == '-' && i+1 < len(script) && script[i+1] == '-' {
-			// Skip to end of line.
 			for i < len(script) && script[i] != '\n' {
 				i++
 			}
 			continue
 		}
-		// Split on semicolons outside strings.
 		if ch == ';' && !inSingleQuote && !inDoubleQuote {
 			out = append(out, buf.String())
 			buf.Reset()
@@ -282,7 +273,6 @@ func splitSQL(script string) []string {
 		}
 		buf.WriteByte(ch)
 	}
-	// Append any remaining text after the last semicolon.
 	if remaining := strings.TrimSpace(buf.String()); remaining != "" {
 		out = append(out, remaining)
 	}
@@ -297,23 +287,19 @@ func (db *Database) Close() {
 	}
 }
 
-// Ping verifies that the database is reachable.
 func (db *Database) Ping(ctx context.Context) error {
 	return db.DB.PingContext(ctx)
 }
 
-// Exec delegates to *sql.DB.ExecContext for INSERT/UPDATE/DELETE statements.
 func (db *Database) Exec(ctx context.Context, sql string, args ...any) (sql.Result, error) {
 	return db.DB.ExecContext(ctx, sql, args...)
 }
 
-// QueryRow delegates to *sql.DB.QueryRowContext for single-row queries.
 func (db *Database) QueryRow(ctx context.Context, sql string, args ...any) *sql.Row {
 	return db.DB.QueryRowContext(ctx, sql, args...)
 }
 
-// Query delegates to *sql.DB.QueryContext for multi-row queries.
-// The caller must close the returned Rows.
+// Query returns rows that the caller must close.
 func (db *Database) Query(ctx context.Context, sql string, args ...any) (*sql.Rows, error) {
 	return db.DB.QueryContext(ctx, sql, args...)
 }

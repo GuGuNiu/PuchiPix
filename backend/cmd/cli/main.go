@@ -53,7 +53,6 @@ func main() {
 		Ctx:    context.Background(),
 	}
 
-	// Lazily open DB connection only for the "db" command.
 	if commandName == "db" {
 		db, err := openDBReadOnly(cfg.DBPath)
 		if err != nil {

@@ -1,21 +1,15 @@
 package commands
 
-// Registry holds all registered commands and provides lookup by name
-// or alias.
 type Registry struct {
 	commands []Command
 }
 
-// NewRegistry creates a Registry pre-populated with all built-in commands.
 func NewRegistry() *Registry {
 	cmds := []Command{
-		// ── System & monitoring ──
 		healthCommand{},
 		systemCommand{},
 		statsCommand{},
 		sitesCommand{},
-
-		// ── DAG monitoring & status ──
 		statusCommand{},
 		watchCommand{},
 		logsCommand{},
@@ -26,8 +20,6 @@ func NewRegistry() *Registry {
 		traceCommand{},
 		workerCommand{},
 		eventsCommand{},
-
-		// ── DAG lifecycle control ──
 		pauseCommand,
 		resumeCommand,
 		retryCommand,
@@ -36,18 +28,13 @@ func NewRegistry() *Registry {
 		dagLinkCommand{},
 		dagTriggerCommand{},
 		dagDeleteCommand{},
-
-		// ── Task & gallery management ──
 		tasksCommand{},
 		galleriesCommand{},
-
-		// ── Database access ──
 		dbCommand{},
 	}
 	return &Registry{commands: cmds}
 }
 
-// Commands returns all registered commands.
 func (r *Registry) Commands() []Command {
 	return r.commands
 }

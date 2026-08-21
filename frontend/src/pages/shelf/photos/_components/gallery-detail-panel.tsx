@@ -40,7 +40,6 @@ function GalleryDetailPanelComponent({
 }: GalleryDetailPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const sidebarCollapsed = useSidebarCollapsed();
-  // 只订阅当前图包自身的进度/zip 状态，其他图包的更新不会触发本面板重渲染
   const progress = useGalleryStore((s) => s.progressMap[gallery.ID]);
   const zipProgress = useGalleryStore((s) => s.zipProgressMap[gallery.ID]);
   const zipStatus = useGalleryStore((s) => s.zipStatusMap[gallery.ID]);
@@ -356,5 +355,4 @@ function GalleryDetailPanelComponent({
   );
 }
 
-/** 详情面板：React.memo + 内部按图包 ID 订阅进度，避免随页面整体重渲染。 */
 export const GalleryDetailPanel = memo(GalleryDetailPanelComponent);

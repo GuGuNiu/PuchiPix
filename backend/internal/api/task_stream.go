@@ -14,8 +14,6 @@ import (
 	"backend/internal/infra"
 )
 
-// unifiedTaskRow is the flat row shape returned by the UNION ALL query
-// that combines download_tasks, galleries, and sniff_tasks.
 type unifiedTaskRow struct {
 	TaskType          string
 	ID                int
@@ -42,9 +40,6 @@ type unifiedTaskRow struct {
 }
 
 var (
-	// taskStreamReplayEventTypes lists every event type subscribed in
-	// TaskStreamSSE, used for lastEvents replay on connect. Keep in
-	// sync with the subscription list below.
 	taskStreamReplayEventTypes = []string{
 		"task:created",
 		"task:progress",
@@ -60,10 +55,6 @@ var (
 	}
 )
 
-// TaskStreamSSE streams real-time task updates via Server-Sent Events.
-// It bridges EventBus events to the frontend with semantic event names
-// (no more overloaded "patch") and sends an initial full snapshot of
-// all three task types (video + gallery + sniff) in a single query.
 func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 	stream := sse.NewSSEStream(w)
 	if stream == nil {
@@ -71,9 +62,6 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send initial state: unified query across all three task tables.
-	// Previously only download_tasks was included, forcing the frontend
-	// to fetch /api/shelf separately for gallery data (P0-3/P0-4 fix).
 	if h.DB != nil {
 			rows, err := h.DB.Query(r.Context(),
 				`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
@@ -168,21 +156,10 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			"CreatedAt":        r.CreatedAt,
 			"UpdatedAt":        r.UpdatedAt,
 		}))
-			}
-			// Post-process gallery progress: count actual files on disk.
-			// The SQL-based progress uses downloaded_size/total_size ratio,
-			// but for partially-downloaded galleries the file count is more
-			// accurate — especially when some files failed and disk state
-			// doesn't match DB expectations.
-			//
-			// This is now ASYNC: the initial snapshot is sent immediately
-			// with SQL-based progress, and a background goroutine refines
-			// progress for downloading galleries via file counting. This
-			// prevents slow disk I/O (N filepath.WalkDir calls) from
-			// blocking SSE connection establishment — previously a shelf
-			// with 20+ downloading galleries could delay the initial
-			// snapshot by several seconds.
-			galleriesToRefine := []map[string]any{}
+		}
+		// Refine gallery progress asynchronously via file counting to
+		// avoid blocking SSE connection establishment on slow disk I/O.
+		galleriesToRefine := []map[string]any{}
 			for _, t := range tasks {
 				if t["TaskType"] != "gallery" {
 					continue
@@ -201,7 +178,6 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				if totalExpected == 0 {
 					continue
 				}
-				// Collect for async refinement.
 				galleriesToRefine = append(galleriesToRefine, map[string]any{
 					"savePath":      savePath,
 					"totalExpected": totalExpected,
@@ -212,9 +188,6 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 
 			stream.SendEvent("initial", tasks)
 
-			// Refine gallery progress asynchronously via file counting.
-			// Each refined progress is pushed as a task:progress event so
-			// the frontend updates without waiting for the next poll.
 			if len(galleriesToRefine) > 0 {
 				go func(refinements []map[string]any) {
 					for _, r := range refinements {
@@ -244,12 +217,6 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				}(galleriesToRefine)
 			}
 		} else {
-			// The initial snapshot query failed — do NOT silently swallow
-			// it (this was the root pattern behind the 260803 initial
-			// snapshot loss: PG-syntax residue made the query fail and
-			// `if err == nil` masked it, so the frontend got no snapshot).
-			// Send an empty snapshot AND log loudly so operators can see
-			// the failure instead of chasing phantom frontend issues.
 			logger := infra.NewLogger("TaskStreamSSE")
 			logger.Error("SSE initial snapshot query failed", err)
 			stream.SendEvent("initial", []any{})
@@ -258,87 +225,54 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		stream.SendEvent("initial", []any{})
 	}
 
-	// Subscribe to task-related events from the EventBus.
-	// P1-4 fix: use semantic event names instead of the overloaded "patch".
-	//
-	// 260809 fix: business events use TrySendEvent (non-blocking, bounded
-	// queue) so a slow SSE client cannot block the EventBus caller
-	// (TaskCreate/DAG/executor goroutines). Bulk task creation (e.g. 27
-	// tasks) previously flooded the stream with synchronous writes; when
-	// TCP backpressure stalled one Fprintf, the SSEClient mutex was held
-	// and even the heartbeat could not flush — the frontend watchdog then
-	// force-closed the connection. The initial snapshot below remains a
-	// synchronous SendEvent so ordering is deterministic.
+	// Business events use TrySendEvent (non-blocking) so a slow SSE client
+	// cannot block the EventBus caller.
 	if h.EventBus != nil {
-		// task:created → task:created (was: upsert)
 		unsubCreated := h.EventBus.On("task:created", func(payload any) {
 			stream.TrySendEvent("task:created", payload)
 		})
 
-		// task:progress → task:progress (was: patch)
 		unsubProgress := h.EventBus.On("task:progress", func(payload any) {
 			stream.TrySendEvent("task:progress", payload)
 		})
 
-		// task:completed → task:completed (was: patch)
 		unsubCompleted := h.EventBus.On("task:completed", func(payload any) {
 			stream.TrySendEvent("task:completed", payload)
 		})
 
-		// task:failed → task:failed (was: patch)
 		unsubFailed := h.EventBus.On("task:failed", func(payload any) {
 			stream.TrySendEvent("task:failed", payload)
 		})
 
-		// task:cancelled → task:cancelled (was: delete)
 		unsubCancelled := h.EventBus.On("task:cancelled", func(payload any) {
 			stream.TrySendEvent("task:cancelled", payload)
 		})
 
-		// dag:nodeProgress → dag:nodeProgress (was: nodeProgress)
 		unsubNodeProg := h.EventBus.On("dag:nodeProgress", func(payload any) {
 			stream.TrySendEvent("dag:nodeProgress", payload)
 		})
 
-		// dag:nodeStateChanged → dag:nodeStateChanged (was: patch)
 		unsubNodeState := h.EventBus.On("dag:nodeStateChanged", func(payload any) {
 			raw, _ := json.Marshal(payload)
 			stream.TrySendEvent("dag:nodeStateChanged", json.RawMessage(raw))
 		})
 
-		// gallery:created — forwarded so the frontend can add new gallery
-		// tasks to the list without requiring a page refresh.
 		unsubGalleryCreated := h.EventBus.On("gallery:created", func(payload any) {
 			stream.TrySendEvent("gallery:created", payload)
 		})
 
-		// gallery:stateChanged — DAG 失败/完成时画廊状态变更转发，
-		// 使前端无需刷新即可感知画廊状态更新
 		unsubGalleryState := h.EventBus.On("gallery:stateChanged", func(payload any) {
 			raw, _ := json.Marshal(payload)
 			stream.TrySendEvent("gallery:stateChanged", json.RawMessage(raw))
 		})
 
-		// slot:stateChanged — forwarded so dashboards render slot
-		// occupancy in real-time (acquire/release/max/quota updates)
-		// without polling /api/slots. (The dedicated /api/slots/stream
-		// endpoint was removed 260806 — this is the single live channel.)
 		unsubSlotState := h.EventBus.On("slot:stateChanged", func(payload any) {
 			stream.TrySendEvent("slot:stateChanged", payload)
 		})
 
-		// task:metadata — pushed when scraping completes or video info
-		// is finalized, carrying title/person/imageCount/videoCount so
-		// the frontend Tasks page reflects metadata changes in real-time
-		// without requiring F5 refresh.
-		//
-		// We apply task_compute.StripPersonFromTitle here at the SSE forwarding layer
-		// so that all task:metadata events (from wire_executors.go for
-		// galleries, from main.go and manager.go for videos) get their
-		// titles cleaned uniformly without needing lower-level packages
-		// to import the api package.
+		// StripPersonFromTitle is applied at the SSE forwarding layer so
+		// all task:metadata events get titles cleaned uniformly.
 		unsubMetadata := h.EventBus.On("task:metadata", func(payload any) {
-			// Apply person-stripping to the title before forwarding.
 			if m, ok := payload.(map[string]any); ok {
 				title, _ := m["GalleryTitle"].(string)
 				person, _ := m["Person"].(string)
@@ -363,21 +297,13 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			unsubMetadata()
 		}()
 
-		// Replay the most recent payload of each event type after the
-		// subscriptions are live, closing the gap between the initial
-		// snapshot query and subscription activation — events fired while
-		// the snapshot was in flight are recovered, so reconnecting
-		// clients no longer see progress flicker. Every event is an
-		// idempotent per-taskId upsert on the frontend, so duplicates
-		// are harmless.
+		// Replay last events after subscriptions are live to close the gap
+		// between the initial snapshot and subscription activation.
 		for _, eventType := range taskStreamReplayEventTypes {
 			payload := h.EventBus.GetLastEvent(eventType)
 			if payload == nil {
 				continue
 			}
-			// task:metadata gets the same person-stripping as the live
-			// subscription path so both forwarding paths emit identical
-			// titles.
 			if eventType == "task:metadata" {
 				if m, ok := payload.(map[string]any); ok {
 					title, _ := m["GalleryTitle"].(string)
@@ -391,12 +317,6 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Heartbeat: send a ping every 15s so the frontend can detect
-	// dead connections and trigger proactive reconnection.
-	//
-	// The heartbeat runs in its own goroutine, decoupled from the main
-	// loop — heartbeat cadence directly determines whether the frontend
-	// watchdog misjudges the connection as dead.
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)
@@ -415,18 +335,11 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		<-heartbeatDone
 		stream.Close()
 	}()
-	// The stream is closed only after the heartbeat goroutine exits, so
-	// a heartbeat tick can never race a write into the closed stream.
 	<-r.Context().Done()
 }
 
-// countFilesInDir walks a directory recursively and counts all regular
-// files, including those in subdirectories such as video_{id}/. The
-// segments/ subdirectory (containing intermediate TS segment files) is
-// excluded from counting to avoid inflating the file count above the
-// expected total. Returns 0 if the directory does not exist or cannot
-// be read. Used for accurate gallery progress calculation based on
-// actual disk state rather than DB estimates.
+// countFilesInDir counts regular files in a directory tree, excluding
+// the segments/ subdirectory to avoid inflating the count.
 func countFilesInDir(dirPath string) int {
 	if dirPath == "" {
 		return 0

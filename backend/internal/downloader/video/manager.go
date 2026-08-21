@@ -51,15 +51,12 @@ type ManagerConfig struct {
 	DownloadPath  string
 	SegmentsPath  string
 	MaxConcurrent int
-	// GPUTranscode enables hardware-accelerated transcoding when a compatible GPU is available.
-	GPUTranscode bool
-	// ForceGPUType overrides auto-detection and forces a specific GPU encoder type.
-	// Empty string means auto-detect. Valid values: "nvenc", "qsv", "vaapi", "amf", "videotoolbox".
+	GPUTranscode  bool
+	// ForceGPUType overrides auto-detection ("" = auto). Valid values: "nvenc", "qsv", "vaapi", "amf", "videotoolbox".
 	ForceGPUType string
 }
 
-// DefaultManagerConfig returns sensible defaults matching the
-// TypeScript implementation's constructor defaults.
+// DefaultManagerConfig returns sensible defaults.
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
 		MaxRetries:    5,
@@ -135,8 +132,7 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		Logger:     m.logger,
 	})
 
-	// Load persisted GPU transcoding settings from database
-	// (overrides ManagerConfig defaults if DB has saved values)
+	// DB values override ManagerConfig defaults.
 	m.LoadGPUTranscodeFromDB()
 
 	return m
@@ -216,12 +212,8 @@ func (m *DownloadManager) persistGPUSettings(enabled bool, forceType string) {
 		"gpu_force_type", forceType, forceType)
 }
 
-// AutoConfigureGPU chooses the GPU transcoding default when the user has
-// not made an explicit choice. Discrete GPUs auto-enable hardware
-// transcoding; integrated/unknown GPUs auto-disable it (users can still
-// enable it explicitly from the config page). The auto decision is
-// persisted so it is not re-evaluated and acts as the user choice on the
-// next start. Call after LoadGPUTranscodeFromDB.
+// AutoConfigureGPU sets GPU transcoding defaults when the user has not made
+// an explicit choice. Call after LoadGPUTranscodeFromDB.
 func (m *DownloadManager) AutoConfigureGPU() {
 	if m.db == nil {
 		return
@@ -346,9 +338,9 @@ func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, to
 	}
 }
 
-// StartDownload runs the full download pipeline for a task. It blocks
-// until the download completes, fails, or is scheduled for auto-retry.
-// The caller should invoke this in a dedicated goroutine.
+// StartDownload runs the full download pipeline for a task. It blocks until
+// the download completes, fails, or is scheduled for auto-retry. The caller
+// must invoke this in a dedicated goroutine.
 func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskInput) (err error) {
 	m.mu.Lock()
 	if _, exists := m.activeDownloads[task.ID]; exists {
@@ -415,9 +407,7 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 		return perr
 	}
 
-	// Download succeeded — clean up retry counter so a future task
-	// with the same ID starts fresh. This prevents stale retry counts
-	// from causing premature "failed" on a subsequent manual restart.
+	// Clear the retry counter so a future task with the same ID starts fresh.
 	m.mu.Lock()
 	delete(m.taskRetries, task.ID)
 	m.mu.Unlock()
@@ -429,10 +419,6 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	m.logger.Info("Fetching M3U8 playlist",
 		infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
 
-	// Use the unified M3U8 pipeline component for fetch + parse +
-	// variant selection. This replaces the previously inline logic
-	// that was duplicated across the independent video pipeline
-	// (manager.go) and the gallery video pipeline (gallery_download.go).
 	fetchResult, err := FetchAndParseM3U8(ctx, task.M3U8URL, M3U8FetchOptions{
 		Referer:         referer,
 		FallbackDomains: refererDomains,
@@ -441,9 +427,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		return err
 	}
 
-	// Use the effective referer (may differ from the original if a
-	// fallback domain was accepted by the CDN) for all subsequent
-	// segment downloads.
+	// Use the effective referer accepted by the CDN for all segment downloads.
 	referer = fetchResult.EffectiveReferer
 	segments := fetchResult.Segments
 
@@ -461,18 +445,11 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"count":  len(segments),
 		}})
 
-	// Register segments with the VideoProgressTracker for segment-level
-	// progress tracking. This bridges the pipeline gap where the tracker
-	// was initialized and injected but RegisterSegments was never called
-	// from the download pipeline, leaving the tracker's segments map empty.
 	if m.tracker != nil {
 		m.tracker.RegisterSegments(task.ID, len(segments))
 	}
 
-	// Persist total_segments to DB so the SSE initial query can return
-	// segment counts for tasks that are not currently downloading (e.g.
-	// after a page refresh). This bridges the gap where segment info was
-	// only available via real-time task:progress events.
+	// Persist total_segments so SSE clients can query it without a live connection.
 	if m.db != nil {
 		ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 		_, _ = m.db.Exec(ctx2,
@@ -566,14 +543,11 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			failedCount, totalSegments, strings.Join(details, "; "))
 	}
 
-	// Build initial success set from segments confirmed by SegmentQueue.
 	successSet := make(map[int]bool, len(download.CompletedSegments))
 	for idx := range download.CompletedSegments {
 		successSet[idx] = true
 	}
 
-	// Validate + merge with automatic retry loop. On failure, the loop
-	// redownloads corrupted segments and their ±5 neighborhood.
 	retryOpts := DefaultMergeRetryOptions(tsOutputPath, segDir)
 	retryOpts.BatchOpts = SegmentBatchOptions{
 		Concurrency: m.maxConcurrent,
@@ -720,7 +694,6 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 				"max":     maxTaskRetries,
 			}})
 
-		// Truncate error message to avoid excessively long DB values
 		shortErr := errMsg
 		if len(shortErr) > 200 {
 			shortErr = shortErr[:200] + "..."
@@ -762,12 +735,8 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 					infra.LogContext{Extra: map[string]any{"taskId": task.ID}}, err)
 			}
 
-			// Retry counter is managed by handleDownloadError (increment
-			// for next retry or delete when exhausted) and by
-			// StartDownload's success path (delete on success). We must
-			// NOT delete it here before StartDownload — that was the
-			// previous bug that reset the counter to 0 on every retry
-			// and caused an infinite retry loop.
+			// Do NOT delete the retry counter here — that resets it to 0
+			// on every retry and causes an infinite loop.
 		}()
 		return
 	}

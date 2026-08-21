@@ -1,15 +1,11 @@
 import { logSink } from './log-sink';
 
-// ── Log Level ──
-
 export enum LogLevel {
   DEBUG = 10,
   INFO = 20,
   WARN = 30,
   ERROR = 40,
 }
-
-// ── Types ──
 
 export interface LogContext {
   traceId?: string;
@@ -39,8 +35,6 @@ export interface Logger {
   runWith<T>(context: LogContext, fn: () => T): T;
 }
 
-// ── Global Log Level ──
-
 function getEnvLogLevel(): LogLevel {
   const raw = typeof process !== 'undefined' ? process.env?.LOG_LEVEL : undefined;
   if (!raw) return LogLevel.INFO;
@@ -54,8 +48,6 @@ function getEnvLogLevel(): LogLevel {
 }
 
 const globalMinLevel = getEnvLogLevel();
-
-// ── Trace Context (AsyncLocalStorage-style via global singleton) ──
 
 let currentTraceContext: LogContext | null = null;
 
@@ -85,8 +77,6 @@ function generateTraceId(): string {
   }
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
-
-// ── Console Formatting ──
 
 const LEVEL_COLORS: Record<string, string> = {
   DEBUG: '\x1b[37m',
@@ -118,8 +108,6 @@ function formatContextTags(ctx: LogContext): string {
   if (ctx.phase) parts.push(`phase=${ctx.phase}`);
   return parts.length > 0 ? ' ' + parts.join(' ') : '';
 }
-
-// ── Logger Implementation ──
 
 class LoggerImpl implements Logger {
   private readonly module: string;
@@ -173,7 +161,6 @@ class LoggerImpl implements Logger {
       data,
     };
 
-    // Console output (human-readable)
     const ts = formatTimestamp();
     const color = LEVEL_COLORS[levelName] ?? '';
     const levelPad = levelName.padEnd(5);
@@ -198,8 +185,6 @@ class LoggerImpl implements Logger {
     logSink.push(entry);
   }
 }
-
-// ── Factory ──
 
 const loggerCache = new Map<string, Logger>();
 

@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// NodeState mirrors the TypeScript NodeState enum, representing the
-// lifecycle stage of a single DAG node from submission to completion.
+// NodeState represents the lifecycle stage of a single DAG node.
 type NodeState string
 
 const (
@@ -26,14 +25,12 @@ const (
 )
 
 // validTransitions defines the legal state transitions for each NodeState.
-// The map mirrors the TypeScript VALID_TRANSITIONS record exactly, with
-// the addition of needs_retry as a recovery path from FAILED and the
-// RUNNING ??COMPLETED path added by the 260720 strategy layer (required
-// for skipVerify nodes that bypass VERIFYING).
+// PENDING/READY/QUEUED allow FAILED for dependency-failure cascades so the
+// DAG converges to a terminal state instead of stranding successors forever.
 var validTransitions = map[NodeState][]NodeState{
-	NodeStatePending:      {NodeStateReady, NodeStateCancelled},
-	NodeStateReady:        {NodeStateQueued, NodeStateCancelled, NodeStatePaused, NodeStateNeedsRetry},
-	NodeStateQueued:       {NodeStateAllocated, NodeStateCancelled, NodeStatePaused, NodeStateReady},
+	NodeStatePending:      {NodeStateReady, NodeStateCancelled, NodeStateFailed},
+	NodeStateReady:        {NodeStateQueued, NodeStateCancelled, NodeStatePaused, NodeStateNeedsRetry, NodeStateFailed},
+	NodeStateQueued:       {NodeStateAllocated, NodeStateCancelled, NodeStatePaused, NodeStateReady, NodeStateFailed},
 	NodeStateAllocated:    {NodeStateRunning, NodeStateCancelled, NodeStatePaused, NodeStateFailed},
 	NodeStateRunning:      {NodeStateVerifying, NodeStateFailed, NodeStateTimeout, NodeStateCancelled, NodeStatePaused, NodeStateCompleted},
 	NodeStatePaused:       {NodeStateReady, NodeStateCancelled},
@@ -182,18 +179,12 @@ type DagNodeDefinition struct {
 	// are still activated (the failed dep counts as "completed"). The
 	// DAG is not marked as FAILED due solely to NonCritical failures.
 	NonCritical          bool                   `json:"nonCritical,omitempty"`
-	// TransitionPolicy is an optional per-node policy that overrides the
-	// global validTransitions table. When nil, the FSM falls back to
-	// validTransitions (backward compatible). When set, the FSM first
-	// consults the policy's guards (which may redirect the target state),
-	// then validates the transition against the policy's transition rules,
-	// and finally runs any matching actions. This mirrors the 260720 TS
-	// TransitionPolicy mechanism that was not ported during TS→Go migration.
+	// TransitionPolicy overrides the global validTransitions table. When nil,
+	// the FSM falls back to validTransitions.
 	TransitionPolicy     *TransitionPolicy      `json:"transitionPolicy,omitempty"`
 }
 
-// RetryPolicy declares the retry behavior for a node when it fails. It
-// mirrors the 260720 TS retryPolicy field of galleryNodePolicy.
+// RetryPolicy declares the retry behavior for a node when it fails.
 type RetryPolicy struct {
 	// MaxAttempts is the maximum number of automatic retries before the
 	// node is left in FAILED state. 0 means no automatic retry.
@@ -235,25 +226,9 @@ type TransitionRule struct {
 	Fallback NodeState // redirect target when Guard rejects; zero value means "reject"
 }
 
-// TransitionPolicy is an optional per-node (or per-TaskType) policy that
-// layers on top of the global validTransitions table. It enables
-// config-driven state-machine differentiation: nodes with different
-// Config values can follow different transition paths, run different
-// actions, and use different retry behavior.
-//
-// Resolution order in TaskStateMachine.Transition:
-//  1. If the node has a policy, resolveTargetState consults the policy's
-//     Transitions[from] rules for the target; the first matching rule's
-//     Guard decides (guard false ??Fallback redirect).
-//  2. The (possibly redirected) transition is validated against the
-//     policy's Transitions if present, otherwise against the global
-//     validTransitions table.
-//  3. runActions invokes the matching rule's Action plus any onEnter/onExit
-//     hooks.
-//
-// When the policy is nil (or the policy has no matching rule), the FSM
-// falls back to validTransitions ??preserving backward compatibility for
-// nodes defined before the strategy layer was introduced.
+// TransitionPolicy layers on top of the global validTransitions table,
+// enabling config-driven state-machine differentiation. When nil, the FSM
+// falls back to validTransitions.
 type TransitionPolicy struct {
 	// Transitions maps a source state to the list of rules originating
 	// from it. A rule with To == target and Guard passing (or nil Guard)

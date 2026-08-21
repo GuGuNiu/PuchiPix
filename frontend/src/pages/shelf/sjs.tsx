@@ -91,12 +91,6 @@ export default function SjsPage(): React.JSX.Element {
   const fetchCards = useCallback(async () => {
     setLoading(true);
     try {
-      /*
-       * GET /api/shelf/sjs returns the sjs_bookmarks as a bare array
-       * (no pagination). The dataset is small, so we pull everything and
-       * filter on the client (search + forum) to avoid firing a server
-       * request per keystroke.
-       */
       const res = await fetch("/api/shelf/sjs");
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
@@ -214,7 +208,6 @@ export default function SjsPage(): React.JSX.Element {
     async (id: number) => {
       setRefreshingIds((prev) => new Set(prev).add(id));
       try {
-        /* PATCH /api/shelf/sjs/bookmarks is the refresh endpoint (PATCH /api/shelf/sjs is not registered on the backend). */
         const res = await fetch("/api/shelf/sjs/bookmarks", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },

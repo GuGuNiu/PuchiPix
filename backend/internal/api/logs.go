@@ -8,8 +8,6 @@ import (
 	"backend/internal/infra"
 )
 
-// LogsSSE streams structured log entries in real-time via Server-Sent
-// Events, mirroring the TypeScript /api/logs SSE handler.
 func (h *Handlers) LogsSSE(w http.ResponseWriter, r *http.Request) {
 	stream := sse.NewSSEStream(w)
 	if stream == nil {
@@ -27,8 +25,6 @@ func (h *Handlers) LogsSSE(w http.ResponseWriter, r *http.Request) {
 	stream.Close()
 }
 
-// LogsHistory returns historical log entries as a JSON array, matching
-// the /api/logs/history REST endpoint.
 func (h *Handlers) LogsHistory(w http.ResponseWriter, r *http.Request) {
 	sink := infra.GetGlobalSink()
 	filter := parseLogFilter(r)
@@ -36,9 +32,6 @@ func (h *Handlers) LogsHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
-// LogsLatest returns the most recent log entries as a JSON array,
-// matching the /api/logs/latest endpoint used by the console-log
-// frontend component. Returns the last 20 entries by default.
 func (h *Handlers) LogsLatest(w http.ResponseWriter, r *http.Request) {
 	sink := infra.GetGlobalSink()
 	limit := queryInt(r, "limit", 20)

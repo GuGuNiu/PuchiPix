@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRateLimiterAllowsRequest verifies that a fresh bucket dispenses
-// a token and lets the request through.
 func TestRateLimiterAllowsRequest(t *testing.T) {
 	handler := RateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -23,9 +21,6 @@ func TestRateLimiterAllowsRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestRateLimiterClientIPForwarded verifies that the X-Forwarded-For
-// header is respected for IP extraction, ensuring correct behavior
-// behind a reverse proxy.
 func TestRateLimiterClientIPForwarded(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Forwarded-For", "192.168.1.1")
@@ -36,8 +31,6 @@ func TestRateLimiterClientIPForwarded(t *testing.T) {
 	assert.Equal(t, "192.168.1.1", ip)
 }
 
-// TestRateLimiterClientIPRealIP verifies that X-Real-IP is used when
-// X-Forwarded-For is absent.
 func TestRateLimiterClientIPRealIP(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Real-IP", "172.16.0.1")
@@ -48,8 +41,6 @@ func TestRateLimiterClientIPRealIP(t *testing.T) {
 	assert.Equal(t, "172.16.0.1", ip)
 }
 
-// TestRateLimiterClientIPRemoteAddr verifies that RemoteAddr is the
-// final fallback for IP extraction.
 func TestRateLimiterClientIPRemoteAddr(t *testing.T) {
 	ip := clientIP(&http.Request{
 		RemoteAddr: "10.0.0.1:1234",

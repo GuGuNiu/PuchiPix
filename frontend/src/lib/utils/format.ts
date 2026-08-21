@@ -1,9 +1,3 @@
-/**
- * Format an ISO time string to a locale-specific time representation.
- * @param iso - ISO 8601 datetime string.
- * @param options - Formatting options.
- * @returns Formatted time string.
- */
 export function formatTime(
   iso: string,
   options?: { locale?: string; showMs?: boolean },

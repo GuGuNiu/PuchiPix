@@ -7,8 +7,6 @@ import (
 	"backend/internal/cli/ui"
 )
 
-// systemCommand shows runtime system information (version, goroutines,
-// memory, uptime, CPU cores).
 type systemCommand struct{}
 
 func (systemCommand) Name() string        { return "system" }
@@ -40,7 +38,6 @@ func (systemCommand) Execute(ctx CommandContext) error {
 	return nil
 }
 
-// formatBytes converts a byte count to a human-readable string.
 func formatBytes(b uint64) string {
 	const unit = 1024
 	if b < unit {

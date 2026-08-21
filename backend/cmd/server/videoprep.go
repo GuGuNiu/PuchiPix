@@ -14,19 +14,9 @@ import (
 	"backend/internal/sites/universal"
 )
 
-// sniffVideoM3U8 ensures a video task's M3U8 stream URL has been
-// identified and persisted. It is the identification ("识别") phase of
-// the video pipeline and is idempotent: when m3u8_url is already stored
-// it returns immediately. The identification runs inside a dedicated
-// DAG node (video:scrape) that acquires the *scraping* slot, so its
-// concurrency is bounded by the user's "识别中最大数量" setting — the
-// fix for "大量任务全部启动识别" (previously the identification lived
-// inside the download executor, unconstrained by the scraping slot).
-//
-// Returns the task's pageURL, m3u8URL and stored title so callers can
-// assemble a DownloadTaskInput without a second query.
+// sniffVideoM3U8 identifies and persists the M3U8 URL for a video task.
+// It is idempotent: when m3u8_url is already stored, it returns immediately.
 func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.SiteRegistry, strategySelector *orchestrator.StrategySelector, eventBus *infra.EventBus, logger *infra.Logger, taskID int) (pageURL, m3u8URL, storedTitle string, err error) {
-	// 1. Load the task row.
 	err = database.QueryRow(ctx,
 		`SELECT dt.url, COALESCE(dt.m3u8_url, ''), COALESCE(vi.title, '') FROM download_tasks dt LEFT JOIN video_infos vi ON vi.task_id = dt.id WHERE dt.id = ?`,
 		taskID).Scan(&pageURL, &m3u8URL, &storedTitle)
@@ -41,9 +31,6 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 		return pageURL, m3u8URL, storedTitle, nil
 	}
 
-	// 2. M3U8 URL not yet discovered — strategy-driven scrape with
-	// domain fallback. Look up the site module for mirror domains and
-	// scraping strategy.
 	var siteID string
 	var mirrorDomains []string
 	if siteReg != nil {
@@ -53,8 +40,6 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 		}
 	}
 
-	// Determine strategy. TaskTypeVideo with missing M3U8 triggers the
-	// full strategy selection chain.
 	strategy := strategySelector.Select(orchestrator.SelectStrategyInput{
 		SiteID:   siteID,
 		TaskType: orchestrator.TaskTypeVideo,
@@ -81,8 +66,7 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 		result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
 
 	default: // StrategyAuto
-		// HTTP first. If it returns a valid M3U8, use it.
-		// Otherwise fall back to chromedp.
+		// Try HTTP first; escalate to chromedp if no valid M3U8 is found.
 		logger.Info(fmt.Sprintf("M3U8 URL empty for task %d, trying HTTP scrape", taskID))
 		scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
@@ -124,15 +108,13 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 		return "", "", "", fmt.Errorf("no M3U8 URL found on page: %s", pageURL)
 	}
 
-	// 3. Persist the discovered M3U8 URL for future retries.
 	_, _ = database.Exec(ctx,
 		`UPDATE download_tasks SET m3u8_url = ?, title = ? WHERE id = ?`,
 		result.M3U8URL, result.Title, taskID)
 
-	// 4. Pre-write video metadata immediately after scraping.
 	preWriteVideoInfo(ctx, database, taskID, result)
 
-	// 5. Emit task:metadata so SSE clients receive the scraped title
+	// Emit task:metadata so SSE clients receive the scraped title
 	// and actors in real-time without waiting for the polling fallback.
 	if eventBus != nil {
 		eventBus.Emit("task:metadata", map[string]any{

@@ -74,7 +74,6 @@ func (statusCommand) Execute(ctx CommandContext) error {
 	if withLogs {
 		fmt.Printf("\n%s═══ Associated Logs ═══%s\n\n", ui.Bold, ui.Reset)
 		for _, dag := range data.Dags {
-			// Skip completed/failed DAGs when --logs is used.
 			if dag.State == "completed" || dag.State == "failed" || dag.State == "cancelled" {
 				continue
 			}

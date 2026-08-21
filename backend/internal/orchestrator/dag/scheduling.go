@@ -2,9 +2,11 @@ package dag
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"backend/internal/orchestrator"
+	"backend/internal/orchestrator/slot"
 )
 
 // activateReadyNodes implements the three-phase node activation logic
@@ -370,6 +372,60 @@ func convertResourceReqs(reqs []orchestrator.ResourceRequirement) []orchestrator
 	out := make([]orchestrator.ResourceRequirement, len(reqs))
 	copy(out, reqs)
 	return out
+}
+
+// cascadeFailureToDependents fails every not-yet-executed node reachable
+// from a critically-failed node, so the DAG converges to a terminal
+// state instead of stranding successors in PENDING forever. Nodes
+// already past PENDING (READY/QUEUED/ALLOCATED/RUNNING) are cancelled
+// out of the scheduler and released from the slot pool before being
+// failed. Each cascaded node's entity status is synced to the DB
+// (failed) so the frontend shows the real outcome.
+func (o *DagOrchestrator) cascadeFailureToDependents(ctx context.Context, dagID, failedNodeID string) {
+	o.dagsMu.RLock()
+	dag, ok := o.dags[dagID]
+	o.dagsMu.RUnlock()
+	if !ok || dag.graphIdx == nil {
+		return
+	}
+
+	dag.mu.Lock()
+	var toSync []*dagNodeInstance
+	var visit func(nodeID string)
+	visit = func(nodeID string) {
+		for _, succID := range dag.graphIdx.directSuccessors(nodeID) {
+			succ, exists := dag.nodes[succID]
+			if !exists || orchestrator.IsTerminalState(succ.fsm.State()) {
+				continue
+			}
+			if o.scheduler != nil {
+				o.scheduler.CancelNode(dagID, succID)
+			}
+			holderID := fmt.Sprintf("%s:%s", dagID, succID)
+			if sp, ok := o.slotPool.(*slot.SlotPool); ok {
+				sp.ReleaseAll(holderID)
+			}
+			if err := succ.fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
+				Reason:      "cascaded failure from critical dependency " + nodeID,
+				TriggeredBy: "system",
+			}); err == nil {
+				toSync = append(toSync, succ)
+				visit(succID)
+			}
+		}
+	}
+	visit(failedNodeID)
+	dag.mu.Unlock()
+
+	for _, node := range toSync {
+		if o.statusSyncFn != nil {
+			o.statusSyncFn(ctx, dagID, node.definition.ID, node.definition, node.fsm.State())
+		}
+	}
+	if len(toSync) > 0 {
+		o.logger.Info("Cascaded failure to dependent nodes",
+			"dagId", dagID, "from", failedNodeID, "cascaded", len(toSync))
+	}
 }
 
 // ReactivateReadyNodes scans all DAGs for READY nodes and re-submits

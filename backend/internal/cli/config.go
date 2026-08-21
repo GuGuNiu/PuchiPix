@@ -7,7 +7,6 @@ import (
 	"backend/internal/db/dbconfig"
 )
 
-// Config holds the parsed global CLI options shared by all commands.
 type Config struct {
 	Host    string
 	Port    string
@@ -17,9 +16,6 @@ type Config struct {
 	ShowHelp bool
 }
 
-// ParseGlobalOptions extracts global flags from args and returns the
-// remaining positional arguments, mirroring the TypeScript
-// parseGlobalOptions function.
 func ParseGlobalOptions(args []string) (Config, []string) {
 	host := os.Getenv("PUCHIPIX_HOST")
 	if host == "" {

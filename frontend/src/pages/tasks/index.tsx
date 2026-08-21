@@ -40,13 +40,9 @@ import { TaskDetailPopover } from "./_components/task-detail-popover";
 import { Pagination } from "@/components/ui/pagination";
 
 interface SseAnimState {
-  /** Set of task keys that were updated in the last SSE tick */
   updatedKeys: Set<string>;
-  /** Set of task keys whose status changed */
   statusChangedKeys: Set<string>;
-  /** Set of task keys that are newly inserted */
   newKeys: Set<string>;
-  /** Whether the table is currently in "SSE updating" flash state */
   tableFlashing: boolean;
 }
 
@@ -124,7 +120,6 @@ export default function TasksPage(): React.JSX.Element {
     saveScroll: true,
   });
 
-  // SSE update animation state — detect changes and apply CSS classes
   const [sseAnimState, dispatchSseAnim] = useReducer(sseAnimReducer, initialSseAnimState);
   const prevTasksRef = useRef<DownloadTask[]>([]);
   const tableFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -164,11 +159,6 @@ export default function TasksPage(): React.JSX.Element {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [addTab, setAddTab] = useState<"link" | "search">("link");
-  /*
-   * Whether the user has already toggled addTab manually. Before the
-   * first toggle, the server-persisted value may restore; afterwards the
-   * user's choice wins (async-loaded data must never override it).
-   */
   const addTabTouched = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
@@ -194,7 +184,6 @@ export default function TasksPage(): React.JSX.Element {
   const currentSpeedStr = apiStats?.current_speed_str ?? "0 B/s";
   const diskIoStr = apiStats?.disk_io_str ?? "—";
 
-  /* Restore the server-persisted addTab (first load only, unless the user has already toggled it). */
   useEffect(() => {
     if (addTabTouched.current) return;
     const restored = savedData?.addTab;
@@ -203,7 +192,6 @@ export default function TasksPage(): React.JSX.Element {
     }
   }, [savedData]);
 
-  /* Mark touched and persist once the user toggles, so the default value never overwrites the server data on mount. */
   const handleSetAddTab = useCallback((tab: "link" | "search") => {
     addTabTouched.current = true;
     setAddTab(tab);
@@ -221,7 +209,6 @@ export default function TasksPage(): React.JSX.Element {
     return () => unsub();
   }, [fetchTasks, connectSSE]);
 
-  /* SSE update animation: detect task changes and trigger CSS classes */
   useEffect(() => {
     if (prevTasksRef.current.length === 0 && tasks.length === 0) return;
 
@@ -232,7 +219,6 @@ export default function TasksPage(): React.JSX.Element {
       clearTimeout(clearAnimTimerRef.current);
     }
 
-    // Small delay to batch rapid SSE updates into a single animation
     tableFlashTimerRef.current = setTimeout(() => {
       dispatchSseAnim({
         type: "snapshot",
@@ -241,7 +227,6 @@ export default function TasksPage(): React.JSX.Element {
       });
       prevTasksRef.current = tasks;
 
-      // Clear row-level animations after they finish playing
       clearAnimTimerRef.current = setTimeout(() => {
         dispatchSseAnim({ type: "reset" });
       }, 900);

@@ -19,7 +19,6 @@ func (slotsCommand) Usage() string {
 func (slotsCommand) Aliases() []string { return []string{"slot"} }
 
 func (slotsCommand) Execute(ctx CommandContext) error {
-	// Check for subcommands
 	if len(ctx.Args) > 0 {
 		switch ctx.Args[0] {
 		case "holders":
@@ -33,7 +32,6 @@ func (slotsCommand) Execute(ctx CommandContext) error {
 		}
 	}
 
-	// Default: show slot pool overview
 	data, err := ctx.Client.GetSlotStatus()
 	if err != nil {
 		return err
@@ -62,8 +60,6 @@ func (slotsCommand) Execute(ctx CommandContext) error {
 	return nil
 }
 
-// slotsReset force-clears all usage for a slot type (emergency recovery
-// from ghost slots / P-SLOT-01 leaks).
 func slotsReset(ctx CommandContext) error {
 	args := ctx.Args
 	if len(args) > 0 && args[0] == "reset" {
@@ -106,7 +102,6 @@ func slotsReset(ctx CommandContext) error {
 	return nil
 }
 
-// slotsHolders shows active slot holder IDs for leak diagnosis.
 func slotsHolders(ctx CommandContext) error {
 	data, err := ctx.Client.GetSlotHolders()
 	if err != nil {
@@ -142,7 +137,6 @@ func slotsHolders(ctx CommandContext) error {
 	return nil
 }
 
-// slotsUpdate dynamically adjusts the max concurrency for a slot type.
 func slotsUpdate(ctx CommandContext) error {
 	args := ctx.Args
 	if len(args) > 0 && args[0] == "update" {
@@ -199,7 +193,6 @@ func slotsUpdate(ctx CommandContext) error {
 	return nil
 }
 
-// slotsDetail shows detailed info for a single slot type.
 func slotsDetail(ctx CommandContext) error {
 	args := ctx.Args
 	if len(args) > 0 && args[0] == "detail" {

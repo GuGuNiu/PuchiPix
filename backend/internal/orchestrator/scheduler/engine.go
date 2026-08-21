@@ -687,9 +687,12 @@ func (s *SchedulerEngine) GetSlotSnapshot() map[string]slot.SlotUsage {
 }
 
 // UpdateSlotMax adjusts the max concurrency for a slot type at runtime.
+// Note: this deliberately does NOT hold s.mu while calling
+// slotPool.UpdateMax. UpdateMax fires maxUpdateCallback →
+// SyncQueueCapacityFromSlotPool, which re-acquires s.mu — holding it
+// here would self-deadlock (260821 fix; the previous version froze
+// every subsequent PUT /api/slots/{type} request).
 func (s *SchedulerEngine) UpdateSlotMax(slotType string, max int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.slotPool.UpdateMax(slotType, max)
 }
 

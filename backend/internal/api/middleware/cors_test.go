@@ -8,9 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestCORSPreflight verifies that OPTIONS requests receive the
-// correct CORS headers, allowing the browser to proceed with the
-// actual cross-origin request.
 func TestCORSPreflight(t *testing.T) {
 	handler := CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("handler should not be called for preflight")
@@ -26,8 +23,6 @@ func TestCORSPreflight(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Access-Control-Allow-Origin"), "*")
 }
 
-// TestCORSActualRequest verifies that non-preflight requests pass
-// through to the handler and carry the CORS exposure headers.
 func TestCORSActualRequest(t *testing.T) {
 	called := false
 	handler := CORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

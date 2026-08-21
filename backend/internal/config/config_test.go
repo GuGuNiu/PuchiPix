@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLoadDefaults verifies that all environment variables have
-// sensible fallbacks so the server can start without a .env file.
 func TestLoadDefaults(t *testing.T) {
 	os.Unsetenv("DB_PATH")
 	os.Unsetenv("SERVER_PORT")
@@ -28,8 +26,6 @@ func TestLoadDefaults(t *testing.T) {
 	assert.NotEmpty(t, cfg.SQLiteSourcePath)
 }
 
-// TestLoadEnvOverride verifies that environment variables take
-// precedence over defaults, allowing runtime configuration.
 func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("DB_PATH", "/tmp/test_puchipix.db")
 	t.Setenv("SERVER_PORT", "8080")
@@ -39,15 +35,12 @@ func TestLoadEnvOverride(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	// GetDSN returns the DB_PATH value, so the SQLite path is preserved.
 	assert.Equal(t, "/tmp/test_puchipix.db", cfg.DatabasePath)
 	assert.Equal(t, 8080, cfg.ServerPort)
 	assert.Equal(t, "DEBUG", cfg.LogLevel)
 	assert.Equal(t, 500, cfg.LogSinkCapacity)
 }
 
-// TestLoadInvalidLogLevel verifies that an unsupported log level
-// is rejected, preventing silent misconfiguration.
 func TestLoadInvalidLogLevel(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "TRACE")
 
@@ -56,9 +49,6 @@ func TestLoadInvalidLogLevel(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid LOG_LEVEL")
 }
 
-// TestLoadLowSinkCapacityClamped verifies that a sub-threshold
-// sink capacity is clamped to the default, preventing a tiny ring
-// buffer that would thrash under load.
 func TestLoadLowSinkCapacityClamped(t *testing.T) {
 	t.Setenv("LOG_SINK_CAPACITY", "10")
 
@@ -67,9 +57,6 @@ func TestLoadLowSinkCapacityClamped(t *testing.T) {
 	assert.Equal(t, 1000, cfg.LogSinkCapacity, "capacity below 100 should be clamped to 1000")
 }
 
-// TestLoadDownloadDefaults verifies that download config fields have
-// sensible defaults: multi-thread off, concurrency 4, no speed limit,
-// 1 MB min file size, gallery 5, video 3.
 func TestLoadDownloadDefaults(t *testing.T) {
 	os.Unsetenv("DOWNLOAD_MULTI_THREAD")
 	os.Unsetenv("DOWNLOAD_CONCURRENCY")
@@ -91,8 +78,6 @@ func TestLoadDownloadDefaults(t *testing.T) {
 	assert.Equal(t, 10, cfg.TSegmentConcurrent)
 }
 
-// TestLoadDownloadConcurrencyClamped verifies that concurrency is
-// clamped to the 2-8 range.
 func TestLoadDownloadConcurrencyClamped(t *testing.T) {
 	t.Setenv("DOWNLOAD_CONCURRENCY", "1")
 	cfg, err := Load()
@@ -105,8 +90,6 @@ func TestLoadDownloadConcurrencyClamped(t *testing.T) {
 	assert.Equal(t, 8, cfg.DownloadConcurrency, "above 8 should clamp to 8")
 }
 
-// TestLoadDownloadMultiThread verifies that the multi-thread flag
-// can be enabled via environment variable.
 func TestLoadDownloadMultiThread(t *testing.T) {
 	t.Setenv("DOWNLOAD_MULTI_THREAD", "true")
 	cfg, err := Load()

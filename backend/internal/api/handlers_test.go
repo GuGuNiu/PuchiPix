@@ -12,8 +12,6 @@ import (
 	"backend/internal/infra"
 )
 
-// newTestServer creates a test HTTP server with the full router,
-// using nil database (degraded mode) and a real EventBus.
 func newTestServer() *httptest.Server {
 	infra.InitGlobalConfig("DEBUG", true)
 	eventBus := infra.NewEventBus()
@@ -22,8 +20,6 @@ func newTestServer() *httptest.Server {
 	return httptest.NewServer(router)
 }
 
-// TestHealthEndpoint verifies the health check returns 200 with ok status
-// even without a database connection.
 func TestHealthEndpoint(t *testing.T) {
 	srv := newTestServer()
 	defer srv.Close()
@@ -48,8 +44,6 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
-// TestSystemEndpoint verifies the system info endpoint returns 200 with
-// runtime information.
 func TestSystemEndpoint(t *testing.T) {
 	srv := newTestServer()
 	defer srv.Close()
@@ -77,8 +71,6 @@ func TestSystemEndpoint(t *testing.T) {
 	}
 }
 
-// TestNotFoundEndpoint verifies that unknown endpoints return 404 with
-// an i18n error message.
 func TestNotFoundEndpoint(t *testing.T) {
 	srv := newTestServer()
 	defer srv.Close()
@@ -103,7 +95,6 @@ func TestNotFoundEndpoint(t *testing.T) {
 	}
 }
 
-// TestMethodNotAllowed verifies that wrong HTTP methods return 405.
 func TestMethodNotAllowed(t *testing.T) {
 	srv := newTestServer()
 	defer srv.Close()
@@ -119,8 +110,6 @@ func TestMethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestI18nLocaleSwitching verifies that the same error endpoint returns
-// different localized messages based on the x-locale header.
 func TestI18nLocaleSwitching(t *testing.T) {
 	srv := newTestServer()
 	defer srv.Close()

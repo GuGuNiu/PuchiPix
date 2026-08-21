@@ -14,21 +14,9 @@ import (
 	"backend/internal/infra"
 )
 
-// Engine tracks per-file progress for gallery tasks, computes aggregate
-// progress summaries, and manages retry strategies. It serves as the
-// single source of truth for progress calculation, replacing the
-// previous approach that hardcoded progress as 0 for gallery tasks.
-//
-// Design principles:
-//  1. Disk-first: actual file count on disk is authoritative for progress.
-//  2. Incremental: progress is updated per-file as downloads complete.
-//  3. Regional retry: failed files trigger retry of their neighborhood
-//     to account for download dependencies (e.g., session cookies, rate limits).
-//  4. Video-aware: video files get dedicated retry strategies with
-//     segment-level tracking and integrity verification.
-//  5. Checkpoint-based retry: the download phase is a state machine
-//     (DownloadPhase) and per-file status is persisted to the DB so a
-//     retry resumes from what is already on disk instead of starting over.
+// Engine tracks per-file progress for gallery tasks. Disk file count is
+// authoritative for progress. Per-file status is persisted to the DB so
+// retries resume from what is already on disk.
 type Engine struct {
 	mu     sync.RWMutex
 	files  map[int]map[int]*FileProgress // galleryID -> fileIndex -> progress
@@ -70,8 +58,6 @@ const tableFileProgress = "gallery_file_progress"
 // (which use file_index >= 0). This lets both share the composite
 // PRIMARY KEY (gallery_id, file_index) without collision.
 const phaseRowFileIndex = -1
-
-// ── DownloadPhase state machine ──
 
 // validDownloadPhaseTransitions enumerates legal DownloadPhase moves.
 var validDownloadPhaseTransitions = map[DownloadPhase][]DownloadPhase{
@@ -511,8 +497,6 @@ func countFilesRecursive(dir string) int {
 func CountFilesOnDisk(dir string) int {
 	return countFilesRecursive(dir)
 }
-
-// ── DB persistence (checkpoint-based retry) ──
 
 // SaveProgress persists the current per-file progress and phase for a
 // gallery to the gallery_file_progress table. This enables retry across

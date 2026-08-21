@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// LogLevel mirrors the TypeScript LogLevel enum.
 type LogLevel int
 
 const (
@@ -24,8 +23,7 @@ const (
 
 // LogContext carries trace identifiers that flow through every log call.
 // JSON tags are camelCase so SSE log entries expose dagId/nodeId/traceId
-// at the top level — previously the struct had no tags, producing
-// PascalCase keys the frontend never matched (F8).
+// at the top level.
 type LogContext struct {
 	TraceID  string         `json:"traceId,omitempty"`
 	DagID    string         `json:"dagId,omitempty"`
@@ -70,8 +68,7 @@ func (c LogContext) IsEmpty() bool {
 		c.TaskType == "" && c.Phase == "" && len(c.Extra) == 0
 }
 
-// StructuredLogEntry mirrors the TypeScript StructuredLogEntry so the
-// API and CLI can consume Go-produced logs without format changes.
+// StructuredLogEntry is the wire format for log entries consumed by the API and CLI.
 type StructuredLogEntry struct {
 	Timestamp  string     `json:"timestamp"`
 	Level      string     `json:"level"`
@@ -82,9 +79,7 @@ type StructuredLogEntry struct {
 	Data       any        `json:"data,omitempty"`
 }
 
-// Logger emits structured log entries to both the console (human-readable)
-// and the global LogSink (for API/CLI queries), mirroring the TypeScript
-// Logger's dual-write design.
+// Logger emits structured log entries to both the console and the global LogSink.
 type Logger struct {
 	module       string
 	boundContext LogContext
@@ -93,9 +88,7 @@ type Logger struct {
 	isDev        bool
 }
 
-// traceContextKey is the context key used by RunWith to propagate
-// trace identifiers across goroutine boundaries, replacing the
-// TypeScript AsyncLocalStorage mechanism.
+// traceContextKey propagates trace identifiers across goroutine boundaries.
 type traceContextKey struct{}
 
 // WithTraceContext stores a LogContext in a context.Context so downstream
@@ -110,7 +103,7 @@ func TraceFromContext(ctx context.Context) (LogContext, bool) {
 	return lc, ok
 }
 
-// ANSI color codes ??match the TypeScript logger output exactly.
+// ANSI color codes for console output.
 const (
 	ansiReset   = "\x1b[0m"
 	ansiDim     = "\x1b[2m"
@@ -316,8 +309,7 @@ func (l *Logger) Child(ctx LogContext) *Logger {
 }
 
 // RunWith merges the trace context into a context.Context, generates a
-// traceId when absent, then invokes fn with the enriched context. This
-// replaces the TypeScript AsyncLocalStorage propagation pattern.
+// traceId when absent, then invokes fn with the enriched context.
 func (l *Logger) RunWith(ctx context.Context, traceCtx LogContext, fn func(context.Context) error) error {
 	merged := l.boundContext.Merge(traceCtx)
 	if merged.TraceID == "" {
@@ -330,8 +322,7 @@ func (l *Logger) RunWith(ctx context.Context, traceCtx LogContext, fn func(conte
 	return fn(WithTraceContext(ctx, merged))
 }
 
-// loggerRegistry caches Logger instances by module name, mirroring the
-// TypeScript LoggerRegistry singleton.
+// loggerRegistry caches Logger instances by module name.
 type loggerRegistry struct {
 	mu      sync.Mutex
 	loggers map[string]*Logger

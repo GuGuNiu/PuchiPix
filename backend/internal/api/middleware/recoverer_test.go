@@ -8,9 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRecovererPanic verifies that a panic in a downstream handler
-// is caught and converted to a 500 response, preventing a single
-// bug from crashing the entire process.
 func TestRecovererPanic(t *testing.T) {
 	handler := Recoverer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
@@ -24,8 +21,6 @@ func TestRecovererPanic(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Internal server error")
 }
 
-// TestRecovererNormalPass verifies that non-panicking handlers
-// execute normally, confirming the middleware is transparent.
 func TestRecovererNormalPass(t *testing.T) {
 	handler := Recoverer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

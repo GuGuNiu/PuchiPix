@@ -11,18 +11,8 @@ import (
 	"backend/internal/orchestrator/slot"
 )
 
-// defaultOnRestart returns the fallback target state for a node found in
-// a non-terminal state after a service restart. Per the design requirement,
-// ALL unfinished tasks should transition to PAUSED on restart so the user
-// can decide when to resume them — no auto-execution should happen.
-//
-// Previously:
-//   - RUNNING → READY (auto-re-scheduled, causing uncontrolled execution)
-//   - VERIFYING → FAILED (user had to retry)
-//   - ALLOCATED → READY (auto-re-scheduled)
-//
-// Now: all non-terminal states → PAUSED, leaving the task in a
-// user-controllable "waiting" state. The user can resume via the UI.
+// defaultOnRestart returns PAUSED for all non-terminal states so the user
+// can decide when to resume after a service restart.
 func defaultOnRestart(restoredState orchestrator.NodeState) orchestrator.NodeState {
 	switch restoredState {
 	case orchestrator.NodeStateRunning,

@@ -13,10 +13,8 @@ type subscriber struct {
 	once    bool
 }
 
-// EventBus is a publish/subscribe event hub mirroring the TypeScript
-// EventBus: typed event names, wildcard subscription, last-event cache,
-// and per-handler error isolation so one faulty listener cannot
-// disrupt the dispatch chain.
+// EventBus is a publish/subscribe event hub with typed event names, wildcard
+// subscription, last-event cache, and per-handler error isolation.
 type EventBus struct {
 	mu          sync.RWMutex
 	subscribers map[string][]*subscriber

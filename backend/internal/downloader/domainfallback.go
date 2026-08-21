@@ -18,9 +18,7 @@ import (
 
 var fallbackLogger = infra.NewLogger("DownloadManager")
 
-// DownloadOptions configures file download behavior including custom
-// headers, timeout, atomic write semantics, and optional multi-thread
-// Range-based parallel download.
+// DownloadOptions configures file download behavior.
 type DownloadOptions struct {
 	Headers map[string]string
 	Timeout time.Duration
@@ -40,10 +38,8 @@ type DownloadOptions struct {
 	MinFileSize int64
 }
 
-// DownloadDefaults holds the runtime download configuration that is
-// applied to every DownloadOptions constructed by the orchestrator.
-// It is populated from config.Config and passed down to avoid the
-// orchestrator importing the config package directly.
+// DownloadDefaults holds runtime download configuration passed from the
+// orchestrator to avoid a direct dependency on the config package.
 type DownloadDefaults struct {
 	MultiThread bool
 	Concurrency int

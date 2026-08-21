@@ -188,9 +188,39 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 		o.eventBus.Emit("dag:nodeProgress", payload)
 	}
 
+	// Sync the node's terminal FSM state to the entity tables. This
+	// covers paths that bypass TransitionNode (executor failure lands
+	// directly on fsm.Transition here), which previously left the DB
+	// stuck at an in-progress status after a failure — e.g. a failed
+	// video:scrape left download_tasks.status at "scraping"/"downloading"
+	// forever. The injected callback maps the state (StatusReporter) and
+	// skips completed (executors write richer data).
+	if o.statusSyncFn != nil {
+		dag.mu.Lock()
+		finalState := fsm.State()
+		dag.mu.Unlock()
+		o.statusSyncFn(ctx, dagID, nodeID, node.definition, finalState)
+	}
+
 	// Activate direct successors incrementally (O(d)) rather than
-	// rescanning the whole graph (O(n*d)).
-	o.propagateCompletion(ctx, dagID, nodeID)
+	// rescanning the whole graph (O(n*d)). A critically-failed node
+	// cascades failure to its not-yet-executed successors instead of
+	// activating them (260821 fix: previously every completion — success
+	// or failure — activated successors, so a failed video:scrape node
+	// still launched the download node, which re-identified the M3U8 URL,
+	// failed again, and left the DB showing "downloading"). Nodes on the
+	// needs_retry path keep their successors PENDING (the node is being
+	// re-submitted, not dead); non-critical failures propagate so
+	// dependents can still activate (their dep counts as satisfied).
+	needsRetryFlag := false
+	if v, _ := result.Data["needsRetry"].(bool); v {
+		needsRetryFlag = true
+	}
+	if !result.Success && !needsRetryFlag && !node.definition.NonCritical {
+		o.cascadeFailureToDependents(ctx, dagID, nodeID)
+	} else {
+		o.propagateCompletion(ctx, dagID, nodeID)
+	}
 
 	// COMPLETED may have arrived before this callback (e.g. VERIFYING ->
 	// COMPLETED happened inline in the executor); also sweep any PENDING

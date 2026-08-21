@@ -15,8 +15,6 @@ import (
 	"backend/internal/cli/dagclient"
 )
 
-// mockAPIServer creates a test HTTP server that returns canned JSON
-// responses for CLI command testing, avoiding real network calls.
 func mockAPIServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *dagclient.Client) {
 	t.Helper()
 	server := httptest.NewServer(handler)

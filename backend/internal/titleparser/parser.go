@@ -15,9 +15,9 @@ import (
 type ParseResult struct {
 	Protagonist    string   // recognized model/character name(s), joined by "与"
 	Description    string   // remaining part of title after removing protagonist
-	GameCharacters []string // game character names found in title
-	Segments       []string // raw segments split from title
-	Confidence     float64  // 0.0–1.0 matching confidence
+	GameCharacters []string
+	Segments       []string
+	Confidence     float64
 }
 
 // ModelEntry is a read-only view of a cosplay model for matching.

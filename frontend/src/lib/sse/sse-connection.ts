@@ -1,8 +1,3 @@
-/**
- * SseConnection — reusable single SSE connection manager with exponential backoff,
- * heartbeat watchdog, connection state broadcast, and auto-rebinding subscriptions.
- */
-
 export type SseConnectionState = "connected" | "disconnected" | "reconnecting";
 
 type SseHandler = ((e: MessageEvent) => void) & { event?: string };
@@ -51,15 +46,13 @@ export class SseConnection {
       // Subscriber errors must not interrupt the broadcast loop.
       try {
         cb(s);
-      } catch {
-      }
+      } catch {}
     }
   }
 
   private resetHeartbeat(): void {
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
     this.heartbeatTimer = setTimeout(() => {
-      // Heartbeat timeout: force close and reconnect.
       if (this.es) {
         this.es.close();
         this.es = null;
@@ -85,7 +78,7 @@ export class SseConnection {
       RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt - 1),
       this.opts.reconnectMaxMs,
     );
-    // +/-25% jitter to avoid reconnection storm when backend restarts.
+    // Jitter prevents reconnection storm when the backend restarts.
     const jitter = base * 0.25 * (Math.random() * 2 - 1);
     const delay = Math.max(0, Math.round(base + jitter));
 
@@ -104,7 +97,6 @@ export class SseConnection {
         }
       }
     }
-    // heartbeat events are not dispatched to business subscribers, only reset watchdog.
     es.addEventListener("heartbeat", () => this.resetHeartbeat());
   }
 
@@ -118,7 +110,6 @@ export class SseConnection {
       return;
     }
 
-    // Clean up stale connection/timer before creating a new one.
     if (this.es) {
       this.es.close();
       this.es = null;
@@ -139,7 +130,7 @@ export class SseConnection {
     };
 
     es.onerror = () => {
-      // onerror may fire multiple times per disconnect; ignore if a reconnect is already scheduled.
+      // EventSource.onerror may fire multiple times per disconnect.
       if (this.reconnectTimer) return;
       this.cancelHeartbeat();
       if (this.es === es) {

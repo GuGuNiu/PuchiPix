@@ -8,14 +8,10 @@ import (
 	"strings"
 )
 
-// SseHandler is called for each parsed SSE event.
 type SseHandler func(event SseEvent)
 
-// SseErrorHandler is called when the stream encounters an error.
 type SseErrorHandler func(err error)
 
-// SSEClient subscribes to a Server-Sent Events endpoint and dispatches
-// parsed events to a handler, mirroring the TypeScript SseClient.
 type SSEClient struct {
 	url       string
 	onEvent   SseHandler
@@ -24,8 +20,6 @@ type SSEClient struct {
 	cancel    context.CancelFunc
 }
 
-// NewSSEClient creates an SSE client for the given URL with the
-// provided event and error handlers.
 func NewSSEClient(url string, onEvent SseHandler, onError SseErrorHandler) *SSEClient {
 	return &SSEClient{
 		url:        url,
@@ -35,8 +29,6 @@ func NewSSEClient(url string, onEvent SseHandler, onError SseErrorHandler) *SSEC
 	}
 }
 
-// Connect opens the SSE connection and blocks until the stream ends
-// or Close is called. Parsed events are dispatched to the handler.
 func (c *SSEClient) Connect() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -109,7 +101,6 @@ func (c *SSEClient) dispatchEvent(eventType, dataStr string) {
 	})
 }
 
-// Close terminates the SSE connection.
 func (c *SSEClient) Close() {
 	if c.cancel != nil {
 		c.cancel()

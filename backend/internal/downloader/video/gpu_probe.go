@@ -17,12 +17,12 @@ import (
 type GPUType string
 
 const (
-	GPUTypeNone         GPUType = ""             // No GPU acceleration
-	GPUTypeNVENC        GPUType = "nvenc"        // NVIDIA NVENC (Windows/Linux)
-	GPUTypeQSV          GPUType = "qsv"          // Intel Quick Sync Video (Windows/Linux)
-	GPUTypeVAAPI        GPUType = "vaapi"        // VAAPI (Linux only)
-	GPUTypeAMF          GPUType = "amf"          // AMD AMF (Windows)
-	GPUTypeVideotoolbox GPUType = "videotoolbox" // macOS VideoToolbox
+	GPUTypeNone         GPUType = ""
+	GPUTypeNVENC        GPUType = "nvenc"
+	GPUTypeQSV          GPUType = "qsv"
+	GPUTypeVAAPI        GPUType = "vaapi"
+	GPUTypeAMF          GPUType = "amf"
+	GPUTypeVideotoolbox GPUType = "videotoolbox"
 )
 
 // GPUKind classifies the detected GPU as discrete (dedicated) or
@@ -115,32 +115,22 @@ var ffmpegPathForProbe = "ffmpeg"
 
 // probeGPU performs the actual GPU hardware detection.
 //
-// Pipeline:
-//  1. Query ffmpeg -encoders to determine which HW encoders are compiled in.
-//     This is the only external process spawned; it gates whether GPU detection
-//     proceeds at all.
-//  2. For NVIDIA: use go-nvml (CGO bindings to libnvidia-ml) to query
-//     GPU name, driver version, and CUDA compute capability in-process.
-//     Falls back to nvidia-smi if NVML init fails (e.g. no libnvidia-ml).
-//  3. For Intel/AMD: use ghw to enumerate PCI display controllers and
-//     extract vendor/product names from the PCI database. This replaces
-//     PowerShell WMI calls on Windows and lspci on Linux.
-//  4. For macOS: use ghw to read the GPU model from the system's IOKit
-//     registry, replacing the sysctl subprocess call.
+// Query ffmpeg -encoders first (the only external process); if no HW encoders
+// are found, skip PCI enumeration. For NVIDIA, query driver version and CUDA
+// support via a single nvidia-smi call. For Intel/AMD/macOS, enumerate PCI
+// display controllers via ghw (cross-platform, in-process).
 func probeGPU() *GPUInfo {
 	info := &GPUInfo{
 		Type:      GPUTypeNone,
 		Available: false,
 	}
 
-	// Step 1: Query ffmpeg encoders to know which HW encoders are available.
 	encoders, err := getFFmpegEncoders()
 	if err != nil || len(encoders) == 0 {
 		info.DetectionError = fmt.Sprintf("failed to query ffmpeg encoders: %v", err)
 		return info
 	}
 
-	// Step 2: Detect platform-specific GPUs in parallel.
 	var (
 		wg                                                        sync.WaitGroup
 		nvidiaInfo, intelInfo, amdInfo, vaapiInfo, vtInfo GPUInfo
@@ -203,7 +193,7 @@ func probeGPU() *GPUInfo {
 
 	wg.Wait()
 
-	// Pick the best result by priority: NVENC > QSV > VAAPI > AMF > VideoToolbox
+	// Priority: NVENC > QSV > VAAPI > AMF > VideoToolbox.
 	candidates := []GPUInfo{nvidiaInfo, intelInfo, vaapiInfo, amdInfo, vtInfo}
 	for _, c := range candidates {
 		if c.Available {
@@ -215,15 +205,9 @@ func probeGPU() *GPUInfo {
 	return info
 }
 
-// --- NVIDIA detection (ghw for name + single nvidia-smi for driver/CUDA) ---
-
-// detectNVIDIAGPU detects NVIDIA NVENC GPU info. GPU name is queried via ghw
-// (in-process PCI database lookup), while driver version and CUDA support
-// are queried via a SINGLE nvidia-smi subprocess call.
-//
-// This replaces the original approach that spawned nvidia-smi 3 times
-// (name, driver, CUDA separately). Now ghw handles the name, and a
-// single nvidia-smi call handles driver + CUDA in one shot.
+// detectNVIDIAGPU detects NVIDIA NVENC GPU info. GPU name comes from ghw
+// (in-process PCI lookup); driver version and CUDA support come from a
+// single nvidia-smi subprocess call.
 func detectNVIDIAGPU(info *GPUInfo) {
 	info.Type = GPUTypeNVENC
 	info.EncoderName = "h264_nvenc"
@@ -232,7 +216,6 @@ func detectNVIDIAGPU(info *GPUInfo) {
 	// NVIDIA GPUs are always dedicated/discrete accelerators.
 	info.Kind = GPUKindDiscrete
 
-	// GPU name via ghw (in-process PCI lookup, no subprocess).
 	name, found := findGPUByVendor("NVIDIA")
 	if found {
 		info.GPUName = name
@@ -240,14 +223,12 @@ func detectNVIDIAGPU(info *GPUInfo) {
 		info.GPUName = "NVIDIA GPU (NVENC)"
 	}
 
-	// Driver version and CUDA support via a SINGLE nvidia-smi call.
 	driver, cudaOK := queryNVIDIADriverAndCUDA()
 	info.DriverVersion = driver
 	info.CUDASupport = cudaOK
 }
 
-// nvidiaSMICache caches the result of the single nvidia-smi subprocess call
-// so driver version and CUDA support are only queried once per process.
+// nvidiaSMICache ensures the nvidia-smi subprocess is invoked at most once.
 var nvidiaSMICache struct {
 	once    sync.Once
 	driver  string
@@ -255,8 +236,7 @@ var nvidiaSMICache struct {
 }
 
 // queryNVIDIADriverAndCUDA queries NVIDIA driver version and CUDA availability
-// in a SINGLE nvidia-smi invocation. Uses sync.Once for caching so multiple
-// goroutines calling this function share the same subprocess result.
+// in a single nvidia-smi invocation, cached via sync.Once.
 func queryNVIDIADriverAndCUDA() (string, bool) {
 	nvidiaSMICache.once.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -277,13 +257,11 @@ func queryNVIDIADriverAndCUDA() (string, bool) {
 			line = line[:idx]
 		}
 		nvidiaSMICache.driver = strings.TrimSpace(line)
-		// If nvidia-smi succeeded and returned a driver version, CUDA is available.
+		// A non-empty driver version implies CUDA is available.
 		nvidiaSMICache.cudaOK = nvidiaSMICache.driver != ""
 	})
 	return nvidiaSMICache.driver, nvidiaSMICache.cudaOK
 }
-
-// --- Intel/AMD detection via ghw (replaces PowerShell/lspci) ---
 
 // gpuListCache caches the ghw GPU info result so we only enumerate PCI
 // devices once per process lifetime. ghw's New() can be expensive on
@@ -319,7 +297,6 @@ func findGPUByVendor(vendorMatch string) (string, bool) {
 		if card.DeviceInfo == nil {
 			continue
 		}
-		// Check vendor name
 		if card.DeviceInfo.Vendor != nil {
 			vendorName := card.DeviceInfo.Vendor.Name
 			if strings.Contains(strings.ToLower(vendorName), strings.ToLower(vendorMatch)) {
@@ -333,7 +310,6 @@ func findGPUByVendor(vendorMatch string) (string, bool) {
 				return productName, true
 			}
 		}
-		// Also check product name for vendor keywords (e.g. "Radeon" for AMD)
 		if card.DeviceInfo.Product != nil {
 			productName := card.DeviceInfo.Product.Name
 			if strings.Contains(strings.ToLower(productName), strings.ToLower(vendorMatch)) {
@@ -470,8 +446,6 @@ func detectMacOSGPUVT(info *GPUInfo) {
 	}
 }
 
-// --- ffmpeg encoder list query ---
-
 // getFFmpegEncoders invokes ffmpeg -encoders and returns the parsed output.
 // Thread-safe: uses mutex to prevent concurrent ffmpeg probe invocations.
 func getFFmpegEncoders() ([]string, error) {
@@ -509,8 +483,6 @@ func hasExactEncoder(encoders []string, name string) bool {
 	}
 	return false
 }
-
-// --- Helpers ---
 
 // truncateLine trims a string to maxLen, appending "..." if truncated.
 func truncateLine(s string, maxLen int) string {

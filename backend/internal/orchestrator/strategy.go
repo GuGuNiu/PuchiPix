@@ -30,7 +30,6 @@ func NewStrategySelector() *StrategySelector {
 			"universal": true,
 		},
 		StaticSites: map[string]bool{
-			// Sites known to serve static HTML content.
 			"aimeizizi": true,
 			"xsnvshen":  true,
 		},
@@ -46,41 +45,29 @@ type SelectStrategyInput struct {
 	HasWaf bool
 }
 
-// Select determines the optimal scrape strategy. The decision follows
-// a priority chain:
-//
-//  1. Hard rules — task type forces a specific strategy.
-//  2. Site blacklist — JS-heavy sites require chromedp.
-//  3. Site whitelist — known static sites prefer HTTP.
-//  4. WAF detection — Cloudflare/CAPTCHA requires chromedp.
-//  5. Retry escalation — HTTP failures > 2 upgrade to chromedp.
-//  6. Default — HTTP-first (safe for most sites).
+// Select determines the optimal scrape strategy following a priority chain:
+// task type force, JS-heavy site list, WAF detection, retry escalation,
+// known static site list, then HTTP-first default.
 func (s *StrategySelector) Select(in SelectStrategyInput) ScrapeStrategy {
-	// 1. Sniff/M3U8 tasks ALWAYS need chromedp for network interception.
 	if in.TaskType == TaskTypeSniff {
 		return StrategyChromedp
 	}
 
-	// 2. Known JS-heavy sites force chromedp.
 	if s.JSSites[in.SiteID] {
 		return StrategyChromedp
 	}
 
-	// 3. WAF detected — must use browser to bypass.
 	if in.HasWaf {
 		return StrategyChromedp
 	}
 
-	// 4. Retry escalation: after 2+ HTTP failures, upgrade to chromedp.
 	if in.HTTPRetryCount >= 2 {
 		return StrategyChromedp
 	}
 
-	// 5. Known static sites prefer HTTP.
 	if s.StaticSites[in.SiteID] {
 		return StrategyHTTP
 	}
 
-	// 6. Default: HTTP-first (safer, faster, lower resource cost).
 	return StrategyHTTP
 }

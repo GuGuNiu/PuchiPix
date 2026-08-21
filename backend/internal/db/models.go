@@ -2,12 +2,11 @@ package db
 
 import "time"
 
-// DownloadTask represents a video download task (m3u8/mp4) with
-// progress tracking and priority scheduling support.
+// DownloadTask represents a video download task (m3u8/mp4).
 //
-// JSON tags use PascalCase to match the frontend DownloadTask TypeScript
-// interface contract. The Go field Seq maps to the JSON key "DisplayID"
-// because the frontend uses DisplayID as the user-facing identifier.
+// JSON tags use PascalCase to match the frontend TypeScript interface.
+// The Go field Seq maps to the JSON key "DisplayID" because the frontend
+// uses DisplayID as the user-facing identifier.
 type DownloadTask struct {
 	ID        int       `json:"ID" db:"id"`
 	URL       string    `json:"URL" db:"url"`
@@ -88,8 +87,7 @@ type Gallery struct {
 	Videos []GalleryVideo `json:"Videos" db:"-"`
 }
 
-// GalleryImage tracks a single image within a gallery, including
-// download status and dimensions for content verification.
+// GalleryImage tracks a single image within a gallery.
 type GalleryImage struct {
 	ID          int        `json:"id" db:"id"`
 	GalleryID   int        `json:"galleryId" db:"gallery_id"`
@@ -109,8 +107,7 @@ type GalleryImage struct {
 	UpdatedAt   time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
-// GalleryVideo tracks a single video within a gallery, including
-// resolution and format for downstream transcoding decisions.
+// GalleryVideo tracks a single video within a gallery.
 type GalleryVideo struct {
 	ID          int        `json:"id" db:"id"`
 	GalleryID   int        `json:"galleryId" db:"gallery_id"`
@@ -128,8 +125,7 @@ type GalleryVideo struct {
 	UpdatedAt   time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
-// GalleryDownloadInfo captures archive download metadata (ZIP/RAR),
-// including password, OUO relay resolution, and verification state.
+// GalleryDownloadInfo captures archive download metadata (ZIP/RAR).
 type GalleryDownloadInfo struct {
 	ID                int       `json:"id" db:"id"`
 	GalleryID         int       `json:"galleryId" db:"gallery_id"`
@@ -158,8 +154,7 @@ type GalleryDownloadInfo struct {
 	UpdatedAt         time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SniffTask records a URL sniffing operation that discovers gallery
-// URLs from a listing page, tracking found/created/skipped counts.
+// SniffTask records a URL sniffing operation.
 type SniffTask struct {
 	ID           int        `json:"ID" db:"id"`
 	Seq          *string    `json:"DisplayID" db:"seq"`
@@ -175,7 +170,6 @@ type SniffTask struct {
 	UpdatedAt    time.Time  `json:"UpdatedAt" db:"updated_at"`
 }
 
-// AppConfig is a key-value store for application-level settings.
 type AppConfig struct {
 	ID        int       `json:"id" db:"id"`
 	Key       string    `json:"key" db:"key"`
@@ -184,8 +178,7 @@ type AppConfig struct {
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SiteAccount stores credentials and cookie state for a site-specific
-// login session, supporting multi-account rotation and fail tracking.
+// SiteAccount stores credentials and cookie state for a site login session.
 type SiteAccount struct {
 	ID           int        `json:"id" db:"id"`
 	SiteID       string     `json:"siteId" db:"site_id"`
@@ -203,8 +196,7 @@ type SiteAccount struct {
 	UpdatedAt    time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
-// Person is a named individual in the character database, supporting
-// pinyin-based fuzzy matching and alias resolution.
+// Person is a named individual in the character database.
 type Person struct {
 	ID           int       `json:"id" db:"id"`
 	Name         string    `json:"name" db:"name"`
@@ -218,8 +210,7 @@ type Person struct {
 	UpdatedAt    time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// BlocklistRule defines a keyword-based filtering rule that excludes
-// galleries matching specific field/mode criteria.
+// BlocklistRule defines a keyword-based gallery filtering rule.
 type BlocklistRule struct {
 	ID        int       `json:"id" db:"id"`
 	SiteID    string    `json:"siteId" db:"site_id"`
@@ -232,7 +223,6 @@ type BlocklistRule struct {
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// UserPreference stores per-user settings grouped by category.
 type UserPreference struct {
 	ID        int       `json:"id" db:"id"`
 	Key       string    `json:"key" db:"key"`
@@ -242,8 +232,7 @@ type UserPreference struct {
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// DagEvent is an append-only event sourcing record for the DAG
-// scheduler, enabling state reconstruction via event replay.
+// DagEvent is an append-only event sourcing record for the DAG scheduler.
 type DagEvent struct {
 	ID        int       `json:"id" db:"id"`
 	Seq       int       `json:"seq" db:"seq"`
@@ -254,8 +243,7 @@ type DagEvent struct {
 	Timestamp time.Time `json:"timestamp" db:"timestamp"`
 }
 
-// DagSnapshot is a periodic state checkpoint for a DAG instance,
-// allowing fast recovery without full event replay.
+// DagSnapshot is a periodic state checkpoint for a DAG instance.
 type DagSnapshot struct {
 	ID        int       `json:"id" db:"id"`
 	DagID     string    `json:"dagId" db:"dag_id"`
@@ -264,8 +252,7 @@ type DagSnapshot struct {
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 }
 
-// DownloadHistory records completed downloads for deduplication and
-// user-facing history views across sites.
+// DownloadHistory records completed downloads for deduplication.
 type DownloadHistory struct {
 	ID          string    `json:"id" db:"id"`
 	SiteID      string    `json:"siteId" db:"site_id"`
@@ -281,8 +268,7 @@ type DownloadHistory struct {
 	UpdatedAt   time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SiteConfigRecord stores runtime-overridable site provider configuration,
-// supplementing the static JSON defaults with DB-backed variable data.
+// SiteConfigRecord stores runtime-overridable site provider configuration.
 type SiteConfigRecord struct {
 	SiteID              string    `json:"siteId" db:"site_id"`
 	CookiePrefix        string    `json:"cookiePrefix" db:"cookie_prefix"`
@@ -299,8 +285,7 @@ type SiteConfigRecord struct {
 	UpdatedAt           time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SjsBookmark stores a saved forum thread from the SJS site with
-// metadata for browsing and re-access.
+// SjsBookmark stores a saved SJS forum thread.
 type SjsBookmark struct {
 	ID           int       `json:"id" db:"id"`
 	URL          string    `json:"url" db:"url"`

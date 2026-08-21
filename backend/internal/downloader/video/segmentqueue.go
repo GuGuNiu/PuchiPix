@@ -91,8 +91,7 @@ type SegmentQueueConfig struct {
 }
 
 // SegmentQueue manages concurrent segment downloads with a dynamic
-// concurrency limit, replacing the TypeScript callback-based queue
-// with Go goroutines and condition variables for signaling.
+// concurrency limit using goroutines and condition variables.
 type SegmentQueue struct {
 	mu               *sync.Mutex
 	cond             *sync.Cond
@@ -103,9 +102,8 @@ type SegmentQueue struct {
 	cfg              SegmentQueueConfig
 }
 
-// NewSegmentQueue creates a queue sharing the given mutex and condition
-// variable with the DownloadManager, so both can safely coordinate
-// access to the shared activeDownloads map.
+// NewSegmentQueue creates a queue sharing the mutex and condition variable
+// with the DownloadManager for coordinated access to the activeDownloads map.
 func NewSegmentQueue(mu *sync.Mutex, cond *sync.Cond, activeDownloads map[int]*ActiveDownload, cfg SegmentQueueConfig) *SegmentQueue {
 	return &SegmentQueue{
 		mu:              mu,
@@ -177,9 +175,8 @@ func (q *SegmentQueue) Stop() {
 	q.mu.Unlock()
 }
 
-// ProcessQueue launches goroutines for pending segments up to the
-// concurrency limit. Each goroutine calls ProcessQueue again on
-// completion, creating a self-sustaining dispatch loop.
+// ProcessQueue launches goroutines for pending segments up to the concurrency
+// limit. Each goroutine calls ProcessQueue again on completion.
 func (q *SegmentQueue) ProcessQueue() {
 	for {
 		q.mu.Lock()
@@ -205,8 +202,7 @@ func (q *SegmentQueue) ProcessQueue() {
 			continue
 		}
 
-		// Inherit the per-download context so segment downloads can be
-		// cancelled on pause/cancel (fixes 260816 P0-1).
+		// Inherit the per-download context so segment downloads cancel on pause/cancel.
 		item.ctx = download.Context()
 
 		q.currentRunning++
@@ -235,8 +231,7 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 
 	tsid := GenerateTSID(item.Segment.URI, item.Segment.Index)
 
-	// Use the per-download context instead of context.Background() so
-	// that pause/cancel propagates to in-flight HTTP requests.
+	// Use the per-download context so pause/cancel propagates to in-flight requests.
 	result := DownloadSegment(item.ctx, SegmentTask{
 		Segment: item.Segment,
 		DestDir: download.SegDir,
@@ -262,13 +257,11 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 				}},
 				result.Error)
 		}
-		// Bridge to VideoProgressTracker: report failed segment.
 		if q.cfg.OnSegmentUpdate != nil {
 			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, false, "", 0, result.Error.Error())
 		}
 	} else {
 		download.CompletedSegments[item.Segment.Index] = true
-		// Bridge to VideoProgressTracker: report completed segment.
 		if q.cfg.OnSegmentUpdate != nil {
 			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, true, result.FilePath, 0, "")
 		}
