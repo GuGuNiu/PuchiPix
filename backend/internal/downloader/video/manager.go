@@ -15,6 +15,7 @@ import (
 	"backend/internal/downloader"
 	"backend/internal/infra"
 	"backend/internal/taskprogress"
+	"backend/internal/urlutil"
 )
 
 // ProgressMessage is the wire format for download progress updates
@@ -383,7 +384,7 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 	}
 
 	referer := task.PageURL
-	if referer == "" || isM3U8URL(referer) {
+	if referer == "" || urlutil.IsM3U8URL(referer) {
 		referer = ""
 	}
 
@@ -996,8 +997,5 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 	return err
 }
 
-func isM3U8URL(url string) bool {
-	return strings.HasSuffix(url, ".m3u8")
-}
 
 

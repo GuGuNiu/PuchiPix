@@ -21,8 +21,11 @@ import (
 )
 
 // getGalleryDagID retrieves the DAG ID associated with a gallery.
-// Returns empty string if no DAG has been created for this gallery.
+// Returns empty string if no DAG has been created for this gallery or DB is unavailable.
 func (h *Handlers) getGalleryDagID(ctx context.Context, galleryID int) string {
+	if h.DB == nil {
+		return ""
+	}
 	var dagID string
 	err := h.DB.QueryRow(ctx, "SELECT COALESCE(dag_id, '') FROM galleries WHERE id = ?", galleryID).Scan(&dagID)
 	if err != nil {

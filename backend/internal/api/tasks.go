@@ -23,8 +23,11 @@ import (
 )
 
 // getTaskDagID retrieves the DAG ID associated with a video task.
-// Returns empty string if no DAG has been created for this task.
+// Returns empty string if no DAG has been created for this task or DB is unavailable.
 func (h *Handlers) getTaskDagID(ctx context.Context, taskID int) string {
+	if h.DB == nil {
+		return ""
+	}
 	var dagID string
 	err := h.DB.QueryRow(ctx, "SELECT COALESCE(dag_id, '') FROM download_tasks WHERE id = ?", taskID).Scan(&dagID)
 	if err != nil {
@@ -261,55 +264,6 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
-// isM3U8URL checks whether a URL is likely an M3U8/HLS stream URL using
-// multiple detection signals rather than just the .m3u8 suffix. This
-// prevents false negatives where M3U8 URLs use non-standard extensions
-// or are embedded in query parameters.
-//
-// Detection signals (any match → true):
-//  1. Path ends with .m3u8 or .m3u (most common)
-//  2. Path contains /m3u8/ or /hls/ or /stream/ or /playlist/ segments
-//  3. Query parameters contain m3u8-related keys
-//  4. Known CDN domains that primarily serve HLS content
-func isM3U8URL(rawURL string) bool {
-	lower := strings.ToLower(rawURL)
-
-	// Signal 1: Standard M3U8/M3U file extensions.
-	if strings.HasSuffix(lower, ".m3u8") || strings.HasSuffix(lower, ".m3u") {
-		return true
-	}
-
-	// Signal 2: Path contains HLS-related segments.
-	parsed, err := url.Parse(rawURL)
-	if err == nil {
-		pathLower := strings.ToLower(parsed.Path)
-		for _, seg := range []string{"/m3u8/", "/hls/", "/stream/", "/playlist/"} {
-			if strings.Contains(pathLower, seg) {
-				return true
-			}
-		}
-		// Signal 3: Query parameters hint at M3U8 content.
-		queryLower := strings.ToLower(parsed.RawQuery)
-		for _, key := range []string{"m3u8", "m3u", "hls", "playlist"} {
-			if strings.Contains(queryLower, key) {
-				return true
-			}
-		}
-	}
-
-	// Signal 4: Known HLS CDN domains (patterns that almost always serve M3U8).
-	knownCDNPatterns := []string{
-		".m3u8.", "hls.", "cdn", "11yun.space", "stream.",
-	}
-	for _, pattern := range knownCDNPatterns {
-		if strings.Contains(lower, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // TaskCreate creates a new download task from the request body.
 func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
@@ -353,7 +307,7 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	//   3. Only route to gallery/sniff pipeline if module type == "photo"
 	//   4. Video-type providers fall through to video task creation
 	providerMatched := false
-	if h.SiteReg != nil && !isM3U8URL(cleanedURL) {
+	if h.SiteReg != nil && !urlutil.IsM3U8URL(cleanedURL) {
 		if provider, ok := h.SiteReg.GetProviderByUrl(cleanedURL); ok {
 			providerMatched = true
 			// Check the site module's type field to determine the
@@ -396,7 +350,7 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	// pages) as download tasks.
 	//
 	// Per design spec (260725/01-03): "禁止无法识别→当普通下载任务处理"
-	if !providerMatched && !isM3U8URL(cleanedURL) && h.SiteReg != nil {
+	if !providerMatched && !urlutil.IsM3U8URL(cleanedURL) && h.SiteReg != nil {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unrecognizedUrl"))
 		return
 	}
@@ -469,17 +423,25 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		h.updateTaskDagID(r.Context(), id, dagID)
 	}
 
-	// Update status to scraping since DAG is now running.
-	_, _ = h.DB.Exec(r.Context(),
-		`UPDATE download_tasks SET status = 'scraping', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	// The task's entity status is now driven by the DAG orchestrator's
+	// status sync (statusSyncFn): a successfully queued video:scrape node
+	// reports "scraping" (识别中); a scheduler-rejected node (queue full)
+	// reports "pending" (等待中) so batch-created tasks beyond the
+	// scraping-slot capacity are honestly shown as waiting instead of all
+	// appearing to identify simultaneously ("全部启动识别/满仓" fix).
+	// No unconditional UPDATE to 'scraping' happens here.
 
 	// Emit task:created so SSE clients receive real-time upsert
 	if h.EventBus != nil {
 		now := time.Now()
+		// Read the actual post-submit status for the event payload.
+		eventStatus := "pending"
+		_ = h.DB.QueryRow(r.Context(),
+			"SELECT status FROM download_tasks WHERE id = ?", id).Scan(&eventStatus)
 		h.EventBus.Emit("task:created", db.DownloadTask{
 			ID:        id,
 			URL:       normalizedURL,
-			Status:    "scraping",
+			Status:    eventStatus,
 			Progress:  0,
 			Format:    req.Format,
 			Priority:  req.Priority,
@@ -584,14 +546,12 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		// Store the DAG ID for future lookups.
 		h.updateGalleryDagID(r.Context(), galleryID, dagID)
 
-		// Update gallery status to scraping now that the DAG has been
-		// submitted and the scrape node will be scheduled. Without this,
-		// the gallery stays "pending" for the entire scrape duration
-		// (~10-30s), and the frontend shows "等待中" with no sub-status
-		// even though the scraper is actively running. This matches the
-		// video task handler behavior (tasks.go L269-271).
-		h.DB.Exec(r.Context(),
-			"UPDATE galleries SET status = 'scraping', updated_at = CURRENT_TIMESTAMP WHERE id = ?", galleryID)
+		// The gallery's entity status is driven by the orchestrator's
+		// status sync: a queued scrape node reports "scraping", a
+		// scheduler-rejected node stays "pending" (等待中). No
+		// unconditional UPDATE to 'scraping' happens here (this is part
+		// of the "全部启动识别/满仓" fix — only nodes that actually entered
+		// the scheduling queue are shown as identifying).
 
 		// Emit task:progress so SSE clients see the status transition
 		// from "pending" to "scraping" immediately.
@@ -608,14 +568,17 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 	// for consistency with task:created and SSE initial events).
 	// Uses "ID" (not "GalleryID") so the frontend taskKey() can
 	// directly use it without field-name translation.
-	// Status is "scraping" (not "pending") because the DAG has been
-	// submitted and the scrape node is queued for execution.
+	// Status reflects the post-submit reality (scraping when the scrape
+	// node was queued, pending when it was scheduler-rejected).
 	if h.EventBus != nil {
+		eventStatus := "pending"
+		_ = h.DB.QueryRow(r.Context(),
+			"SELECT COALESCE(status, 'pending') FROM galleries WHERE id = ?", galleryID).Scan(&eventStatus)
 		h.EventBus.Emit("gallery:created", map[string]any{
 			"ID":         galleryID,
 			"SourceURL":  normalizedURL,
 			"SiteID":     siteID,
-			"Status":     "scraping",
+			"Status":     eventStatus,
 			"DagID":      dagID,
 			"DisplayID":  *seqPtr,
 			"TaskType":   "gallery",
@@ -624,18 +587,21 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		})
 	}
 
+	responseStatus := "pending"
+	_ = h.DB.QueryRow(r.Context(),
+		"SELECT COALESCE(status, 'pending') FROM galleries WHERE id = ?", galleryID).Scan(&responseStatus)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"TaskType":        "gallery",
 		"ID":              galleryID,
 		"DisplayID":       *seqPtr,
 		"URL":             normalizedURL,
-		"Status":          "scraping",
+		"Status":          responseStatus,
 		"SiteID":          siteID,
 		"CreatedAt":       time.Now(),
 		"UpdatedAt":       time.Now(),
-		"EffectiveStatus": task_compute.ComputeEffectiveStatus("scraping", "gallery", 0, 0),
-		"ProgressStage":   task_compute.ComputeProgressStage("scraping", "gallery", 0),
-		"AllowedActions":  task_compute.ComputeAllowedActions("scraping", "gallery"),
+		"EffectiveStatus": task_compute.ComputeEffectiveStatus(responseStatus, "gallery", 0, 0),
+		"ProgressStage":   task_compute.ComputeProgressStage(responseStatus, "gallery", 0),
+		"AllowedActions":  task_compute.ComputeAllowedActions(responseStatus, "gallery"),
 	})
 }
 
@@ -1130,63 +1096,6 @@ func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) {
 		 SET progress = 0, completed_segments = 0, total_segments = 0,
 		     error_msg = '', m3u8_url = '', updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, taskID)
-}
-
-// FixGalleries is a temporary admin endpoint that resets failed/scraping
-// gallery statuses back to 'completed'. Used for recovery after bulk
-// retry attempts where the DAG resume pipeline failed due to missing files.
-func (h *Handlers) FixGalleries(w http.ResponseWriter, r *http.Request) {
-	if h.DB == nil {
-		writeError(w, http.StatusServiceUnavailable, "database unavailable")
-		return
-	}
-	ctx := r.Context()
-
-	rows, err := h.DB.Query(ctx,
-		"SELECT id FROM galleries WHERE status IN ('failed', 'scraping')")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("query failed: %v", err))
-		return
-	}
-	var affectedIDs []int
-	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
-			continue
-		}
-		affectedIDs = append(affectedIDs, id)
-	}
-	rows.Close()
-
-	result, err := h.DB.Exec(ctx,
-		"UPDATE galleries SET status = 'completed', error_msg = '', updated_at = CURRENT_TIMESTAMP WHERE status IN ('failed', 'scraping')")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("update failed: %v", err))
-		return
-	}
-	rowsAff, _ := result.RowsAffected()
-
-	if h.EventBus != nil {
-		for _, gid := range affectedIDs {
-			h.EventBus.Emit("task:completed", map[string]any{
-				"taskId":   gid,
-				"taskType": "gallery",
-				"status":   "completed",
-			})
-		}
-	}
-
-	var completed, failed, scraping int
-	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries WHERE status = 'completed'").Scan(&completed)
-	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries WHERE status = 'failed'").Scan(&failed)
-	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries WHERE status = 'scraping'").Scan(&scraping)
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"reset":     rowsAff,
-		"completed": completed,
-		"failed":    failed,
-		"scraping":  scraping,
-	})
 }
 
 // TaskDelete removes a download task from the database and cleans up

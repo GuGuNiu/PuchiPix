@@ -1,8 +1,56 @@
 package task_compute
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+	"unicode/utf8"
+)
 
-// ComputeEffectiveStatus determines the display status used for filtering.
+// openingParens lists opening brackets that may follow a model name in titles,
+// so stripPersonPrefix can skip past them to reach the actual description.
+const openingParens = "(\uFF08"
+const closingParens = ")\uFF09"
+
+// sitePrefixPatterns matches non-model-name prefixes that source websites
+// inject before the protagonist name (e.g., category tags, numeric IDs,
+// social media labels). These must be removed before the name itself can
+// be stripped from the title for display.
+var sitePrefixPatterns = regexp.MustCompile(`^\s*(?:` +
+	`\[.*?\]` +
+	`|\(.*?\)` +
+	`|(?i)JK\s*Cosplay[：:]?` +
+	`|(?i)cosplay美女` +
+	`|(?i)cosplay` +
+	`|动漫博主` +
+	`|(?i)COS福利` +
+	`|森萝财团[：:]` +
+	`|No\.\d+` +
+	`|(?i)Vol\.\d+` +
+	`|(?i)TML\.\d+` +
+	`|微博正?妹\s*像个?` +
+	`|人气Coser` +
+	`|长腿Coser` +
+	`|(?i)COS萌妹` +
+	`|萌系小姐姐` +
+	`|萌妹` +
+	`|小妖精` +
+	`|二次元妹子` +
+	`|尤物` +
+	`|微博妹子` +
+	`|(?i)Coser\s` +
+	`|NinJA` +
+	`|[图包套图写真]{2}` +
+	`|(?i)(?:COS|coser)\b` +
+	`|微博` +
+	`|Cos小姐姐` +
+	`|(?i)JK制服[：:]` +
+	`)\s*`)
+
+// dualPersonSepRE matches "&" variants that sites use to separate dual-model
+// names, while the database stores them with the CJK conjunction character.
+// Normalizing before prefix matching avoids HasPrefix mismatches.
+var dualPersonSepRE = regexp.MustCompile(`\s*&\s*`)
+
 func ComputeEffectiveStatus(status, taskType string, imageCount, videoCount int) string {
 	hasScrapeResults := imageCount > 0 || videoCount > 0
 	switch status {
@@ -23,8 +71,6 @@ func ComputeEffectiveStatus(status, taskType string, imageCount, videoCount int)
 	}
 }
 
-// ComputeAllowedActions returns the list of actions the user can perform on
-// a task, based on its type and current status.
 func ComputeAllowedActions(status, taskType string) []string {
 	actions := []string{}
 	switch taskType {
@@ -72,7 +118,6 @@ func ComputeAllowedActions(status, taskType string) []string {
 	return actions
 }
 
-// ComputeProgressStage returns an i18n key for the progress stage display.
 func ComputeProgressStage(status, taskType string, progress float64) string {
 	if taskType == "sniff" {
 		switch status {
@@ -118,14 +163,41 @@ func ComputeProgressStage(status, taskType string, progress float64) string {
 	}
 }
 
-// StripPersonFromTitle removes the person/model name prefix from a title.
+// StripPersonFromTitle removes the protagonist name prefix from a gallery
+// title for display, since the name is already shown separately in the
+// Person field. Tries progressively more aggressive cleaning strategies
+// to handle site-added prefixes, dual-person separator mismatches, and
+// parenthetical suffixes injected by source websites.
 func StripPersonFromTitle(title, person string) string {
 	if title == "" || person == "" {
 		return title
 	}
+
 	if stripped := stripPersonPrefix(title, person); stripped != "" {
 		return stripped
 	}
+
+	// Sites use "&" while the DB uses the CJK conjunction; normalize before matching.
+	normTitle := normalizeDualPerson(title)
+	normPerson := normalizeDualPerson(person)
+	if normTitle != title || normPerson != person {
+		if stripped := stripPersonPrefix(normTitle, normPerson); stripped != "" {
+			return stripped
+		}
+	}
+
+	// Source websites inject category tags and labels before the name.
+	cleaned := stripSitePrefixes(title)
+	if cleaned != title {
+		if stripped := stripPersonPrefix(cleaned, person); stripped != "" {
+			return stripped
+		}
+		normCleaned := normalizeDualPerson(cleaned)
+		if stripped := stripPersonPrefix(normCleaned, normPerson); stripped != "" {
+			return stripped
+		}
+	}
+
 	for _, name := range strings.Split(person, ",") {
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -134,16 +206,34 @@ func StripPersonFromTitle(title, person string) string {
 		if stripped := stripPersonPrefix(title, name); stripped != "" {
 			return stripped
 		}
+		if stripped := stripPersonPrefix(cleaned, name); stripped != "" {
+			return stripped
+		}
 	}
+
 	return title
 }
 
+// stripPersonPrefix removes a name prefix and any parenthetical suffix
+// that follows it (e.g., an alias in parentheses after the name),
+// then trims separator characters to expose the description.
 func stripPersonPrefix(title, name string) string {
 	if !strings.HasPrefix(title, name) {
 		return ""
 	}
 	after := title[len(name):]
-	after = strings.TrimLeft(after, " \t-\u2013\u2014:_|　")
+	after = strings.TrimLeft(after, " \t")
+
+	// Skip parenthetical suffixes that sites append after the name.
+	if firstRune, size := utf8.DecodeRuneInString(after); size > 0 && strings.ContainsRune(openingParens, firstRune) {
+		closingRune := matchingCloseParen(firstRune)
+		if idx := strings.IndexRune(after, closingRune); idx >= 0 {
+			after = after[idx+utf8.RuneLen(closingRune):]
+			after = strings.TrimLeft(after, " \t")
+		}
+	}
+
+	after = strings.TrimLeft(after, "-\u2013\u2014:_|　")
 	after = strings.TrimSpace(after)
 	if after == "" {
 		return ""
@@ -151,8 +241,26 @@ func stripPersonPrefix(title, name string) string {
 	return after
 }
 
-// EnrichTaskMap adds computed fields (EffectiveStatus, ProgressStage,
-// AllowedActions) to a task map before sending to the frontend.
+// matchingCloseParen returns the closing bracket for a given opening one,
+// handling both ASCII and fullwidth CJK parentheses.
+func matchingCloseParen(open rune) rune {
+	switch open {
+	case '\uFF08': // Fullwidth left parenthesis
+		return '\uFF09' // Fullwidth right parenthesis
+	default:
+		return ')'
+	}
+}
+
+func stripSitePrefixes(title string) string {
+	return sitePrefixPatterns.ReplaceAllString(title, "")
+}
+
+func normalizeDualPerson(s string) string {
+	return dualPersonSepRE.ReplaceAllString(s, "与")
+}
+
+// EnrichTaskMap adds computed fields to a task map before sending to the frontend.
 func EnrichTaskMap(task map[string]any) map[string]any {
 	status, _ := task["Status"].(string)
 	if status == "scraped" {

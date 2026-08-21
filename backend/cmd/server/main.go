@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -167,6 +168,16 @@ func main() {
 			Max:        10,
 		})
 
+		// 4a. Load persisted concurrency settings from app_configs so the
+		// user's saved "识别中最大数量" / "下载并发" / "嗅探并发" values are
+		// applied at startup. Previously these were only written by the
+		// settings API and applied to the live pool at save time — a
+		// restart silently reverted the pool to the hardcoded defaults,
+		// which made a raised scraping cap appear to "顶破设计范围".
+		applyPersistedSlotMax(slotPool, database, logger, "max_concurrent_tasks", "download")
+		applyPersistedSlotMax(slotPool, database, logger, "max_scraping_tasks", "scraping")
+		applyPersistedSlotMax(slotPool, database, logger, "max_concurrent_sniff_tasks", "sniff")
+
 		// 4b. Stream slot state changes over the EventBus so SSE clients
 		// (via /api/tasks/stream, which forwards slot:stateChanged) observe
 		// acquire / release / max / quota updates in real-time without
@@ -217,27 +228,25 @@ func main() {
 		// dag:nodeProgress events for real-time gallery DAG progress.
 		dagOrch.SetEventBus(eventBus)
 
-		// 5d. Node-level DB status sync: push terminal FSM states back to
-		// the entity tables (galleries / download_tasks / sniff_tasks).
-		// This closes the gap where the FSM reached failed while the DB
-		// stayed at a transient status (deferred "Phase 4" TODO from
-		// TransitionNode). The entity table is chosen via the node's
-		// config (galleryId/taskId/sniffId), and only transitions TO a
-		// terminal state are written — transient states remain owned by
-		// the executors. Best-effort: failures are logged, never fatal.
+		// 5d. Node-level DB status sync: push FSM states back to the
+		// entity tables (galleries / download_tasks / sniff_tasks) via
+		// orchestrator.StatusReporter. Unlike the previous
+		// terminal-states-only mapping, every user-observable state is
+		// now reported:
+		//   QUEUED/ALLOCATED/RUNNING → scraping/downloading/sniffing
+		//   READY (scheduler-rejected) → pending (等待中)
+		//   PAUSED → paused; FAILED/TIMEOUT → failed; CANCELLED → cancelled
+		// This closes the defect where rejected nodes left the DB stuck
+		// at "scraping" — every batch-created task looked like it was
+		// identifying ("全部启动识别/满仓") while the scheduler had never
+		// dispatched it (metrics showed totalScheduled << task count).
+		// "completed" is intentionally NOT written here: the executors
+		// write it with richer data (file counts, paths, partial).
+		// Best-effort: failures are logged, never fatal.
+		statusReporter := orchestrator.NewStatusReporter()
 		dagOrch.SetStatusSyncFn(func(ctx context.Context, dagID, nodeID string, nodeDef orchestrator.DagNodeDefinition, state orchestrator.NodeState) {
-			if !orchestrator.IsTerminalState(state) {
-				return
-			}
-			dbStatus := ""
-			switch state {
-			case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout:
-				dbStatus = "failed"
-			case orchestrator.NodeStateCancelled:
-				dbStatus = "cancelled"
-			default:
-				// completed is written by the executors with richer data
-				// (file counts, paths); do not clobber it here.
+			dbStatus, ok := statusReporter.MapNodeToEntityStatus(nodeDef, state)
+			if !ok || dbStatus == "completed" {
 				return
 			}
 			switch {
@@ -510,167 +519,21 @@ func main() {
 			delete(strategySelector.JSSites, "universal")
 
 			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
-				var pageURL, m3u8URL, storedTitle string
-				err := database.QueryRow(ctx,
-					`SELECT dt.url, COALESCE(dt.m3u8_url, ''), COALESCE(vi.title, '') FROM download_tasks dt LEFT JOIN video_infos vi ON vi.task_id = dt.id WHERE dt.id = ?`,
-					taskID).Scan(&pageURL, &m3u8URL, &storedTitle)
-				if err != nil {
-					return video.DownloadTaskInput{}, fmt.Errorf("query task %d: %w", taskID, err)
-				}
-
-				// Decode MacCMS-style encoded M3U8 URLs that may have been
-				// stored in a previous run before the decode fix was added.
-				m3u8URL = universal.DecodeMacCMSURL(m3u8URL)
-
-				// If M3U8 URL is already known, use it directly with
-				// lightweight best-effort metadata scrape.
-				if m3u8URL != "" {
-					// Collect referer domains for CDN anti-hotlink bypass.
-					var refererDomains []string
-					if h.SiteReg != nil {
-						if mod, ok := h.SiteReg.GetModuleByUrl(pageURL); ok {
-							refererDomains = mod.Domains
-						}
-					}
-					task := video.DownloadTaskInput{
-						ID:             taskID,
-						M3U8URL:        m3u8URL,
-						PageURL:        pageURL,
-						Title:          storedTitle,
-						RefererDomains: refererDomains,
-					}
-					metaCtx, metaCancel := context.WithTimeout(ctx, 30*time.Second)
-					defer metaCancel()
-					if meta, metaErr := universal.ScrapePage(metaCtx, pageURL); metaErr == nil {
-						task.Title = meta.Title
-						task.Tags = meta.Tags
-						task.Actors = meta.Actors
-						task.Categories = meta.Categories
-						task.Director = meta.Director
-					}
-					return task, nil
-				}
-
-				// M3U8 URL not yet discovered — strategy-driven scrape with
-				// domain fallback. First, look up the site module to get
-				// mirror domains and scraping strategy.
-				var siteID string
-				var mirrorDomains []string
-				if h.SiteReg != nil {
-					if mod, ok := h.SiteReg.GetModuleByUrl(pageURL); ok {
-						siteID = mod.ID
-						mirrorDomains = mod.Domains
-					}
-				}
-
-				// Determine strategy. TaskTypeVideo with missing M3U8
-				// triggers the full strategy selection chain.
-				strategy := strategySelector.Select(orchestrator.SelectStrategyInput{
-					SiteID:   siteID,
-					TaskType: orchestrator.TaskTypeVideo,
-				})
-
-				var result *sites.ScrapeResult
-				var scrapeErr error
-
-				switch strategy {
-				case orchestrator.StrategyHTTP:
-					scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
-						return universal.ScrapePageHTTP(ctx, url)
-					}
-					scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-					defer cancel()
-					result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
-
-				case orchestrator.StrategyChromedp:
-					scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
-						return universal.ScrapePage(ctx, url)
-					}
-					scrapeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-					defer cancel()
-					result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
-
-				default: // StrategyAuto
-					// HTTP first. If it returns a valid M3U8, use it.
-					// Otherwise fall back to chromedp.
-					logger.Info(fmt.Sprintf("M3U8 URL empty for task %d, trying HTTP scrape", taskID))
-					scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-					defer cancel()
-					scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
-						return universal.ScrapePageHTTP(ctx, url)
-					}
-					result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx, pageURL, mirrorDomains, scrapeFn)
-
-					// Quality gate: if HTTP didn't find a M3U8 or produced
-					// empty results, escalate to chromedp.
-					if scrapeErr != nil || (result != nil && result.M3U8URL == "" && result.Title == "") {
-						logger.Info(fmt.Sprintf("HTTP scrape insufficient for task %d, escalating to chromedp", taskID))
-						scrapeCtx2, cancel2 := context.WithTimeout(ctx, 2*time.Minute)
-						defer cancel2()
-						scrapeFn2 := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
-							return universal.ScrapePage(ctx, url)
-						}
-						result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx2, pageURL, mirrorDomains, scrapeFn2)
-
-						// Last resort: if headless chromedp also failed and the
-						// error pattern suggests CloudFlare/WAF blocking, try a
-						// visible (headful) browser. Anti-bot systems can detect
-						// headless Chrome via navigator.webdriver and other
-						// fingerprint signals; a visible browser often bypasses
-						// these checks.
-						if scrapeErr != nil && isLikelyAntiBot(scrapeErr) {
-							logger.Info(fmt.Sprintf("headless chromedp blocked for task %d, trying headful browser", taskID))
-							scrapeCtx3, cancel3 := context.WithTimeout(ctx, 40*time.Second)
-							defer cancel3()
-							scrapeFn3 := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
-								return universal.ScrapePageHeadful(ctx, url)
-							}
-							result, scrapeErr = universal.ScrapePageWithFallback(scrapeCtx3, pageURL, mirrorDomains, scrapeFn3)
-						}
-					}
-				}
-
-				if scrapeErr != nil {
-					return video.DownloadTaskInput{}, fmt.Errorf("scrape page for M3U8: %w", scrapeErr)
-				}
-				if result.M3U8URL == "" {
-					return video.DownloadTaskInput{}, fmt.Errorf("no M3U8 URL found on page: %s", pageURL)
-				}
-
-				// Persist the discovered M3U8 URL for future retries.
-				_, _ = database.Exec(ctx,
-					`UPDATE download_tasks SET m3u8_url = ?, title = ? WHERE id = ?`,
-					result.M3U8URL, result.Title, taskID)
-
-				// Pre-write video metadata immediately after scraping.
-				preWriteVideoInfo(ctx, database, taskID, result)
-
-				// Emit task:metadata so SSE clients receive the scraped
-				// title and actors in real-time without waiting for the
-				// 10s polling fallback. This bridges the gap between DB
-				// write and frontend state.
-				if eventBus != nil {
-					eventBus.Emit("task:metadata", map[string]any{
-						"taskId":       taskID,
-						"taskType":     "video",
-						"GalleryTitle": result.Title,
-						"Person":       strings.Join(result.Actors, ", "),
-					})
-				}
-
-				return video.DownloadTaskInput{
-					ID:             taskID,
-					M3U8URL:        result.M3U8URL,
-					PageURL:        pageURL,
-					Title:          result.Title,
-					Tags:           result.Tags,
-					Actors:         result.Actors,
-					Categories:     result.Categories,
-					Director:       result.Director,
-					RefererDomains: mirrorDomains,
-				}, nil
+				// Delegate to the shared video preparation helper: ensures the
+				// M3U8 URL is identified (idempotent; a legacy single-node DAG may
+				// reach the download node without a preceding video:scrape node)
+				// and assembles the full DownloadTaskInput (referer domains, metadata).
+				return loadVideoTaskInput(ctx, database, h.SiteReg, strategySelector, eventBus, logger, taskID)
 			}
 
+			// Register the video identification executor (video:scrape). The
+			// identification runs in a dedicated DAG node that acquires the
+			// *scraping* slot, so video identification concurrency is bounded
+			// by maxScrapingTasks — the fix for "大量任务全部启动识别/满仓".
+			exeReg.Register(executors.NewVideoScrapeExecutor(func(ctx context.Context, taskID int) error {
+				_, _, _, err := sniffVideoM3U8(ctx, database, h.SiteReg, strategySelector, eventBus, logger, taskID)
+				return err
+			}))
 		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
 
 		// Post-executor-registration video DAG recovery is intentionally
@@ -841,6 +704,28 @@ func (a *orchestratorAdapter) GetNodeForVerification(dagID, nodeID string) inter
 	// be invoked). The scheduler calls this during the VERIFYING phase to
 	// drive side-effect checks and needs_retry auto-retry.
 	return a.orch.GetNodeForVerification(dagID, nodeID)
+}
+
+// applyPersistedSlotMax reads a persisted concurrency setting from
+// app_configs and applies it to the slot pool at startup, so the user's
+// saved "识别中最大数量" / "下载并发" / "嗅探并发" values survive restarts.
+// No-op when the config key is absent or invalid (pool keeps defaults).
+func applyPersistedSlotMax(sp *slot.SlotPool, database *db.Database, logger *infra.Logger, dbKey, slotType string) {
+	if sp == nil || database == nil {
+		return
+	}
+	var val string
+	if err := database.QueryRow(context.Background(),
+		`SELECT value FROM app_configs WHERE key = ?`, dbKey).Scan(&val); err != nil || val == "" {
+		return
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n <= 0 {
+		return
+	}
+	sp.UpdateMax(slotType, n)
+	logger.Info("Applied persisted slot max from app_configs",
+		"slotType", slotType, "max", n, "configKey", dbKey)
 }
 
 // isLikelyAntiBot checks whether a scrape error pattern suggests the

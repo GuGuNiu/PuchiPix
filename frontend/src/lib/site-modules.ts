@@ -125,12 +125,6 @@ export function getAllSiteModules(): SiteModuleConfig[] {
 }
 
 /**
- * Returns readonly array of all enabled modules.
- * @deprecated Use getAllSiteModules() instead.
- */
-export const ENABLED_SITE_MODULES: readonly SiteModuleConfig[] = Object.freeze([]);
-
-/**
  * Get currently loaded modules array for static access scenarios.
  * Ensure initSiteModules() has completed before first access.
  */

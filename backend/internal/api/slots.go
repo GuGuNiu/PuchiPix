@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -81,6 +82,29 @@ func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.Sched.UpdateSlotMax(slotType, req.Max)
+
+	// Persist the new max to app_configs so the value survives restarts.
+	// Startup re-applies these keys via applyPersistedSlotMax in the
+	// server main; without this, a CLI/API raise of the slot cap would
+	// silently revert to the default after every restart.
+	if h.DB != nil {
+		// Map slot type → app_configs key (mirrors TaskSettingsUpdate).
+		dbKey := ""
+		switch slotType {
+		case "download":
+			dbKey = "max_concurrent_tasks"
+		case "scraping":
+			dbKey = "max_scraping_tasks"
+		case "sniff":
+			dbKey = "max_concurrent_sniff_tasks"
+		}
+		if dbKey != "" {
+			_, _ = h.DB.Exec(r.Context(),
+				`INSERT INTO app_configs (key, value) VALUES (?, ?)
+				 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
+				dbKey, strconv.Itoa(req.Max), strconv.Itoa(req.Max))
+		}
+	}
 
 	// Return updated usage for this slot type.
 	stats := h.Sched.GetSlotSnapshot()

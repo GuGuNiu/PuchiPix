@@ -151,14 +151,6 @@ type SiteProvider interface {
 	IsListingPage(url string) bool
 }
 
-// SiteConfig holds static configuration for a registered site provider.
-type SiteConfig struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	BaseURL string `json:"baseUrl"`
-	Enabled bool   `json:"enabled"`
-}
-
 // BadgeTheme defines the visual styling for a site's UI badge.
 type BadgeTheme struct {
 	Gradient   string `json:"gradient"`

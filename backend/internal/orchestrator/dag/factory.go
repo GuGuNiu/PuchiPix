@@ -248,17 +248,42 @@ func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefin
 	}
 }
 
-// NewVideoPipeline builds a single-node video download DAG for the
-// legacy download_tasks system, bridging video tasks into the DAG
-// slot pool for proper concurrency control.
+// NewVideoPipeline builds the two-node video processing DAG:
+//
+//	vsc (scraping slot, M3U8 识别) → vdl (download slot, 下载)
+//
+// The identification node acquires a *scraping* slot so video
+// identification concurrency is bounded by the user's "识别中最大数量"
+// setting (maxScrapingTasks → scraping slot). Previously identification
+// ran inside the download executor and was only bounded by the download
+// slot — every submitted video task looked like it was "identifying"
+// (scraping) in the DB even when the scheduler had rejected it, which
+// is the "大量任务全部启动识别 / 满仓" defect fixed by this split.
+//
+// Backward compatibility: DAGs restored from snapshots that still use
+// the single-node vdl pipeline keep working — VideoDownloadExecutor's
+// task loader falls back to identifying the M3U8 URL itself when
+// m3u8_url is empty.
 func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
+			nodeID:     fmt.Sprintf("vsc-%d", taskID),
+			taskType:   orchestrator.TaskTypeVideo,
+			phase:      orchestrator.PhaseScrape,
+			deps:       []string{},
+			executor:   "video:scrape",
+			slotType:   "scraping",
+			priority:   orchestrator.PriorityNormal,
+			timeout:    300000,
+			maxRetries: 2,
+			retryDelay: 5000,
+		},
+		{
 			nodeID:     fmt.Sprintf("vdl-%d", taskID),
 			taskType:   orchestrator.TaskTypeVideo,
 			phase:      orchestrator.PhaseDownload,
-			deps:       []string{},
+			deps:       []string{fmt.Sprintf("vsc-%d", taskID)},
 			executor:   "video:download",
 			slotType:   "download",
 			priority:   orchestrator.PriorityNormal,
@@ -268,13 +293,12 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 		},
 	})
 
-	// Inject taskId into node config so VideoDownloadExecutor can
-	// look up the download_tasks row and start the download.
-	// Also set skipVerify since the gallery-oriented StateReconciler
-	// checks for savePath/extractPath which don't apply to video tasks.
-	if len(nodes) > 0 {
-		nodes[0].Config["taskId"] = taskID
-		nodes[0].Config["skipVerify"] = true
+	// Inject taskId into node config so VideoScrapeExecutor and
+	// VideoDownloadExecutor can look up the download_tasks row. Both
+	// nodes skip the gallery-oriented verification path.
+	for i := range nodes {
+		nodes[i].Config["taskId"] = taskID
+		nodes[i].Config["skipVerify"] = true
 	}
 
 	return orchestrator.DagDefinition{

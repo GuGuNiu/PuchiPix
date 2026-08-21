@@ -13,13 +13,6 @@ type subscriber struct {
 	once    bool
 }
 
-// EventBusStats reports subscriber counts for monitoring.
-type EventBusStats struct {
-	EventTypes       int
-	TotalHandlers    int
-	WildcardHandlers int
-}
-
 // EventBus is a publish/subscribe event hub mirroring the TypeScript
 // EventBus: typed event names, wildcard subscription, last-event cache,
 // and per-handler error isolation so one faulty listener cannot
@@ -137,22 +130,6 @@ func (eb *EventBus) GetLastEvent(event string) any {
 	eb.mu.RLock()
 	defer eb.mu.RUnlock()
 	return eb.lastEvents[event]
-}
-
-// GetStats returns aggregate subscriber counts.
-func (eb *EventBus) GetStats() EventBusStats {
-	eb.mu.RLock()
-	defer eb.mu.RUnlock()
-	stats := EventBusStats{}
-	for event, subs := range eb.subscribers {
-		if event == "*" {
-			stats.WildcardHandlers = len(subs)
-			continue
-		}
-		stats.EventTypes++
-		stats.TotalHandlers += len(subs)
-	}
-	return stats
 }
 
 // Clear removes all subscribers and cached events.

@@ -211,32 +211,3 @@ export function createLogger(module: string): Logger {
   return logger;
 }
 
-// ── Convenience factories (matching spec module names) ──
-
-export const loggers = {
-  taskStore: (): Logger => createLogger('TaskStore'),
-  socketStore: (): Logger => createLogger('SocketStore'),
-  sniffStore: (): Logger => createLogger('SniffStore'),
-  preferenceStore: (): Logger => createLogger('PreferenceStore'),
-  galleryStore: (): Logger => createLogger('GalleryStore'),
-  routeError: (): Logger => createLogger('RouteError'),
-  zipDownloader: (): Logger => createLogger('ZipDownloader'),
-  webSocket: (): Logger => createLogger('WebSocket'),
-  galleryHandler: (): Logger => createLogger('GalleryHandler'),
-  scrapeGallery: (): Logger => createLogger('ScrapeGallery'),
-  scrapeGalleryHttp: (): Logger => createLogger('ScrapeGalleryHttp'),
-  pageEvaluators: (): Logger => createLogger('PageEvaluators'),
-  siteAccountManager: (): Logger => createLogger('SiteAccountManager'),
-  pageExtractors: (): Logger => createLogger('PageExtractors'),
-  universalProvider: (): Logger => createLogger('UniversalProvider'),
-  lifecycle: (): Logger => createLogger('Lifecycle'),
-  server: (): Logger => createLogger('Server'),
-  scheduler: (): Logger => createLogger('Scheduler'),
-  taskQueue: (): Logger => createLogger('TaskQueue'),
-  orchestrator: (): Logger => createLogger('Orchestrator'),
-  dagOrchestrator: (): Logger => createLogger('DagOrchestrator'),
-  downloadManager: (): Logger => createLogger('DownloadManager'),
-  urlResolver: (): Logger => createLogger('UrlResolver'),
-  parallelDownloader: (): Logger => createLogger('ParallelDownloader'),
-  galleryDownloader: (): Logger => createLogger('GalleryDownloader'),
-};

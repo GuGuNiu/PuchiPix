@@ -23,7 +23,8 @@ func NewRouter(h *Handlers) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", h.Health)
-		r.Post("/admin/fix-galleries", h.FixGalleries) // TEMP: fix failed gallery statuses
+		// NOTE: /admin/fix-galleries endpoint removed (2026-08-21) — was a temporary
+		// endpoint with no auth. Use direct DB operations if recovery is needed.
 		r.Get("/system", h.System)
 		r.Get("/stats", h.Stats)
 		r.Get("/sites", h.Sites)

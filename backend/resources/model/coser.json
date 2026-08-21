@@ -1,8 +1,8 @@
 {
   "stats": {
-    "total": 537,
-    "withAliases": 200,
-    "withPinyin": 537
+    "total": 556,
+    "withAliases": 212,
+    "withPinyin": 556
   },
   "models": [
     {
@@ -417,9 +417,11 @@
       "category": "coser"
     },
     {
-      "name": "封疆疆v",
+      "name": "封疆疆",
       "pinyin": "feng jiang jiang v",
-      "aliases": [],
+      "aliases": [
+        "封疆疆v"
+      ],
       "category": "coser"
     },
     {
@@ -492,9 +494,11 @@
       "category": "coser"
     },
     {
-      "name": "果咩酱w",
+      "name": "果咩酱",
       "pinyin": "guo mie jiang w",
-      "aliases": [],
+      "aliases": [
+        "果咩酱w"
+      ],
       "category": "coser"
     },
     {
@@ -2927,7 +2931,8 @@
       "pinyin": "KANEKO kamiao",
       "aliases": [
         "KANEKO",
-        "咔喵"
+        "咔喵",
+        "KANEKO_咔喵"
       ],
       "category": "coser"
     },
@@ -2935,7 +2940,9 @@
       "name": "KaYa萱",
       "pinyin": "kaya xuan",
       "aliases": [
-        "KaYa"
+        "KaYa",
+        "Kaya Huang",
+        "Coser萱-KaYa"
       ],
       "category": "coser"
     },
@@ -2991,7 +2998,10 @@
       "name": "Luisa_零纱纱",
       "pinyin": "Luisa_Luisa_ ling sha",
       "aliases": [
-        "Luisa"
+        "Luisa",
+        "Luisa_零纱",
+        "零纱纱",
+        "零纱"
       ],
       "category": "coser"
     },
@@ -3456,7 +3466,8 @@
       "name": "YoKo",
       "pinyin": "yoko",
       "aliases": [
-        "Yoko宅夏"
+        "Yoko宅夏",
+        "Kyokoyaki"
       ],
       "category": "coser"
     },
@@ -3691,6 +3702,145 @@
       "name": "Xiaoyukiko小鱼",
       "pinyin": "Xiaoyukiko xiao yu",
       "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "习呆呆",
+      "pinyin": "xi dai dai",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "阿薰kaOri",
+      "pinyin": "a xun kaOri",
+      "aliases": [
+        "阿薰",
+        "kaOri"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "香草少女m(九尾狐狸m)",
+      "pinyin": "xiang cao shao nv m (jiu wei hu li m)",
+      "aliases": [
+        "香草少女m",
+        "九尾狐狸m",
+        "九尾狐狸"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "你的真真u",
+      "pinyin": "ni de zhen zhen u",
+      "aliases": [
+        "真真u"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "桜井宁宁",
+      "pinyin": "yong jing ning ning",
+      "aliases": [
+        "桜井",
+        "宁宁"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "miko酱",
+      "pinyin": "miko jiang",
+      "aliases": [
+        "miko"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "慕慕Momo",
+      "pinyin": "mu mu Momo",
+      "aliases": [
+        "Momo"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "洛洛子",
+      "pinyin": "luo luo zi",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "矢量鱼",
+      "pinyin": "shi liang yu",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "封疆疆",
+      "pinyin": "feng jiang jiang",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "焖焖",
+      "pinyin": "men men",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "雨儿酱eve",
+      "pinyin": "yu er jiang eve",
+      "aliases": [
+        "雨儿酱",
+        "eve"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "葛生w",
+      "pinyin": "ge sheng w",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "芝心蛋奶烧",
+      "pinyin": "zhi xin dan nai shao",
+      "aliases": [
+        "芝心"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "可乐小白兔",
+      "pinyin": "ke le xiao bai tu",
+      "aliases": [
+        "小白兔"
+      ],
+      "category": "coser"
+    },
+    {
+      "name": "小恩",
+      "pinyin": "xiao en",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "搽搽",
+      "pinyin": "cha cha",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "毛毛帽",
+      "pinyin": "mao mao mao",
+      "aliases": [],
+      "category": "coser"
+    },
+    {
+      "name": "阿九从不咕咕",
+      "pinyin": "a jiu cong bu gu gu",
+      "aliases": [
+        "阿九"
+      ],
       "category": "coser"
     }
   ]

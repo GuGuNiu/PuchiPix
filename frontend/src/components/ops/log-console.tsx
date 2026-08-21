@@ -207,7 +207,7 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
     if (log.traceId) {
       tags.push(
         <span key="trace" style={{ color: CTX_COLORS.trace, fontSize: 10, fontWeight: 500 }}>
-          trace={log.traceId.slice(0, 8)}
+          trace={log.traceId?.slice(0, 8)}
         </span>
       );
     }
@@ -310,9 +310,11 @@ export function LogConsole({ maxHeight = 420 }: LogConsoleProps): React.JSX.Elem
               >
                 <Icon size={12} style={{ color: config.color, flexShrink: 0, marginTop: 2 }} />
                 <span className="ops-log-time">{formatTime(log.timestamp || '')}</span>
-                <span className="ops-log-source" style={{ color: config.color }}>
-                  [{log.module}]
-                </span>
+                {log.module && (
+                  <span className="ops-log-source" style={{ color: config.color }}>
+                    [{log.module}]
+                  </span>
+                )}
                 <span className="ops-log-message-area">
                   {formatContextTags(log)}
                   <span className="ops-log-message">{getDisplayMessage(log)}</span>

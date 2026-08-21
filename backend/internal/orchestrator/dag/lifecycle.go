@@ -257,19 +257,34 @@ func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID stri
 		return err
 	}
 
-	if orchestrator.IsTerminalState(fsm.State()) || fsm.State() == orchestrator.NodeStateRunning {
-		// Push the FSM state back to the entity tables so the DB and the
-		// in-memory state machine never diverge on terminal transitions.
-		// Previously this was a deferred TODO ("Phase 4 integration");
-		// the gap caused galleries to stay at transient statuses while
-		// the DAG reached failed — the DB status sync is now handled
-		// through the injected callback (see SetStatusSyncFn), which
-		// routes to the correct entity table via the node's config
-		// (galleryId/taskId/sniffId). The callback is best-effort and
-		// never blocks the transition.
+	// Push the FSM state back to the entity tables so the DB and the
+	// in-memory state machine never diverge. Previously only terminal
+	// states (and RUNNING) triggered the sync, so a node that the
+	// scheduler rejected (rolled back to READY) left the DB stuck at
+	// "scraping" — the "全部启动识别/满仓" false-status defect. Now every
+	// user-observable state is reported: QUEUED/ALLOCATED/RUNNING →
+	// 进行中, READY → pending (等待中), terminal → 终态. The injected
+	// callback decides whether a state maps to a DB write (see
+	// orchestrator.StatusReporter) and is best-effort — failures are
+	// logged, never block the transition.
+	switch fsm.State() {
+	case orchestrator.NodeStateQueued,
+		orchestrator.NodeStateAllocated,
+		orchestrator.NodeStateRunning,
+		orchestrator.NodeStateReady,
+		orchestrator.NodeStatePaused,
+		orchestrator.NodeStateVerifying,
+		orchestrator.NodeStateResumeVerify,
+		orchestrator.NodeStateNeedsRetry,
+		orchestrator.NodeStateCompleted,
+		orchestrator.NodeStateFailed,
+		orchestrator.NodeStateTimeout,
+		orchestrator.NodeStateCancelled:
 		if o.statusSyncFn != nil {
 			o.statusSyncFn(ctx, dagID, nodeID, node.definition, fsm.State())
 		}
+	default:
+		// pending is the creation state; the API layer already wrote it.
 	}
 
 	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{

@@ -355,6 +355,15 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 		})
 		o.logger.Warn("Node submit failed (queue full)", "nodeId", nodeID)
 	}
+
+	// Report the node's post-submit state to the entity tables. On a
+	// successful submit the node is QUEUED (→ 进行中); on a rejection
+	// it just rolled back to READY (→ pending / 等待中). Without this
+	// sync, rejected nodes left the DB status stuck at "scraping" even
+	// though they were never scheduled (the "全部启动识别" defect).
+	if o.statusSyncFn != nil {
+		o.statusSyncFn(ctx, dagID, nodeID, node.definition, node.fsm.State())
+	}
 }
 
 func convertResourceReqs(reqs []orchestrator.ResourceRequirement) []orchestrator.ResourceRequirement {
