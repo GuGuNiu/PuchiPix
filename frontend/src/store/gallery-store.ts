@@ -157,6 +157,122 @@ function normalizeGalleryVideoStatus(status: string): string {
   return status; // 'failed' and any unknown values pass through
 }
 
+// ────────────────────────────────────────────────────────────────
+// 引用稳定性工具：只有在某张图包真正发生变化时才重建数组，
+// 让未变化的条目保持原对象引用，从而让 React.memo / zustand
+// selector 能够跳过大部分无谓的重渲染。
+// ────────────────────────────────────────────────────────────────
+
+interface StatusPatch {
+  status?: string;
+  patches?: Partial<GalleryData>;
+}
+
+function updateGalleryStatuses(
+  galleries: GalleryData[],
+  updater: (g: GalleryData) => StatusPatch | null,
+): GalleryData[] {
+  let next: GalleryData[] | null = null;
+  for (let i = 0; i < galleries.length; i++) {
+    const g = galleries[i];
+    const res = updater(g);
+    if (!res) continue;
+    const statusChanged = !!res.status && mapTaskStatusToGallery(res.status) !== g.Status;
+    const hasPatches = !!res.patches && Object.keys(res.patches).length > 0;
+    if (!statusChanged && !hasPatches) continue;
+    if (next === null) next = galleries.slice();
+    next[i] = {
+      ...next[i],
+      ...(statusChanged ? { Status: mapTaskStatusToGallery(res.status!) } : {}),
+      ...(res.patches ?? {}),
+    };
+  }
+  return next ?? galleries;
+}
+
+// ────────────────────────────────────────────────────────────────
+// SSE task:progress 高频节流批处理
+//
+// 缩略图/图片下载时会以非常高的频率推送 task:progress 事件，
+// 若逐条 set() 会造成大量无意义的 store 更新。这里把 120ms
+// 窗口内的更新合并为一次 set，并在合并时做引用稳定性检测。
+// ────────────────────────────────────────────────────────────────
+
+const PROGRESS_FLUSH_MS = 120;
+
+interface PendingProgressUpdate {
+  status?: string;
+  completed?: number;
+  total?: number;
+  failed?: number;
+  downloadedSize?: number;
+}
+
+const pendingProgress = new Map<number, PendingProgressUpdate>();
+let progressFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function enqueueProgress(taskId: number, update: PendingProgressUpdate): void {
+  const existing = pendingProgress.get(taskId);
+  pendingProgress.set(taskId, existing ? { ...existing, ...update } : update);
+  if (progressFlushTimer !== null) return;
+  progressFlushTimer = setTimeout(() => {
+    progressFlushTimer = null;
+    const batch = pendingProgress;
+    pendingProgress.clear();
+    flushProgressBatch(batch);
+  }, PROGRESS_FLUSH_MS);
+}
+
+function flushProgressBatch(batch: Map<number, PendingProgressUpdate>): void {
+  const s = useGalleryStore.getState();
+  let galleries = s.galleries;
+  let progressMap = s.progressMap;
+  let changed = false;
+
+  for (const [taskId, u] of batch) {
+    if (u.status) {
+      const next = updateGalleryStatuses(galleries, (g) =>
+        g.ID === taskId ? { status: u.status! } : null,
+      );
+      if (next !== galleries) {
+        galleries = next;
+        changed = true;
+      }
+    }
+    if (u.total !== undefined && u.total > 0) {
+      const progress: GalleryProgress = {
+        galleryId: taskId,
+        completed: u.completed ?? 0,
+        total: u.total,
+        failed: u.failed ?? 0,
+      };
+      const prev = progressMap[taskId];
+      if (
+        !prev ||
+        prev.completed !== progress.completed ||
+        prev.total !== progress.total ||
+        prev.failed !== progress.failed
+      ) {
+        progressMap = { ...progressMap, [taskId]: progress };
+        changed = true;
+      }
+    }
+    if (u.downloadedSize !== undefined && u.downloadedSize > 0) {
+      const idx = galleries.findIndex((g) => g.ID === taskId);
+      if (idx !== -1 && (galleries[idx].DownloadedSize || 0) < u.downloadedSize) {
+        const next = galleries.slice();
+        next[idx] = { ...next[idx], DownloadedSize: u.downloadedSize };
+        galleries = next;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    useGalleryStore.setState({ galleries, progressMap });
+  }
+}
+
 export const useGalleryStore = create<GalleryStore>((set, get) => ({
   galleries: [],
   loading: false,
@@ -236,13 +352,14 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       }
 
       if (gallery) {
+        // 只替换对应图包，保持其他条目的对象引用稳定
         set((s) => {
-          const exists = s.galleries.some((g) => g.ID === id);
-          return {
-            galleries: exists
-              ? s.galleries.map((g) => (g.ID === id ? gallery : g))
-              : [gallery, ...s.galleries],
-          };
+          const idx = s.galleries.findIndex((g) => g.ID === id);
+          if (idx === -1) return { galleries: [gallery, ...s.galleries] };
+          if (s.galleries[idx] === gallery) return s;
+          const next = s.galleries.slice();
+          next[idx] = gallery;
+          return { galleries: next };
         });
       }
       return gallery;
@@ -311,14 +428,27 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
   },
 
   updateGallery: (id, updates) =>
-    set((s) => ({
-      galleries: s.galleries.map((g) => (g.ID === id ? { ...g, ...updates } : g)),
-    })),
+    set((s) => {
+      const idx = s.galleries.findIndex((g) => g.ID === id);
+      if (idx === -1) return s;
+      const next = s.galleries.slice();
+      next[idx] = { ...next[idx], ...updates };
+      return { galleries: next };
+    }),
 
   setProgress: (p) =>
-    set((s) => ({
-      progressMap: { ...s.progressMap, [p.galleryId]: p },
-    })),
+    set((s) => {
+      const prev = s.progressMap[p.galleryId];
+      if (
+        prev &&
+        prev.completed === p.completed &&
+        prev.total === p.total &&
+        prev.failed === p.failed
+      ) {
+        return s;
+      }
+      return { progressMap: { ...s.progressMap, [p.galleryId]: p } };
+    }),
 
   setZipProgress: (p) =>
     set((s) => ({
@@ -326,9 +456,10 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     })),
 
   setZipStatus: (galleryId, status) =>
-    set((s) => ({
-      zipStatusMap: { ...s.zipStatusMap, [galleryId]: status },
-    })),
+    set((s) => {
+      if (s.zipStatusMap[galleryId] === status) return s;
+      return { zipStatusMap: { ...s.zipStatusMap, [galleryId]: status } };
+    }),
 
   connectSSE: () => {
     /* Shared resident connection: route switching no longer tears down and re-establishes the stream. Pages only subscribe/unsubscribe. */
@@ -349,15 +480,14 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
           const galleryTasks = data.filter((t) => t.TaskType === 'gallery');
           if (galleryTasks.length === 0) return;
 
-          set((s) => ({
-            galleries: s.galleries.map((g) => {
+          set((s) => {
+            const next = updateGalleryStatuses(s.galleries, (g) => {
               const task = galleryTasks.find((t) => t.ID === g.ID);
-              if (task && task.Status) {
-                return { ...g, Status: mapTaskStatusToGallery(task.Status) };
-              }
-              return g;
-            }),
-          }));
+              if (task && task.Status) return { status: task.Status };
+              return null;
+            });
+            return next === s.galleries ? s : { galleries: next };
+          });
         } catch (err) {
           logger.warn('SSE initial parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
@@ -379,36 +509,16 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
           };
           if (payload.taskType !== 'gallery') return;
 
-          if (payload.status) {
-            const galleryStatus = mapTaskStatusToGallery(payload.status);
-            set((s) => ({
-              galleries: s.galleries.map((g) =>
-                g.ID === payload.taskId ? { ...g, Status: galleryStatus } : g,
-              ),
-            }));
-          }
-
-          if (payload.total !== undefined && payload.total > 0) {
-            const progress: GalleryProgress = {
-              galleryId: payload.taskId,
-              completed: payload.completed ?? 0,
-              total: payload.total,
-              failed: payload.failed ?? 0,
-            };
-            set((s) => ({
-              progressMap: { ...s.progressMap, [payload.taskId]: progress },
-            }));
-          }
-
-          if (payload.downloadedSize !== undefined && payload.downloadedSize > 0) {
-            set((s) => ({
-              galleries: s.galleries.map((g) =>
-                g.ID === payload.taskId
-                  ? { ...g, DownloadedSize: Math.max(g.DownloadedSize || 0, payload.downloadedSize!) }
-                  : g,
-              ),
-            }));
-          }
+          // 合并进 120ms 批处理窗口，避免高频事件逐条触发 store 更新
+          enqueueProgress(payload.taskId, {
+            ...(payload.status ? { status: payload.status } : {}),
+            ...(payload.total !== undefined && payload.total > 0
+              ? { completed: payload.completed ?? 0, total: payload.total, failed: payload.failed ?? 0 }
+              : {}),
+            ...(payload.downloadedSize !== undefined && payload.downloadedSize > 0
+              ? { downloadedSize: payload.downloadedSize }
+              : {}),
+          });
         } catch (err) {
           logger.warn('SSE task:progress parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
@@ -424,12 +534,12 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             status?: string;
           };
           if (payload.taskType && payload.taskType !== 'gallery') return;
-          const galleryStatus = mapTaskStatusToGallery(payload.status || 'completed');
-          set((s) => ({
-            galleries: s.galleries.map((g) =>
-              g.ID === payload.taskId ? { ...g, Status: galleryStatus } : g,
-            ),
-          }));
+          set((s) => {
+            const next = updateGalleryStatuses(s.galleries, (g) =>
+              g.ID === payload.taskId ? { status: payload.status || 'completed' } : null,
+            );
+            return next === s.galleries ? s : { galleries: next };
+          });
         } catch (err) {
           logger.warn('SSE task:completed parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
@@ -440,11 +550,12 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       subscribeSseEvent('task:failed', (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data) as { taskId: number; error?: string };
-          set((s) => ({
-            galleries: s.galleries.map((g) =>
-              g.ID === payload.taskId ? { ...g, Status: 'failed' } : g,
-            ),
-          }));
+          set((s) => {
+            const next = updateGalleryStatuses(s.galleries, (g) =>
+              g.ID === payload.taskId ? { status: 'failed' } : null,
+            );
+            return next === s.galleries ? s : { galleries: next };
+          });
         } catch (err) {
           logger.warn('SSE task:failed parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
@@ -476,11 +587,12 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             galleryId = parseInt(payload.dagId.replace('gallery-', ''), 10);
           }
           if (isNaN(galleryId)) return;
-          set((s) => ({
-            galleries: s.galleries.map((g) =>
-              g.ID === galleryId ? { ...g, Status: mapTaskStatusToGallery(payload.status) } : g,
-            ),
-          }));
+          set((s) => {
+            const next = updateGalleryStatuses(s.galleries, (g) =>
+              g.ID === galleryId ? { status: payload.status } : null,
+            );
+            return next === s.galleries ? s : { galleries: next };
+          });
         } catch (err) {
           logger.warn('SSE gallery:stateChanged parse failed', { error: err instanceof Error ? err.message : String(err) });
         }

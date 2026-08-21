@@ -5,13 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.ico" />
     <meta name="description" content="PuchiPix - Browser-automated M3U8 video downloading tool" />
-    <!-- Google Fonts: Dancing Script -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap"
-      rel="stylesheet"
-    />
+    <!--
+      Dancing Script 字体已本地化（/fonts/dancing-script-700.woff2，见 tokens.scss 的
+      @font-face，font-display: swap）。不再加载 fonts.googleapis.com 的渲染阻塞样式表，
+      避免跨域慢请求拖慢首屏。
+    -->
     <title>PuchiPix - Puch Puch ~~</title>
   </head>
   <body>
@@ -26,8 +24,6 @@
       })();
     </script>
     <div id="root"></div>
-    <!-- HLS.js library -->
-    <script src="/vendor/hls.min.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

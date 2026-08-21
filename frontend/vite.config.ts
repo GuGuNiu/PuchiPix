@@ -38,5 +38,21 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // 拆分 vendor：React 全家桶等依赖进入独立 chunk，内容不变时
+        // 浏览器可长期缓存，代码更新只让业务 chunk 失效。
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("react-router")) return "vendor-router";
+          if (id.includes("@tanstack")) return "vendor-query";
+          if (id.includes("zustand")) return "vendor-state";
+          if (id.includes("react-window")) return "vendor-window";
+          if (id.includes("lucide-react")) return "vendor-icons";
+          if (id.includes("react") || id.includes("scheduler")) return "vendor-react";
+          return "vendor";
+        },
+      },
+    },
   },
 });

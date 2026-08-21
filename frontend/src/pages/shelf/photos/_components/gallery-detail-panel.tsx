@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useI18n } from "@/lib/i18n";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { formatFileSize } from "@/lib/utils";
@@ -18,25 +19,20 @@ import type { GalleryData } from "@/types";
 import type { ZipStatus } from "../gallery-helpers";
 import { VirtualImageGrid } from "./virtual-image-grid";
 import { GalleryZipInfoPanel } from "./gallery-zip-info";
+import { useGalleryStore } from "@/store/gallery-store";
 
 interface GalleryDetailPanelProps {
   gallery: GalleryData;
-  progress?: { galleryId: number; completed: number; total: number; failed: number };
   loading: boolean;
-  zipProgress?: { galleryId: number; downloaded: number; total: number; percent: number };
-  zipStatus?: ZipStatus;
   onClose: () => void;
   onDelete: (id: number) => void;
   onRetry: (id: number) => void;
   onDownloadZip: (id: number, manualUrl?: string) => Promise<boolean>;
 }
 
-export function GalleryDetailPanel({
+function GalleryDetailPanelComponent({
   gallery,
-  progress,
   loading,
-  zipProgress,
-  zipStatus,
   onClose,
   onDelete,
   onRetry,
@@ -44,6 +40,10 @@ export function GalleryDetailPanel({
 }: GalleryDetailPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const sidebarCollapsed = useSidebarCollapsed();
+  // 只订阅当前图包自身的进度/zip 状态，其他图包的更新不会触发本面板重渲染
+  const progress = useGalleryStore((s) => s.progressMap[gallery.ID]);
+  const zipProgress = useGalleryStore((s) => s.zipProgressMap[gallery.ID]);
+  const zipStatus = useGalleryStore((s) => s.zipStatusMap[gallery.ID]);
   const canRetry = gallery.Status === "failed" || gallery.Status === "partial";
   const images = gallery.Images ?? [];
   const videos = gallery.Videos ?? [];
@@ -355,3 +355,6 @@ export function GalleryDetailPanel({
     </div>
   );
 }
+
+/** 详情面板：React.memo + 内部按图包 ID 订阅进度，避免随页面整体重渲染。 */
+export const GalleryDetailPanel = memo(GalleryDetailPanelComponent);

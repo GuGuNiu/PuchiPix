@@ -1,15 +1,10 @@
-import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
-import { formatFileSize } from "@/lib/utils";
 import {
   RefreshCw,
   Inbox,
   Search as SearchIcon,
-  ImageIcon,
-  Video,
-  HardDrive,
-  Calendar,
 } from "lucide-react";
 import { useGalleryStore } from "@/store/gallery-store";
 import { useI18n } from "@/lib/i18n";
@@ -17,24 +12,30 @@ import { useRouteState } from "@/lib/core/infra/route-state";
 import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
 import GlassSelect from "@/components/ui/glass-select";
 import {
-  GALLERY_STATUS_LABEL,
-  GALLERY_STATUS_CLASS,
   FILTER_PILLS,
   SORT_OPTIONS,
   type StatusFilter,
   type SortBy,
-  type ZipStatus,
 } from "./gallery-helpers";
+import { GalleryGrid } from "./_components/gallery-grid";
 import { GalleryDetailPanel } from "./_components/gallery-detail-panel";
 
 export default function PhotosPage(): React.JSX.Element {
   const { t } = useI18n();
-  const { galleries, loading, progressMap, zipProgressMap, zipStatusMap, fetchGalleries, deleteGallery, retryDownload, downloadZip, fetchGalleryDetail, subscribeToSocket } =
-    useGalleryStore();
+  // 细粒度 selector 订阅：每个字段独立订阅，避免无关 store 更新触发本页重渲染。
+  const galleries = useGalleryStore((s) => s.galleries);
+  const listLoading = useGalleryStore((s) => s.loading);
+  const fetchGalleries = useGalleryStore((s) => s.fetchGalleries);
+  const deleteGallery = useGalleryStore((s) => s.deleteGallery);
+  const retryDownload = useGalleryStore((s) => s.retryDownload);
+  const downloadZip = useGalleryStore((s) => s.downloadZip);
+  const fetchGalleryDetail = useGalleryStore((s) => s.fetchGalleryDetail);
+  const subscribeToSocket = useGalleryStore((s) => s.subscribeToSocket);
   const { pathname } = useLocation();
   useRouteState(pathname, {
     ttl: 5 * 60 * 1000,
     saveScroll: true,
+    scrollSelector: ".gallery-grid",
   });
 
   const { values: urlValues, update: updateUrl } = useUrlState({
@@ -134,11 +135,7 @@ export default function PhotosPage(): React.JSX.Element {
 
   const handleExpand = useCallback(
     (id: number) => {
-      if (expandedId === id) {
-        setExpandedId(null);
-        return;
-      }
-      setExpandedId(id);
+      setExpandedId(expandedId === id ? null : id);
     },
     [expandedId, setExpandedId]
   );
@@ -183,6 +180,13 @@ export default function PhotosPage(): React.JSX.Element {
       else toast.error("gallery.retryFailed");
     },
     [retryDownload]
+  );
+
+  // 展开图包对象：find 只在该图包自身更新时才产生新引用，
+  // 配合 GalleryDetailPanel 的 memo 避免面板随列表更新而重渲染。
+  const expandedGallery = useMemo(
+    () => (expandedId === null ? null : galleries.find((g) => g.ID === expandedId) ?? null),
+    [galleries, expandedId]
   );
 
   return (
@@ -253,7 +257,7 @@ export default function PhotosPage(): React.JSX.Element {
           </div>
         </div>
 
-        {loading && galleries.length === 0 ? (
+        {listLoading && galleries.length === 0 ? (
           <div className="loading-container">
             <div className="spinner" />
           </div>
@@ -272,221 +276,24 @@ export default function PhotosPage(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(288px, 1fr))",
-                gap: 16,
-                padding: 20,
-              }}
-            >
-              {filteredGalleries.map((gallery) => {
-                const prog = progressMap[gallery.ID];
-                const progressPct =
-                  prog && prog.total > 0
-                    ? Math.round((prog.completed / prog.total) * 100)
-                    : gallery.Status === "completed"
-                    ? 100
-                    : 0;
-                const isExpanded = expandedId === gallery.ID;
-                const fillClass =
-                  gallery.Status === "completed"
-                    ? "completed"
-                    : gallery.Status === "failed"
-                    ? "failed"
-                    : "";
-
-                return (
-                  <Fragment key={gallery.ID}>
-                    <div
-                      onClick={() => handleExpand(gallery.ID)}
-                      style={{
-                        background: "var(--bg-card)",
-                        border: `1px solid ${isExpanded ? "var(--accent)" : "var(--border)"}`,
-                        borderRadius: "var(--radius-md)",
-                        overflow: "hidden",
-                        cursor: "pointer",
-                        transition: "border-color 0.15s, box-shadow 0.15s",
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: "relative",
-                          width: "100%",
-                          height: 220,
-                          background: "var(--bg-inset)",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {gallery.CoverURL || gallery.CoverLocalPath || gallery.ImageCount > 0 ? (
-                          <img
-                            src={`/api/shelf/${gallery.ID}?type=cover&width=400`}
-                            alt={gallery.Title}
-                            loading="lazy"
-                            decoding="async"
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                            }}
-                            onError={(e) => {
-                              const img = e.target as HTMLImageElement;
-                              if (!img.dataset.fallback) {
-                                img.dataset.fallback = '1';
-                                if (gallery.CoverURL) {
-                                  img.src = gallery.CoverURL;
-                                } else {
-                                  img.style.display = "none";
-                                  const parent = img.parentElement;
-                                  if (parent) {
-                                    parent.style.display = "flex";
-                                    parent.style.alignItems = "center";
-                                    parent.style.justifyContent = "center";
-                                    parent.style.color = "var(--text-muted)";
-                                  }
-                                }
-                              } else {
-                                img.style.display = "none";
-                              }
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              height: "100%",
-                              color: "var(--text-muted)",
-                            }}
-                          >
-                            <ImageIcon size={40} strokeWidth={1.5} />
-                          </div>
-                        )}
-                        <span
-                          className={`badge ${GALLERY_STATUS_CLASS[gallery.Status] || "badge-default"}`}
-                          style={{ position: "absolute", top: 8, right: 8, fontSize: 11 }}
-                        >
-                          {GALLERY_STATUS_LABEL[gallery.Status] ? t(GALLERY_STATUS_LABEL[gallery.Status]) : gallery.Status}
-                        </span>
-                      </div>
-
-                      <div style={{ padding: "8px 12px" }}>
-                        <div
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 600,
-                            color: "var(--text-primary)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            marginBottom: 2,
-                          }}
-                          title={gallery.Title}
-                        >
-                          {gallery.Title || t("gallery.galleryTitle", { id: gallery.ID })}
-                        </div>
-                        {gallery.Protagonist && (
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: "var(--text-secondary)",
-                              marginBottom: 8,
-                            }}
-                          >
-                            {t("gallery.model")}{gallery.Protagonist}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", gap: 4, marginBottom: 4, flexWrap: "wrap" }}>
-                          <span
-                            className="pill"
-                            style={{ fontSize: 11, padding: "2px 8px" }}
-                          >
-                            <ImageIcon size={11} style={{ marginRight: 3 }} />
-                            {gallery.ImageCount}P
-                          </span>
-                          {gallery.VideoCount > 0 && (
-                            <span
-                              className="pill"
-                              style={{ fontSize: 11, padding: "2px 8px" }}
-                            >
-                              <Video size={11} style={{ marginRight: 3 }} />
-                              {gallery.VideoCount}V
-                            </span>
-                          )}
-                          {gallery.PageCount > 1 && (
-                            <span
-                              className="pill"
-                              style={{ fontSize: 11, padding: "2px 8px" }}
-                            >
-                              {gallery.PageCount}{t("common.pages")}
-                            </span>
-                          )}
-                          {gallery.PublishTime && (
-                            <span
-                              className="pill"
-                              style={{ fontSize: 11, padding: "2px 8px" }}
-                            >
-                              <Calendar size={11} style={{ marginRight: 3 }} />
-                              {gallery.PublishTime}
-                            </span>
-                          )}
-                          {gallery.TotalSize > 0 && (
-                            <span
-                              className="pill"
-                              style={{ fontSize: 11, padding: "2px 8px" }}
-                            >
-                              <HardDrive size={11} style={{ marginRight: 3 }} />
-                              {formatFileSize(gallery.TotalSize)}
-                            </span>
-                          )}
-                          {gallery.TotalSize <= 0 && gallery.DownloadedSize > 0 && (
-                            <span
-                              className="pill"
-                              style={{ fontSize: 11, padding: "2px 8px" }}
-                            >
-                              <HardDrive size={11} style={{ marginRight: 3 }} />
-                              {formatFileSize(gallery.DownloadedSize)}
-                            </span>
-                          )}
-                        </div>
-                        {(gallery.Status === "downloading" || gallery.Status === "scraping") && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div className="progress-bar" style={{ minWidth: 60, flex: 1 }}>
-                              <div
-                                className={`progress-bar-fill ${fillClass}`}
-                                style={{ width: `${progressPct}%` }}
-                              />
-                            </div>
-                            <span className="progress-text" style={{ fontSize: 11 }}>
-                              {prog ? `${prog.completed}/${prog.total}` : `${progressPct}%`}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <GalleryDetailPanel
-                        gallery={galleries.find((g) => g.ID === gallery.ID) ?? gallery}
-                        progress={prog}
-                        loading={detailLoading}
-                        zipProgress={zipProgressMap[gallery.ID]}
-                        zipStatus={zipStatusMap[gallery.ID] as ZipStatus | undefined}
-                        onClose={() => setExpandedId(null)}
-                        onDelete={handleDelete}
-                        onRetry={handleRetry}
-                        onDownloadZip={downloadZip}
-                      />
-                    )}
-                  </Fragment>
-                );
-              })}
-            </div>
-          </div>
+          <GalleryGrid
+            items={filteredGalleries}
+            expandedId={expandedId}
+            onExpand={handleExpand}
+          />
         )}
       </div>
+
+      {expandedGallery && (
+        <GalleryDetailPanel
+          gallery={expandedGallery}
+          loading={detailLoading}
+          onClose={() => setExpandedId(null)}
+          onDelete={handleDelete}
+          onRetry={handleRetry}
+          onDownloadZip={downloadZip}
+        />
+      )}
     </div>
   );
 }
