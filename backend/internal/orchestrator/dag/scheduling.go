@@ -323,6 +323,14 @@ func (o *DagOrchestrator) activateSatisfiedSuccessors(ctx context.Context, dagID
 // submitToScheduler builds a SchedulableNode from the definition and
 // submits it to the scheduler, rolling back to READY if rejected.
 //
+// When a flow controller is configured, Ask() is called BEFORE the
+// scheduler's Submit(). If admission is denied (the factory is under
+// high pressure), the node remains in QUEUED state and will be retried
+// by the auto-reactivation ticker. This implements the "front gate"
+// pattern: the flow controller is the security checkpoint at the
+// factory entrance, pacing tasks so the factory floor never gets
+// overwhelmed.
+//
 // Note: The previous jitter (time.Sleep) was removed because:
 // 1. It blocked the caller goroutine, stalling activation pipelines.
 // 2. The cross-DAG fairness mechanism in ReadyQueue (dagDispatchCount)
@@ -349,6 +357,28 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 		return
 	}
 
+	// Flow control: ask the admission controller for permission before
+	// entering the scheduler. If denied, leave the node in QUEUED so
+	// the auto-reactivation ticker retries it later.
+	//
+	// IMPORTANT: Use TRY-mode (non-blocking) to prevent callers
+	// (especially ResumeDag which processes nodes sequentially) from
+	// blocking the entire recovery pipeline when tokens run out.
+	// The blocking Acquire() version would stall ResumeDag at the
+	// first token-deficient node, leaving all subsequent nodes stuck.
+	if o.flowController != nil {
+		if !o.flowController.TryAsk() {
+			// Admission denied. The node stays in QUEUED and the
+			// auto-reactivation ticker will retry. Do NOT roll back
+			// to READY — that would put it at the back of the line
+			// and cause unnecessary churn. This is the core of the
+			// "front gate" flow control pattern.
+			o.logger.Debug("Admission denied (non-blocking), node queued for retry",
+				"nodeId", nodeID, "dagId", dagID)
+			return
+		}
+	}
+
 	submitted := o.scheduler.Submit(schedulable)
 	if !submitted {
 		_ = node.fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
@@ -359,10 +389,10 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 	}
 
 	// Report the node's post-submit state to the entity tables. On a
-	// successful submit the node is QUEUED (→ 进行中); on a rejection
-	// it just rolled back to READY (→ pending / 等待中). Without this
-	// sync, rejected nodes left the DB status stuck at "scraping" even
-	// though they were never scheduled (the "全部启动识别" defect).
+	// successful submit the node is QUEUED; on a rejection it just rolled
+	// back to READY. Without this sync, rejected nodes left the DB status
+	// stuck at "scraping" even though they were never scheduled (the
+	// "all tasks started identifying" defect).
 	if o.statusSyncFn != nil {
 		o.statusSyncFn(ctx, dagID, nodeID, node.definition, node.fsm.State())
 	}

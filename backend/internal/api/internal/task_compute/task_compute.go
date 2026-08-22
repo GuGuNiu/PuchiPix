@@ -2,6 +2,7 @@ package task_compute
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -248,6 +249,39 @@ func stripSitePrefixes(title string) string {
 
 func normalizeDualPerson(s string) string {
 	return dualPersonSepRE.ReplaceAllString(s, "与")
+}
+
+// TaskIDKey 返回任务的唯一标识符（用于节流、聚合等场景）
+// 格式: "taskType:taskId"，例如 "gallery:123"
+func TaskIDKey(m map[string]any) string {
+	taskType, _ := m["TaskType"].(string)
+	if taskType == "" {
+		taskType, _ = m["taskType"].(string)
+	}
+	taskID := ""
+	switch v := m["ID"].(type) {
+	case int:
+		taskID = strconv.Itoa(v)
+	case int64:
+		taskID = strconv.FormatInt(v, 10)
+	case string:
+		taskID = v
+	case float64:
+		taskID = strconv.FormatInt(int64(v), 10)
+	}
+	if taskID == "" {
+		switch v := m["taskId"].(type) {
+		case int:
+			taskID = strconv.Itoa(v)
+		case int64:
+			taskID = strconv.FormatInt(v, 10)
+		case string:
+			taskID = v
+		case float64:
+			taskID = strconv.FormatInt(int64(v), 10)
+		}
+	}
+	return taskType + ":" + taskID
 }
 
 // EnrichTaskMap adds computed fields to a task map before sending to the frontend.

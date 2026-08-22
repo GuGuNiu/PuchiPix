@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"backend/internal/api/internal/sse"
@@ -13,6 +14,52 @@ import (
 	"backend/internal/i18n"
 	"backend/internal/infra"
 )
+
+// 初始快照分页参数
+// 当任务数量超过阈值时，分页加载，避免一次性返回大量数据导致 SSE 拥塞
+const (
+	taskStreamInitialPageSize = 100  // 每页任务数
+	taskStreamMaxInitialTasks = 500  // 初始快照最大任务数（超过此值触发分页）
+)
+
+// progressThrottle 按任务 ID 节流 progress 事件
+// 防止高频 progress 更新导致 SSE 队列溢出
+type progressThrottle struct {
+	mu     sync.RWMutex
+	lastAt map[string]time.Time
+	minGap time.Duration
+}
+
+func newProgressThrottle(minGap time.Duration) *progressThrottle {
+	return &progressThrottle{
+		lastAt: make(map[string]time.Time),
+		minGap: minGap,
+	}
+}
+
+func (pt *progressThrottle) Allow(taskID string) bool {
+	pt.mu.RLock()
+	last, ok := pt.lastAt[taskID]
+	pt.mu.RUnlock()
+	if ok && time.Since(last) < pt.minGap {
+		return false
+	}
+	pt.mu.Lock()
+	pt.lastAt[taskID] = time.Now()
+	pt.mu.Unlock()
+	return true
+}
+
+func (pt *progressThrottle) Cleanup() {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	now := time.Now()
+	for id, t := range pt.lastAt {
+		if now.Sub(t) > 5*time.Minute {
+			delete(pt.lastAt, id)
+		}
+	}
+}
 
 type unifiedTaskRow struct {
 	TaskType          string
@@ -62,7 +109,19 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 初始化 progress 节流器：同一任务 progress 事件最小间隔 500ms
+	progressThrottle := newProgressThrottle(500 * time.Millisecond)
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+	go func() {
+		for range cleanupTicker.C {
+			progressThrottle.Cleanup()
+		}
+	}()
+
 	if h.DB != nil {
+			// 分页策略：当任务总数超过 taskStreamMaxInitialTasks 时，
+			// 只返回最新的 taskStreamMaxInitialTasks 个任务，避免 SSE 初始快照过大
 			rows, err := h.DB.Query(r.Context(),
 				`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
 				        COALESCE(dt.file_path, '') AS file_path,
@@ -96,13 +155,13 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 			        END AS progress,
 			        COALESCE(save_path, '') AS file_path, '' AS format,
 			        0 AS priority, COALESCE(error_msg, '') AS error_msg,
-			        COALESCE(site_id, '') AS site_id,
-			        seq, COALESCE(title, '') AS title,
-			        COALESCE(protagonist, '') AS protagonist,
-			        COALESCE(image_count, 0) AS image_count,
-			        COALESCE(video_count, 0) AS video_count,
-			        COALESCE(total_size, 0) AS total_size,
-			        COALESCE(downloaded_size, 0) AS downloaded_size,
+				        COALESCE(site_id, '') AS site_id,
+				        seq, COALESCE(title, '') AS title,
+				        COALESCE(protagonist, '') AS protagonist,
+				        COALESCE(image_count, 0) AS image_count,
+				        COALESCE(video_count, 0) AS video_count,
+				        COALESCE(total_size, 0) AS total_size,
+				        COALESCE(downloaded_size, 0) AS downloaded_size,
 				        COALESCE(content_verified, false) AS content_verified,
 				        0 AS total_segments, 0 AS completed_segments,
 				        created_at, updated_at
@@ -120,7 +179,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 				        0 AS total_segments, 0 AS completed_segments,
 				        created_at, updated_at
 				 FROM sniff_tasks
-				 ORDER BY id DESC`)
+				 ORDER BY id DESC
+				 LIMIT ?`, taskStreamMaxInitialTasks)
 		if err == nil {
 			defer rows.Close()
 			tasks := []map[string]any{}
@@ -233,6 +293,14 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		})
 
 		unsubProgress := h.EventBus.On("task:progress", func(payload any) {
+			// Progress 事件节流：同一任务 500ms 内只推送一次
+			// 防止高频 progress 更新导致 SSE 队列溢出
+			if m, ok := payload.(map[string]any); ok {
+				taskID := task_compute.TaskIDKey(m)
+				if !progressThrottle.Allow(taskID) {
+					return // 节流：跳过本次 progress 事件
+				}
+			}
 			stream.TrySendEvent("task:progress", payload)
 		})
 

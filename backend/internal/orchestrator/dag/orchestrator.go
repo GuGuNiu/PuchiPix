@@ -80,6 +80,25 @@ type SchedulerInterface interface {
 	OnSlotFreed(slotType string)
 }
 
+// FlowControllerInterface is the contract the orchestrator needs from
+// the flow control layer. It is intentionally minimal (Ask + TryAsk
+// methods) so the orchestrator can call it without depending on the full
+// governor implementation.
+type FlowControllerInterface interface {
+	// Ask blocks until admission is granted or the context is
+	// cancelled. Returns nil when the node may proceed to the
+	// scheduler, or ctx.Err() if admission was denied due to
+	// context timeout/cancellation.
+	Ask(ctx context.Context) error
+
+	// TryAsk attempts to acquire admission without blocking.
+	// Returns true if admission is granted, false if denied (tokens
+	// exhausted or pressure too high). Use this in sequential
+	// processing paths (like ResumeDag) to avoid stalling the entire
+	// recovery pipeline when tokens run out.
+	TryAsk() bool
+}
+
 // SlotPoolInterface is the contract the orchestrator needs from the
 // slot pool.
 type SlotPoolInterface interface {
@@ -109,6 +128,13 @@ type DagOrchestrator struct {
 	reconciler  *orchestrator.StateReconciler
 	registry    *orchestrator.TaskTypeRegistry
 	initialized bool
+
+	// flowController (optional) applies admission control before a node
+	// is submitted to the scheduler. When set, submitToScheduler calls
+	// Ask() first; if admission is denied, the node stays in QUEUED and
+	// the auto-reactivation ticker retries it later. nil means "no flow
+	// control" (original behavior, useful for tests).
+	flowController FlowControllerInterface
 
 	// statusSyncFn, when installed, is invoked after a node transitions
 	// to a terminal state (or RUNNING) so the orchestrator can push the
@@ -187,6 +213,21 @@ func (o *DagOrchestrator) SetEventBus(eb *infra.EventBus) {
 	o.dagsMu.Lock()
 	defer o.dagsMu.Unlock()
 	o.eventBus = eb
+}
+
+// SetFlowController connects the admission controller. Once set, every
+// node submission flows through Ask() first. If admission is denied, the
+// node stays in QUEUED and will be retried by the auto-reactivation ticker.
+// Setting it to nil disables flow control (original behavior).
+func (o *DagOrchestrator) SetFlowController(fc FlowControllerInterface) {
+	o.dagsMu.Lock()
+	defer o.dagsMu.Unlock()
+	o.flowController = fc
+	if fc != nil {
+		o.logger.Info("Flow control enabled")
+	} else {
+		o.logger.Info("Flow control disabled")
+	}
 }
 
 // SetStatusSyncFn installs the callback that pushes node FSM state back
