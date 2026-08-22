@@ -14,6 +14,7 @@ const Dashboard = lazy(() => import("./pages/index"));
 const TasksPage = lazy(() => import("./pages/tasks/index"));
 const SearchPage = lazy(() => import("./pages/search"));
 const ShelfPhotos = lazy(() => import("./pages/shelf/photos/index"));
+const ShelfVideos = lazy(() => import("./pages/shelf/videos/index"));
 const ShelfSJS = lazy(() => import("./pages/shelf/sjs"));
 const SniffPage = lazy(() => import("./pages/sniff"));
 const ConfigPage = lazy(() => import("./pages/config"));
@@ -109,6 +110,7 @@ export default function App(): React.JSX.Element {
                         {/* /shelf redirects to /shelf/photos */}
                         <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
                         <Route path="/shelf/photos" element={<ShelfPhotos />} />
+                        <Route path="/shelf/videos" element={<ShelfVideos />} />
                         <Route path="/shelf/sjs" element={<ShelfSJS />} />
                         <Route path="/sniff" element={<SniffPage />} />
                         <Route path="/config" element={<ConfigPage />} />

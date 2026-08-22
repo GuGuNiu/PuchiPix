@@ -18,6 +18,7 @@ import {
   ShieldBan,
   ChevronDown,
   ImageIcon,
+  Video,
   Truck,
   SlidersHorizontal,
 } from "lucide-react";
@@ -52,6 +53,7 @@ const navItems: NavEntry[] = [
     icon: GalleryHorizontal,
     items: [
       { href: "/shelf/photos", labelKey: "nav.photos", icon: ImageIcon },
+      { href: "/shelf/videos", labelKey: "nav.videos", icon: Video },
       { href: "/shelf/sjs", labelKey: "nav.sjs", icon: Truck },
     ],
   },
