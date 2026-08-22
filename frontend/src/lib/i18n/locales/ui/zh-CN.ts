@@ -232,6 +232,7 @@ const zhCN: TranslationDict = {
   "video.deleteFailed": "删除失败",
   "video.retryStarted": "视频资源 #{id} 下载已重新启动",
   "video.retryFailed": "启动下载失败",
+  "video.previewError": "预览不可用",
 
   /* ─── 搜索 ─── */
   "search.placeholderGallery": "输入关键词或粘贴完整URL链接如 /article/ /tag/ 页面...",

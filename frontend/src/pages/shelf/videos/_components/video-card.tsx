@@ -6,6 +6,7 @@ import {
   Calendar,
   Play,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { useGalleryStore } from "@/store/gallery-store";
 import { useI18n } from "@/lib/i18n";
@@ -22,6 +23,8 @@ export interface VideoCardProps {
   onExpand: (id: number) => void;
 }
 
+const HOVER_DELAY = 150;
+
 function VideoCardComponent({
   gallery,
   isExpanded,
@@ -32,8 +35,10 @@ function VideoCardComponent({
   const [isHovering, setIsHovering] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
+  const [videoElementError, setVideoElementError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
   const fetchDetail = useGalleryStore((s) => s.fetchGalleryDetail);
 
   const progressPct =
@@ -49,9 +54,20 @@ function VideoCardComponent({
         ? "failed"
         : "";
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
+
   const loadVideoPreview = useCallback(async () => {
     if (videoSrc || videoError) return;
     const detail = await fetchDetail(gallery.ID);
+    if (!isMountedRef.current) return;
     if (detail?.Videos && detail.Videos.length > 0) {
       const firstVideo = detail.Videos[0];
       const src = firstVideo.LocalPath
@@ -71,7 +87,7 @@ function VideoCardComponent({
     setIsHovering(true);
     hoverTimerRef.current = setTimeout(() => {
       loadVideoPreview();
-    }, 300);
+    }, HOVER_DELAY);
   }, [loadVideoPreview]);
 
   const handleMouseLeave = useCallback(() => {
@@ -86,12 +102,17 @@ function VideoCardComponent({
     }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current) {
-        clearTimeout(hoverTimerRef.current);
-      }
-    };
+  const handleFocus = useCallback(() => {
+    setIsHovering(true);
+    loadVideoPreview();
+  }, [loadVideoPreview]);
+
+  const handleBlur = useCallback(() => {
+    setIsHovering(false);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
   }, []);
 
   useEffect(() => {
@@ -106,6 +127,17 @@ function VideoCardComponent({
       onClick={() => onExpand(gallery.ID)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onExpand(gallery.ID);
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={gallery.Title || t("video.videoTitle", { id: gallery.ID })}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -117,6 +149,7 @@ function VideoCardComponent({
         overflow: "hidden",
         cursor: "pointer",
         transition: "border-color 0.15s, box-shadow 0.15s",
+        outline: "none",
       }}
     >
       <div
@@ -168,13 +201,14 @@ function VideoCardComponent({
           </div>
         )}
 
-        {isHovering && videoSrc && !videoError && (
+        {isHovering && videoSrc && !videoError && !videoElementError && (
           <video
             ref={videoRef}
             src={videoSrc}
             muted
             loop
             playsInline
+            onError={() => setVideoElementError(true)}
             style={{
               position: "absolute",
               inset: 0,
@@ -200,6 +234,25 @@ function VideoCardComponent({
           </div>
         )}
 
+        {isHovering && videoElementError && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(0,0,0,0.6)",
+              color: "white",
+              gap: 6,
+              fontSize: 12,
+            }}
+          >
+            <AlertCircle size={18} />
+            {t("video.previewError")}
+          </div>
+        )}
+
         <div
           style={{
             position: "absolute",
@@ -216,7 +269,7 @@ function VideoCardComponent({
             fontWeight: 600,
           }}
         >
-          {isHovering && videoSrc ? (
+          {isHovering && videoSrc && !videoElementError ? (
             <>
               <Play size={10} fill="white" />
               8X

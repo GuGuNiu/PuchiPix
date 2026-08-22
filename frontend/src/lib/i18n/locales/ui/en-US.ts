@@ -236,6 +236,7 @@ const enUS: TranslationDict = {
   "video.deleteFailed": "Delete failed",
   "video.retryStarted": "Video resource #{id} download restarted",
   "video.retryFailed": "Failed to start download",
+  "video.previewError": "Preview unavailable",
 
   /* ─── Search ─── */
   "search.placeholderGallery": "Enter keywords or paste full URL (e.g. /article/ /tag/ pages)...",

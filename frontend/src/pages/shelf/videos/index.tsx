@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "@/lib/i18n/toast";
 import {
@@ -137,12 +137,11 @@ export default function VideosPage(): React.JSX.Element {
     return sorted;
   }, [videoOnlyGalleries, statusFilter, searchQuery, sortBy]);
 
-  const handleExpand = useCallback(
-    (id: number) => {
-      setExpandedId(expandedId === id ? null : id);
-    },
-    [expandedId, setExpandedId],
-  );
+  const expandedIdRef = useRef(expandedId);
+  expandedIdRef.current = expandedId;
+  const handleExpand = useCallback((id: number) => {
+    setExpandedId(expandedIdRef.current === id ? null : id);
+  }, [setExpandedId]);
 
   useEffect(() => {
     if (expandedId === null) return;
