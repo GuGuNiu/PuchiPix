@@ -7,12 +7,12 @@ package orchestrator
 // rejected it (queue full) and rolled it back to READY.
 //
 // Design rule (restored from the 260717 slot-unification design):
-//   - 运行中/已入队 (QUEUED/ALLOCATED/RUNNING) → 进行中状态
-//     (scraping / downloading / sniffing) —— 只有真正获得调度资格
-//     的节点才显示为进行中
-//   - 等待调度/被压住 (PENDING/READY) → "pending"（等待中）——
-//     队列满被拒的任务如实显示为等待，而不是假的"识别中"
-//   - 终态 → completed / failed / cancelled / paused
+//   - In progress / queued (QUEUED/ALLOCATED/RUNNING) maps to active status
+//     (scraping / downloading / sniffing) — only nodes that truly won a
+//     scheduler slot show as in-progress.
+//   - Waiting / held back (PENDING/READY) maps to "pending" — queue-full
+//     rejections show as waiting, not falsely as "identifying".
+//   - Terminal states map to completed / failed / cancelled / paused
 //
 // The phase / executor of the node determines WHICH in-progress label
 // applies: video M3U8 identification occupies the scraping slot and
@@ -47,8 +47,8 @@ func (r *StatusReporter) MapNodeToEntityStatus(def DagNodeDefinition, state Node
 
 // inProgressStatus derives the entity status label for an actively
 // running / queued node from its executor key and phase:
-//   - scrape / video:scrape / phase=scrape → "scraping" (识别中)
-//   - download / video:download / phase=download → "downloading" (下载中)
+//   - scrape / video:scrape / phase=scrape → "scraping"
+//   - download / video:download / phase=download → "downloading"
 //   - sniff / phase=scrape with sniffId → "sniffing"
 //   - extract/verify (slotless CPU/IO) → keep the previous phase label
 func (r *StatusReporter) inProgressStatus(def DagNodeDefinition) string {

@@ -783,8 +783,33 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 		if dagID != "" {
 			status := h.DagOrch.GetDagStatus(dagID)
 			if status != nil {
-			if err := h.DagOrch.RetryDag(ctx, dagID, ""); err != nil {
-					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
+				// Classify node states so "start" means the right thing:
+				//   - paused nodes  → ResumeDag (user paused; re-schedule them)
+				//   - failed nodes  → RetryDag (retry only FAILED/TIMEOUT/NEEDS_RETRY)
+				//   - otherwise     → already running/finished; do NOT create a
+				//                      duplicate DAG (double-execution caused file
+				//                      conflicts / download anomalies after resume)
+				hasPaused, hasFailed := false, false
+				for _, ns := range status.Nodes {
+					switch ns.State {
+					case orchestrator.NodeStatePaused:
+						hasPaused = true
+					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
+						hasFailed = true
+					}
+				}
+				var err error
+				switch {
+				case hasPaused:
+					err = h.DagOrch.ResumeDag(ctx, dagID, "")
+				case hasFailed:
+					err = h.DagOrch.RetryDag(ctx, dagID, "")
+				default:
+					writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "start", "dagId": dagID, "status": "already-running"})
+					return nil
+				}
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume/retry failed: %v", err))
 					return nil
 				}
 				h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
@@ -795,7 +820,7 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 						"status":   "scraping",
 					})
 				}
-				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": dagID, "status": "retrying"})
+				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "start", "dagId": dagID, "status": "resuming"})
 				return nil
 			}
 		}
@@ -1123,30 +1148,58 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 		// The DAG-level retry will re-process all specified files.
 		dagID := h.getGalleryDagID(ctx, id)
 		if h.DagOrch != nil {
-			if dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
-				// Retry the download node to re-download failed files.
-				dlNodeID := fmt.Sprintf("dl-%d", id)
-				if err := h.DagOrch.RetryDag(ctx, dagID, dlNodeID); err != nil {
-					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
-					return
+			if dagID != "" {
+				if st := h.DagOrch.GetDagStatus(dagID); st != nil {
+					// Only drive the download node when it is in a state we
+					// can actually act on. RetryDag is a no-op for non-FAILED
+					// nodes, yet the previous code always wrote
+					// status='downloading' afterwards — the same false-state
+					// bug class as shelfRetryFailed (paused/running nodes
+					// were shown as actively downloading while nothing ran).
+					dlNodeID := fmt.Sprintf("dl-%d", id)
+					dlState := orchestrator.NodeState("")
+					for _, ns := range st.Nodes {
+						if ns.NodeID == dlNodeID {
+							dlState = ns.State
+							break
+						}
+					}
+					var retryErr error
+					switch dlState {
+					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
+						retryErr = h.DagOrch.RetryDag(ctx, dagID, dlNodeID)
+					case orchestrator.NodeStatePaused:
+						retryErr = h.DagOrch.ResumeDag(ctx, dagID, "")
+					default:
+						// running / completed / node absent: nothing to retry.
+						writeJSON(w, http.StatusOK, taskprogress.RetryResult{
+							GalleryID: id,
+							Message:   "Download node is not in a retryable state (already running or finished)",
+						})
+						return
+					}
+					if retryErr != nil {
+						writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", retryErr))
+						return
+					}
+				} else {
+					// DAG not active → re-submit gallery pipeline.
+					var sourceURL, siteID string
+					err := h.DB.QueryRow(ctx,
+						"SELECT source_url, site_id FROM galleries WHERE id = ?", id).
+						Scan(&sourceURL, &siteID)
+					if err != nil {
+						writeError(w, http.StatusNotFound, "Gallery not found")
+						return
+					}
+					def := dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
+					newDagID, err := h.DagOrch.SubmitDag(ctx, def)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
+						return
+					}
+					h.updateGalleryDagID(ctx, id, newDagID)
 				}
-			} else {
-				// DAG not active → re-submit gallery pipeline.
-				var sourceURL, siteID string
-				err := h.DB.QueryRow(ctx,
-					"SELECT source_url, site_id FROM galleries WHERE id = ?", id).
-					Scan(&sourceURL, &siteID)
-				if err != nil {
-					writeError(w, http.StatusNotFound, "Gallery not found")
-					return
-				}
-				def := dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
-				newDagID, err := h.DagOrch.SubmitDag(ctx, def)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
-					return
-				}
-				h.updateGalleryDagID(ctx, id, newDagID)
 			}
 		}
 
@@ -1174,23 +1227,50 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 	// Fallback without progress engine: retry the whole gallery DAG.
 	dagID := h.getGalleryDagID(ctx, id)
 	if h.DagOrch != nil && dagID != "" {
-		if err := h.DagOrch.RetryDag(ctx, dagID, ""); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
+		if st := h.DagOrch.GetDagStatus(dagID); st != nil {
+			// Same state-routing as the fine-grained path: RetryDag is a
+			// no-op when no node is FAILED, so only write "downloading"
+			// when we actually resumed/retried something.
+			hasPaused, hasFailed := false, false
+			for _, ns := range st.Nodes {
+				switch ns.State {
+				case orchestrator.NodeStatePaused:
+					hasPaused = true
+				case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
+					hasFailed = true
+				}
+			}
+			var err error
+			switch {
+			case hasPaused:
+				err = h.DagOrch.ResumeDag(ctx, dagID, "")
+			case hasFailed:
+				err = h.DagOrch.RetryDag(ctx, dagID, "")
+			default:
+				writeJSON(w, http.StatusOK, map[string]any{
+					"galleryId": id,
+					"message":   "Gallery DAG is already running or finished; nothing to retry",
+				})
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG retry failed: %v", err))
+				return
+			}
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:progress", map[string]any{
+					"taskId":   id,
+					"taskType": "gallery",
+					"status":   "downloading",
+				})
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"galleryId": id,
+				"message":   "Full gallery retry initiated (progress engine not available for fine-grained retry)",
+			})
 			return
 		}
-		h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
-		if h.EventBus != nil {
-			h.EventBus.Emit("task:progress", map[string]any{
-				"taskId":   id,
-				"taskType": "gallery",
-				"status":   "downloading",
-			})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"galleryId": id,
-			"message":   "Full gallery retry initiated (progress engine not available for fine-grained retry)",
-		})
-		return
 	}
 
 	writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")

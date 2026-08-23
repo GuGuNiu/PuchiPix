@@ -148,12 +148,22 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 	// progress in real-time without polling. Count terminal vs total
 	// nodes to compute a progress percentage on the frontend.
 	if o.eventBus != nil {
+		// Snapshot node states under lock, then compute counts after
+		// unlocking to minimize critical section. Previously the entire
+		// counting loop ran under dag.mu, blocking scheduler callbacks
+		// when a DAG had many nodes (600+ active DAGs scenario).
 		dag.mu.Lock()
-		terminalCount := 0
-		totalCount := len(dag.nodes)
-		failedCount := 0
+		nodeCount := len(dag.nodes)
+		states := make([]orchestrator.NodeState, 0, nodeCount)
 		for _, n := range dag.nodes {
-			state := n.fsm.State()
+			states = append(states, n.fsm.State())
+		}
+		taskType := dag.definition.TaskType
+		dag.mu.Unlock()
+
+		terminalCount := 0
+		failedCount := 0
+		for _, state := range states {
 			if orchestrator.IsTerminalState(state) {
 				terminalCount++
 				if state == orchestrator.NodeStateFailed {
@@ -161,16 +171,13 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 				}
 			}
 		}
-		// Capture the task type before unlocking for the event payload.
-		taskType := dag.definition.TaskType
-		dag.mu.Unlock()
 
 		payload := map[string]any{
 			"dagId":    dagID,
 			"nodeId":   nodeID,
 			"phase":    "node_completed",
 			"current":  terminalCount,
-			"total":    totalCount,
+			"total":    nodeCount,
 			"failed":   failedCount,
 			"taskType": taskType,
 		}
@@ -291,9 +298,9 @@ func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID stri
 	// in-memory state machine never diverge. Previously only terminal
 	// states (and RUNNING) triggered the sync, so a node that the
 	// scheduler rejected (rolled back to READY) left the DB stuck at
-	// "scraping" — the "全部启动识别/满仓" false-status defect. Now every
-	// user-observable state is reported: QUEUED/ALLOCATED/RUNNING →
-	// 进行中, READY → pending (等待中), terminal → 终态. The injected
+	// "scraping" — the "all tasks started identifying / full" false-status defect.
+	// Now every user-observable state is reported: QUEUED/ALLOCATED/RUNNING maps
+	// to in-progress, READY maps to pending, terminal maps to terminal status.
 	// callback decides whether a state maps to a DB write (see
 	// orchestrator.StatusReporter) and is best-effort — failures are
 	// logged, never block the transition.
@@ -369,12 +376,28 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 				targetState = s
 			}
 		}
+		// A policy may return READY for scrape nodes (no side effects), but
+		// RUNNING→READY is not a legal transition — fall back to PAUSED so
+		// an in-flight scrape node is still paused (and its executor
+		// cancelled below) instead of being left running.
+		if !node.fsm.CanTransitionTo(targetState) {
+			targetState = orchestrator.NodeStatePaused
+		}
 		if node.fsm.CanTransitionTo(targetState) {
 			_ = node.fsm.Transition(targetState, orchestrator.TransitionContext{
 				Reason:      "user paused",
 				TriggeredBy: "user",
 			})
 			pausedCount++
+			// Cancel the in-flight executor AFTER the node reached its
+			// paused target state. Cancelling first would race the
+			// executor's failure report against the transition:
+			// OnNodeCompleted only acts on RUNNING nodes, so a report that
+			// lands before the transition would flip the node to FAILED
+			// (pause-becomes-failure).
+			if o.scheduler != nil {
+				o.scheduler.CancelRunningNode(dagID, nodeID)
+			}
 		}
 	}
 	dag.mu.Unlock()
@@ -414,6 +437,12 @@ func (o *DagOrchestrator) CancelDag(ctx context.Context, dagID string) error {
 					Reason:      "user cancelled",
 					TriggeredBy: "user",
 				})
+			}
+			// Stop the in-flight executor after the CANCELLED transition
+			// (see PauseDag for the race rationale: cancel first would let
+			// the executor's report flip a RUNNING node to FAILED).
+			if o.scheduler != nil {
+				o.scheduler.CancelRunningNode(dagID, nodeID)
 			}
 		}
 	}
@@ -785,31 +814,43 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 	return nil
 }
 
-// extractEntityID reads the business entity ID (galleryId / taskId /
-// sniffId) that DagFactory injects into node configs, so SSE/WS event
+// extractEntityID reads the business entity ID (galleryId / taskSeq /
+// sniffSeq) that DagFactory injects into node configs, so SSE/WS event
 // payloads can reference the owning task WITHOUT parsing the DAG ID
-// format. Returns the config key ("galleryId"/"taskId"/"sniffId"), the
-// numeric ID, and true when found.
+// format. Returns the config key ("galleryId"/"taskSeq"/"sniffSeq"),
+// the ID value (int for galleryId, string for seq-based keys), and
+// true when found.
 //
 // Motivation: after DAG IDs were unified to 6-char random codes
 // (260804), the frontend's previous "gallery-<id>" prefix parsing of
 // dagId could no longer resolve the entity — silently breaking
 // real-time gallery progress/status updates. Carrying the entity ID in
 // the event payload decouples the frontend from the DAG ID encoding.
-func extractEntityID(def orchestrator.DagDefinition) (string, int, bool) {
+//
+// Note: taskSeq/sniffSeq are string-based canonical identifiers
+// (download_tasks.seq / sniff_tasks.seq). The frontend can resolve
+// them to numeric IDs via the seq column if needed.
+func extractEntityID(def orchestrator.DagDefinition) (string, any, bool) {
 	for _, node := range def.Nodes {
-		for _, key := range []string{"galleryId", "taskId", "sniffId"} {
-			if v, ok := node.Config[key]; ok {
-				switch t := v.(type) {
-				case int:
-					return key, t, true
-				case float64:
-					return key, int(t), true
-				}
+		// Gallery uses numeric ID
+		if v, ok := node.Config["galleryId"]; ok {
+			switch t := v.(type) {
+			case int:
+				return "galleryId", t, true
+			case float64:
+				return "galleryId", int(t), true
 			}
 		}
+		// Video uses canonical seq string
+		if v, ok := node.Config["taskSeq"].(string); ok && v != "" {
+			return "taskSeq", v, true
+		}
+		// Sniff uses canonical seq string
+		if v, ok := node.Config["sniffSeq"].(string); ok && v != "" {
+			return "sniffSeq", v, true
+		}
 	}
-	return "", 0, false
+	return "", nil, false
 }
 
 // GetDagStatus returns the status of all nodes in a DAG.

@@ -166,7 +166,7 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 			deps:       []string{},
 			executor:   "download",
 			slotType:   "download",
-			priority:   orchestrator.PriorityHigh, // 恢复任务用高优先级
+			priority:   orchestrator.PriorityHigh, // Restore tasks jump the queue so resumed DAGs recover faster
 			timeout:    3600000,
 			maxRetries: 3,
 			retryDelay: 30000,
@@ -250,25 +250,29 @@ func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefin
 
 // NewVideoPipeline builds the two-node video processing DAG:
 //
-//	vsc (scraping slot, M3U8 识别) → vdl (download slot, 下载)
+//	vsc (scraping slot, M3U8 identification) → vdl (download slot, download)
 //
 // The identification node acquires a *scraping* slot so video
-// identification concurrency is bounded by the user's "识别中最大数量"
+// identification concurrency is bounded by the user's max scraping tasks
 // setting (maxScrapingTasks → scraping slot). Previously identification
 // ran inside the download executor and was only bounded by the download
 // slot — every submitted video task looked like it was "identifying"
 // (scraping) in the DB even when the scheduler had rejected it, which
-// is the "大量任务全部启动识别 / 满仓" defect fixed by this split.
+// is the "all tasks started identifying / full" defect fixed by this split.
 //
 // Backward compatibility: DAGs restored from snapshots that still use
 // the single-node vdl pipeline keep working — VideoDownloadExecutor's
 // task loader falls back to identifying the M3U8 URL itself when
 // m3u8_url is empty.
-func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
+//
+// taskSeq is the canonical uppercase-alphanumeric task identifier
+// (download_tasks.seq), used as the node ID suffix for uniform
+// letter+number ID format across the whole site.
+func (f *DagFactory) NewVideoPipeline(taskSeq string, taskID int) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:     fmt.Sprintf("vsc-%d", taskID),
+			nodeID:     "vsc-" + taskSeq,
 			taskType:   orchestrator.TaskTypeVideo,
 			phase:      orchestrator.PhaseScrape,
 			deps:       []string{},
@@ -280,10 +284,10 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 			retryDelay: 5000,
 		},
 		{
-			nodeID:     fmt.Sprintf("vdl-%d", taskID),
+			nodeID:     "vdl-" + taskSeq,
 			taskType:   orchestrator.TaskTypeVideo,
 			phase:      orchestrator.PhaseDownload,
-			deps:       []string{fmt.Sprintf("vsc-%d", taskID)},
+			deps:       []string{"vsc-" + taskSeq},
 			executor:   "video:download",
 			slotType:   "download",
 			priority:   orchestrator.PriorityNormal,
@@ -293,10 +297,11 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 		},
 	})
 
-	// Inject taskId into node config so VideoScrapeExecutor and
-	// VideoDownloadExecutor can look up the download_tasks row. Both
-	// nodes skip the gallery-oriented verification path.
+	// Inject seq into node config so VideoScrapeExecutor and
+	// VideoDownloadExecutor can look up the download_tasks row by seq.
+	// Both nodes skip the gallery-oriented verification path.
 	for i := range nodes {
+		nodes[i].Config["taskSeq"] = taskSeq
 		nodes[i].Config["taskId"] = taskID
 		nodes[i].Config["skipVerify"] = true
 	}
@@ -306,7 +311,7 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 		TaskType: orchestrator.TaskTypeVideo,
 		Nodes:    nodes,
 		Metadata: orchestrator.DagMetadata{
-			SourceURL: fmt.Sprintf("video-task:%d", taskID),
+			SourceURL: "video-task:" + taskSeq,
 			CreatedAt: time.Now(),
 		},
 	}
@@ -314,11 +319,15 @@ func (f *DagFactory) NewVideoPipeline(taskID int) orchestrator.DagDefinition {
 
 // NewSniffPipeline builds a single-node sniff DAG for M3U8 capture
 // and line selection.
-func (f *DagFactory) NewSniffPipeline(url string, taskID int) orchestrator.DagDefinition {
+//
+// taskSeq is the canonical uppercase-alphanumeric sniff task identifier
+// (sniff_tasks.seq), used as the node ID suffix for uniform letter+
+// number ID format across the whole site.
+func (f *DagFactory) NewSniffPipeline(url string, taskSeq string) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
-			nodeID:     fmt.Sprintf("sn-%d", taskID),
+			nodeID:     "sn-" + taskSeq,
 			taskType:   orchestrator.TaskTypeSniff,
 			phase:      orchestrator.PhaseScrape,
 			deps:       []string{},
@@ -333,7 +342,7 @@ func (f *DagFactory) NewSniffPipeline(url string, taskID int) orchestrator.DagDe
 
 	for i := range nodes {
 		nodes[i].Config["url"] = url
-		nodes[i].Config["sniffId"] = taskID
+		nodes[i].Config["sniffSeq"] = taskSeq
 	}
 
 	return orchestrator.DagDefinition{
@@ -342,7 +351,7 @@ func (f *DagFactory) NewSniffPipeline(url string, taskID int) orchestrator.DagDe
 		Nodes:    nodes,
 		Metadata: orchestrator.DagMetadata{
 			SourceURL: url,
-			CreatedAt: time.Now(),
+			CreatedAt:  time.Now(),
 		},
 	}
 }

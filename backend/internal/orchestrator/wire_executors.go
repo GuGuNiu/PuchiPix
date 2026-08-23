@@ -156,7 +156,7 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 		// the frontend sees metadata within 1-2 seconds, even if the
 		// full scrape takes 30+ seconds (chromedp fallback).
 		//
-		// This eliminates the "识别中 with no metadata" UX problem:
+		// This eliminates the "identifying with no metadata" UX problem:
 		// users see the task title and model name right away, while
 		// the full scrape (images, videos, multi-page traversal)
 		// continues in the background.
@@ -228,10 +228,9 @@ func newScrapeExecutor(siteReg *sites.SiteRegistry, database *db.Database, event
 
 		// Always try the title parser first. When it matches a model
 		// from the preset database, use the canonical database name
-		// (e.g., "纯默默") instead of the raw title text (e.g.,
-		// "纯默默chunmomo") to avoid semantic ambiguity. Only fall
-		// back to the site provider's extraction when the parser
-		// does not find a protagonist.
+		// instead of the raw title text to avoid semantic ambiguity.
+		// Only fall back to the site provider's extraction when the
+		// parser does not find a protagonist.
 		protagonist := result.Protagonist
 		if titleParser != nil && result.Title != "" {
 			if parseResult := titleParser.Parse(result.Title); parseResult != nil && parseResult.Protagonist != "" {
@@ -524,9 +523,16 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		}, *dlDefaults); zipDownloaded {
 			logger.Info("Gallery ZIP download completed, skipping page-by-page image download",
 				"galleryId", galleryID, "saveDir", saveDir)
+			// Persist the archive size so the shelf size column shows the
+			// gallery's total volume. The ZIP path previously wrote only
+			// status='completed' and left total_size/downloaded_size at 0,
+			// so ZIP-downloaded galleries always displayed "—" for size.
+			var zipSize int64
+			_ = database.QueryRow(ctx,
+				`SELECT COALESCE(actual_size, 0) FROM gallery_download_infos WHERE gallery_id = ?`, galleryID).Scan(&zipSize)
 			_, _ = database.Exec(ctx,
-				`UPDATE galleries SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-				galleryID)
+				`UPDATE galleries SET status = 'completed', downloaded_size = ?, total_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+				zipSize, zipSize, galleryID)
 			// Emit task:completed for SSE clients.
 			if eventBus != nil {
 				eventBus.Emit("task:completed", map[string]any{
@@ -649,6 +655,19 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				videos = append(videos, v)
 			}
 			videoRows.Close()
+		}
+
+		// Defensive guard: if neither images nor videos are pending, this is
+		// almost always a data-integrity problem (gallery_images/videos were
+		// wiped, or the scrape phase never populated them) — NOT a legit
+		// "everything already downloaded" case. Completing here would write a
+		// fake completed with total_size=0 (size column shows "—"). Fail the
+		// node instead so the DAG surfaces an actionable state and the
+		// scrape/re-scrape path can repopulate the gallery.
+		if len(images) == 0 && len(videos) == 0 {
+			logger.Warn("Gallery download aborted: no pending images or videos",
+				"galleryId", galleryID, "saveDir", saveDir)
+			return fmt.Errorf("gallery %d has no pending images or videos to download (re-scrape required)", galleryID)
 		}
 
 		// Run video downloads in their own errgroup so they execute
@@ -960,6 +979,18 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 
 		_ = imgErr // Preserve for future use (partial completion reporting)
 
+		// If the node's context was cancelled (e.g. the user paused the
+		// DAG and the scheduler cancelled this node via CancelNode), abort
+		// WITHOUT writing a terminal status. The DAG layer keeps the node
+		// in PAUSED and a resume re-submits it; writing "completed" here
+		// would desync the DB from the DAG and make the resume re-download
+		// a gallery that already reports done.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			logger.Warn("Gallery download aborted by context cancellation",
+				"galleryId", galleryID, "error", ctxErr.Error())
+			return ctxErr
+		}
+
 		if len(videos) > 0 {
 			logger.Info("Gallery videos processed",
 				"galleryId", galleryID, "downloaded", videoDownloaded, "failed", videoFailed)
@@ -1009,18 +1040,23 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			})
 		}
 
-		// Update gallery status. Both image and video outcomes contribute:
-		// partial if any images or videos failed, completed only when all
-		// expected content is present. This was a gap where video failures
-		// were ignored and a gallery with failed videos was still marked
-		// "completed".
-		status := "completed"
-		if successCount < len(images) || videoFailed > 0 {
-			status = "partial"
-		}
-		_, _ = database.Exec(ctx,
-			`UPDATE galleries SET status = ?, downloaded_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			status, totalSize, galleryID)
+	// Update gallery status. Both image and video outcomes contribute:
+	// partial if any images or videos failed, completed only when all
+	// expected content is present. This was a gap where video failures
+	// were ignored and a gallery with failed videos was still marked
+	// "completed".
+	//
+	// Also persist total_size (sum of all downloaded file sizes) so the
+	// frontend size column can display the gallery's total volume after
+	// completion. Previously only downloaded_size was written, leaving
+	// total_size at its zero default — the frontend showed "—" for size.
+	status := "completed"
+	if successCount < len(images) || videoFailed > 0 {
+		status = "partial"
+	}
+	_, _ = database.Exec(ctx,
+		`UPDATE galleries SET status = ?, downloaded_size = ?, total_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		status, totalSize, totalSize, galleryID)
 
 		// Advance the download-phase state machine to its terminal state
 		// and persist the checkpoint so a future retry resumes accurately.

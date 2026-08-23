@@ -303,6 +303,22 @@ func (s *SchedulerEngine) CancelNode(dagID, nodeID string) {
 	s.readyQueue.Remove(dagID, nodeID)
 }
 
+// CancelRunningNode cancels the context of an in-flight executor so a
+// pause/cancel actually stops the work instead of only detaching the
+// FSM state (the P7 audit finding: the executor kept running and would
+// re-execute on resume). The cancel func was registered in executeNode.
+// The orchestrator must have already transitioned the node to PAUSED /
+// CANCELLED before calling this, so the executor's cancellation result
+// is ignored by OnNodeCompleted (which only acts on RUNNING nodes).
+func (s *SchedulerEngine) CancelRunningNode(dagID, nodeID string) {
+	holderID := dagID + ":" + nodeID
+	s.mu.Lock()
+	if cancel, ok := s.nodeCancel[holderID]; ok {
+		cancel()
+	}
+	s.mu.Unlock()
+}
+
 // UpdateNodePriority dynamically re-prioritizes a queued node. The
 // ready queue is reordered immediately; nodes not currently queued
 // are unaffected (the orchestrator persists the new priority for
@@ -716,4 +732,23 @@ func (s *SchedulerEngine) ResetSlot(slotType string) bool {
 // so this call never blocks the hot path.
 func (s *SchedulerEngine) GetMetrics() SchedulerMetricsSnapshot {
 	return s.metrics.Snapshot()
+}
+
+// QueueDepth returns the number of nodes currently waiting in the ready
+// queue that require the given slot type. Used by the pressure monitor
+// to compute queue-backed pressure. Safe for concurrent use.
+func (s *SchedulerEngine) QueueDepth(slotType string) int {
+	return s.readyQueue.CountBySlotType(slotType)
+}
+
+// QueueCapacity returns the configured maximum queue size for the slot
+// type. Used by the pressure monitor to normalize queue depth into a
+// ratio. Safe for concurrent use.
+func (s *SchedulerEngine) QueueCapacity(slotType string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cap, ok := s.maxQueueSizePerSlot[slotType]; ok {
+		return cap
+	}
+	return 0
 }

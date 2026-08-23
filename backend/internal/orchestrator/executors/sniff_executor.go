@@ -40,15 +40,7 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	}
 	siteID, _ := node.Config["siteId"].(string)
 
-	sniffID := 0
-	if id, ok := node.Config["sniffId"]; ok {
-		switch v := id.(type) {
-		case int:
-			sniffID = v
-		case float64:
-			sniffID = int(v)
-		}
-	}
+	sniffSeq, _ := node.Config["sniffSeq"].(string)
 
 	if e.sniffFn == nil {
 		e.logger.Warn("No sniff function registered, simulating completion",
@@ -60,10 +52,11 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 		"nodeId", node.NodeID, "dagId", node.DagID, "url", url)
 
 	// Emit progress event so the frontend can show the sniff is running.
-	if e.eventBus != nil && sniffID > 0 {
+	// sniffSeq is the canonical string identifier (sniff_tasks.seq).
+	if e.eventBus != nil && sniffSeq != "" {
 		e.eventBus.Emit("task:progress", map[string]any{
-			"taskId":   sniffID,
 			"taskType": "sniff",
+			"taskSeq":  sniffSeq,
 			"status":   "sniffing",
 		})
 	}
@@ -75,10 +68,10 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	if err != nil {
 		e.logger.Error("Sniff failed", err,
 			"nodeId", node.NodeID, "dagId", node.DagID)
-		if e.eventBus != nil && sniffID > 0 {
+		if e.eventBus != nil && sniffSeq != "" {
 			e.eventBus.Emit("task:failed", map[string]any{
-				"taskId":   sniffID,
 				"taskType": "sniff",
+				"taskSeq":  sniffSeq,
 				"error":    err.Error(),
 			})
 		}
@@ -88,11 +81,11 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 	e.logger.Info("Sniff completed",
 		"nodeId", node.NodeID, "dagId", node.DagID,
 		"urlsFound", found)
-	if e.eventBus != nil && sniffID > 0 {
+	if e.eventBus != nil && sniffSeq != "" {
 		e.eventBus.Emit("task:completed", map[string]any{
-			"taskId":   sniffID,
-			"taskType": "sniff",
-			"status":   "completed",
+			"taskType":  "sniff",
+			"taskSeq":   sniffSeq,
+			"status":    "completed",
 			"urlsFound": found,
 		})
 	}

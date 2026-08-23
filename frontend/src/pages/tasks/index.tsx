@@ -39,6 +39,8 @@ import { ConsoleLog } from "@/components/ops/console-log";
 import { TaskDetailPopover } from "./_components/task-detail-popover";
 import { Pagination } from "@/components/ui/pagination";
 
+const LOAD_MORE_THRESHOLD = 200; // pixels from bottom to trigger load
+
 interface SseAnimState {
   updatedKeys: Set<string>;
   statusChangedKeys: Set<string>;
@@ -113,7 +115,15 @@ function sseAnimReducer(state: SseAnimState, action: SseAnimAction): SseAnimStat
 export default function TasksPage(): React.JSX.Element {
   const { t } = useI18n();
   const STATUS_LABEL = useStatusLabel(t);
-  const { tasks, loading, fetchTasks, connectSSE } = useTaskStore();
+  const {
+    tasks,
+    loading,
+    fetchTasks,
+    connectSSE,
+    loadMoreTasks,
+    hasMore,
+    loadingMore,
+  } = useTaskStore();
   const { pathname } = useLocation();
   const { savedData, saveState } = useRouteState(pathname, {
     ttl: 5 * 60 * 1000,
@@ -124,6 +134,8 @@ export default function TasksPage(): React.JSX.Element {
   const prevTasksRef = useRef<DownloadTask[]>([]);
   const tableFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreTriggeredRef = useRef(false);
 
   const { values: urlValues, update: updateUrl } = useUrlState({
     status: "all",
@@ -203,11 +215,47 @@ export default function TasksPage(): React.JSX.Element {
     }
   }, [addTab, saveState]);
 
+  // Infinite scroll: when user scrolls near the bottom and there are more
+  // tasks on the server, trigger loadMoreTasks to fetch the next page.
   useEffect(() => {
-    fetchTasks();
+    if (!hasMore || loadingMore) return;
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = (): void => {
+      if (loadMoreTriggeredRef.current) return;
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < LOAD_MORE_THRESHOLD) {
+        loadMoreTriggeredRef.current = true;
+        loadMoreTasks().finally(() => {
+          // Reset trigger after a short delay to allow next load
+          setTimeout(() => {
+            loadMoreTriggeredRef.current = false;
+          }, 500);
+        });
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [hasMore, loadingMore, loadMoreTasks]);
+
+  // Reset scroll trigger when filters change (new search = new dataset)
+  useEffect(() => {
+    loadMoreTriggeredRef.current = false;
+  }, [statusFilter, typeFilter, searchQuery, sortBy]);
+
+  useEffect(() => {
+    // Only fetch when store is empty — Zustand store survives client-side
+    // navigation, so re-fetching on every mount wastes ~300ms on large
+    // task lists. SSE keeps the store live after initial load.
+    if (tasks.length === 0) {
+      fetchTasks();
+    }
     const unsub = connectSSE();
     return () => unsub();
-  }, [fetchTasks, connectSSE]);
+  }, [fetchTasks, connectSSE, tasks.length]);
 
   useEffect(() => {
     if (prevTasksRef.current.length === 0 && tasks.length === 0) return;
@@ -501,7 +549,11 @@ export default function TasksPage(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          <div className={`table-wrapper${sseAnimState.tableFlashing ? " sse-table-updating" : ""}`}>
+          <div
+            ref={scrollContainerRef}
+            className={`table-wrapper${sseAnimState.tableFlashing ? " sse-table-updating" : ""}`}
+            style={{ overflowY: "auto" }}
+          >
             <table>
               <thead>
                 <tr>
@@ -526,7 +578,6 @@ export default function TasksPage(): React.JSX.Element {
                   <th style={{ width: 28, whiteSpace: "nowrap" }}>{t("tasks.colType")}</th>
                   <th style={{ width: 100 }}>{t("tasks.colPerson")}</th>
                   <th style={{ width: 300 }}>{t("tasks.colTitle")}</th>
-                  <th style={{ width: 64, whiteSpace: "nowrap" }}>{t("tasks.colSource")}</th>
                   <th style={{ width: 92 }}>{t("tasks.colStatus")}</th>
                   <th style={{ width: 140 }}>{t("tasks.colProgress")}</th>
                   <th style={{ width: 68, whiteSpace: "nowrap" }}>{t("tasks.colSegments")}</th>
@@ -562,6 +613,11 @@ export default function TasksPage(): React.JSX.Element {
                 })}
               </tbody>
             </table>
+            {loadingMore && (
+              <div style={{ padding: "12px", textAlign: "center", color: "var(--text-muted)" }}>
+                <div className="spinner" style={{ width: 20, height: 20, margin: "0 auto" }} />
+              </div>
+            )}
           </div>
         )}
 

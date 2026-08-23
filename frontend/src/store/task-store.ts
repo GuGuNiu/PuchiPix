@@ -9,7 +9,12 @@ interface TaskStore {
   tasks: DownloadTask[];
   loading: boolean;
   sseConnected: boolean;
+  totalCount: number;
+  currentPage: number;
+  hasMore: boolean;
+  loadingMore: boolean;
   fetchTasks: (status?: string) => Promise<void>;
+  loadMoreTasks: () => Promise<void>;
   addTask: (task: DownloadTask) => void;
   updateTask: (id: number, taskType: string, patch: Partial<DownloadTask>) => void;
   removeTask: (id: number, taskType?: string) => void;
@@ -32,22 +37,53 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   loading: true,
   sseConnected: false,
+  totalCount: 0,
+  currentPage: 0,
+  hasMore: false,
+  loadingMore: false,
 
   fetchTasks: async (status?: string) => {
     set({ loading: true });
     try {
       const res = await fetch(status ? `/api/tasks/all?status=${status}` : '/api/tasks/all');
       const data = await res.json();
-      const allTasks = Array.isArray(data) ? data : [];
-      const filtered = allTasks.filter((t) => !deletedKeys.has(taskKey(t)));
+      // Handle both old format (array) and new format (paginated object)
+      const rawTasks: DownloadTask[] = Array.isArray(data) ? data : (data.tasks || []);
+      const totalCount = Array.isArray(data) ? rawTasks.length : (data.totalCount || rawTasks.length);
+      const hasMore = Array.isArray(data) ? false : (data.hasMore || false);
+      const filtered = rawTasks.filter((t: DownloadTask) => !deletedKeys.has(taskKey(t)));
       set((s) => {
         if (filtered.length === 0 && s.tasks.length > 0) {
-          return { loading: false };
+          return { loading: false, totalCount, hasMore };
         }
-        return { tasks: filtered, loading: false };
+        return { tasks: filtered, loading: false, totalCount, hasMore, page: 1 };
       });
     } catch {
       set({ loading: false });
+    }
+  },
+
+  loadMoreTasks: async () => {
+    const { loadingMore, hasMore, tasks } = get();
+    if (loadingMore || !hasMore) return;
+
+    set({ loadingMore: true });
+    try {
+      const nextPage = get().currentPage + 1;
+      const res = await fetch(`/api/tasks/page?page=${nextPage}&pageSize=100`);
+      const data = await res.json();
+      const newTasks = (data.tasks || []) as DownloadTask[];
+      const existingKeys = new Set(tasks.map(taskKey));
+      const uniqueNewTasks = newTasks.filter((t) => !existingKeys.has(taskKey(t)) && !deletedKeys.has(taskKey(t)));
+      set((s) => ({
+        tasks: [...s.tasks, ...uniqueNewTasks],
+        currentPage: nextPage,
+        totalCount: data.totalCount ?? s.totalCount,
+        hasMore: data.hasMore ?? false,
+        loadingMore: false,
+      }));
+    } catch {
+      set({ loadingMore: false });
     }
   },
 
@@ -96,13 +132,30 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     unsubs.push(
       subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
-          const data = JSON.parse(e.data) as DownloadTask[];
+          const raw = JSON.parse(e.data);
+          // Handle both old format (array) and new paginated format (object)
+          let data: DownloadTask[];
+          let totalCount = 0;
+          let hasMore = false;
+          if (Array.isArray(raw)) {
+            data = raw as DownloadTask[];
+          } else {
+            data = (raw.tasks || []) as DownloadTask[];
+            totalCount = raw.totalCount || data.length;
+            hasMore = raw.hasMore || false;
+          }
           const filtered = data.filter((t) => !deletedKeys.has(taskKey(t)));
           set((s) => {
             if (filtered.length === 0 && s.tasks.length > 0) {
-              return { loading: false };
+              return { loading: false, totalCount, hasMore };
             }
-            return { tasks: filtered, loading: false };
+            return {
+              tasks: filtered,
+              loading: false,
+              totalCount,
+              hasMore,
+              currentPage: 1,
+            };
           });
         } catch (err) {
           logger.warn('SSE initial parse failed', { error: err instanceof Error ? err.message : String(err) });

@@ -133,7 +133,7 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 
 	dagID := ""
 	if h.DagOrch != nil {
-		def := dag.NewDagFactory().NewSniffPipeline(req.URL, id)
+		def := dag.NewDagFactory().NewSniffPipeline(req.URL, seq)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {

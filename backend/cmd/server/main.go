@@ -18,10 +18,12 @@ import (
 	"backend/internal/db"
 	"backend/internal/downloader"
 	"backend/internal/downloader/video"
+	"backend/internal/idgen"
 	"backend/internal/infra"
 	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/orchestrator/executors"
+	"backend/internal/orchestrator/governor"
 	"backend/internal/orchestrator/policies"
 	orchsched "backend/internal/orchestrator/scheduler"
 	"backend/internal/orchestrator/slot"
@@ -198,26 +200,26 @@ func main() {
 						logger.Warn("Node status sync failed (gallery)", "galleryId", gid, "error", err.Error())
 					}
 				}
-			case nodeDef.Config["taskId"] != nil:
-				tid, _ := nodeDef.Config["taskId"].(int)
-				if tid > 0 {
-					_, err := database.Exec(ctx,
-						`UPDATE download_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-						dbStatus, tid)
-					if err != nil {
-						logger.Warn("Node status sync failed (video)", "taskId", tid, "error", err.Error())
-					}
+		case nodeDef.Config["taskSeq"] != nil:
+			seq, _ := nodeDef.Config["taskSeq"].(string)
+			if seq != "" {
+				_, err := database.Exec(ctx,
+					`UPDATE download_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE seq = ?`,
+					dbStatus, seq)
+				if err != nil {
+					logger.Warn("Node status sync failed (video)", "seq", seq, "error", err.Error())
 				}
-			case nodeDef.Config["sniffId"] != nil:
-				sid, _ := nodeDef.Config["sniffId"].(int)
-				if sid > 0 {
-					_, err := database.Exec(ctx,
-						`UPDATE sniff_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-						dbStatus, sid)
-					if err != nil {
-						logger.Warn("Node status sync failed (sniff)", "sniffId", sid, "error", err.Error())
-					}
+			}
+		case nodeDef.Config["sniffSeq"] != nil:
+			seq, _ := nodeDef.Config["sniffSeq"].(string)
+			if seq != "" {
+				_, err := database.Exec(ctx,
+					`UPDATE sniff_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE seq = ?`,
+					dbStatus, seq)
+				if err != nil {
+					logger.Warn("Node status sync failed (sniff)", "seq", seq, "error", err.Error())
 				}
+			}
 			}
 		})
 
@@ -228,6 +230,17 @@ func main() {
 
 		orchAdapter := &orchestratorAdapter{orch: dagOrch}
 		sched.SetDagOrchestrator(orchAdapter)
+
+		// Flow control: front-gate admission controller + adaptive
+		// governor. Limits task entry rate based on factory pressure
+		// (slot usage + queue depth). Prevents large batch imports
+		// from overwhelming the task factory. Enabled by default;
+		// the Governor adjusts admission rate automatically.
+		//
+		// Placed after sched+slotPool are wired so the PressureMonitor
+		// can read real-time queue depth via sched.QueueDepth().
+		flowCtrl := governor.NewFlowController(slotPool, sched, governor.DefaultFlowControllerConfig())
+		dagOrch.SetFlowController(flowCtrl)
 
 		sched.SetExecutorFunc(func(ctx context.Context, node orchsched.SchedulableNodeAdapter) (bool, error) {
 			exec := exeReg.Get(node.ExecutorKey)
@@ -249,6 +262,11 @@ func main() {
 		if err := dagOrch.Initialize(ctx); err != nil {
 			logger.Error("DAG orchestrator init failed", err)
 		}
+
+		// Start the flow control governor after the orchestrator is
+		// initialized. The governor's control loop samples pressure
+		// every tick interval and adjusts admission rate.
+		flowCtrl.Start(ctx)
 
 		{
 			recoveryCtx := context.Background()
@@ -277,8 +295,14 @@ func main() {
 					logger.Info("Crash recovery: resetting stale galleries",
 						"status", staleStatus, "count", len(orphans))
 					for _, o := range orphans {
+					// Align with the DAG restore semantics: snapshot.go
+					// defaultOnRestart / galleryOnRestart transition every
+					// non-terminal node to PAUSED after restart, so the DB
+					// must say "paused" (user decides when to resume) rather
+					// than "pending" — otherwise the frontend shows waiting
+					// while the DAG actually holds the node paused.
 					_, _ = database.Exec(recoveryCtx,
-							`UPDATE galleries SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+							`UPDATE galleries SET status = 'paused', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 							o.id)
 					}
 				}
@@ -288,7 +312,7 @@ func main() {
 			`UPDATE gallery_videos SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'failed')`)
 
 			_, _ = database.Exec(recoveryCtx,
-			`UPDATE download_tasks SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'pending', 'scraping')`)
+			`UPDATE download_tasks SET status = 'paused', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'scraping')`)
 		}
 
 		sched.SyncQueueCapacityFromSlotPool()
@@ -397,22 +421,36 @@ func main() {
 			// in the auto-selection path instead of being forced chromedp.
 			delete(strategySelector.JSSites, "universal")
 
-			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
-				// Delegate to the shared video preparation helper: ensures the
-				// M3U8 URL is identified (idempotent; a legacy single-node DAG may
-				// reach the download node without a preceding video:scrape node)
-				// and assembles the full DownloadTaskInput (referer domains, metadata).
-				return loadVideoTaskInput(ctx, database, h.SiteReg, strategySelector, eventBus, logger, taskID)
+		taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
+			// Delegate to the shared video preparation helper: ensures the
+			// M3U8 URL is identified (idempotent; a legacy single-node DAG may
+			// reach the download node without a preceding video:scrape node)
+			// and assembles the full DownloadTaskInput (referer domains, metadata).
+			//
+			// The helper now uses canonical seq IDs, so we look up the seq
+			// from the numeric taskID first.
+			var seq string
+			if err := database.QueryRow(ctx, "SELECT seq FROM download_tasks WHERE id = ?", taskID).Scan(&seq); err != nil {
+				return video.DownloadTaskInput{}, fmt.Errorf("resolve seq for task %d: %w", taskID, err)
 			}
+			if seq == "" {
+				seq = idgen.GenerateID()
+				database.Exec(ctx, "UPDATE download_tasks SET seq = ? WHERE id = ?", seq, taskID)
+			}
+			return loadVideoTaskInput(ctx, database, h.SiteReg, strategySelector, eventBus, logger, seq)
+		}
 
-			// Register the video identification executor (video:scrape). The
-			// identification runs in a dedicated DAG node that acquires the
-			// *scraping* slot, so video identification concurrency is bounded
-			// by maxScrapingTasks — the fix for "大量任务全部启动识别/满仓".
-			exeReg.Register(executors.NewVideoScrapeExecutor(func(ctx context.Context, taskID int) error {
-				_, _, _, err := sniffVideoM3U8(ctx, database, h.SiteReg, strategySelector, eventBus, logger, taskID)
-				return err
-			}))
+	// Register the video identification executor (video:scrape). The
+	// identification runs in a dedicated DAG node that acquires the
+	// *scraping* slot, so video identification concurrency is bounded
+	// by maxScrapingTasks — the fix for "all tasks started identifying / full".
+	//
+	// The scrapeFn receives the canonical taskSeq (uppercase-alphanumeric)
+	// and looks up the task by seq, unifying ID format across the site.
+	exeReg.Register(executors.NewVideoScrapeExecutor(func(ctx context.Context, taskSeq string) error {
+		_, _, _, err := sniffVideoM3U8(ctx, database, h.SiteReg, strategySelector, eventBus, logger, taskSeq)
+		return err
+	}))
 		exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
 
 		// No DAG recovery here: unfinished tasks stay 'pending' after restart.
@@ -515,6 +553,10 @@ func (a *schedulerAdapter) CancelNode(dagID, nodeID string) {
 	a.sched.CancelNode(dagID, nodeID)
 }
 
+func (a *schedulerAdapter) CancelRunningNode(dagID, nodeID string) {
+	a.sched.CancelRunningNode(dagID, nodeID)
+}
+
 func (a *schedulerAdapter) OnSlotFreed(slotType string) {
 	a.sched.OnSlotFreed(slotType)
 }
@@ -578,8 +620,9 @@ func (a *orchestratorAdapter) GetNodeForVerification(dagID, nodeID string) inter
 
 // applyPersistedSlotMax reads a persisted concurrency setting from
 // app_configs and applies it to the slot pool at startup, so the user's
-// saved "识别中最大数量" / "下载并发" / "嗅探并发" values survive restarts.
-// No-op when the config key is absent or invalid (pool keeps defaults).
+// saved scraping max / download concurrency / sniff concurrency values
+// survive restarts. No-op when the config key is absent or invalid
+// (pool keeps defaults).
 func applyPersistedSlotMax(sp *slot.SlotPool, database *db.Database, logger *infra.Logger, dbKey, slotType string) {
 	if sp == nil || database == nil {
 		return

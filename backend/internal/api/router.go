@@ -56,6 +56,7 @@ func NewRouter(h *Handlers) http.Handler {
 		r.Route("/tasks", func(r chi.Router) {
 			r.Get("/", h.TaskList)
 			r.Get("/all", h.TaskListUnified)
+			r.Get("/page", h.TaskPage)
 			r.Get("/stream", h.TaskStreamSSE)
 			r.Post("/", h.TaskCreate)
 			r.Get("/{id}", h.TaskDetail)

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -12,14 +13,13 @@ import (
 	"backend/internal/api/internal/task_compute"
 	"backend/internal/db"
 	"backend/internal/i18n"
-	"backend/internal/infra"
 )
 
 // 初始快照分页参数
 // 当任务数量超过阈值时，分页加载，避免一次性返回大量数据导致 SSE 拥塞
 const (
-	taskStreamInitialPageSize = 100  // 每页任务数
-	taskStreamMaxInitialTasks = 500  // 初始快照最大任务数（超过此值触发分页）
+	taskStreamInitialPageSize = 500  // 每页任务数
+	taskStreamMaxInitialTasks = 2000 // 初始快照最大任务数（超过此值触发分页）
 )
 
 // progressThrottle 按任务 ID 节流 progress 事件
@@ -86,6 +86,35 @@ type unifiedTaskRow struct {
 	UpdatedAt         db.SQLTime
 }
 
+// toMap converts a unifiedTaskRow into the enriched map format consumed by
+// the frontend (via SSE initial snapshot and /api/tasks/all). Applies person
+// parsing and task_compute enrichment (EffectiveStatus / ProgressStage /
+// AllowedActions) so both paths return identically shaped payloads.
+func (r unifiedTaskRow) toMap() map[string]any {
+	return task_compute.EnrichTaskMap(map[string]any{
+		"TaskType":         r.TaskType,
+		"ID":               r.ID,
+		"URL":              r.URL,
+		"Status":           r.Status,
+		"Progress":         r.Progress,
+		"FilePath":         r.FilePath,
+		"Format":           r.Format,
+		"Priority":         r.Priority,
+		"ErrorMsg":         r.ErrorMsg,
+		"SiteID":           r.SiteID,
+		"DisplayID":        r.Seq,
+		"GalleryTitle":     r.Title,
+		"Person":           parsePersonForDisplay(r.Protagonist),
+		"ImageCount":       r.ImageCount,
+		"VideoCount":       r.VideoCount,
+		"GalleryTotalSize": r.TotalSize,
+		"Segment":          r.CompletedSegments,
+		"TotalSegments":    r.TotalSegments,
+		"CreatedAt":        r.CreatedAt,
+		"UpdatedAt":        r.UpdatedAt,
+	})
+}
+
 var (
 	taskStreamReplayEventTypes = []string{
 		"task:created",
@@ -120,73 +149,39 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	if h.DB != nil {
-			// 分页策略：当任务总数超过 taskStreamMaxInitialTasks 时，
-			// 只返回最新的 taskStreamMaxInitialTasks 个任务，避免 SSE 初始快照过大
-			rows, err := h.DB.Query(r.Context(),
-				`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
-				        COALESCE(dt.file_path, '') AS file_path,
-				        COALESCE(dt.format, '') AS format,
-				        COALESCE(dt.priority, 0) AS priority,
-				        COALESCE(dt.error_msg, '') AS error_msg,
-				        COALESCE(dt.site_id, '') AS site_id,
-				        dt.seq,
-				        COALESCE(NULLIF(vi.title, ''), '') AS title,
-				        COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
-				        0 AS image_count, 0 AS video_count,
-				        0 AS total_size, 0 AS downloaded_size,
-				        false AS content_verified,
-				        COALESCE(dt.total_segments, 0) AS total_segments,
-				        COALESCE(dt.completed_segments, 0) AS completed_segments,
-				        dt.created_at, dt.updated_at
-				 FROM download_tasks dt
-				 LEFT JOIN video_infos vi ON dt.id = vi.task_id
-			 UNION ALL
-			 SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
-			        COALESCE(status, 'pending') AS status,
-			        CASE
-			            WHEN COALESCE(status, 'pending') = 'completed' THEN 100
-			            WHEN COALESCE(content_verified, false) AND (COALESCE(image_count, 0) + COALESCE(video_count, 0)) > 0 THEN 99
-			            WHEN COALESCE(total_size, 0) > 0 THEN
-			                CASE
-			                    WHEN ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1) > 99 THEN 99
-			                    ELSE ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1)
-			                END
-			            ELSE 0
-			        END AS progress,
-			        COALESCE(save_path, '') AS file_path, '' AS format,
-			        0 AS priority, COALESCE(error_msg, '') AS error_msg,
-				        COALESCE(site_id, '') AS site_id,
-				        seq, COALESCE(title, '') AS title,
-				        COALESCE(protagonist, '') AS protagonist,
-				        COALESCE(image_count, 0) AS image_count,
-				        COALESCE(video_count, 0) AS video_count,
-				        COALESCE(total_size, 0) AS total_size,
-				        COALESCE(downloaded_size, 0) AS downloaded_size,
-				        COALESCE(content_verified, false) AS content_verified,
-				        0 AS total_segments, 0 AS completed_segments,
-				        created_at, updated_at
-				 FROM galleries
-				 UNION ALL
-				 SELECT 'sniff' AS task_type, id, COALESCE(url, '') AS url,
-				        COALESCE(status, 'pending') AS status, 0 AS progress,
-				        '' AS file_path, '' AS format, 0 AS priority,
-				        COALESCE(error_msg, '') AS error_msg,
-				        COALESCE(site_id, '') AS site_id,
-				        seq, '' AS title, '' AS protagonist,
-				        0 AS image_count, 0 AS video_count,
-				        0 AS total_size, 0 AS downloaded_size,
-				        false AS content_verified,
-				        0 AS total_segments, 0 AS completed_segments,
-				        created_at, updated_at
-				 FROM sniff_tasks
-				 ORDER BY id DESC
-				 LIMIT ?`, taskStreamMaxInitialTasks)
+		// Lightweight pagination: only fetch the first page for initial snapshot.
+		// Full data can be loaded via /api/tasks/page?page=N when user scrolls.
+		// This avoids UNION ALL + ORDER BY on three large tables for the SSE path.
+		ctx := r.Context()
+		tasks := make([]map[string]any, 0, taskStreamInitialPageSize)
+
+		// Query each table separately with LIMIT, then merge and sort.
+		// Same optimization as TaskListUnified.
+
+		// 1) Video tasks
+		videoRows, err := h.DB.Query(ctx,
+			`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
+			        COALESCE(dt.file_path, '') AS file_path,
+			        COALESCE(dt.format, '') AS format,
+			        COALESCE(dt.priority, 0) AS priority,
+			        COALESCE(dt.error_msg, '') AS error_msg,
+			        COALESCE(dt.site_id, '') AS site_id,
+			        dt.seq,
+			        COALESCE(NULLIF(vi.title, ''), '') AS title,
+			        COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
+			        0 AS image_count, 0 AS video_count,
+			        0 AS total_size, 0 AS downloaded_size,
+			        false AS content_verified,
+			        COALESCE(dt.total_segments, 0) AS total_segments,
+			        COALESCE(dt.completed_segments, 0) AS completed_segments,
+			        dt.created_at, dt.updated_at
+			 FROM download_tasks dt
+			 LEFT JOIN video_infos vi ON dt.id = vi.task_id
+			 ORDER BY dt.id DESC LIMIT ?`, taskStreamInitialPageSize)
 		if err == nil {
-			defer rows.Close()
-			tasks := []map[string]any{}
-			for rows.Next() {
+			for videoRows.Next() {
 				var r unifiedTaskRow
-				if err := rows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+				if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
 					&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
 					&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
 					&r.DownloadedSize, &r.ContentVerified,
@@ -194,100 +189,156 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
 					continue
 				}
-		tasks = append(tasks, task_compute.EnrichTaskMap(map[string]any{
-			"TaskType":         r.TaskType,
-			"ID":               r.ID,
-			"URL":              r.URL,
-			"Status":           r.Status,
-			"Progress":         r.Progress,
-			"FilePath":         r.FilePath,
-			"Format":           r.Format,
-			"Priority":         r.Priority,
-			"ErrorMsg":        r.ErrorMsg,
-			"SiteID":          r.SiteID,
-			"DisplayID":        r.Seq,
-			"GalleryTitle":     r.Title,
-			"Person":           parsePersonForDisplay(r.Protagonist),
-			"ImageCount":       r.ImageCount,
-			"VideoCount":       r.VideoCount,
-			"GalleryTotalSize": r.TotalSize,
-			"Segment":          r.CompletedSegments,
-			"TotalSegments":    r.TotalSegments,
-			"CreatedAt":        r.CreatedAt,
-			"UpdatedAt":        r.UpdatedAt,
-		}))
+				tasks = append(tasks, r.toMap())
+			}
+			videoRows.Close()
 		}
+
+		// 2) Gallery tasks
+		galleryRows, err := h.DB.Query(ctx,
+			`SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
+			        COALESCE(status, 'pending') AS status,
+			        CASE
+			            WHEN COALESCE(status, 'pending') = 'completed' THEN 100
+			            WHEN COALESCE(content_verified, false) AND (COALESCE(image_count, 0) + COALESCE(video_count, 0)) > 0 THEN 99
+			            WHEN COALESCE(total_size, 0) > 0 THEN
+			                CASE
+			                    WHEN CAST(COALESCE(downloaded_size, 0) * 100.0 / NULLIF(total_size, 0) AS INTEGER) > 99 THEN 99
+			                    ELSE CAST(COALESCE(downloaded_size, 0) * 100.0 / NULLIF(total_size, 0) AS INTEGER)
+			                END
+			            ELSE 0
+			        END AS progress,
+			        COALESCE(save_path, '') AS file_path, '' AS format,
+			        0 AS priority, COALESCE(error_msg, '') AS error_msg,
+			        COALESCE(site_id, '') AS site_id,
+			        seq, COALESCE(title, '') AS title,
+			        COALESCE(protagonist, '') AS protagonist,
+			        COALESCE(image_count, 0) AS image_count,
+			        COALESCE(video_count, 0) AS video_count,
+			        COALESCE(total_size, 0) AS total_size,
+			        COALESCE(downloaded_size, 0) AS downloaded_size,
+			        COALESCE(content_verified, false) AS content_verified,
+			        0 AS total_segments, 0 AS completed_segments,
+			        created_at, updated_at
+			 FROM galleries
+			 ORDER BY id DESC LIMIT ?`, taskStreamInitialPageSize)
+		if err == nil {
+			for galleryRows.Next() {
+				var r unifiedTaskRow
+				if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+					&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+					&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+					&r.DownloadedSize, &r.ContentVerified,
+					&r.TotalSegments, &r.CompletedSegments,
+					&r.CreatedAt, &r.UpdatedAt); err != nil {
+					continue
+				}
+				tasks = append(tasks, r.toMap())
+			}
+			galleryRows.Close()
+		}
+
+	// NOTE: Sniff tasks excluded — independent pool via /api/sniff.
+
+	// Merge sort by ID descending
+		sort.Slice(tasks, func(i, j int) bool {
+			idI, _ := tasks[i]["ID"].(int)
+			idJ, _ := tasks[j]["ID"].(int)
+			return idI > idJ
+		})
+
+		// Truncate to initial page size
+		if len(tasks) > taskStreamInitialPageSize {
+			tasks = tasks[:taskStreamInitialPageSize]
+		}
+
 		// Refine gallery progress asynchronously via file counting to
 		// avoid blocking SSE connection establishment on slow disk I/O.
 		galleriesToRefine := []map[string]any{}
-			for _, t := range tasks {
-				if t["TaskType"] != "gallery" {
-					continue
-				}
-				status, _ := t["Status"].(string)
-				if status == "completed" || status == "pending" || status == "paused" {
-					continue
-				}
-				savePath, _ := t["FilePath"].(string)
-				if savePath == "" {
-					continue
-				}
-				imageCount, _ := t["ImageCount"].(int)
-				videoCount, _ := t["VideoCount"].(int)
-				totalExpected := imageCount + videoCount
-				if totalExpected == 0 {
-					continue
-				}
-				galleriesToRefine = append(galleriesToRefine, map[string]any{
-					"savePath":      savePath,
-					"totalExpected": totalExpected,
-					"status":        status,
-					"taskId":        t["ID"],
-				})
+		for _, t := range tasks {
+			if t["TaskType"] != "gallery" {
+				continue
 			}
+			status, _ := t["Status"].(string)
+			if status == "completed" || status == "pending" || status == "paused" {
+				continue
+			}
+			savePath, _ := t["FilePath"].(string)
+			if savePath == "" {
+				continue
+			}
+			imageCount, _ := t["ImageCount"].(int)
+			videoCount, _ := t["VideoCount"].(int)
+			totalExpected := imageCount + videoCount
+			if totalExpected == 0 {
+				continue
+			}
+			galleriesToRefine = append(galleriesToRefine, map[string]any{
+				"savePath":      savePath,
+				"totalExpected": totalExpected,
+				"status":        status,
+				"taskId":        t["ID"],
+			})
+		}
 
-			stream.SendEvent("initial", tasks)
+		// Calculate total count for pagination metadata
+	totalCount := 0
+	var galleryCount, videoCount int
+	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries").Scan(&galleryCount)
+	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM download_tasks").Scan(&videoCount)
+	totalCount = galleryCount + videoCount
 
-			if len(galleriesToRefine) > 0 {
-				go func(refinements []map[string]any) {
-					for _, r := range refinements {
-						savePath, _ := r["savePath"].(string)
-						totalExpected, _ := r["totalExpected"].(int)
-						status, _ := r["status"].(string)
-						taskID := r["taskId"]
+		// Send initial event with pagination metadata
+		stream.SendEvent("initial", map[string]any{
+			"tasks":      tasks,
+			"totalCount": totalCount,
+			"page":       1,
+			"pageSize":   taskStreamInitialPageSize,
+			"hasMore":    totalCount > len(tasks),
+		})
 
-						actualFiles := countFilesInDir(savePath)
-						if actualFiles <= 0 {
-							continue
-						}
-						progress := float64(actualFiles) / float64(totalExpected) * 100
-						if progress > 99 && status != "completed" {
-							progress = 99
-						}
-						if progress < 1 {
-							progress = 1
-						}
-						stream.TrySendEvent("task:progress", map[string]any{
-							"taskId":    taskID,
-							"taskType":  "gallery",
-							"progress":  progress,
-							"status":    status,
-						})
+		if len(galleriesToRefine) > 0 {
+			go func(refinements []map[string]any, s *sse.SSEStream) {
+				for _, r := range refinements {
+					savePath, _ := r["savePath"].(string)
+					totalExpected, _ := r["totalExpected"].(int)
+					status, _ := r["status"].(string)
+					taskID := r["taskId"]
+
+					actualFiles := countFilesInDir(savePath)
+					if actualFiles <= 0 {
+						continue
 					}
-				}(galleriesToRefine)
-			}
-		} else {
-			logger := infra.NewLogger("TaskStreamSSE")
-			logger.Error("SSE initial snapshot query failed", err)
-			stream.SendEvent("initial", []any{})
+					progress := float64(actualFiles) / float64(totalExpected) * 100
+					if progress > 99 && status != "completed" {
+						progress = 99
+					}
+					if progress < 1 {
+						progress = 1
+					}
+					s.TrySendEvent("task:progress", map[string]any{
+						"taskId":   taskID,
+						"taskType": "gallery",
+						"progress": progress,
+						"status":   status,
+					})
+				}
+			}(galleriesToRefine, stream)
 		}
 	} else {
-		stream.SendEvent("initial", []any{})
+		stream.SendEvent("initial", map[string]any{
+			"tasks":      []any{},
+			"totalCount": 0,
+			"page":       1,
+			"pageSize":   taskStreamInitialPageSize,
+			"hasMore":    false,
+		})
 	}
 
 	// Business events use TrySendEvent (non-blocking) so a slow SSE client
 	// cannot block the EventBus caller.
 	if h.EventBus != nil {
+		// ... existing event subscriptions ...
 		unsubCreated := h.EventBus.On("task:created", func(payload any) {
 			stream.TrySendEvent("task:created", payload)
 		})

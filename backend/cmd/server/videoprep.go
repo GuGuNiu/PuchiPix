@@ -16,12 +16,20 @@ import (
 
 // sniffVideoM3U8 identifies and persists the M3U8 URL for a video task.
 // It is idempotent: when m3u8_url is already stored, it returns immediately.
-func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.SiteRegistry, strategySelector *orchestrator.StrategySelector, eventBus *infra.EventBus, logger *infra.Logger, taskID int) (pageURL, m3u8URL, storedTitle string, err error) {
+//
+// taskSeq is the canonical uppercase-alphanumeric task identifier
+// (download_tasks.seq). All lookups use the seq column for uniform
+// letter+number ID format across the whole site.
+func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.SiteRegistry, strategySelector *orchestrator.StrategySelector, eventBus *infra.EventBus, logger *infra.Logger, taskSeq string) (pageURL, m3u8URL, storedTitle string, err error) {
+	var taskID int
 	err = database.QueryRow(ctx,
-		`SELECT dt.url, COALESCE(dt.m3u8_url, ''), COALESCE(vi.title, '') FROM download_tasks dt LEFT JOIN video_infos vi ON vi.task_id = dt.id WHERE dt.id = ?`,
-		taskID).Scan(&pageURL, &m3u8URL, &storedTitle)
+		`SELECT dt.id, dt.url, COALESCE(dt.m3u8_url, ''), COALESCE(vi.title, '')
+		   FROM download_tasks dt
+		   LEFT JOIN video_infos vi ON vi.task_id = dt.id
+		   WHERE dt.seq = ?`,
+		taskSeq).Scan(&taskID, &pageURL, &m3u8URL, &storedTitle)
 	if err != nil {
-		return "", "", "", fmt.Errorf("query task %d: %w", taskID, err)
+		return "", "", "", fmt.Errorf("query task seq %s: %w", taskSeq, err)
 	}
 
 	// Decode MacCMS-style encoded M3U8 URLs that may have been stored in
@@ -67,7 +75,7 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 
 	default: // StrategyAuto
 		// Try HTTP first; escalate to chromedp if no valid M3U8 is found.
-		logger.Info(fmt.Sprintf("M3U8 URL empty for task %d, trying HTTP scrape", taskID))
+		logger.Info(fmt.Sprintf("M3U8 URL empty for task %s, trying HTTP scrape", taskSeq))
 		scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		scrapeFn := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
@@ -78,7 +86,7 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 		// Quality gate: if HTTP didn't find a M3U8 or produced empty
 		// results, escalate to chromedp.
 		if scrapeErr != nil || (result != nil && result.M3U8URL == "" && result.Title == "") {
-			logger.Info(fmt.Sprintf("HTTP scrape insufficient for task %d, escalating to chromedp", taskID))
+			logger.Info(fmt.Sprintf("HTTP scrape insufficient for task %s, escalating to chromedp", taskSeq))
 			scrapeCtx2, cancel2 := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel2()
 			scrapeFn2 := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
@@ -90,7 +98,7 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 			// pattern suggests CloudFlare/WAF blocking, try a visible
 			// (headful) browser.
 			if scrapeErr != nil && isLikelyAntiBot(scrapeErr) {
-				logger.Info(fmt.Sprintf("headless chromedp blocked for task %d, trying headful browser", taskID))
+				logger.Info(fmt.Sprintf("headless chromedp blocked for task %s, trying headful browser", taskSeq))
 				scrapeCtx3, cancel3 := context.WithTimeout(ctx, 40*time.Second)
 				defer cancel3()
 				scrapeFn3 := func(ctx context.Context, url string) (*sites.ScrapeResult, error) {
@@ -109,16 +117,17 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 	}
 
 	_, _ = database.Exec(ctx,
-		`UPDATE download_tasks SET m3u8_url = ?, title = ? WHERE id = ?`,
-		result.M3U8URL, result.Title, taskID)
+		`UPDATE download_tasks SET m3u8_url = ?, title = ? WHERE seq = ?`,
+		result.M3U8URL, result.Title, taskSeq)
 
 	preWriteVideoInfo(ctx, database, taskID, result)
 
 	// Emit task:metadata so SSE clients receive the scraped title
 	// and actors in real-time without waiting for the polling fallback.
+	// Use taskSeq as the taskId for uniform ID format across the site.
 	if eventBus != nil {
 		eventBus.Emit("task:metadata", map[string]any{
-			"taskId":       taskID,
+			"taskId":       taskSeq,
 			"taskType":     "video",
 			"GalleryTitle": result.Title,
 			"Person":       strings.Join(result.Actors, ", "),
@@ -132,10 +141,19 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 // executor, ensuring the M3U8 URL has been identified first (idempotent
 // re-entry — a legacy single-node DAG may call this without a preceding
 // video:scrape node). Best-effort metadata scrape fills title/tags/etc.
-func loadVideoTaskInput(ctx context.Context, database *db.Database, siteReg *sites.SiteRegistry, strategySelector *orchestrator.StrategySelector, eventBus *infra.EventBus, logger *infra.Logger, taskID int) (video.DownloadTaskInput, error) {
-	pageURL, m3u8URL, storedTitle, err := sniffVideoM3U8(ctx, database, siteReg, strategySelector, eventBus, logger, taskID)
+//
+// taskSeq is the canonical uppercase-alphanumeric task identifier.
+// The returned DownloadTaskInput uses the numeric ID internally (for DB
+// lookups by the DownloadManager) while all external references use seq.
+func loadVideoTaskInput(ctx context.Context, database *db.Database, siteReg *sites.SiteRegistry, strategySelector *orchestrator.StrategySelector, eventBus *infra.EventBus, logger *infra.Logger, taskSeq string) (video.DownloadTaskInput, error) {
+	pageURL, m3u8URL, storedTitle, err := sniffVideoM3U8(ctx, database, siteReg, strategySelector, eventBus, logger, taskSeq)
 	if err != nil {
 		return video.DownloadTaskInput{}, err
+	}
+
+	var taskID int
+	if err := database.QueryRow(ctx, "SELECT id FROM download_tasks WHERE seq = ?", taskSeq).Scan(&taskID); err != nil {
+		return video.DownloadTaskInput{}, fmt.Errorf("resolve numeric id for seq %s: %w", taskSeq, err)
 	}
 
 	// Collect referer domains for CDN anti-hotlink bypass.

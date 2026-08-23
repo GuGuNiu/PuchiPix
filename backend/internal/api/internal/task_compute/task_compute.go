@@ -56,15 +56,20 @@ func ComputeEffectiveStatus(status, taskType string, imageCount, videoCount int)
 	hasScrapeResults := imageCount > 0 || videoCount > 0
 	switch status {
 	case "paused":
-		if hasScrapeResults {
-			return "download_pending"
-		}
-		return "scraping"
+		// Paused tasks show as "paused" regardless of scrape results.
+		// This lets users see that they intentionally paused the task,
+		// rather than it being stuck in "scraping" or "download_pending".
+		return "paused"
 	case "pending":
+		// A pending task is waiting for a slot (queue-full hold-back from
+		// the scheduler) or has not been started yet. It must NOT show as
+		// "scraping": StatusReporter maps held-back nodes to "pending" so
+		// the frontend can truthfully show them as waiting, keeping the
+		// "only N tasks enter the scrape queue" design visible to users.
 		if hasScrapeResults {
 			return "download_pending"
 		}
-		return "scraping"
+		return "pending"
 	case "scraped":
 		return "download_pending"
 	default:
@@ -133,6 +138,8 @@ func ComputeProgressStage(status, taskType string, progress float64) string {
 		}
 	}
 	switch status {
+	case "pending":
+		return "tasks.progressStagePending"
 	case "scraping":
 		return "tasks.progressStageScraping"
 	case "scrape_pending":

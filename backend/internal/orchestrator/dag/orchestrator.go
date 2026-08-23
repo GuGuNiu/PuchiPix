@@ -77,6 +77,12 @@ type SchedulerInterface interface {
 	UpdateNodePriority(dagID, nodeID string, newPriority int) bool
 	HasNode(dagID, nodeID string) bool
 	CancelNode(dagID, nodeID string)
+	// CancelRunningNode cancels the context of an in-flight executor for
+	// the node. Unlike CancelNode (which only removes the node from the
+	// ready queue), this actually stops running work. The orchestrator
+	// must transition the node to PAUSED/CANCELLED BEFORE calling it so
+	// the executor's cancellation report is ignored by OnNodeCompleted.
+	CancelRunningNode(dagID, nodeID string)
 	OnSlotFreed(slotType string)
 }
 

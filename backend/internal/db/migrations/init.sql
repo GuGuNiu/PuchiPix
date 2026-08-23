@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS download_tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_download_tasks_dag_id ON download_tasks(dag_id);
+CREATE INDEX IF NOT EXISTS idx_download_tasks_created_at ON download_tasks(created_at);
+CREATE INDEX IF NOT EXISTS idx_download_tasks_status ON download_tasks(status);
 
 -- VideoInfo: metadata extracted from download task source
 CREATE TABLE IF NOT EXISTS video_infos (

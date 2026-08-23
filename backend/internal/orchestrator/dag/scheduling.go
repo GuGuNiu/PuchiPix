@@ -440,6 +440,13 @@ func (o *DagOrchestrator) cascadeFailureToDependents(ctx context.Context, dagID,
 				TriggeredBy: "system",
 			}); err == nil {
 				toSync = append(toSync, succ)
+				// Stop an in-flight executor of the cascaded node AFTER it
+				// reached FAILED (same ordering rationale as PauseDag:
+				// cancelling first could let the executor's report flip a
+				// RUNNING node via the OnNodeCompleted failure path).
+				if o.scheduler != nil {
+					o.scheduler.CancelRunningNode(dagID, succID)
+				}
 				visit(succID)
 			}
 		}
