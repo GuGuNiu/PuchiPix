@@ -21,6 +21,7 @@ const zhCN: TranslationDict = {
   "common.success": "成功",
   "common.failed": "失败",
   "common.pending": "等待中",
+  "common.preparing": "准备中",
   "common.completed": "已完成",
   "common.downloading": "下载中",
   "common.scraping": "识别中",

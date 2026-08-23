@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"backend/internal/db"
 	"backend/internal/i18n"
 	"backend/internal/idgen"
+	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
 	"backend/internal/urlutil"
@@ -114,13 +116,28 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+// unifiedFetchLimit caps per-table queries when merging results.
+// Each table fetches this many newest rows; the merged result is then
+// sorted and truncated to taskStreamMaxInitialTasks.
+const unifiedFetchLimit = 2000
+
 func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
 
-	rows, err := h.DB.Query(r.Context(),
+	ctx := r.Context()
+	tasks := make([]map[string]any, 0, unifiedFetchLimit)
+
+	// Query each table separately with LIMIT, then merge and sort.
+	// This avoids "UNION ALL + ORDER BY id DESC" which forces SQLite to
+	// materialize and sort the full cross-table result before limiting.
+	// With separate queries, each uses the primary-key rowid index scan
+	// (O(limit)), and the final merge sort is O(n log n) on 3*limit rows.
+
+	// 1) Video tasks (download_tasks + video_infos)
+	videoRows, err := h.DB.Query(ctx,
 		`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
 		        COALESCE(dt.file_path, '') AS file_path,
 		        COALESCE(dt.format, '') AS format,
@@ -138,16 +155,34 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 		        dt.created_at, dt.updated_at
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
-		 UNION ALL
-		 SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
+		 ORDER BY dt.id DESC LIMIT ?`, unifiedFetchLimit)
+	if err == nil {
+		for videoRows.Next() {
+			var r unifiedTaskRow
+			if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+				&r.DownloadedSize, &r.ContentVerified,
+				&r.TotalSegments, &r.CompletedSegments,
+				&r.CreatedAt, &r.UpdatedAt); err != nil {
+				continue
+			}
+			tasks = append(tasks, h.enrichUnifiedTask(r))
+		}
+		videoRows.Close()
+	}
+
+	// 2) Gallery tasks
+	galleryRows, err := h.DB.Query(ctx,
+		`SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
 		        COALESCE(status, 'pending') AS status,
 		        CASE
 		            WHEN COALESCE(status, 'pending') = 'completed' THEN 100
 		            WHEN COALESCE(content_verified, false) AND (COALESCE(image_count, 0) + COALESCE(video_count, 0)) > 0 THEN 99
 		            WHEN COALESCE(total_size, 0) > 0 THEN
 		                CASE
-		                    WHEN ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1) > 99 THEN 99
-		                    ELSE ROUND(COALESCE(downloaded_size, 0) * 1.0 / NULLIF(total_size, 0) * 100, 1)
+		                    WHEN CAST(COALESCE(downloaded_size, 0) * 100.0 / NULLIF(total_size, 0) AS INTEGER) > 99 THEN 99
+		                    ELSE CAST(COALESCE(downloaded_size, 0) * 100.0 / NULLIF(total_size, 0) AS INTEGER)
 		                END
 		            ELSE 0
 		        END AS progress,
@@ -164,61 +199,237 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 		        0 AS total_segments, 0 AS completed_segments,
 		        created_at, updated_at
 		 FROM galleries
-		 UNION ALL
-		 SELECT 'sniff' AS task_type, id, COALESCE(url, '') AS url,
-		        COALESCE(status, 'pending') AS status, 0 AS progress,
-		        '' AS file_path, '' AS format, 0 AS priority,
-		        COALESCE(error_msg, '') AS error_msg,
-		        COALESCE(site_id, '') AS site_id,
-		        seq, '' AS title, '' AS protagonist,
+		 ORDER BY id DESC LIMIT ?`, unifiedFetchLimit)
+	if err == nil {
+		for galleryRows.Next() {
+			var r unifiedTaskRow
+			if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+				&r.DownloadedSize, &r.ContentVerified,
+				&r.TotalSegments, &r.CompletedSegments,
+				&r.CreatedAt, &r.UpdatedAt); err != nil {
+				continue
+			}
+			tasks = append(tasks, h.enrichUnifiedTask(r))
+		}
+		galleryRows.Close()
+	}
+
+	// NOTE: Sniff tasks are intentionally excluded from the unified task
+	// list. They have their own dedicated pool (slot type "sniff", max=1)
+	// and are managed through the separate /sniff page and /api/sniff
+	// endpoints. Mixing them into the main pool would violate the
+	// historical design of an independent sniff pool.
+
+	// Merge sort by ID descending (same visual order as before)
+	sort.Slice(tasks, func(i, j int) bool {
+		idI, _ := tasks[i]["ID"].(int)
+		idJ, _ := tasks[j]["ID"].(int)
+		return idI > idJ
+	})
+
+	// Final truncation to cap response size
+	if len(tasks) > taskStreamMaxInitialTasks {
+		tasks = tasks[:taskStreamMaxInitialTasks]
+	}
+
+	writeJSON(w, http.StatusOK, tasks)
+}
+
+// enrichUnifiedTask converts a unifiedTaskRow into the enriched map
+// returned by TaskListUnified, applying person parsing and task_compute
+// enrichment (EffectiveStatus / ProgressStage / AllowedActions).
+func (h *Handlers) enrichUnifiedTask(r unifiedTaskRow) map[string]any {
+	return task_compute.EnrichTaskMap(map[string]any{
+		"TaskType":         r.TaskType,
+		"ID":               r.ID,
+		"URL":              r.URL,
+		"Status":           r.Status,
+		"Progress":         r.Progress,
+		"FilePath":         r.FilePath,
+		"Format":           r.Format,
+		"Priority":         r.Priority,
+		"ErrorMsg":         r.ErrorMsg,
+		"SiteID":           r.SiteID,
+		"DisplayID":        r.Seq,
+		"GalleryTitle":     r.Title,
+		"Person":           parsePersonForDisplay(r.Protagonist),
+		"ImageCount":       r.ImageCount,
+		"VideoCount":       r.VideoCount,
+		"GalleryTotalSize": r.TotalSize,
+		"Segment":          r.CompletedSegments,
+		"TotalSegments":    r.TotalSegments,
+		"CreatedAt":        r.CreatedAt,
+		"UpdatedAt":        r.UpdatedAt,
+	})
+}
+
+// TaskPage returns a paginated slice of unified tasks. Used by the frontend
+// infinite-scroll when the initial SSE snapshot only covers the first page.
+//
+// Query params:
+//   - page     : 1-based page number (default 1)
+//   - pageSize : rows per page (default 100, max 500)
+//
+// Each table is queried separately with LIMIT/OFFSET, then results are
+// merged and re-sorted by id DESC. This is O(offset + limit) per table
+// which is acceptable for typical page sizes; for very deep pagination
+// a keyset (WHERE id < lastSeenID) would be preferable but requires
+// tracking lastSeen across tables which is more complex.
+func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
+	if h.DB == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tasks":      []any{},
+			"totalCount": 0,
+			"page":       1,
+			"pageSize":   100,
+			"hasMore":    false,
+		})
+		return
+	}
+
+	// Parse pagination params
+	page := 1
+	pageSize := 100
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
+		page = p
+	}
+	if ps, err := strconv.Atoi(r.URL.Query().Get("pageSize")); err == nil && ps > 0 {
+		if ps > 500 {
+			ps = 500
+		}
+		pageSize = ps
+	}
+
+	ctx := r.Context()
+
+	// Get total count (fast with SQLite COUNT(*))
+	var galleryCount, videoCount int
+	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries").Scan(&galleryCount)
+	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM download_tasks").Scan(&videoCount)
+	totalCount := galleryCount + videoCount
+
+	// For deep pagination, fetch a generous window from each table and
+	// merge-sort. This keeps the code simple while still being fast for
+	// reasonable page depths (page * pageSize <= ~5000).
+	fetchLimit := page * pageSize
+	if fetchLimit > 2000 {
+		fetchLimit = 2000 // cap to avoid excessive memory use
+	}
+
+	tasks := make([]map[string]any, 0, fetchLimit)
+
+	// 1) Video tasks
+	videoRows, err := h.DB.Query(ctx,
+		`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
+		        COALESCE(dt.file_path, '') AS file_path,
+		        COALESCE(dt.format, '') AS format,
+		        COALESCE(dt.priority, 0) AS priority,
+		        COALESCE(dt.error_msg, '') AS error_msg,
+		        COALESCE(dt.site_id, '') AS site_id,
+		        dt.seq,
+		        COALESCE(NULLIF(vi.title, ''), '') AS title,
+		        COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
 		        0 AS image_count, 0 AS video_count,
 		        0 AS total_size, 0 AS downloaded_size,
 		        false AS content_verified,
+		        COALESCE(dt.total_segments, 0) AS total_segments,
+		        COALESCE(dt.completed_segments, 0) AS completed_segments,
+		        dt.created_at, dt.updated_at
+		 FROM download_tasks dt
+		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
+		 ORDER BY dt.id DESC LIMIT ?`, fetchLimit)
+	if err == nil {
+		for videoRows.Next() {
+			var r unifiedTaskRow
+			if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+				&r.DownloadedSize, &r.ContentVerified,
+				&r.TotalSegments, &r.CompletedSegments,
+				&r.CreatedAt, &r.UpdatedAt); err != nil {
+				continue
+			}
+			tasks = append(tasks, h.enrichUnifiedTask(r))
+		}
+		videoRows.Close()
+	}
+
+	// 2) Gallery tasks
+	galleryRows, err := h.DB.Query(ctx,
+		`SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
+		        COALESCE(status, 'pending') AS status,
+		        CASE
+		            WHEN COALESCE(status, 'pending') = 'completed' THEN 100
+		            WHEN COALESCE(content_verified, false) AND (COALESCE(image_count, 0) + COALESCE(video_count, 0)) > 0 THEN 99
+		            WHEN COALESCE(total_size, 0) > 0 THEN
+		                CASE
+		                    WHEN CAST(COALESCE(downloaded_size, 0) * 100.0 / NULLIF(total_size, 0) AS INTEGER) > 99 THEN 99
+		                    ELSE CAST(COALESCE(downloaded_size, 0) * 100.0 / NULLIF(total_size, 0) AS INTEGER)
+		                END
+		            ELSE 0
+		        END AS progress,
+		        COALESCE(save_path, '') AS file_path, '' AS format,
+		        0 AS priority, COALESCE(error_msg, '') AS error_msg,
+		        COALESCE(site_id, '') AS site_id,
+		        seq, COALESCE(title, '') AS title,
+		        COALESCE(protagonist, '') AS protagonist,
+		        COALESCE(image_count, 0) AS image_count,
+		        COALESCE(video_count, 0) AS video_count,
+		        COALESCE(total_size, 0) AS total_size,
+		        COALESCE(downloaded_size, 0) AS downloaded_size,
+		        COALESCE(content_verified, false) AS content_verified,
 		        0 AS total_segments, 0 AS completed_segments,
 		        created_at, updated_at
-		 FROM sniff_tasks
-		 ORDER BY id DESC`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
-		return
-	}
-	defer rows.Close()
-
-	tasks := []map[string]any{}
-	for rows.Next() {
-		var r unifiedTaskRow
-		if err := rows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
-			&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
-			&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
-			&r.DownloadedSize, &r.ContentVerified,
-			&r.TotalSegments, &r.CompletedSegments,
-			&r.CreatedAt, &r.UpdatedAt); err != nil {
-			continue
+		 FROM galleries
+		 ORDER BY id DESC LIMIT ?`, fetchLimit)
+	if err == nil {
+		for galleryRows.Next() {
+			var r unifiedTaskRow
+			if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+				&r.DownloadedSize, &r.ContentVerified,
+				&r.TotalSegments, &r.CompletedSegments,
+				&r.CreatedAt, &r.UpdatedAt); err != nil {
+				continue
+			}
+			tasks = append(tasks, h.enrichUnifiedTask(r))
 		}
-		tasks = append(tasks, task_compute.EnrichTaskMap(map[string]any{
-			"TaskType":         r.TaskType,
-			"ID":               r.ID,
-			"URL":              r.URL,
-			"Status":           r.Status,
-			"Progress":         r.Progress,
-			"FilePath":         r.FilePath,
-			"Format":           r.Format,
-			"Priority":         r.Priority,
-			"ErrorMsg":         r.ErrorMsg,
-			"SiteID":           r.SiteID,
-			"DisplayID":        r.Seq,
-			"GalleryTitle":     r.Title,
-			"Person":           parsePersonForDisplay(r.Protagonist),
-			"ImageCount":       r.ImageCount,
-			"VideoCount":       r.VideoCount,
-			"GalleryTotalSize": r.TotalSize,
-			"Segment":          r.CompletedSegments,
-			"TotalSegments":    r.TotalSegments,
-			"CreatedAt":        r.CreatedAt,
-			"UpdatedAt":        r.UpdatedAt,
-		}))
+		galleryRows.Close()
 	}
-	writeJSON(w, http.StatusOK, tasks)
+
+	// NOTE: Sniff tasks excluded — independent pool via /api/sniff.
+
+	// Merge sort by ID descending
+	sort.Slice(tasks, func(i, j int) bool {
+		idI, _ := tasks[i]["ID"].(int)
+		idJ, _ := tasks[j]["ID"].(int)
+		return idI > idJ
+	})
+
+	// Slice out the requested page
+	offset := (page - 1) * pageSize
+	if offset > len(tasks) {
+		tasks = nil
+	} else {
+		end := offset + pageSize
+		if end > len(tasks) {
+			end = len(tasks)
+		}
+		tasks = tasks[offset:end]
+	}
+
+	hasMore := (page*pageSize) < totalCount
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tasks":      tasks,
+		"totalCount": totalCount,
+		"page":       page,
+		"pageSize":   pageSize,
+		"hasMore":    hasMore,
+	})
 }
 
 func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +462,18 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 	if h.SiteReg != nil && !urlutil.IsM3U8URL(cleanedURL) {
 		if provider, ok := h.SiteReg.GetProviderByUrl(cleanedURL); ok {
 			providerMatched = true
+
+			// Any provider (regardless of site type) that recognizes the URL
+			// as a listing/search page should create a sniff task. This must
+			// run before the photo/video branching so video-type sites like
+			// kanav can still route search pages to the sniff flow.
+			if listProvider, ok := provider.(interface {
+				IsListingPage(url string) bool
+			}); ok && listProvider.IsListingPage(cleanedURL) {
+				h.createSniffTask(w, r, cleanedURL, provider.SiteID(), req.Seq)
+				return
+			}
+
 			siteType := "photo" // default to photo for legacy providers
 			if mod, modOk := h.SiteReg.GetModule(provider.SiteID()); modOk && mod.Type != "" {
 				siteType = mod.Type
@@ -258,12 +481,6 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 
 			if siteType == "photo" {
 				if _, ok := provider.(sites.GallerySiteProvider); ok {
-					if listProvider, ok := provider.(interface {
-						IsListingPage(url string) bool
-					}); ok && listProvider.IsListingPage(cleanedURL) {
-						h.createSniffTask(w, r, cleanedURL, provider.SiteID(), req.Seq)
-						return
-					}
 					h.createGalleryTask(w, r, cleanedURL, normalizedURL, provider, req.Seq)
 					return
 				}
@@ -320,7 +537,7 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 
 	dagID := ""
 	if h.DagOrch != nil {
-		def := dag.NewDagFactory().NewVideoPipeline(id)
+		def := dag.NewDagFactory().NewVideoPipeline(*seqPtr, id)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
@@ -374,7 +591,7 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		created.AllowedActions = task_compute.ComputeAllowedActions(created.Status, "video")
 		writeJSON(w, http.StatusCreated, created)
 	} else {
-		writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "scraping", "SiteID": siteID, "dagId": dagID})
+		writeJSON(w, http.StatusCreated, map[string]any{"ID": id, "DisplayID": *seqPtr, "Status": "pending", "SiteID": siteID, "dagId": dagID})
 	}
 }
 
@@ -497,7 +714,7 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 
 	dagID := ""
 	if h.DagOrch != nil {
-		def := dag.NewDagFactory().NewSniffPipeline(pageURL, sniffID)
+		def := dag.NewDagFactory().NewSniffPipeline(pageURL, *seqPtr)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
@@ -783,13 +1000,53 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Action {
 	case "start":
-		// Route through DAG for slot pool concurrency control.
+		// Route through DAG for slot pool concurrency control. If the task
+		// already has a live DAG, resume paused nodes or retry failed ones
+		// instead of blindly submitting a brand-new DAG — a duplicate DAG
+		// made the old (paused) and new DAG download the same files
+		// concurrently, causing download anomalies after resume.
+		dagID := h.getTaskDagID(r.Context(), id)
+		if h.DagOrch != nil && dagID != "" {
+			if st := h.DagOrch.GetDagStatus(dagID); st != nil {
+				hasPaused, hasFailed := false, false
+				for _, ns := range st.Nodes {
+					switch ns.State {
+					case orchestrator.NodeStatePaused:
+						hasPaused = true
+					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
+						hasFailed = true
+					}
+				}
+				var actErr error
+				switch {
+				case hasPaused:
+					actErr = h.DagOrch.ResumeDag(r.Context(), dagID, "")
+				case hasFailed:
+					actErr = h.DagOrch.RetryDag(r.Context(), dagID, "")
+				default:
+					// Already running / finished: report live state, do not
+					// create a duplicate DAG.
+					writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "already-running"})
+					return
+				}
+				if actErr != nil {
+					writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.startFailed"))
+					return
+				}
+				// Transition nodes to PREPARING state for optimistic UI feedback
+				h.transitionDagNodesToPreparing(r.Context(), dagID)
+				writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "preparing"})
+				return
+			}
+		}
 		dagID, err := h.submitVideoDag(r, id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.startFailed"))
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "queued"})
+		// Transition newly submitted DAG nodes to PREPARING for optimistic UI
+		h.transitionDagNodesToPreparing(r.Context(), dagID)
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "preparing"})
 
 	case "pause":
 		// Route through DAG orchestrator for proper state management.
@@ -876,12 +1133,45 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// transitionDagNodesToPreparing transitions all non-terminal nodes in a DAG
+// to PREPARING state, providing immediate optimistic feedback to the UI that
+// the task is being prepared. This is called after start/resume/retry operations
+// so the user sees "准备中" instantly instead of waiting for the actual state.
+func (h *Handlers) transitionDagNodesToPreparing(ctx context.Context, dagID string) {
+	if h.DagOrch == nil || dagID == "" {
+		return
+	}
+	st := h.DagOrch.GetDagStatus(dagID)
+	if st == nil {
+		return
+	}
+	for _, ns := range st.Nodes {
+		// Only transition nodes that are in a state that allows PREPARING
+		switch ns.State {
+		case orchestrator.NodeStatePending, orchestrator.NodeStatePaused,
+			orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout,
+			orchestrator.NodeStateNeedsRetry, orchestrator.NodeStateReady:
+			_ = h.DagOrch.TransitionNode(ctx, dagID, ns.NodeID, orchestrator.NodeStatePreparing,
+				orchestrator.TransitionContext{Reason: "optimistic_preparing", TriggeredBy: "api"})
+		}
+	}
+}
+
 func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 	if h.DagOrch == nil {
 		return "", fmt.Errorf("DAG orchestrator not available")
 	}
 
-	def := dag.NewDagFactory().NewVideoPipeline(taskID)
+	var seq string
+	if err := h.DB.QueryRow(r.Context(), "SELECT seq FROM download_tasks WHERE id = ?", taskID).Scan(&seq); err != nil {
+		return "", fmt.Errorf("query task seq: %w", err)
+	}
+	if seq == "" {
+		seq = idgen.GenerateID()
+		h.DB.Exec(r.Context(), "UPDATE download_tasks SET seq = ? WHERE id = ?", seq, taskID)
+	}
+
+	def := dag.NewDagFactory().NewVideoPipeline(seq, taskID)
 	return h.DagOrch.SubmitDag(r.Context(), def)
 }
 

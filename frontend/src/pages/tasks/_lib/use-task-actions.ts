@@ -189,11 +189,12 @@ export function useTaskActions({
       case "start":
       case "retry":
       case "resume":
+        // 乐观更新为 preparing 状态，让用户立即感知操作生效
+        // 后续由 SSE 推送真实的 scraping/downloading 状态
         if (isGallery) {
-          const status: TaskStatus = hasScraped ? "download_pending" : "scraping";
-          return { Status: status, AllowedActions: ["pause", "delete"] };
+          return { Status: "preparing", AllowedActions: ["pause", "delete"] };
         }
-        return { Status: "pending", AllowedActions: ["pause", "delete"] };
+        return { Status: "preparing", AllowedActions: ["pause", "delete"] };
 
       case "pause":
         return { Status: "paused", AllowedActions: ["start", "delete"] };

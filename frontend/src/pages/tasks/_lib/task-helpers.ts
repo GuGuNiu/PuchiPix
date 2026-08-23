@@ -26,7 +26,10 @@ export const FILTER_PILL_KEYS = [
 ];
 
 export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
-  scraping: ["scraping", "scrape_pending", "pending"],
+  // "pending" is intentionally NOT in the scraping group: held-back tasks
+  // (queue-full rejections) are written to DB as "pending" by StatusReporter
+  // and must show as waiting, not as actively identifying.
+  scraping: ["scraping", "scrape_pending"],
   downloading: ["downloading", "download_pending", "transcoding"],
 };
 
@@ -39,22 +42,24 @@ export const SORT_OPTION_KEYS = [
 ];
 
 export const STATUS_ORDER: Record<TaskStatus, number> = {
-  scraping: 0,
-  scrape_pending: 1,
-  downloading: 2,
-  download_pending: 3,
-  pending: 4,
-  paused: 5,
-  transcoding: 6,
-  failed: 7,
-  cancelled: 8,
-  partial: 9,
-  completed: 10,
+  preparing: 0,
+  scraping: 1,
+  scrape_pending: 2,
+  downloading: 3,
+  download_pending: 4,
+  pending: 5,
+  paused: 6,
+  transcoding: 7,
+  failed: 8,
+  cancelled: 9,
+  partial: 10,
+  completed: 11,
 };
 
 export function useStatusLabel(t: TranslateFunction): Record<TaskStatus, string> {
   return {
     pending: t("common.pending"),
+    preparing: t("common.preparing"),
     scrape_pending: t("common.scrapePending"),
     scraping: t("common.scraping"),
     download_pending: t("common.downloadPending"),

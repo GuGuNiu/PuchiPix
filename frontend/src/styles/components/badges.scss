@@ -33,6 +33,7 @@
   color: var(--text-inverse);
 
   &-pending { background: var(--status-pending); }
+  &-preparing { background: var(--status-preparing); }
   &-scrape_pending { background: var(--status-scrape-pending); }
   &-scraping { background: var(--status-scraping); }
   &-download_pending { background: var(--status-download-pending); }

@@ -15,7 +15,6 @@ import {
 import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask, TaskStatus } from "@/types";
 import { useI18n } from "@/lib/i18n";
-import { getSiteModule, getSiteModuleByUrl, getSiteModuleName } from "@/lib/site-modules";
 import {
   formatFileSize,
   getProgressStage,
@@ -46,13 +45,14 @@ export function TaskTableRow({
 
   const isGallery = task.TaskType === "gallery";
   const isSniff = task.TaskType === "sniff";
+  const isPreparing = task.Status === "preparing";
   const isIdentifying = task.Status === "scraping" || task.Status === "scrape_pending";
-  const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending";
+  const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending" || isPreparing;
   const canStart = !isGallery && !isSniff
     ? (task.Status === "pending" || task.Status === "paused" || task.Status === "failed" || task.Status === "cancelled")
     : (task.Status === "pending" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "paused" || task.Status === "failed" || task.Status === "scraping");
-  const canPause = !isGallery && !isSniff && task.Status === "downloading";
-  const canPauseGallery = isGallery && (task.Status === "scraping" || task.Status === "downloading" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "pending");
+  const canPause = !isGallery && !isSniff && (task.Status === "downloading" || isPreparing);
+  const canPauseGallery = isGallery && (task.Status === "scraping" || task.Status === "downloading" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "pending" || isPreparing);
   const canCancel = !isGallery && !isSniff &&
     (task.Status === "downloading" ||
       task.Status === "paused" ||
@@ -80,12 +80,11 @@ export function TaskTableRow({
       ? "completed"
       : task.Status === "failed" || task.Status === "cancelled"
         ? "failed"
-        : (isIdentifying || isWaitingSlot)
-          ? ""
-          : "";
-
-  const siteModule = (task.SiteID && getSiteModule(task.SiteID)) ||
-    getSiteModuleByUrl(task.VideoInfo?.SourceURL || task.URL || "");
+        : isPreparing
+          ? "preparing"
+          : (isIdentifying || isWaitingSlot)
+            ? ""
+            : "";
 
   const taskKey = `${task.TaskType || "video"}-${task.ID}`;
 
@@ -177,15 +176,6 @@ export function TaskTableRow({
             </span>
           ) : (
             titleDisplay
-          )}
-        </td>
-        <td>
-          {siteModule ? (
-            <span className="source-pill">
-              {getSiteModuleName(siteModule, locale)}
-            </span>
-          ) : (
-            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>
           )}
         </td>
         <td>

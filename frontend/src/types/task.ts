@@ -3,6 +3,7 @@ import type { ProgressMessage } from "./common";
 
 export type TaskStatus =
   | 'pending'
+  | 'preparing'
   | 'scrape_pending'
   | 'scraping'
   | 'download_pending'

@@ -10,6 +10,7 @@ type NodeState string
 
 const (
 	NodeStatePending      NodeState = "pending"
+	NodeStatePreparing    NodeState = "preparing"
 	NodeStateReady        NodeState = "ready"
 	NodeStateQueued       NodeState = "queued"
 	NodeStateAllocated    NodeState = "allocated"
@@ -27,20 +28,27 @@ const (
 // validTransitions defines the legal state transitions for each NodeState.
 // PENDING/READY/QUEUED allow FAILED for dependency-failure cascades so the
 // DAG converges to a terminal state instead of stranding successors forever.
+//
+// PREPARING is a transient intermediate state inserted between terminal/error
+// states and READY/RUNNING. It signals that the system is actively preparing
+// resources (e.g., re-establishing connections, validating slots, restoring
+// state after restart) before the node can actually run. This gives the UI
+// an immediate optimistic feedback ("准备中") instead of an opaque gap.
 var validTransitions = map[NodeState][]NodeState{
-	NodeStatePending:      {NodeStateReady, NodeStateCancelled, NodeStateFailed},
+	NodeStatePending:      {NodeStatePreparing, NodeStateReady, NodeStateCancelled, NodeStateFailed},
+	NodeStatePreparing:    {NodeStateReady, NodeStateRunning, NodeStateFailed, NodeStateCancelled},
 	NodeStateReady:        {NodeStateQueued, NodeStateCancelled, NodeStatePaused, NodeStateNeedsRetry, NodeStateFailed},
 	NodeStateQueued:       {NodeStateAllocated, NodeStateCancelled, NodeStatePaused, NodeStateReady, NodeStateFailed},
 	NodeStateAllocated:    {NodeStateRunning, NodeStateCancelled, NodeStatePaused, NodeStateFailed},
 	NodeStateRunning:      {NodeStateVerifying, NodeStateFailed, NodeStateTimeout, NodeStateCancelled, NodeStatePaused, NodeStateCompleted},
-	NodeStatePaused:       {NodeStateReady, NodeStateCancelled},
+	NodeStatePaused:       {NodeStatePreparing, NodeStateReady, NodeStateCancelled},
 	NodeStateVerifying:    {NodeStateCompleted, NodeStateFailed, NodeStatePaused, NodeStateResumeVerify, NodeStateNeedsRetry},
 	NodeStateResumeVerify: {NodeStateVerifying, NodeStateCompleted, NodeStateFailed, NodeStatePaused},
 	NodeStateCompleted:    {},
-	NodeStateFailed:       {NodeStateReady, NodeStateNeedsRetry},
-	NodeStateNeedsRetry:   {NodeStateReady, NodeStatePaused},
+	NodeStateFailed:       {NodeStatePreparing, NodeStateReady, NodeStateNeedsRetry},
+	NodeStateNeedsRetry:   {NodeStatePreparing, NodeStateReady, NodeStatePaused},
 	NodeStateCancelled:    {},
-	NodeStateTimeout:      {NodeStateReady},
+	NodeStateTimeout:      {NodeStatePreparing, NodeStateReady},
 }
 
 // CanTransition checks whether a transition from one state to another
