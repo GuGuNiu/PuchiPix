@@ -1,8 +1,9 @@
+import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import { Copy, Clock, Monitor, HardDrive, Calendar, X } from "lucide-react";
 import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask, TaskStatus } from "@/types";
 import { useI18n } from "@/lib/i18n";
-import { formatFileSize } from "../_lib/task-helpers";
+import { formatFileSize } from "@/lib/utils";
 
 interface TaskDetailPopoverProps {
   tasks: DownloadTask[];
@@ -28,8 +29,12 @@ export function TaskDetailPopover({
   const isSniffTask = task.TaskType === "sniff";
 
   return (
-    <div className="task-detail-overlay" onClick={() => setExpandedTask(null)}>
-      <div className="task-detail-popover" onClick={(e) => e.stopPropagation()}>
+    <Popover className="task-detail-overlay">
+      <PopoverPanel
+        static
+        anchor={{ to: "top", gap: 8 }}
+        className="task-detail-popover"
+      >
         <div className="task-detail-popover-header">
           <span className="task-detail-popover-title">
             {isSniffTask ? t("tasks.detailTaskTypeSniff") : isGalleryTask ? t("tasks.detailTaskTypeGallery") : t("tasks.detailTaskTypeVideo")}{t("tasks.detailTaskSuffix")} #{task.DisplayID ?? task.ID}
@@ -162,56 +167,6 @@ export function TaskDetailPopover({
                 </span>
               </div>
               )}
-            {task.Person && isGalleryTask && (
-              <div className="task-detail-item">
-                <span className="task-detail-label">{t("tasks.person")}</span>
-                <span className="task-detail-value">{task.Person}</span>
-              </div>
-            )}
-            {isGalleryTask && (task.ImageCount !== undefined || task.VideoCount !== undefined || (task.DownloadMethod && task.DownloadMethod !== "pending")) && (
-              <div className="task-detail-row full-width">
-                <div className="task-detail-item task-detail-item-flex">
-                  <span className="task-detail-label">{t("tasks.detailImageCount")}</span>
-                  <span className="task-detail-value">{t("tasks.imageUnit", { count: task.ImageCount ?? 0 })}</span>
-                </div>
-                <div className="task-detail-item task-detail-item-flex">
-                  <span className="task-detail-label">{t("tasks.detailVideoCount")}</span>
-                  <span className="task-detail-value">{t("tasks.countUnit", { count: task.VideoCount ?? 0 })}</span>
-                </div>
-                <div className="task-detail-item task-detail-item-flex">
-                  <span className="task-detail-label">{t("tasks.detailDownloadMethod")}</span>
-                  <span className="task-detail-value">
-                    {task.DownloadMethod === "zip" ? t("tasks.downloadMethodZip") :
-                      task.DownloadMethod === "scrape" ? t("tasks.downloadMethodScrape") :
-                        task.DownloadMethod === "both" ? t("tasks.downloadMethodBoth") : (task.DownloadMethod ?? "—")}
-                  </span>
-                </div>
-              </div>
-              )}
-            {task.Status === "failed" && task.ErrorMsg && (
-              <div className="task-detail-item full-width">
-                <div className="failure-reason-card">
-                  <div className="failure-reason-header">
-                    <span className="failure-reason-icon">⚠</span>
-                    <span className="failure-reason-title">{t("tasks.detailFailureReason")}</span>
-                  </div>
-                  <div className="failure-reason-content">
-                    <strong>{task.ErrorMsg}</strong>
-                  </div>
-                </div>
-              </div>
-            )}
-            {task.ErrorMsg && task.Status !== "failed" && (
-              <div className="task-detail-item full-width">
-                <span className="task-detail-label">{t("tasks.errorMsg")}</span>
-                <span
-                  className="task-detail-value"
-                  style={{ color: "var(--danger)" }}
-                >
-                  {task.ErrorMsg}
-                </span>
-              </div>
-            )}
             {task.VideoInfo?.Title && (
               <div className="task-detail-item full-width">
                 <span className="task-detail-label">{t("tasks.detailVideoTitle")}</span>
@@ -236,7 +191,7 @@ export function TaskDetailPopover({
                 <span className="task-detail-value">
                   {task.GalleryTitle ? (
                     <div className="task-detail-tags">
-                      {task.GalleryTitle.split(/[\s\-_,]+/).filter((t: string) => t.length > 1 && !/\d+P/i.test(t)).slice(0, 8).map((tag: string) => (
+                      {task.GalleryTitle.split(/[\s\-_,]+/).filter((tag: string) => tag.length > 1 && !/\d+P/i.test(tag)).slice(0, 8).map((tag: string) => (
                         <span
                           key={tag}
                           className="pill pill-clickable"
@@ -284,10 +239,54 @@ export function TaskDetailPopover({
                 <span className="task-detail-value">{task.VideoInfo.Actors.join("、")}</span>
               </div>
             )}
-            {!isGalleryTask && task.VideoInfo?.Director && (
-              <div className="task-detail-item">
-                <span className="task-detail-label">{t("tasks.detailDirector")}</span>
-                <span className="task-detail-value">{task.VideoInfo.Director}</span>
+            {!isGalleryTask && (
+              <div className="task-detail-row full-width">
+                <div className="task-detail-item task-detail-item-flex">
+                  <span className="task-detail-label">{t("tasks.detailImageCount")}</span>
+                  <span className="task-detail-value">{t("tasks.imageUnit", { count: task.ImageCount ?? 0 })}</span>
+                </div>
+                <div className="task-detail-item task-detail-item-flex">
+                  <span className="task-detail-label">{t("tasks.detailVideoCount")}</span>
+                  <span className="task-detail-value">{t("tasks.countUnit", { count: task.VideoCount ?? 0 })}</span>
+                </div>
+                <div className="task-detail-item task-detail-item-flex">
+                  <span className="task-detail-label">{t("tasks.detailDownloadMethod")}</span>
+                  <span className="task-detail-value">
+                    {task.DownloadMethod === "zip" ? t("tasks.downloadMethodZip") :
+                      task.DownloadMethod === "scrape" ? t("tasks.downloadMethodScrape") :
+                        task.DownloadMethod === "both" ? t("tasks.downloadMethodBoth") : (task.DownloadMethod ?? "—")}
+                  </span>
+                </div>
+              </div>
+              )}
+            {task.Status === "failed" && task.ErrorMsg && !isSniffTask && (
+              <div className="task-detail-item full-width">
+                <div className="failure-reason-card">
+                  <div className="failure-reason-header">
+                    <span className="failure-reason-icon">⚠</span>
+                    <span className="failure-reason-title">{t("tasks.detailFailureReason")}</span>
+                  </div>
+                  <div className="failure-reason-content">
+                    <strong>{task.ErrorMsg}</strong>
+                  </div>
+                </div>
+              </div>
+            )}
+            {task.ErrorMsg && task.Status !== "failed" && !isSniffTask && (
+              <div className="task-detail-item full-width">
+                <span className="task-detail-label">{t("tasks.errorMsg")}</span>
+                <span
+                  className="task-detail-value"
+                  style={{ color: "var(--danger)" }}
+                >
+                  {task.ErrorMsg}
+                </span>
+              </div>
+            )}
+            {task.CreatedAt && !isSniffTask && (
+              <div className="task-detail-item full-width">
+                <span className="task-detail-label">{t("tasks.createdAt")}</span>
+                <span className="task-detail-value">{new Date(task.CreatedAt).toLocaleString(locale)}</span>
               </div>
             )}
             {(task.VideoInfo?.Duration || task.VideoInfo?.Resolution || task.VideoInfo?.FileSize || task.CreatedAt || isGalleryTask) && (
@@ -337,7 +336,7 @@ export function TaskDetailPopover({
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </PopoverPanel>
+    </Popover>
   );
 }

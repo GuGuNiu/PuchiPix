@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
 import {
   Plus,
   X,
@@ -32,7 +33,7 @@ export function AddTaskModal({
   setLinkInput,
   onSubmit,
   onJobCompleted,
-}: AddTaskModalProps): React.JSX.Element | null {
+}: AddTaskModalProps): React.JSX.Element {
   const { t } = useI18n();
 
   const parsedUrls = useMemo(() => {
@@ -50,16 +51,14 @@ export function AddTaskModal({
       .filter((s) => s.length > 0).length;
   }, [linkInput]);
 
-  if (!show) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+    <Dialog open={show} onClose={onClose} className="modal-overlay">
+      <DialogPanel className="modal modal-lg">
         <div className="modal-header">
-          <h2 style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+          <DialogTitle as="h2" style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
             <Plus size={18} style={{ flexShrink: 0 }} />
             {t("tasks.addTask")}
-          </h2>
+          </DialogTitle>
           <button className="btn-close" onClick={onClose}>
             <X size={18} />
           </button>
@@ -201,7 +200,7 @@ export function AddTaskModal({
             <BatchSearchPanel onJobCompleted={onJobCompleted} embedded />
           )}
         </div>
-      </div>
-    </div>
+      </DialogPanel>
+    </Dialog>
   );
 }

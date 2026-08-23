@@ -12,9 +12,13 @@ import {
   Plus,
   Settings,
   Wifi,
+  ImageIcon,
+  Film,
+  Radar,
 } from "lucide-react";
 import type { DownloadTask } from "@/types";
 import { useTaskStore } from "@/store/task-store";
+import { formatFileSize } from "@/lib/utils";
 import ResourceToolbar from "@/components/ui/resource-toolbar";
 import TaskSettingsPanel from "@/components/tasks/task-settings-panel";
 import { useRouteState } from "@/lib/core/infra/route-state";
@@ -32,12 +36,25 @@ import {
   type SortBy,
 } from "./_lib/task-helpers";
 import { useTaskActions } from "./_lib/use-task-actions";
-import { TaskTableRow } from "./_components/task-table-row";
 import { AddTaskModal } from "./_components/add-task-modal";
 import { DataStream, DiskActivity } from "@/components/ops/data-stream";
 import { ConsoleLog } from "@/components/ops/console-log";
 import { TaskDetailPopover } from "./_components/task-detail-popover";
 import { Pagination } from "@/components/ui/pagination";
+
+// ===== TanStack Imports =====
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+  type RowSelectionState,
+} from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 const LOAD_MORE_THRESHOLD = 200; // pixels from bottom to trigger load
 
@@ -79,7 +96,6 @@ function sseAnimReducer(state: SseAnimState, action: SseAnimAction): SseAnimStat
         if (!prev) {
           newKeys.add(key);
         } else {
-          // Compare relevant fields to detect meaningful changes
           if (
             prev.Status !== t.Status ||
             prev.Progress !== t.Progress ||
@@ -137,6 +153,11 @@ export default function TasksPage(): React.JSX.Element {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreTriggeredRef = useRef(false);
 
+  // TanStack Table state
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [globalFilter, setGlobalFilter] = useState("");
+
   const { values: urlValues, update: updateUrl } = useUrlState({
     status: "all",
     type: "all",
@@ -172,10 +193,12 @@ export default function TasksPage(): React.JSX.Element {
   const [pageSize, setPageSize] = useState(20);
   const [addTab, setAddTab] = useState<"link" | "search">("link");
   const addTabTouched = useRef(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [apiStats, setApiStats] = useState<{ current_speed_str?: string; disk_io_str?: string } | null>(null);
+
+  // Sync rowSelection to parent component state for backward compatibility
+  const selectedIds = useMemo(() => new Set(Object.keys(rowSelection)), [rowSelection]);
 
   useEffect(() => {
     const fetchStats = async (): Promise<void> => {
@@ -229,7 +252,6 @@ export default function TasksPage(): React.JSX.Element {
       if (scrollHeight - scrollTop - clientHeight < LOAD_MORE_THRESHOLD) {
         loadMoreTriggeredRef.current = true;
         loadMoreTasks().finally(() => {
-          // Reset trigger after a short delay to allow next load
           setTimeout(() => {
             loadMoreTriggeredRef.current = false;
           }, 500);
@@ -241,15 +263,11 @@ export default function TasksPage(): React.JSX.Element {
     return () => container.removeEventListener("scroll", handleScroll);
   }, [hasMore, loadingMore, loadMoreTasks]);
 
-  // Reset scroll trigger when filters change (new search = new dataset)
   useEffect(() => {
     loadMoreTriggeredRef.current = false;
   }, [statusFilter, typeFilter, searchQuery, sortBy]);
 
   useEffect(() => {
-    // Only fetch when store is empty — Zustand store survives client-side
-    // navigation, so re-fetching on every mount wastes ~300ms on large
-    // task lists. SSE keeps the store live after initial load.
     if (tasks.length === 0) {
       fetchTasks();
     }
@@ -286,21 +304,7 @@ export default function TasksPage(): React.JSX.Element {
     };
   }, [tasks]);
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: tasks.length };
-    for (const t of tasks) {
-      const effectiveStatus = t.EffectiveStatus ?? t.Status;
-      if (effectiveStatus === "scrape_pending") {
-        counts["scraping"] = (counts["scraping"] || 0) + 1;
-      } else if (effectiveStatus === "download_pending" || effectiveStatus === "transcoding") {
-        counts["downloading"] = (counts["downloading"] || 0) + 1;
-      } else {
-        counts[effectiveStatus] = (counts[effectiveStatus] || 0) + 1;
-      }
-    }
-    return counts;
-  }, [tasks]);
-
+  // Filtered tasks based on status and type filters
   const filteredTasks = useMemo(() => {
     let result = tasks;
 
@@ -336,27 +340,367 @@ export default function TasksPage(): React.JSX.Element {
       );
     }
 
-    const sorted = [...result];
-    switch (sortBy) {
-      case "date_desc":
-        sorted.sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
-        break;
-      case "date_asc":
-        sorted.sort((a, b) => new Date(a.CreatedAt).getTime() - new Date(b.CreatedAt).getTime());
-        break;
-      case "progress_desc":
-        sorted.sort((a, b) => b.Progress - a.Progress);
-        break;
-      case "progress_asc":
-        sorted.sort((a, b) => a.Progress - b.Progress);
-        break;
-      case "status":
-        sorted.sort((a, b) => (STATUS_ORDER[a.Status] ?? 99) - (STATUS_ORDER[b.Status] ?? 99));
-        break;
-    }
+    return result;
+  }, [tasks, statusFilter, typeFilter, searchQuery]);
 
-    return sorted;
-  }, [tasks, statusFilter, typeFilter, searchQuery, sortBy]);
+  // ===== TanStack Table Column Definitions =====
+  const columns = useMemo<ColumnDef<DownloadTask>[]>(
+    () => [
+      {
+        id: "select",
+        header: ({ table }) => (
+          <button
+            onClick={table.getToggleAllRowsSelectedHandler()}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              color: table.getIsAllRowsSelected() || table.getIsSomeRowsSelected() ? "var(--accent)" : "var(--text-muted)",
+              marginRight: 6,
+              verticalAlign: "middle",
+            }}
+            title={table.getIsAllRowsSelected() ? t("tasks.deselectAll") : t("tasks.selectAll")}
+          >
+            {table.getIsAllRowsSelected() || table.getIsSomeRowsSelected() ? (
+              <CheckSquare size={16} />
+            ) : (
+              <SquareIcon size={16} />
+            )}
+          </button>
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            checked={row.getIsSelected()}
+            onChange={row.getToggleSelectedHandler()}
+            style={{ cursor: "pointer" }}
+          />
+        ),
+        size: 60,
+        enableSorting: false,
+      },
+      {
+        id: "id",
+        accessorKey: "DisplayID",
+        header: () => (
+          <>
+            <button
+              onClick={(() => {
+                const allSelected = Object.keys(rowSelection).length === filteredTasks.length && filteredTasks.length > 0;
+                if (allSelected) {
+                  setRowSelection({});
+                } else {
+                  const newSelection: RowSelectionState = {};
+                  filteredTasks.forEach((task) => {
+                    newSelection[`${task.TaskType || "video"}-${task.ID}`] = true;
+                  });
+                  setRowSelection(newSelection);
+                }
+              })}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                color: (Object.keys(rowSelection).length > 0 && Object.keys(rowSelection).length === filteredTasks.length) || Object.keys(rowSelection).length > 0 ? "var(--accent)" : "var(--text-muted)",
+                marginRight: 6,
+                verticalAlign: "middle",
+              }}
+              title={(Object.keys(rowSelection).length === filteredTasks.length && filteredTasks.length > 0) ? t("tasks.deselectAll") : t("tasks.selectAll")}
+            >
+              {(Object.keys(rowSelection).length === filteredTasks.length && filteredTasks.length > 0) || Object.keys(rowSelection).length > 0 ? <CheckSquare size={16} /> : <SquareIcon size={16} />}
+            </button>
+            {t("tasks.colId")}
+          </>
+        ),
+        cell: ({ row }) => {
+          const task = row.original;
+          const idStr = String(task.DisplayID ?? task.ID);
+          const idDisplay = idStr.length > 8 ? idStr.slice(0, 8) + "..." : idStr;
+          const isSniff = task.TaskType === "sniff";
+          return (
+            <span
+              style={{
+                fontFamily: "monospace",
+                color: isSniff ? "#6366f1" : "var(--text-secondary)",
+                fontWeight: isSniff ? 700 : undefined,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {idDisplay}
+            </span>
+          );
+        },
+        size: 60,
+      },
+      {
+        id: "colType",
+        accessorKey: "TaskType",
+        header: () => t("tasks.colType"),
+        cell: ({ row }) => {
+          const task = row.original;
+          const isSniff = task.TaskType === "sniff";
+          const isGallery = task.TaskType === "gallery";
+          return isSniff ? (
+            <span title={t("tasks.sniffTaskLabel")} style={{ color: "var(--accent-light)" }}>
+              <Radar size={15} />
+            </span>
+          ) : isGallery ? (
+            <span title={t("tasks.galleryTaskLabel")} style={{ color: "var(--text-muted)" }}>
+              <ImageIcon size={15} />
+            </span>
+          ) : (
+            <span title={t("tasks.videoTaskLabel")} style={{ color: "var(--text-muted)" }}>
+              <Film size={15} />
+            </span>
+          );
+        },
+        size: 28,
+      },
+      {
+        id: "colPerson",
+        accessorKey: "Person",
+        header: () => t("tasks.colPerson"),
+        cell: ({ row }) => {
+          const task = row.original;
+          return (
+            <span
+              style={{
+                maxWidth: 100,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+              }}
+              title={task.Person && task.Person !== "null" ? task.Person : ""}
+            >
+              {task.Person && task.Person !== "null" ? task.Person : "—"}
+            </span>
+          );
+        },
+        size: 100,
+      },
+      {
+        id: "colTitle",
+        accessorFn: (row) => {
+          const isSniff = row.TaskType === "sniff";
+          const isIdentifying = row.Status === "scraping" || row.Status === "scrape_pending";
+          if (isSniff) return row.URL;
+          if (isIdentifying && !row.GalleryTitle && !row.VideoInfo?.Title) return "";
+          return row.GalleryTitle || row.VideoInfo?.Title || row.URL;
+        },
+        header: () => t("tasks.colTitle"),
+        cell: ({ row }) => {
+          const task = row.original;
+          const isSniff = task.TaskType === "sniff";
+          const rawTitle = isSniff
+            ? task.URL
+            : task.GalleryTitle || task.VideoInfo?.Title || "";
+          const isIdentifying = task.Status === "scraping" || task.Status === "scrape_pending";
+          const titleDisplay = isIdentifying && !rawTitle ? t("tasks.identifying") : (rawTitle || task.URL);
+          return (
+            <span
+              style={{
+                display: "block",
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={titleDisplay}
+            >
+              {isIdentifying && !rawTitle ? (
+                <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
+                  {titleDisplay}
+                </span>
+              ) : (
+                titleDisplay
+              )}
+            </span>
+          );
+        },
+        size: 300,
+      },
+      {
+        id: "colStatus",
+        accessorKey: "Status",
+        header: () => t("tasks.colStatus"),
+        cell: ({ row }) => {
+          const task = row.original;
+          const label = STATUS_LABEL[task.Status] ?? task.Status;
+          return task.Status === "failed" && task.ErrorMsg ? (
+            <span
+              className={`status-pill status-pill-${task.Status}`}
+              data-tooltip={task.ErrorMsg}
+              style={{ cursor: "help" }}
+            >
+              {label}
+            </span>
+          ) : (
+            <span className={`status-pill status-pill-${task.Status}`}>
+              {label}
+            </span>
+          );
+        },
+        size: 92,
+      },
+      {
+        id: "colProgress",
+        accessorKey: "Progress",
+        header: () => t("tasks.colProgress"),
+        cell: ({ row }) => (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 3,
+              minWidth: 70,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-secondary)",
+                whiteSpace: "nowrap",
+                lineHeight: "16px",
+                fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace",
+              }}
+            >
+              {row.original.Progress.toFixed(1) + "%"}
+            </span>
+            <div className="progress-bar" style={{ width: "100%" }}>
+              <div
+                className={`progress-bar-fill ${row.original.Status === "completed" ? "completed" : row.original.Status === "failed" ? "failed" : ""}`}
+                style={{ width: `${row.original.Progress}%` }}
+              />
+            </div>
+          </div>
+        ),
+        size: 140,
+      },
+      {
+        id: "colSegments",
+        accessorFn: (row) => {
+          if (row.TaskType === "gallery") return `${row.ImageCount ?? 0}P/${row.VideoCount ?? 0}V`;
+          if (row.TotalSegments) return `${row.Segment ?? 0}/${row.TotalSegments}`;
+          return "";
+        },
+        header: () => t("tasks.colSegments"),
+        cell: ({ row }) => {
+          const task = row.original;
+          if (task.TaskType === "gallery") {
+            return (
+              <span className="dual-capsule" title={t("tasks.gallerySegmentTitle", { images: task.ImageCount ?? 0, videos: task.VideoCount ?? 0 })}>
+                <span className="dual-capsule-left accent-green">{task.ImageCount || 0}P</span>
+                <span className="dual-capsule-right accent-orange">{task.VideoCount || 0}V</span>
+              </span>
+            );
+          }
+          if (task.TotalSegments) {
+            return (
+              <span className="dual-capsule" title={t("tasks.segmentTitle", { current: task.Segment ?? 0, total: task.TotalSegments })}>
+                <span className="dual-capsule-left">{task.Segment ?? 0}</span>
+                <span className="dual-capsule-right">{task.TotalSegments}</span>
+              </span>
+            );
+          }
+          return <span style={{ color: "var(--text-muted)", fontSize: 12 }}>—</span>;
+        },
+        size: 68,
+      },
+      {
+        id: "colFileSize",
+        accessorFn: (row) => {
+          if (row.FileSize && row.FileSize > 0) return row.FileSize;
+          if (row.DownloadedBytes && row.DownloadedBytes > 0) return row.DownloadedBytes;
+          return 0;
+        },
+        header: () => t("tasks.colFileSize"),
+        cell: ({ row }) => {
+          const task = row.original;
+          if (task.TaskType === "gallery") {
+            return task.GalleryTotalSize && task.GalleryTotalSize > 0
+              ? formatFileSize(task.GalleryTotalSize)
+              : task.DownloadInfo?.ActualSize && task.DownloadInfo.ActualSize > 0
+                ? formatFileSize(task.DownloadInfo.ActualSize)
+                : task.DownloadInfo?.FileSizeText
+                  ? task.DownloadInfo.FileSizeText
+                  : "—";
+          }
+          if (task.FileSize && task.FileSize > 0) return `${(task.FileSize / 1024 / 1024).toFixed(1)} MB`;
+          if (task.DownloadedBytes && task.DownloadedBytes > 0) return `${(task.DownloadedBytes / 1024 / 1024).toFixed(1)} MB`;
+          return "—";
+        },
+        size: 68,
+      },
+      {
+        id: "colActions",
+        header: () => t("tasks.colActions"),
+        cell: ({ row }) => {
+          const task = row.original;
+          return (
+            <div className="action-buttons">
+              <button className="btn btn-primary btn-sm" title={t("tasks.actionStart")}>
+                <Play size={14} />
+              </button>
+            </div>
+          );
+        },
+        size: 190,
+        enableSorting: false,
+      },
+    ],
+    [t, STATUS_LABEL, rowSelection, filteredTasks.length]
+  );
+
+  // ===== TanStack Table Instance =====
+  const table = useReactTable({
+    data: filteredTasks,
+    columns,
+    state: {
+      sorting,
+      rowSelection,
+      globalFilter,
+    },
+    onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    manualSorting: true,
+    manualFiltering: true,
+    enableRowSelection: true,
+    enableMultiRowSelection: true,
+    getRowId: (row) => `${row.TaskType || "video"}-${row.ID}`,
+  });
+
+  // Virtualizer setup
+  const { getVirtualItems, getTotalSize } = useVirtualizer({
+    count: table.getRowModel().rows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 52,
+    overscan: 10,
+  });
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: tasks.length };
+    for (const t of tasks) {
+      const effectiveStatus = t.EffectiveStatus ?? t.Status;
+      if (effectiveStatus === "scrape_pending") {
+        counts["scraping"] = (counts["scraping"] || 0) + 1;
+      } else if (effectiveStatus === "download_pending" || effectiveStatus === "transcoding") {
+        counts["downloading"] = (counts["downloading"] || 0) + 1;
+      } else {
+        counts[effectiveStatus] = (counts[effectiveStatus] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [tasks]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
   const clampedPage = Math.min(currentPage, totalPages);
@@ -391,7 +735,13 @@ export default function TasksPage(): React.JSX.Element {
   const { handleSubmit, handleAction, handleDelete, handleBatchAction } = useTaskActions({
     tasks,
     selectedIds,
-    setSelectedIds,
+    setSelectedIds: (ids: Set<string>) => {
+      const newSelection: RowSelectionState = {};
+      ids.forEach((id) => {
+        newSelection[id] = true;
+      });
+      setRowSelection(newSelection);
+    },
     fetchTasks,
     t,
   });
@@ -402,21 +752,16 @@ export default function TasksPage(): React.JSX.Element {
   }, [expandedTask, setExpandedTask]);
 
   const toggleSelect = useCallback((key: string): void => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+    setRowSelection((prev) => {
+      const next = { ...prev };
+      if (next[key]) {
+        delete next[key];
+      } else {
+        next[key] = true;
+      }
       return next;
     });
   }, []);
-
-  const toggleSelectAll = useCallback((): void => {
-    if (selectedIds.size === filteredTasks.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredTasks.map((t) => `${t.TaskType || "video"}-${t.ID}`)));
-    }
-  }, [selectedIds, filteredTasks]);
 
   const allSelected = selectedIds.size > 0 && selectedIds.size === filteredTasks.length;
   const someSelected = selectedIds.size > 0;
@@ -552,41 +897,31 @@ export default function TasksPage(): React.JSX.Element {
           <div
             ref={scrollContainerRef}
             className={`table-wrapper${sseAnimState.tableFlashing ? " sse-table-updating" : ""}`}
-            style={{ overflowY: "auto" }}
+            style={{ overflowY: "auto", height: "100%", position: "relative" }}
           >
-            <table>
+            <table style={{ tableLayout: "fixed", width: "100%" }}>
               <thead>
-                <tr>
-                  <th style={{ width: 60, whiteSpace: "nowrap" }}>
-                    <button
-                      onClick={toggleSelectAll}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: 0,
-                        color: allSelected || someSelected ? "var(--accent)" : "var(--text-muted)",
-                        marginRight: 6,
-                        verticalAlign: "middle",
-                      }}
-                      title={allSelected ? t("tasks.deselectAll") : t("tasks.selectAll")}
-                    >
-                      {allSelected || someSelected ? <CheckSquare size={16} /> : <SquareIcon size={16} />}
-                    </button>
-                    {t("tasks.colId")}
-                  </th>
-                  <th style={{ width: 28, whiteSpace: "nowrap" }}>{t("tasks.colType")}</th>
-                  <th style={{ width: 100 }}>{t("tasks.colPerson")}</th>
-                  <th style={{ width: 300 }}>{t("tasks.colTitle")}</th>
-                  <th style={{ width: 92 }}>{t("tasks.colStatus")}</th>
-                  <th style={{ width: 140 }}>{t("tasks.colProgress")}</th>
-                  <th style={{ width: 68, whiteSpace: "nowrap" }}>{t("tasks.colSegments")}</th>
-                  <th style={{ width: 68, whiteSpace: "nowrap" }}>{t("tasks.colFileSize")}</th>
-                  <th style={{ width: 190, whiteSpace: "nowrap" }}>{t("tasks.colActions")}</th>
-                </tr>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        style={{
+                          width: header.getSize(),
+                          whiteSpace: "nowrap",
+                          padding: "14px 20px",
+                          borderBottom: "1px solid var(--border-light)",
+                        }}
+                      >
+                        {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
               </thead>
               <tbody>
-                {paginatedTasks.map((task) => {
+                {table.getRowModel().rows.map((row) => {
+                  const task = row.original;
                   const key = `${task.TaskType || "video"}-${task.ID}`;
                   const animClasses: string[] = [];
                   if (sseAnimState.statusChangedKeys.has(key)) {
@@ -598,17 +933,32 @@ export default function TasksPage(): React.JSX.Element {
                     animClasses.push("sse-row-new");
                   }
                   return (
-                    <TaskTableRow
+                    <tr
                       key={key}
-                      task={task}
-                      isSelected={selectedIds.has(key)}
-                      onToggleSelect={toggleSelect}
-                      onToggleExpand={toggleExpand}
-                      onAction={handleAction}
-                      onDelete={handleDelete}
-                      STATUS_LABEL={STATUS_LABEL}
-                      animClass={animClasses.join(" ")}
-                    />
+                      className={animClasses.join(" ") || undefined}
+                      onClick={() => toggleExpand(task)}
+                      style={{
+                        cursor: "pointer",
+                        background: row.getIsSelected()
+                          ? "var(--accent-soft)"
+                          : task.TaskType === "sniff"
+                            ? "rgba(99, 102, 241, 0.04)"
+                            : undefined,
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          style={{
+                            padding: "14px 20px",
+                            borderBottom: "1px solid var(--border-light)",
+                            transition: "background-color 0.3s ease, color 0.2s ease",
+                          }}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
                   );
                 })}
               </tbody>

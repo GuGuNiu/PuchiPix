@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PuchiPix 任务状态机可视化</title>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --border-color: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent-blue: #58a6ff;
+  --accent-green: #3fb950;
+  --accent-orange: #d29922;
+  --accent-red: #f85149;
+  --accent-purple: #bc8cff;
+  --accent-cyan: #39d2c0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  padding: 2rem;
+}
+
+.container { max-width: 1400px; margin: 0 auto; }
+
+h1 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+}
+
+/* 标签页导航 */
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.tab-btn {
+  padding: 0.5rem 1.25rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+.tab-btn.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+
+/* 面板 */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* 状态图 SVG */
+.state-graph {
+  width: 100%;
+  height: 700px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 状态节点样式 */
+.state-node {
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.state-node:hover { filter: brightness(1.2); }
+
+.state-node .node-rect {
+  rx: 8;
+  stroke-width: 2;
+  transition: all 0.3s;
+}
+
+.state-node:hover .node-rect { stroke-width: 3; }
+
+.state-node .node-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  fill: #fff;
+  pointer-events: none;
+}
+
+.state-node .node-category {
+  font-size: 9px;
+  text-anchor: middle;
+  fill: rgba(255,255,255,0.7);
+  pointer-events: none;
+}
+
+/* 状态分类颜色 */
+.cat-initial .node-rect { fill: #1f6feb; stroke: #58a6ff; }
+.cat-intermediate .node-rect { fill: #0d419d; stroke: #388bfd; }
+.cat-running .node-rect { fill: #1a7f37; stroke: #3fb950; }
+.cat-verifying .node-rect { fill: #6e40c9; stroke: #bc8cff; }
+.cat-paused .node-rect { fill: #9e6a03; stroke: #d29922; }
+.cat-terminal .node-rect { fill: #da3633; stroke: #f85149; }
+.cat-retry .node-rect { fill: #116329; stroke: #56d364; }
+
+/* 转移箭头 */
+.transition-link {
+  stroke: var(--border-color);
+  stroke-width: 1.5;
+  fill: none;
+  opacity: 0.6;
+  transition: all 0.3s;
+}
+
+.transition-link.highlighted {
+  stroke: var(--accent-cyan);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+
+/* 详情面板 */
+.detail-panel {
+  margin-top: 1.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.detail-panel h3 {
+  color: var(--accent-blue);
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.detail-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.detail-card h4 {
+  color: var(--accent-cyan);
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.detail-card p, .detail-card li {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.detail-card ul { padding-left: 1.2rem; }
+
+/* 状态表格 */
+.state-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.state-table th, .state-table td {
+  padding: 0.6rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.state-table th {
+  background: var(--bg-tertiary);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.state-table tr:hover { background: var(--bg-tertiary); }
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-initial { background: #1f6feb33; color: #58a6ff; }
+.badge-intermediate { background: #0d419d33; color: #388bfd; }
+.badge-running { background: #1a7f3733; color: #3fb950; }
+.badge-verifying { background: #6e40c933; color: #bc8cff; }
+.badge-paused { background: #9e6a0333; color: #d29922; }
+.badge-terminal { background: #da363333; color: #f85149; }
+.badge-retry { background: #11632933; color: #56d364; }
+
+/* 架构图 */
+.arch-diagram {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.arch-layer {
+  margin: 1rem auto;
+  padding: 1.5rem;
+  border-radius: 10px;
+  max-width: 600px;
+  position: relative;
+}
+
+.arch-layer h4 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.arch-layer p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.layer-frontend { background: linear-gradient(135deg, #6e40c922, #bc8cff22); border: 1px solid #bc8cff44; }
+.layer-fsm { background: linear-gradient(135deg, #1f6feb22, #58a6ff22); border: 1px solid #58a6ff44; }
+.layer-db { background: linear-gradient(135deg, #1a7f3722, #3fb95022); border: 1px solid #3fb95044; }
+
+.arch-arrow {
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+  margin: 0.25rem 0;
+}
+
+/* 流程图 */
+.flow-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+}
+
+.flow-step {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  text-align: center;
+  min-width: 100px;
+}
+
+.flow-step .step-num {
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+}
+
+.flow-arrow { color: var(--text-secondary); font-size: 1.2rem; }
+
+/* 图例 */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0;
+  justify-content: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  body { padding: 1rem; }
+  .state-graph { height: 500px; }
+  h1 { font-size: 1.5rem; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>PuchiPix 任务状态机设计</h1>
+  <p class="subtitle">14 态 · 60+ 转移路径 · 三层状态体系 · Policy 策略驱动</p>
+
+  <!-- 标签页 -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showPanel('graph', this)">状态转移图</button>
+    <button class="tab-btn" onclick="showPanel('states', this)">状态定义表</button>
+    <button class="tab-btn" onclick="showPanel('architecture', this)">三层架构</button>
+    <button class="tab-btn" onclick="showPanel('flow', this)">转移流程</button>
+    <button class="tab-btn" onclick="showPanel('policy', this)">策略与不变量</button>
+  </div>
+
+  <!-- 面板1: 状态转移图 -->
+  <div id="panel-graph" class="panel active">
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#1f6feb"></div>初始态</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#0d419d"></div>中间态</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#1a7f37"></div>执行态</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#6e40c9"></div>验证态</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#9e6a03"></div>暂停态</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#da3633"></div>终态</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#116329"></div>重试态</div>
+    </div>
+
+    <svg class="state-graph" viewBox="0 0 1200 700" id="stateGraph">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#30363d"/>
+        </marker>
+        <marker id="arrowhead-hl" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#39d2c0"/>
+        </marker>
+      </defs>
+
+      <!-- 转移连线 -->
+      <path class="transition-link" id="link-pending-preparing" d="M 150,100 L 150,140" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-preparing-ready" d="M 150,200 L 150,240" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-ready-queued" d="M 200,300 L 300,300" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-queued-allocated" d="M 400,300 L 500,300" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-allocated-running" d="M 600,300 L 700,300" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-running-verifying" d="M 800,300 L 900,300" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-verifying-completed" d="M 1000,300 L 1050,250" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-verifying-failed" d="M 1000,320 L 1050,380" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-verifying-needsretry" d="M 1000,340 L 1050,450" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-verifying-resumeverify" d="M 950,350 L 950,420" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-resumeverify-completed" d="M 950,480 L 1030,260" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-resumeverify-failed" d="M 970,480 L 1040,390" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-needsretry-ready" d="M 1100,450 L 200,280" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-running-completed" d="M 850,280 L 1030,240" marker-end="url(#arrowhead)" stroke-dasharray="5,5"/>
+      <path class="transition-link" id="link-running-failed" d="M 850,320 L 1040,370" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-running-timeout" d="M 830,340 L 1040,500" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-preparing-paused" d="M 120,180 L 80,400" marker-end="url(#arrowhead)" stroke-dasharray="3,3"/>
+      <path class="transition-link" id="link-ready-paused" d="M 170,270 L 90,400" marker-end="url(#arrowhead)" stroke-dasharray="3,3"/>
+      <path class="transition-link" id="link-queued-paused" d="M 350,280 L 100,410" marker-end="url(#arrowhead)" stroke-dasharray="3,3"/>
+      <path class="transition-link" id="link-allocated-paused" d="M 550,280 L 110,420" marker-end="url(#arrowhead)" stroke-dasharray="3,3"/>
+      <path class="transition-link" id="link-running-paused" d="M 750,280 L 120,430" marker-end="url(#arrowhead)" stroke-dasharray="3,3"/>
+      <path class="transition-link" id="link-paused-ready" d="M 80,460 L 140,260" marker-end="url(#arrowhead)" stroke-dasharray="3,3"/>
+      <path class="transition-link" id="link-paused-cancelled" d="M 80,520 L 1040,600" marker-end="url(#arrowhead)"/>
+      <path class="transition-link" id="link-failed-timeout" d="M 1070,400 L 1070,500" marker-end="url(#arrowhead)"/>
+
+      <!-- 状态节点 -->
+      <g class="state-node cat-initial" onclick="showStateDetail('pending')" transform="translate(100,50)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">PENDING</text>
+        <text class="node-category" x="50" y="38">初始态</text>
+      </g>
+
+      <g class="state-node cat-intermediate" onclick="showStateDetail('preparing')" transform="translate(100,120)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">PREPARING</text>
+        <text class="node-category" x="50" y="38">乐观更新</text>
+      </g>
+
+      <g class="state-node cat-intermediate" onclick="showStateDetail('ready')" transform="translate(100,220)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">READY</text>
+        <text class="node-category" x="50" y="38">可调度</text>
+      </g>
+
+      <g class="state-node cat-intermediate" onclick="showStateDetail('queued')" transform="translate(300,275)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">QUEUED</text>
+        <text class="node-category" x="50" y="38">调度队列</text>
+      </g>
+
+      <g class="state-node cat-intermediate" onclick="showStateDetail('allocated')" transform="translate(500,275)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">ALLOCATED</text>
+        <text class="node-category" x="50" y="38">已分配Slot</text>
+      </g>
+
+      <g class="state-node cat-running" onclick="showStateDetail('running')" transform="translate(700,275)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">RUNNING</text>
+        <text class="node-category" x="50" y="38">执行中</text>
+      </g>
+
+      <g class="state-node cat-verifying" onclick="showStateDetail('verifying')" transform="translate(900,275)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">VERIFYING</text>
+        <text class="node-category" x="50" y="38">验证副作用</text>
+      </g>
+
+      <g class="state-node cat-terminal" onclick="showStateDetail('completed')" transform="translate(1020,200)">
+        <rect class="node-rect" width="110" height="50" rx="8"/>
+        <text class="node-label" x="55" y="22">COMPLETED</text>
+        <text class="node-category" x="55" y="38">终态·成功</text>
+      </g>
+
+      <g class="state-node cat-terminal" onclick="showStateDetail('failed')" transform="translate(1020,350)">
+        <rect class="node-rect" width="110" height="50" rx="8"/>
+        <text class="node-label" x="55" y="22">FAILED</text>
+        <text class="node-category" x="55" y="38">终态·失败</text>
+      </g>
+
+      <g class="state-node cat-retry" onclick="showStateDetail('needs_retry')" transform="translate(1020,430)">
+        <rect class="node-rect" width="110" height="50" rx="8"/>
+        <text class="node-label" x="55" y="22">NEEDS_RETRY</text>
+        <text class="node-category" x="55" y="38">可重试</text>
+      </g>
+
+      <g class="state-node cat-verifying" onclick="showStateDetail('resume_verify')" transform="translate(890,420)">
+        <rect class="node-rect" width="120" height="50" rx="8"/>
+        <text class="node-label" x="60" y="22">RESUME_VERIFY</text>
+        <text class="node-category" x="60" y="38">检查点恢复</text>
+      </g>
+
+      <g class="state-node cat-paused" onclick="showStateDetail('paused')" transform="translate(20,420)">
+        <rect class="node-rect" width="100" height="50" rx="8"/>
+        <text class="node-label" x="50" y="22">PAUSED</text>
+        <text class="node-category" x="50" y="38">用户暂停</text>
+      </g>
+
+      <g class="state-node cat-terminal" onclick="showStateDetail('timeout')" transform="translate(1020,500)">
+        <rect class="node-rect" width="110" height="50" rx="8"/>
+        <text class="node-label" x="55" y="22">TIMEOUT</text>
+        <text class="node-category" x="55" y="38">终态·超时</text>
+      </g>
+
+      <g class="state-node cat-terminal" onclick="showStateDetail('cancelled')" transform="translate(1020,580)">
+        <rect class="node-rect" width="110" height="50" rx="8"/>
+        <text class="node-label" x="55" y="22">CANCELLED</text>
+        <text class="node-category" x="55" y="38">终态·取消</text>
+      </g>
+    </svg>
+
+    <!-- 状态详情面板 -->
+    <div class="detail-panel" id="stateDetail">
+      <h3 id="detailTitle">点击状态节点查看详情</h3>
+      <div class="detail-grid" id="detailContent">
+        <div class="detail-card">
+          <h4>使用说明</h4>
+          <p>点击上方状态图中的任意节点，可查看该状态的详细说明、允许的转移目标、以及设计考量。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板2: 状态定义表 -->
+  <div id="panel-states" class="panel">
+    <div class="detail-panel">
+      <h3>14 态完整定义</h3>
+      <table class="state-table">
+        <thead>
+          <tr>
+            <th>状态</th>
+            <th>分类</th>
+            <th>说明</th>
+            <th>可转移目标</th>
+            <th>终态?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge badge-initial">PENDING</span></td><td>初始态</td><td>等待上游依赖满足</td><td>PREPARING, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-intermediate">PREPARING</span></td><td>中间态</td><td>乐观更新态，UI 即时反馈</td><td>READY, PAUSED, FAILED, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-intermediate">READY</span></td><td>中间态</td><td>依赖满足，可进入调度队列</td><td>QUEUED, PAUSED, FAILED, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-intermediate">QUEUED</span></td><td>中间态</td><td>在调度引擎就绪队列中</td><td>ALLOCATED, PAUSED, FAILED, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-intermediate">ALLOCATED</span></td><td>中间态</td><td>已分配 Slot 资源</td><td>RUNNING, PAUSED, FAILED, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-running">RUNNING</span></td><td>执行态</td><td>executor 正在执行</td><td>VERIFYING, COMPLETED, FAILED, TIMEOUT, PAUSED, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-verifying">VERIFYING</span></td><td>验证态</td><td>执行完成，验证副作用达成</td><td>COMPLETED, FAILED, NEEDS_RETRY, RESUME_VERIFY</td><td>否</td></tr>
+          <tr><td><span class="badge badge-verifying">RESUME_VERIFY</span></td><td>验证态</td><td>从检查点恢复后验证</td><td>COMPLETED, FAILED, NEEDS_RETRY</td><td>否</td></tr>
+          <tr><td><span class="badge badge-paused">PAUSED</span></td><td>暂停态</td><td>用户主动暂停，可恢复</td><td>READY, FAILED, CANCELLED</td><td>否</td></tr>
+          <tr><td><span class="badge badge-retry">NEEDS_RETRY</span></td><td>重试态</td><td>失败但标记为可重试</td><td>READY</td><td>否</td></tr>
+          <tr><td><span class="badge badge-terminal">COMPLETED</span></td><td>终态</td><td>成功完成</td><td>—</td><td>是</td></tr>
+          <tr><td><span class="badge badge-terminal">FAILED</span></td><td>终态</td><td>失败（含不可重试）</td><td>—</td><td>是</td></tr>
+          <tr><td><span class="badge badge-terminal">TIMEOUT</span></td><td>终态</td><td>执行超时</td><td>—</td><td>是</td></tr>
+          <tr><td><span class="badge badge-terminal">CANCELLED</span></td><td>终态</td><td>用户取消</td><td>—</td><td>是</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="detail-panel" style="margin-top:1rem">
+      <h3>状态分类统计</h3>
+      <div class="detail-grid">
+        <div class="detail-card">
+          <h4>按生命周期阶段</h4>
+          <ul>
+            <li><strong>调度前</strong>：PENDING, PREPARING, READY（3 个）</li>
+            <li><strong>调度中</strong>：QUEUED, ALLOCATED（2 个）</li>
+            <li><strong>执行中</strong>：RUNNING（1 个）</li>
+            <li><strong>执行后</strong>：VERIFYING, RESUME_VERIFY（2 个）</li>
+            <li><strong>中断</strong>：PAUSED, NEEDS_RETRY（2 个）</li>
+            <li><strong>终态</strong>：COMPLETED, FAILED, TIMEOUT, CANCELLED（4 个）</li>
+          </ul>
+        </div>
+        <div class="detail-card">
+          <h4>设计考量</h4>
+          <ul>
+            <li><strong>PREPARING</strong>：260823 新增，解决 UI 操作后无反馈问题</li>
+            <li><strong>VERIFYING</strong>：260819 修复 P7 审计缺陷（验证器注册但未调用）</li>
+            <li><strong>NEEDS_RETRY</strong>：区分"可重试失败"与"永久失败"</li>
+            <li><strong>终态无出边</strong>：保证 DAG 不会"死而复生"</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板3: 三层架构 -->
+  <div id="panel-architecture" class="panel">
+    <div class="arch-diagram">
+      <div class="arch-layer layer-frontend">
+        <h4>🖥️ 前端展示层</h4>
+        <p>ComputeEffectiveStatus() — 将 FSM 状态翻译为用户可读状态</p>
+        <p style="font-size:0.75rem; margin-top:0.5rem;">scraping / downloading / paused / completed / failed</p>
+      </div>
+      <div class="arch-arrow">↕ SSE 事件流（批量聚合 4096 队列）</div>
+      <div class="arch-layer layer-fsm">
+        <h4>⚙️ FSM 内存层</h4>
+        <p>TaskStateMachine — 14 态 + validTransitions + TransitionPolicy</p>
+        <p style="font-size:0.75rem; margin-top:0.5rem;">Transition() → runActions → invariant check → onTransition</p>
+      </div>
+      <div class="arch-arrow">↕ statusSyncFn 回调（每次转移触发）</div>
+      <div class="arch-layer layer-db">
+        <h4>💾 DB 持久化层</h4>
+        <p>StatusReporter — FSM NodeState → Entity DB Status 映射</p>
+        <p style="font-size:0.75rem; margin-top:0.5rem;">syncStatusToEntity() — 14 态压缩为 ~7 个 DB 状态</p>
+      </div>
+    </div>
+
+    <div class="detail-panel" style="margin-top:1rem">
+      <h3>三层分裂问题（P-StatusSync）</h3>
+      <div class="detail-grid">
+        <div class="detail-card">
+          <h4>问题表现</h4>
+          <ul>
+            <li>DB 状态 ≠ FSM 状态（映射丢失中间态）</li>
+            <li>前端显示 ≠ DB 状态（ComputeEffectiveStatus 二次翻译）</li>
+            <li>修复一层，另一层复发</li>
+          </ul>
+        </div>
+        <div class="detail-card">
+          <h4>根因分析</h4>
+          <ul>
+            <li>14 态 → 7 个 DB 状态：多对一映射不可逆</li>
+            <li>前端有独立的状态计算逻辑</li>
+            <li>缺少单一事实源（Single Source of Truth）</li>
+          </ul>
+        </div>
+        <div class="detail-card">
+          <h4>优化方向</h4>
+          <ul>
+            <li>状态精简 9 态（Phase 2）</li>
+            <li>事件溯源（append-only 事件日志）</li>
+            <li>FSM 作为唯一状态源，DB/Front 只读投影</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板4: 转移流程 -->
+  <div id="panel-flow" class="panel">
+    <div class="detail-panel">
+      <h3>Transition() 执行流程</h3>
+      <div class="flow-container" style="background:var(--bg-secondary); border-radius:8px; padding:2rem;">
+        <div class="flow-step"><span class="step-num">1</span>获取 FSM 锁</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">2</span>CanTransition<br>合法性检查</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">3</span>Guard 链<br>前置条件</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">4</span>执行转移<br>记录历史</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">5</span>Action 链<br>副作用操作</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">6</span>Invariant<br>不变量检查</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">7</span>onTransition<br>状态同步回调</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">8</span>释放锁<br>返回</div>
+      </div>
+    </div>
+
+    <div class="detail-panel" style="margin-top:1rem">
+      <h3>OnNodeCompleted 幂等守卫（260823 新增）</h3>
+      <div class="flow-container" style="background:var(--bg-secondary); border-radius:8px; padding:2rem;">
+        <div class="flow-step" style="border-color:var(--accent-orange)"><span class="step-num" style="color:var(--accent-orange)">!</span>Executor<br>完成事件</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="step-num">1</span>查找 DAG/Node</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="border-color:var(--accent-red)"><span class="step-num" style="color:var(--accent-red)">2</span>IsTerminal?<br>终态检查</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="border-color:var(--accent-green)"><span class="step-num" style="color:var(--accent-green)">3a</span>否 → 保存结果<br>正常处理</div>
+        <span class="flow-arrow" style="color:var(--accent-red)">↗</span>
+        <div class="flow-step" style="border-color:var(--accent-red)"><span class="step-num" style="color:var(--accent-red)">3b</span>是 → 返回<br>ErrNodeAlreadyTerminal</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板5: 策略与不变量 -->
+  <div id="panel-policy" class="panel">
+    <div class="detail-panel">
+      <h3>TransitionPolicy 策略链</h3>
+      <div class="detail-grid">
+        <div class="detail-card">
+          <h4>Guard（前置条件）</h4>
+          <p>在转移前执行，任一 Guard 返回 false 则拒绝转移。可设置 Fallback 降级到另一目标态。</p>
+          <p style="margin-top:0.5rem; font-size:0.8rem;">示例：RUNNING→COMPLETED 前检查 Slot 是否释放</p>
+        </div>
+        <div class="detail-card">
+          <h4>Action（后置操作）</h4>
+          <p>在转移成功后执行，用于触发副作用（释放 Slot、通知下游、更新 DB）。</p>
+          <p style="margin-top:0.5rem; font-size:0.8rem;">示例：进入 PAUSED 后取消 executor context</p>
+        </div>
+        <div class="detail-card">
+          <h4>Fallback（降级路径）</h4>
+          <p>当 Guard 失败时，不直接拒绝，而是转移到另一合法目标态。</p>
+          <p style="margin-top:0.5rem; font-size:0.8rem;">示例：RUNNING→VERIFYING 失败 → 降级到 FAILED</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-panel" style="margin-top:1rem">
+      <h3>StateInvariantChecker 不变量规则（260823 新增）</h3>
+      <table class="state-table">
+        <thead>
+          <tr>
+            <th>规则名</th>
+            <th>验证内容</th>
+            <th>严重度</th>
+            <th>设计意图</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>terminal_has_error</td>
+            <td>FAILED/TIMEOUT 态必须携带 LastError</td>
+            <td><span class="badge badge-terminal">Error</span></td>
+            <td>防止"静默失败"——失败节点必须有错误信息</td>
+          </tr>
+          <tr>
+            <td>verifying_has_path</td>
+            <td>VERIFYING 态的 phase 必须有 verifier 注册</td>
+            <td><span class="badge badge-paused">Warn</span></td>
+            <td>防止配置错误导致验证永远不通过</td>
+          </tr>
+          <tr>
+            <td>completed_via_verify</td>
+            <td>COMPLETED 态需有 verified 标记或 skipVerify</td>
+            <td><span class="badge badge-paused">Warn</span></td>
+            <td>修复 P7 审计缺陷——验证器注册但未调用</td>
+          </tr>
+          <tr>
+            <td>retryable_consistent</td>
+            <td>FAILED 态的 error 不能标记为 Retryable</td>
+            <td><span class="badge badge-terminal">Error</span></td>
+            <td>防止可重试错误被误判为永久失败</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="detail-panel" style="margin-top:1rem">
+      <h3>与开源项目对比</h3>
+      <table class="state-table">
+        <thead>
+          <tr>
+            <th>特性</th>
+            <th>PuchiPix</th>
+            <th>gallery-dl</th>
+            <th>lux</th>
+            <th>dagu</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>节点级 FSM</td><td>✅ 14 态 + Policy</td><td>❌ 无</td><td>❌ 无</td><td>✅ 步骤级</td></tr>
+          <tr><td>验证层 (VERIFYING)</td><td>✅ StateReconciler</td><td>❌</td><td>❌</td><td>❌</td></tr>
+          <tr><td>级联失败传播</td><td>✅ critical dep</td><td>❌</td><td>❌</td><td>✅</td></tr>
+          <tr><td>检查点恢复</td><td>✅ RESUME_VERIFY</td><td>❌</td><td>❌</td><td>✅</td></tr>
+          <tr><td>策略驱动转移</td><td>✅ Guard/Fallback</td><td>❌</td><td>❌</td><td>❌</td></tr>
+          <tr><td>不变量检查</td><td>✅ 运行时</td><td>❌</td><td>❌</td><td>❌</td></tr>
+          <tr><td>幂等守卫</td><td>✅ 终态检查</td><td>❌</td><td>❌</td><td>❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const stateDetails = {
+  pending: {
+    title: 'PENDING — 初始态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点创建后的初始状态，等待上游依赖全部完成。只有当所有 Dependencies 都达到 COMPLETED 后，才能转移到 PREPARING/READY。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>无（DAG 起始节点创建时直接进入）</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>PENDING → PREPARING（依赖满足后）</li><li>PENDING → CANCELLED（用户取消）</li></ul></div>
+      <div class="detail-card"><h4>设计考量</h4><p>与 PREPARING 分离：PENDING 是"客观等待"（依赖未满足），PREPARING 是"主观准备"（依赖已满足但资源未就绪）。</p></div>
+    `
+  },
+  preparing: {
+    title: 'PREPARING — 乐观更新态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>260823 新增。用户点击"开始"后立即进入此态，给 UI 即时反馈，同时后台做调度准备（资源检查、Slot 预留）。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>PENDING → PREPARING</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>PREPARING → READY（准备完成）</li><li>PREPARING → PAUSED（用户暂停）</li><li>PREPARING → FAILED（准备失败）</li><li>PREPARING → CANCELLED（用户取消）</li></ul></div>
+      <div class="detail-card"><h4>可合并性</h4><p>Phase 2 计划合并到 READY+context.Preparing=true，因为"准备中"本质上是 READY 的上下文标记。</p></div>
+    `
+  },
+  ready: {
+    title: 'READY — 可调度态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点依赖已满足、资源已就绪，可以进入调度引擎的就绪队列。调度器会根据优先级、Slot 配额等策略决定何时出队。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>PREPARING → READY</li><li>PAUSED → READY（恢复）</li><li>NEEDS_RETRY → READY（重试）</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>READY → QUEUED（进入调度队列）</li><li>READY → PAUSED</li><li>READY → FAILED</li><li>READY → CANCELLED</li></ul></div>
+      <div class="detail-card"><h4>设计考量</h4><p>与 QUEUED 分离：READY 是"可以调度"，QUEUED 是"已在队列中"。分离后可以支持"延迟入队"策略。</p></div>
+    `
+  },
+  queued: {
+    title: 'QUEUED — 调度队列态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点已在调度引擎的就绪队列中，等待被调度器选中并分配 Slot。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>READY → QUEUED</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>QUEUED → ALLOCATED（分配 Slot）</li><li>QUEUED → PAUSED</li><li>QUEUED → FAILED</li><li>QUEUED → CANCELLED</li></ul></div>
+      <div class="detail-card"><h4>设计考量</h4><p>调度器核心态。队列内部按优先级排序，支持抢占式调度。</p></div>
+    `
+  },
+  allocated: {
+    title: 'ALLOCATED — 已分配 Slot',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>调度器已为节点分配了 Slot 资源（如下载线程配额），但 executor 尚未开始执行。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>QUEUED → ALLOCATED</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>ALLOCATED → RUNNING（开始执行）</li><li>ALLOCATED → PAUSED</li><li>ALLOCATED → FAILED</li><li>ALLOCATED → CANCELLED</li></ul></div>
+      <div class="detail-card"><h4>可合并性</h4><p>Phase 2 计划合并到 QUEUED+context.SlotAllocated=true。</p></div>
+    `
+  },
+  running: {
+    title: 'RUNNING — 执行态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>executor 正在执行节点的核心逻辑（下载、抓取、后处理等）。这是唯一与外部系统（网络、文件系统）交互的状态。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>ALLOCATED → RUNNING</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>RUNNING → VERIFYING（需要验证）</li><li>RUNNING → COMPLETED（skipVerify 直接完成）</li><li>RUNNING → FAILED（执行失败）</li><li>RUNNING → TIMEOUT（超时）</li><li>RUNNING → PAUSED（用户暂停）</li><li>RUNNING → CANCELLED（用户取消）</li></ul></div>
+      <div class="detail-card"><h4>幂等守卫</h4><p>OnNodeCompleted 中如果节点已离开 RUNNING 进入终态，迟到事件会被 ErrNodeAlreadyTerminal 拦截。</p></div>
+    `
+  },
+  verifying: {
+    title: 'VERIFYING — 验证态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>executor 报告执行完成，但需要 StateReconciler 验证副作用是否真正达成（如文件是否下载完整、元数据是否写入）。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>RUNNING → VERIFYING</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>VERIFYING → COMPLETED（验证通过）</li><li>VERIFYING → FAILED（验证失败）</li><li>VERIFYING → NEEDS_RETRY（数据缺失，可重试）</li><li>VERIFYING → RESUME_VERIFY（需要检查点恢复）</li></ul></div>
+      <div class="detail-card"><h4>设计考量</h4><p>260819 修复 P7 审计缺陷：之前验证器注册但从未调用，节点直接从 RUNNING 到 COMPLETED。</p></div>
+    `
+  },
+  resume_verify: {
+    title: 'RESUME_VERIFY — 检查点恢复验证',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>从检查点恢复后，验证之前已下载的部分是否完整，决定是否需要重新下载。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>VERIFYING → RESUME_VERIFY</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>RESUME_VERIFY → COMPLETED</li><li>RESUME_VERIFY → FAILED</li><li>RESUME_VERIFY → NEEDS_RETRY</li></ul></div>
+      <div class="detail-card"><h4>可合并性</h4><p>Phase 2 计划合并到 VERIFYING+context.ResumeFromCheckpoint=true。</p></div>
+    `
+  },
+  paused: {
+    title: 'PAUSED — 暂停态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>用户主动暂停节点执行。从 PREPARING/READY/QUEUED/ALLOCATED/RUNNING 均可进入。恢复后回到 READY。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>PREPARING → PAUSED</li><li>READY → PAUSED</li><li>QUEUED → PAUSED</li><li>ALLOCATED → PAUSED</li><li>RUNNING → PAUSED</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>PAUSED → READY（恢复）</li><li>PAUSED → FAILED（放弃）</li><li>PAUSED → CANCELLED（取消）</li></ul></div>
+      <div class="detail-card"><h4>实现机制</h4><p>通过 executor 协作式暂停：设置暂停标志，executor 在安全点检查并停止。</p></div>
+    `
+  },
+  needs_retry: {
+    title: 'NEEDS_RETRY — 可重试态',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点失败但错误标记为 Retryable（如网络超时、临时限流）。将自动或手动重试，回到 READY 重新进入调度。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>VERIFYING → NEEDS_RETRY</li><li>RESUME_VERIFY → NEEDS_RETRY</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>NEEDS_RETRY → READY（重试）</li></ul></div>
+      <div class="detail-card"><h4>可合并性</h4><p>Phase 2 计划合并到 FAILED+context.Retryable=true。</p></div>
+    `
+  },
+  completed: {
+    title: 'COMPLETED — 终态·成功',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点成功完成所有步骤（执行 + 验证）。终态，无出边。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>VERIFYING → COMPLETED</li><li>RESUME_VERIFY → COMPLETED</li><li>RUNNING → COMPLETED（skipVerify）</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>无（终态）</li></ul></div>
+      <div class="detail-card"><h4>不变量检查</h4><p>必须有 Extras["verified"]=true 或 Config["skipVerify"]=true，否则触发 completed_via_verify 警告。</p></div>
+    `
+  },
+  failed: {
+    title: 'FAILED — 终态·失败',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点执行失败且不可重试（或重试次数耗尽）。终态，无出边。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>PREPARING → FAILED</li><li>READY → FAILED</li><li>QUEUED → FAILED</li><li>ALLOCATED → FAILED</li><li>RUNNING → FAILED</li><li>VERIFYING → FAILED</li><li>RESUME_VERIFY → FAILED</li><li>PAUSED → FAILED</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>无（终态）</li></ul></div>
+      <div class="detail-card"><h4>不变量检查</h4><p>必须携带 LastError 且 LastError.Retryable=false，否则触发 terminal_has_error 或 retryable_consistent 违规。</p></div>
+    `
+  },
+  timeout: {
+    title: 'TIMEOUT — 终态·超时',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>节点执行超过预设时限。由调度器或 executor 超时检测触发。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>RUNNING → TIMEOUT</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>无（终态）</li></ul></div>
+      <div class="detail-card"><h4>不变量检查</h4><p>必须携带 LastError（含超时信息）。</p></div>
+    `
+  },
+  cancelled: {
+    title: 'CANCELLED — 终态·取消',
+    content: `
+      <div class="detail-card"><h4>说明</h4><p>用户主动取消节点执行。终态，无出边。</p></div>
+      <div class="detail-card"><h4>入边</h4><ul><li>PENDING → CANCELLED</li><li>PREPARING → CANCELLED</li><li>READY → CANCELLED</li><li>QUEUED → CANCELLED</li><li>ALLOCATED → CANCELLED</li><li>RUNNING → CANCELLED</li><li>PAUSED → CANCELLED</li></ul></div>
+      <div class="detail-card"><h4>出边</h4><ul><li>无（终态）</li></ul></div>
+      <div class="detail-card"><h4>设计考量</h4><p>从任何非终态均可取消，保证用户操作的即时响应。</p></div>
+    `
+  }
+};
+
+function showPanel(id, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+function showStateDetail(state) {
+  const detail = stateDetails[state];
+  if (!detail) return;
+  document.getElementById('detailTitle').textContent = detail.title;
+  document.getElementById('detailContent').innerHTML = detail.content;
+  
+  // 高亮相关连线
+  document.querySelectorAll('.transition-link').forEach(link => {
+    link.classList.remove('highlighted');
+  });
+  
+  document.querySelectorAll('.transition-link').forEach(link => {
+    const id = link.id;
+    if (id.startsWith('link-' + state + '-') || id.endsWith('-' + state)) {
+      link.classList.add('highlighted');
+    }
+  });
+}
+</script>
+</body>
+</html>
