@@ -3,6 +3,7 @@ package video
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -37,6 +38,8 @@ type ActiveDownload struct {
 	StartTime         time.Time
 	LastProgressTime  time.Time
 	Referer           string
+	// streamMerger 是流式合并器，当 UseStreamingMerge 启用时使用
+	streamMerger *StreamMerger
 }
 
 // Context returns the per-download context, used by segment downloads
@@ -76,6 +79,10 @@ type QueueItem struct {
 // ProgressFunc is the callback signature for progress reporting.
 type ProgressFunc func(taskID int, progress float64, segment, total int, status, speed string)
 
+// SegmentReadyFunc 是当分片下载完成并存储到 IndexBuffer 时的回调
+// index: 分片索引, filePath: 分片文件路径, size: 分片大小
+type SegmentReadyFunc func(taskID, index int, filePath string, size int64)
+
 // SegmentQueueConfig holds the dependencies the queue needs from its
 // owning DownloadManager, avoiding tight coupling to the full struct.
 type SegmentQueueConfig struct {
@@ -86,6 +93,9 @@ type SegmentQueueConfig struct {
 	// or fails, bridging the VideoProgressTracker pipeline. The
 	// completed parameter is true on success, false on failure.
 	OnSegmentUpdate   func(taskID, segmentIdx int, completed bool, localPath string, fileSize int64, errMsg string)
+	// OnSegmentReady is called when a segment is downloaded and ready
+	// for streaming merge. Used by IndexBuffer-based pipeline.
+	OnSegmentReady    SegmentReadyFunc
 	DB               *db.Database
 	Logger           *infra.Logger
 }
@@ -264,6 +274,14 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 		download.CompletedSegments[item.Segment.Index] = true
 		if q.cfg.OnSegmentUpdate != nil {
 			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, true, result.FilePath, 0, "")
+		}
+		// 通知流式合并器分片已就绪
+		if q.cfg.OnSegmentReady != nil {
+			var fileSize int64
+			if info, err := os.Stat(result.FilePath); err == nil {
+				fileSize = info.Size()
+			}
+			q.cfg.OnSegmentReady(item.TaskID, item.Segment.Index, result.FilePath, fileSize)
 		}
 	}
 

@@ -54,17 +54,23 @@ type ManagerConfig struct {
 	GPUTranscode  bool
 	// ForceGPUType overrides auto-detection ("" = auto). Valid values: "nvenc", "qsv", "vaapi", "amf", "videotoolbox".
 	ForceGPUType string
+	// UseStreamingMerge 是否使用流式合并（IndexBuffer + StreamMerger），默认 false
+	UseStreamingMerge bool
+	// StreamingMergeThreshold 流式合并的内存阈值（字节），超过此值使用磁盘模式，默认 100MB
+	StreamingMergeThreshold int64
 }
 
 // DefaultManagerConfig returns sensible defaults.
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		MaxRetries:    5,
-		DownloadPath:  "../data/videos",
-		SegmentsPath:  "../data/segments",
-		MaxConcurrent: 3,
-		GPUTranscode: false,
-		ForceGPUType: "",
+		MaxRetries:              5,
+		DownloadPath:            "../data/videos",
+		SegmentsPath:            "../data/segments",
+		MaxConcurrent:           3,
+		GPUTranscode:            false,
+		ForceGPUType:            "",
+		UseStreamingMerge:       false, // 默认关闭，渐进式启用
+		StreamingMergeThreshold: 100 * 1024 * 1024, // 100MB
 	}
 }
 
@@ -85,6 +91,9 @@ type DownloadManager struct {
 	gpuTranscode bool
 	forceGPUType string
 	tracker       *taskprogress.VideoProgressTracker
+	// 流式合并配置
+	useStreamingMerge       bool
+	streamingMergeThreshold int64
 
 	activeDownloads map[int]*ActiveDownload
 	taskRetries     map[int]int
@@ -118,6 +127,9 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		activeDownloads: make(map[int]*ActiveDownload),
 		taskRetries:    make(map[int]int),
 		logger:         m3u8Logger,
+		// 流式合并配置
+		useStreamingMerge:       cfg.UseStreamingMerge,
+		streamingMergeThreshold: cfg.StreamingMergeThreshold,
 	}
 	m.cond = sync.NewCond(&m.mu)
 
@@ -128,6 +140,7 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		},
 		OnProgress: m.emitProgress,
 		OnSegmentUpdate: m.handleSegmentUpdate,
+		OnSegmentReady: m.handleSegmentReady,
 		DB:         database,
 		Logger:     m.logger,
 	})
@@ -296,6 +309,30 @@ func (m *DownloadManager) handleSegmentUpdate(taskID, segmentIdx int, completed 
 		status = taskprogress.SegFailed
 	}
 	m.tracker.UpdateSegment(taskID, segmentIdx, status, localPath, fileSize, errMsg)
+}
+
+// handleSegmentReady 是分片下载完成并准备进行流式合并时的回调
+// 当 UseStreamingMerge 启用时，将分片存储到对应任务的 StreamMerger 中
+func (m *DownloadManager) handleSegmentReady(taskID, index int, filePath string, size int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	download, ok := m.activeDownloads[taskID]
+	if !ok {
+		return
+	}
+
+	// 如果启用了流式合并且该任务有 StreamMerger，则存储分片
+	if download.streamMerger != nil {
+		if err := download.streamMerger.StoreSegmentDisk(index, filePath, size); err != nil {
+			m.logger.Warn("Failed to store segment to stream merger",
+				infra.LogContext{Extra: map[string]any{
+					"taskId": taskID,
+					"index":  index,
+					"error":  err.Error(),
+				}})
+		}
+	}
 }
 
 func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, total int, status, speed string) {
