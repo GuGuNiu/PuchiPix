@@ -397,3 +397,9 @@ var ErrDagNotFound = errors.New("DAG not found")
 // ErrNodeNotFound is returned when a node ID does not match any node
 // within the specified DAG.
 var ErrNodeNotFound = errors.New("node not found")
+
+// ErrNodeAlreadyTerminal is returned by OnNodeCompleted when a
+// completion event arrives after the node has already reached a terminal
+// state via another path (pause, cancel, restart). The caller should
+// treat this as a benign duplicate and discard the event.
+var ErrNodeAlreadyTerminal = errors.New("node already in terminal state")

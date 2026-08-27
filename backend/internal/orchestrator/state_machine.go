@@ -12,6 +12,39 @@ import (
 // prevent unbounded memory growth in long-running DAGs.
 const maxHistoryLength = 100
 
+// globalInvariantChecker is the shared StateInvariantChecker instance
+// that runs after every node's Transition. It is initialised lazily on
+// first use so tests can substitute a mock before any transition fires.
+var (
+	invariantCheckerMu sync.RWMutex
+	invariantChecker   *StateInvariantChecker
+)
+
+// InitInvariantChecker installs the global invariant checker. Calling it
+// more than once replaces the previous checker (intended for tests).
+func InitInvariantChecker(c *StateInvariantChecker) {
+	invariantCheckerMu.Lock()
+	defer invariantCheckerMu.Unlock()
+	invariantChecker = c
+}
+
+// getInvariantChecker returns the current checker, installing the default
+// set on first access.
+func getInvariantChecker() *StateInvariantChecker {
+	invariantCheckerMu.RLock()
+	c := invariantChecker
+	invariantCheckerMu.RUnlock()
+	if c != nil {
+		return c
+	}
+	invariantCheckerMu.Lock()
+	defer invariantCheckerMu.Unlock()
+	if invariantChecker == nil {
+		invariantChecker = NewStateInvariantChecker()
+	}
+	return invariantChecker
+}
+
 // StateMachineContext carries the runtime context for a node's state
 // machine, including retry tracking and timing data.
 type StateMachineContext struct {
@@ -173,6 +206,22 @@ func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext
 
 	if fsm.policy != nil {
 		fsm.runActionsLocked(prevState, resolvedTo, ctx)
+	}
+
+	// Post-transition invariant check: validate that the new state is
+	// internally consistent and agrees with the broader system context.
+	// Runs under the FSM lock so the check sees a stable snapshot. The
+	// checker is a no-op when no invariants are registered (nil-safe).
+	if violations := getInvariantChecker().Check(fsm.context, resolvedTo, nil); len(violations) > 0 {
+		for _, v := range violations {
+			if v.Severity == InvariantError {
+				fsm.logger.Error(fmt.Sprintf("Invariant VIOLATED (%s): %s", v.RuleName, v.Message),
+					"nodeId", fsm.nodeID, "dagId", fsm.dagID, "state", resolvedTo)
+			} else {
+				fsm.logger.Warn(fmt.Sprintf("Invariant warning (%s): %s", v.RuleName, v.Message),
+					"nodeId", fsm.nodeID, "dagId", fsm.dagID, "state", resolvedTo)
+			}
+		}
 	}
 
 	fsm.logger.Info(fmt.Sprintf("Node %s state transition: %s -> %s (%s)", fsm.nodeID, prevState, resolvedTo, ctx.Reason))

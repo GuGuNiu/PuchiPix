@@ -23,6 +23,15 @@ import (
 // scheduler already detected a deadline). Previously the success path
 // skipped VERIFYING entirely and left the node in RUNNING, which is the
 // P7 audit defect — verify executors were registered but never invoked.
+//
+// Idempotency guard (260823): if the node is already in a terminal state
+// when this callback fires, the result is a late arrival (executor sent
+// a second completion event after a pause/cancel/restart drove the node
+// to COMPLETED/FAILED/CANCELLED). Processing it would re-activate
+// successors or double-transition, so we return ErrNodeAlreadyTerminal
+// and let the caller log-and-forget. This replaces the previous
+// per-branch "currentState == RUNNING" check with a single top-level
+// guard that covers all terminal states uniformly.
 func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID string, result orchestrator.NodeExecutionResult) error {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -36,10 +45,18 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 		dag.mu.Unlock()
 		return orchestrator.ErrNodeNotFound
 	}
-	node.result = &result
 	fsm := node.fsm
-	policy := fsm.Policy()
 	currentState := fsm.State()
+	// Idempotent short-circuit: discard late-arriving events for nodes
+	// that already reached a terminal state via another path.
+	if orchestrator.IsTerminalState(currentState) {
+		dag.mu.Unlock()
+		o.logger.Info("OnNodeCompleted discarded: node already terminal",
+			"dagId", dagID, "nodeId", nodeID, "state", currentState)
+		return orchestrator.ErrNodeAlreadyTerminal
+	}
+	node.result = &result
+	policy := fsm.Policy()
 	dag.mu.Unlock()
 
 	// Drive the post-execution transition on success. On failure the
