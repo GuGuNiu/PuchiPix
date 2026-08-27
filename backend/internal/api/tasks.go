@@ -451,44 +451,27 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Run the URL through the unified preprocessing pipeline. This
+	// consolidates cleaning, normalization, M3U8 detection, site
+	// matching, page-type identification, task routing, and Referer-
+	// domain injection into a single call, eliminating the scattered
+	// logic that historically caused MacCMS encoding bugs, CDN 403
+	// failures, and misrouted tasks.
+	route := urlutil.NormalizeAndRoute(req.URL, h.SiteReg)
 	cleanedURL := urlutil.CleanURL(req.URL)
-	normalizedURL := urlutil.NormalizeURL(cleanedURL)
+	normalizedURL := route.NormalizedURL
 
-	// Route based on the site module's type field, not just whether the
-	// provider implements GallerySiteProvider. Video sites like Kanav
-	// implement that interface for M3U8 sniffing but must still be
-	// treated as video downloads.
-	providerMatched := false
-	if h.SiteReg != nil && !urlutil.IsM3U8URL(cleanedURL) {
-		if provider, ok := h.SiteReg.GetProviderByUrl(cleanedURL); ok {
-			providerMatched = true
-
-			// Any provider (regardless of site type) that recognizes the URL
-			// as a listing/search page should create a sniff task. This must
-			// run before the photo/video branching so video-type sites like
-			// kanav can still route search pages to the sniff flow.
-			if listProvider, ok := provider.(interface {
-				IsListingPage(url string) bool
-			}); ok && listProvider.IsListingPage(cleanedURL) {
-				h.createSniffTask(w, r, cleanedURL, provider.SiteID(), req.Seq)
-				return
-			}
-
-			siteType := "photo" // default to photo for legacy providers
-			if mod, modOk := h.SiteReg.GetModule(provider.SiteID()); modOk && mod.Type != "" {
-				siteType = mod.Type
-			}
-
-			if siteType == "photo" {
-				if _, ok := provider.(sites.GallerySiteProvider); ok {
-					h.createGalleryTask(w, r, cleanedURL, normalizedURL, provider, req.Seq)
-					return
-				}
-			}
+	switch route.Route {
+	case urlutil.RouteSniff:
+		h.createSniffTask(w, r, cleanedURL, route.SiteID, req.Seq)
+		return
+	case urlutil.RouteGallery:
+		if route.Provider != nil {
+			h.createGalleryTask(w, r, cleanedURL, normalizedURL, route.Provider, req.Seq)
+			return
 		}
-	}
-
-	if !providerMatched && !urlutil.IsM3U8URL(cleanedURL) && h.SiteReg != nil {
+	case urlutil.RouteUnknown:
+		// URL did not match any provider and is not an M3U8 stream.
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unrecognizedUrl"))
 		return
 	}

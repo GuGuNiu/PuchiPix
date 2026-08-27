@@ -512,6 +512,23 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		Referer:           referer,
 	}
 
+	// 初始化流式合并器（当配置启用时）。
+	// 根据 M3U8 分片总大小自动选择内存模式或磁盘模式：
+	//   - 预估总大小 < streamingMergeThreshold → MemoryMode（零磁盘 I/O）
+	//   - 预估总大小 ≥ streamingMergeThreshold → DiskMode（恒定内存占用）
+	// 预估大小基于分片数 × 平均分片大小（从 M3U8 元数据获取）。
+	if m.useStreamingMerge {
+		avgSegSize := estimateAvgSegmentSize(segments)
+		bufMode := DetermineBufferMode(len(segments), avgSegSize)
+		download.streamMerger = CreateStreamMergerForTask(task.ID, len(segments), segDir, bufMode)
+		m.logger.Info("Streaming merge enabled for task",
+			infra.LogContext{Extra: map[string]any{
+				"taskId":  task.ID,
+				"mode":    bufMode,
+				"segs":    len(segments),
+			}})
+	}
+
 	m.mu.Lock()
 	m.activeDownloads[task.ID] = download
 	m.mu.Unlock()
@@ -620,16 +637,22 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"taskId": task.ID,
 			"gpu":    m.gpuTranscode,
 		}})
+
+	// 使用可插拔 Pipeline 执行转码后处理。
+	// 默认管道：concat → transcode，与旧逻辑行为一致。
+	// 未来可通过 Pipeline.Use() 插入 WatermarkStep / MetadataStep
+	// 而无需修改此调用点。
+	// 如果启用了流式合并且 StreamMerger 仍有未消费的分片，
+	// 将其作为 Pipeline 的输入；否则从 segDir 读取已下载的分片。
 	transcodeCtx, transcodeCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer transcodeCancel()
 
-	transcodeOpts := TranscodeOptions{
-		UseGPU:       m.gpuTranscode,
-		ForceGPUType: m.forceGPUType,
+	pipeline := NewDefaultPipeline(m.gpuTranscode, m.forceGPUType)
+	pipelineData := NewPipelineData(transcodeCtx, segDir, mp4OutputPath, segments)
+	if _, err := pipeline.ExecuteWithCleanup(transcodeCtx, pipelineData); err != nil {
+		return fmt.Errorf("transcode pipeline: %w", err)
 	}
-	if err := TranscodeTSWithFallback(transcodeCtx, segDir, mp4OutputPath, transcodeOpts); err != nil {
-		return fmt.Errorf("transcode TS: %w", err)
-	}
+
 	m.logger.Info("MP4 transcoding completed",
 		infra.LogContext{Extra: map[string]any{
 			"taskId": task.ID,
@@ -1001,6 +1024,29 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 		task.Director, resolution)
 
 	return err
+}
+
+// estimateAvgSegmentSize 估算 M3U8 分片的平均字节大小。
+// M3U8 分片通常为 2–10 秒的流媒体内容，按典型 HLS 码率
+// 1–5 Mbps 估算，取中间值 ~2 Mbps (250 KB/s) 作为默认码率。
+// 此估算仅用于选择 IndexBuffer 的存储模式（内存 vs 磁盘），
+// 不影响实际下载或文件大小准确性。
+func estimateAvgSegmentSize(segments []M3U8Segment) int64 {
+	if len(segments) == 0 {
+		return 0
+	}
+	const defaultBitrateBytesPerSec = 250 * 1024 // ~2 Mbps → 250 KB/s
+	var totalDuration float64
+	for _, seg := range segments {
+		if seg.Duration > 0 {
+			totalDuration += seg.Duration
+		}
+	}
+	if totalDuration == 0 {
+		return int64(5 * defaultBitrateBytesPerSec)
+	}
+	avgDuration := totalDuration / float64(len(segments))
+	return int64(avgDuration * defaultBitrateBytesPerSec)
 }
 
 

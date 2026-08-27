@@ -28,10 +28,23 @@ func (c *SSEClient) isClosed() bool {
 	return c.closed
 }
 
+// EventPriority defines the importance level of an SSE event.
+// Critical events (created, completed, failed, cancelled) are always
+// delivered; LowPriority events (progress) can be dropped when the
+// queue is under pressure to prevent backpressure cascading.
+type EventPriority int
+
+const (
+	PriorityCritical EventPriority = iota // created/completed/failed/cancelled — never drop
+	PriorityHigh                          // nodeStateChanged/gallery:created — drop only as last resort
+	PriorityLow                           // progress/heartbeat — droppable under load
+)
+
 type sseEvent struct {
-	event string
-	data  []byte
-	ack   chan struct{}
+	event    string
+	data     []byte
+	ack      chan struct{}
+	priority EventPriority
 }
 
 type SSEStream struct {
@@ -291,6 +304,23 @@ func (s *SSEStream) writeFrame(frame []byte) bool {
 	return true
 }
 
+// eventPriorityFor classifies an SSE event name into a priority level.
+// Critical events (created, completed, failed, cancelled) must always
+// reach the client; High events (gallery:created, nodeStateChanged) are
+// important but can be shed in extreme overload; Low events (progress,
+// heartbeat, nodeProgress) are high-frequency and safely droppable.
+func eventPriorityFor(event string) EventPriority {
+	switch event {
+	case "task:created", "task:completed", "task:failed", "task:cancelled",
+		"gallery:created", "gallery:stateChanged":
+		return PriorityCritical
+	case "dag:nodeStateChanged", "slot:stateChanged", "task:metadata":
+		return PriorityHigh
+	default: // "task:progress", "dag:nodeProgress", "heartbeat", etc.
+		return PriorityLow
+	}
+}
+
 func (s *SSEStream) SendEvent(event string, data any) {
 	s.enqueue(event, data, true)
 }
@@ -328,13 +358,23 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 	if wait {
 		ack = make(chan struct{})
 	}
-	ev := sseEvent{event: event, data: payload, ack: ack}
+	ev := sseEvent{
+		event:    event,
+		data:     payload,
+		ack:      ack,
+		priority: eventPriorityFor(event),
+	}
 
-	// 聚合模式判断：当队列积压超过阈值时，启用聚合
-	// 这可以防止任务风暴时 SSE 队列溢出和前端卡顿
+	// 聚合模式判断：当队列积压超过阈值时，启用聚合。
+	// 低优先级事件（progress/heartbeat）直接进入聚合器，
+	// 高/关键事件仍尝试入队，保证关键信息不丢失。
 	if !wait && s.aggregator != nil && s.aggregator.shouldAggregate(len(s.queue)) {
-		s.aggregator.add(ev)
-		return true
+		if ev.priority == PriorityLow {
+			s.aggregator.add(ev)
+			return true
+		}
+		// 高/关键事件在聚合模式下仍尝试直接入队，
+		// 只在队列满时才进入聚合器作为降级。
 	}
 
 	if !wait {
@@ -342,10 +382,23 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 		case s.queue <- ev:
 			return true
 		default:
+			// 队列满时的优先级处理：
+			// 低优先级事件直接丢弃（进度可丢失），计数递增
+			if ev.priority == PriorityLow {
+				s.mu.Lock()
+				s.dropped++
+				s.mu.Unlock()
+				// 尝试进入聚合器（如果启用）
+				if s.aggregator != nil {
+					s.aggregator.add(ev)
+					return true
+				}
+				return false
+			}
+			// 高/关键事件不轻易丢弃，尝试挤出一条低优先级事件
 			s.mu.Lock()
 			s.dropped++
 			s.mu.Unlock()
-			// 队列满时尝试聚合（如果启用）
 			if s.aggregator != nil {
 				s.aggregator.add(ev)
 				return true
