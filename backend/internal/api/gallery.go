@@ -669,12 +669,18 @@ func (h *Handlers) ShelfDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if savePath != "" {
-		_ = os.RemoveAll(savePath)
+	// Drop in-memory progress tracking state for the deleted gallery
+	// (files + phase maps) so deleted galleries cannot accumulate in RAM.
+	if h.ProgressEngine != nil {
+		h.ProgressEngine.RemoveGallery(id)
 	}
-	if zipLocalPath != "" {
-		_ = os.Remove(zipLocalPath)
-	}
+
+	// File cleanup runs in the background: os.RemoveAll can block for a long
+	// time on Windows when freshly-cancelled executors still hold file
+	// handles, and blocking here stalls the HTTP response (observed as an
+	// indefinitely spinning batch delete in the UI). asyncRemoveAll retries
+	// on locks and logs leftovers instead of silently discarding errors.
+	asyncRemoveAll(savePath, zipLocalPath)
 
 	if h.EventBus != nil {
 		h.EventBus.Emit("task:cancelled", map[string]any{
@@ -721,42 +727,37 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "pause":
-		if h.DagOrch != nil && dagID != "" {
-			if err := h.DagOrch.PauseDag(ctx, dagID); err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG pause failed: %v", err))
+			if h.DagOrch != nil && dagID != "" {
+				if err := h.DagOrch.PauseDag(ctx, dagID); err != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG pause failed: %v", err))
+					return
+				}
+				// No direct DB write / hardcoded SSE status here: PauseDag
+				// transitions nodes to PAUSED and the statusSync callback
+				// (main.go) writes "paused" to the DB and emits the matching
+				// task:progress event. Duplicating the write here previously
+				// let the hardcoded label diverge from the FSM truth.
+				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "pause", "status": "paused"})
 				return
 			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'paused' WHERE id = ?", id)
-			if h.EventBus != nil {
-				h.EventBus.Emit("task:progress", map[string]any{
-					"taskId":   id,
-					"taskType": "gallery",
-					"status":   "paused",
-				})
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "pause", "status": "paused"})
-			return
-		}
-		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+			writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
 
-	case "resume":
-		if h.DagOrch != nil && dagID != "" {
-			if err := h.DagOrch.ResumeDag(ctx, dagID, ""); err != nil {
-				writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume failed: %v", err))
+		case "resume":
+			if h.DagOrch != nil && dagID != "" {
+				if err := h.DagOrch.ResumeDag(ctx, dagID, ""); err != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume failed: %v", err))
+					return
+				}
+				// No direct DB write here. ResumeDag moves nodes to READY/
+				// QUEUED and statusSync writes the correct entity status
+				// ("pending" while held back, "scraping"/"downloading" once
+				// the scheduler dispatches). The previous hardcoded
+				// status='scraping' write reintroduced the "fake scraping"
+				// defect (260822) whenever the resumed DAG was still queued.
+				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "resume", "status": "resumed"})
 				return
 			}
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping' WHERE id = ?", id)
-			if h.EventBus != nil {
-				h.EventBus.Emit("task:progress", map[string]any{
-					"taskId":   id,
-					"taskType": "gallery",
-					"status":   "scraping",
-				})
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "resume", "status": "resumed"})
-			return
-		}
-		writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+			writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
 
 	case "download":
 		h.shelfRetryFailed(ctx, w, r, id)
@@ -812,14 +813,13 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume/retry failed: %v", err))
 					return nil
 				}
-				h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
-				if h.EventBus != nil {
-					h.EventBus.Emit("task:progress", map[string]any{
-						"taskId":   id,
-						"taskType": "gallery",
-						"status":   "scraping",
-					})
-				}
+				// ResumeDag/RetryDag already re-transitioned the nodes and
+				// statusSync wrote the correct entity status (pending while
+				// held back, scraping/downloading once dispatched) plus the
+				// matching SSE event. Only clear the stale error message —
+				// writing a hardcoded status here would overwrite the
+				// FSM-derived value and reintroduce status divergence.
+				h.DB.Exec(ctx, "UPDATE galleries SET error_msg = '' WHERE id = ?", id)
 				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "start", "dagId": dagID, "status": "resuming"})
 				return nil
 			}
@@ -845,12 +845,17 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 			return nil
 		}
 		h.updateGalleryDagID(ctx, id, newDagID)
-		h.DB.Exec(ctx, "UPDATE galleries SET status = 'scraping', error_msg = '' WHERE id = ?", id)
+		// Freshly submitted DAGs start with PENDING nodes: per the
+		// StatusReporter design (260821) the entity must read "pending"
+		// until the scheduler actually dispatches a node — NOT "scraping",
+		// which previously made every queued task look like it was actively
+		// identifying. statusSync takes over as soon as nodes transition.
+		h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
 		if h.EventBus != nil {
 			h.EventBus.Emit("task:progress", map[string]any{
 				"taskId":   id,
 				"taskType": "gallery",
-				"status":   "scraping",
+				"status":   "pending",
 			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "retry-failed", "dagId": newDagID, "status": "retrying"})

@@ -87,7 +87,8 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
 		       COALESCE(dt.total_segments, 0) AS total_segments,
 		       COALESCE(dt.completed_segments, 0) AS completed_segments,
-		       COALESCE(vi.file_size, 0) AS file_size
+		       COALESCE(vi.file_size, 0) AS file_size,
+		       COALESCE(vi.tags, '') AS tags
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
 		 ORDER BY dt.id DESC LIMIT ? OFFSET ?`, limit, offset)
@@ -101,9 +102,11 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 	var ca, ua db.SQLTime
 	for rows.Next() {
 		var t db.DownloadTask
-		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &ca, &ua, &t.Title, &t.Person, &t.TotalSegments, &t.Segment, &t.FileSize); err != nil {
+		var tagsStr string
+		if err := rows.Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &ca, &ua, &t.Title, &t.Person, &t.TotalSegments, &t.Segment, &t.FileSize, &tagsStr); err != nil {
 			continue
 		}
+		t.Tags = task_compute.ParseTagsColumn(tagsStr)
 		t.Person = parsePersonForDisplay(t.Person)
 		t.CreatedAt = ca.Time
 		t.UpdatedAt = ua.Time
@@ -152,6 +155,7 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 		        false AS content_verified,
 		        COALESCE(dt.total_segments, 0) AS total_segments,
 		        COALESCE(dt.completed_segments, 0) AS completed_segments,
+		        COALESCE(vi.tags, '') AS tags,
 		        dt.created_at, dt.updated_at
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
@@ -164,7 +168,7 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
 				&r.DownloadedSize, &r.ContentVerified,
 				&r.TotalSegments, &r.CompletedSegments,
-				&r.CreatedAt, &r.UpdatedAt); err != nil {
+				&r.Tags, &r.CreatedAt, &r.UpdatedAt); err != nil {
 				continue
 			}
 			tasks = append(tasks, h.enrichUnifiedTask(r))
@@ -255,11 +259,13 @@ func (h *Handlers) enrichUnifiedTask(r unifiedTaskRow) map[string]any {
 		"DisplayID":        r.Seq,
 		"GalleryTitle":     r.Title,
 		"Person":           parsePersonForDisplay(r.Protagonist),
+		"Actors":           task_compute.ParseTagsColumn(r.Protagonist),
 		"ImageCount":       r.ImageCount,
 		"VideoCount":       r.VideoCount,
 		"GalleryTotalSize": r.TotalSize,
 		"Segment":          r.CompletedSegments,
 		"TotalSegments":    r.TotalSegments,
+		"Tags":             task_compute.ParseTagsColumn(r.Tags),
 		"CreatedAt":        r.CreatedAt,
 		"UpdatedAt":        r.UpdatedAt,
 	})
@@ -336,6 +342,7 @@ func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 		        false AS content_verified,
 		        COALESCE(dt.total_segments, 0) AS total_segments,
 		        COALESCE(dt.completed_segments, 0) AS completed_segments,
+		        COALESCE(vi.tags, '') AS tags,
 		        dt.created_at, dt.updated_at
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
@@ -348,7 +355,7 @@ func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
 				&r.DownloadedSize, &r.ContentVerified,
 				&r.TotalSegments, &r.CompletedSegments,
-				&r.CreatedAt, &r.UpdatedAt); err != nil {
+				&r.Tags, &r.CreatedAt, &r.UpdatedAt); err != nil {
 				continue
 			}
 			tasks = append(tasks, h.enrichUnifiedTask(r))
@@ -938,28 +945,67 @@ func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var t db.DownloadTask
+	var detailTags string
+	var ca, ua db.SQLTime
 	err := h.DB.QueryRow(r.Context(),
 		`SELECT dt.id, dt.url, dt.m3u8_url, dt.status, dt.progress,
 		       dt.file_path, dt.format, dt.priority, dt.error_msg,
 		       dt.site_id, dt.seq, dt.created_at, dt.updated_at,
 		       COALESCE(NULLIF(vi.title, ''), '') AS title,
 		       COALESCE(NULLIF(vi.actors, 'null'), '') AS protagonist,
-		       COALESCE(dt.total_segments, 0) AS total_segments,
-		       COALESCE(dt.completed_segments, 0) AS completed_segments,
-		       COALESCE(vi.file_size, 0) AS file_size
-		FROM download_tasks dt
-		LEFT JOIN video_infos vi ON dt.id = vi.task_id
-		WHERE dt.id = ?`, id).
-		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &t.CreatedAt, &t.UpdatedAt, &t.Title, &t.Person, &t.TotalSegments, &t.Segment, &t.FileSize)
+	       COALESCE(dt.total_segments, 0) AS total_segments,
+	       COALESCE(dt.completed_segments, 0) AS completed_segments,
+	       COALESCE(vi.file_size, 0) AS file_size,
+	       COALESCE(vi.tags, '') AS tags
+	FROM download_tasks dt
+	LEFT JOIN video_infos vi ON dt.id = vi.task_id
+	WHERE dt.id = ?`, id).
+		Scan(&t.ID, &t.URL, &t.M3U8URL, &t.Status, &t.Progress, &t.FilePath, &t.Format, &t.Priority, &t.ErrorMsg, &t.SiteID, &t.Seq, &ca, &ua, &t.Title, &t.Person, &t.TotalSegments, &t.Segment, &t.FileSize, &detailTags)
 	if err != nil {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
 		return
 	}
+	t.CreatedAt = ca.Time
+	t.UpdatedAt = ua.Time
+	t.Tags = task_compute.ParseTagsColumn(detailTags)
 	t.Person = parsePersonForDisplay(t.Person)
 	t.Title = task_compute.StripPersonFromTitle(t.Title, t.Person)
 	t.EffectiveStatus = task_compute.ComputeEffectiveStatus(t.Status, "video", 0, 0)
 	t.ProgressStage = task_compute.ComputeProgressStage(t.Status, "video", t.Progress)
 	t.AllowedActions = task_compute.ComputeAllowedActions(t.Status, "video")
+
+	// Attach the full video_infos metadata so detail consumers get
+	// Title/Duration/Resolution/FileSize/Tags/Actors without a second
+	// request. Without this the detail popover showed "—" for every
+	// metadata row even though the scrape had persisted them
+	// (2026-09-05 tags defect).
+	//
+	// Tags/Actors/Categories columns hold JSON-array strings; decode
+	// them through ParseTagsColumn so the API emits real arrays (the
+	// frontend contract is string[]). Assigning the raw column text
+	// serialized the whole `["欣欣子"]` literal into one string, which
+	// is exactly how the actor of task #HSYZH3 ended up rendered as a
+	// tag pill instead of an actor entry.
+	t.VideoInfo = &db.VideoInfo{TaskID: id, SourceURL: t.URL}
+	var viDuration float64
+	var viResolution, viActors, viTagsRaw, viCategories string
+	var viFileSize int64
+	viErr := h.DB.QueryRow(r.Context(),
+		`SELECT COALESCE(title, ''), COALESCE(duration, 0), COALESCE(resolution, ''),
+		        COALESCE(file_size, 0), COALESCE(NULLIF(actors, 'null'), ''), COALESCE(tags, ''),
+		        COALESCE(NULLIF(categories, 'null'), '')
+		 FROM video_infos WHERE task_id = ?`, id).
+		Scan(&t.VideoInfo.Title, &viDuration, &viResolution, &viFileSize, &viActors, &viTagsRaw, &viCategories)
+	if viErr == nil {
+		t.VideoInfo.Duration = viDuration
+		t.VideoInfo.Resolution = viResolution
+		t.VideoInfo.FileSize = viFileSize
+		t.VideoInfo.Actors = task_compute.ParseTagsColumn(viActors)
+		t.VideoInfo.Tags = task_compute.ParseTagsColumn(viTagsRaw)
+		t.VideoInfo.Categories = task_compute.ParseTagsColumn(viCategories)
+	} else {
+		t.VideoInfo = nil
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 
@@ -1209,11 +1255,10 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if filePath != "" {
-		_ = os.Remove(filePath)
-	}
+	// Background cleanup: never block the DELETE response on file I/O
+	// (locked segments/files would stall the handler); see asyncRemoveAll.
 	segmentsDir := filepath.Join("..", "data", "segments", fmt.Sprintf("task_%d", id))
-	_ = os.RemoveAll(segmentsDir)
+	asyncRemoveAll(filePath, segmentsDir)
 
 	if h.EventBus != nil {
 		h.EventBus.Emit("task:cancelled", map[string]any{

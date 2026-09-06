@@ -13,7 +13,13 @@ import (
 	"backend/internal/api/internal/task_compute"
 	"backend/internal/db"
 	"backend/internal/i18n"
+	"backend/internal/infra"
 )
+
+// taskStreamLogger 输出初始快照构建过程中的静默失败。
+// 此前 scan 错误被 continue 直接吞掉，导致 SSE initial 快照
+// 悄悄变空且日志无痕（260803 "SSE initial 恒空数日" 的同款放大器）。
+var taskStreamLogger = infra.NewLogger("TaskStream")
 
 // 初始快照分页参数
 // 当任务数量超过阈值时，分页加载，避免一次性返回大量数据导致 SSE 拥塞
@@ -82,6 +88,7 @@ type unifiedTaskRow struct {
 	ContentVerified   bool
 	TotalSegments     int
 	CompletedSegments int
+	Tags              string
 	CreatedAt         db.SQLTime
 	UpdatedAt         db.SQLTime
 }
@@ -105,11 +112,16 @@ func (r unifiedTaskRow) toMap() map[string]any {
 		"DisplayID":        r.Seq,
 		"GalleryTitle":     r.Title,
 		"Person":           parsePersonForDisplay(r.Protagonist),
+		// Actors as a parsed array mirrors Person (joined string) so the
+		// detail popover and copy-summary can render 演员 without the
+		// VideoInfo attachment (list/SSE payloads never include it).
+		"Actors":           task_compute.ParseTagsColumn(r.Protagonist),
 		"ImageCount":       r.ImageCount,
 		"VideoCount":       r.VideoCount,
 		"GalleryTotalSize": r.TotalSize,
 		"Segment":          r.CompletedSegments,
 		"TotalSegments":    r.TotalSegments,
+		"Tags":             task_compute.ParseTagsColumn(r.Tags),
 		"CreatedAt":        r.CreatedAt,
 		"UpdatedAt":        r.UpdatedAt,
 	})
@@ -187,11 +199,15 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.DownloadedSize, &r.ContentVerified,
 					&r.TotalSegments, &r.CompletedSegments,
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
+					// 记录而非吞掉：scan 失败曾让 initial 快照静默缺行
+					taskStreamLogger.Error("SSE initial snapshot: video row scan failed", err)
 					continue
 				}
 				tasks = append(tasks, r.toMap())
 			}
 			videoRows.Close()
+		} else {
+			taskStreamLogger.Error("SSE initial snapshot: video tasks query failed", err)
 		}
 
 		// 2) Gallery tasks
@@ -231,11 +247,15 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.DownloadedSize, &r.ContentVerified,
 					&r.TotalSegments, &r.CompletedSegments,
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
+					// 记录而非吞掉：scan 失败曾让 initial 快照静默缺行
+					taskStreamLogger.Error("SSE initial snapshot: gallery row scan failed", err)
 					continue
 				}
 				tasks = append(tasks, r.toMap())
 			}
 			galleryRows.Close()
+		} else {
+			taskStreamLogger.Error("SSE initial snapshot: gallery tasks query failed", err)
 		}
 
 	// NOTE: Sniff tasks excluded — independent pool via /api/sniff.

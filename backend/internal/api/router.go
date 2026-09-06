@@ -81,6 +81,11 @@ func NewRouter(h *Handlers) http.Handler {
 			r.Get("/{id}/files/progress", h.GalleryFileProgress)
 		})
 
+		r.Route("/videos", func(r chi.Router) {
+			r.Get("/", h.VideoShelfList)
+			r.Get("/{id}/file", h.VideoFile)
+		})
+
 		r.Route("/accounts", func(r chi.Router) {
 			r.Get("/", h.AccountsList)
 			r.Post("/", h.AccountsCreate)

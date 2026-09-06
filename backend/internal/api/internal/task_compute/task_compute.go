@@ -1,6 +1,7 @@
 package task_compute
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -155,17 +156,26 @@ func ComputeProgressStage(status, taskType string, progress float64) string {
 	case "paused":
 		return "tasks.progressStagePaused"
 	default:
-		if taskType == "gallery" {
-			return "tasks.progressStageDownloading"
-		}
-		if progress >= 99 {
-			return "tasks.progressStageProbing"
-		}
-		if progress >= 97 {
+		// Post-processing phases (merging, transcoding, probing) are
+		// identified by the status field rather than progress thresholds.
+		// This decouples phase display from progress value mapping so
+		// that download progress can use the full 0-100 range without
+		// causing the stage label to flicker or regress.
+		switch status {
+		case "merging":
+			return "tasks.progressStageMerging"
+		case "transcoding":
+			// 100 is the explicit end-of-transcode marker (see
+			// manager.runDownload): live transcode events stay below
+			// 100, so the probing label only covers the real
+			// duration/resolution probe window.
+			if progress >= 100 {
+				return "tasks.progressStageProbing"
+			}
 			return "tasks.progressStageTranscoding"
 		}
-		if progress >= 95 {
-			return "tasks.progressStageMerging"
+		if taskType == "gallery" {
+			return "tasks.progressStageDownloading"
 		}
 		return "tasks.progressStageDownloading"
 	}
@@ -314,4 +324,36 @@ func EnrichTaskMap(task map[string]any) map[string]any {
 	}
 
 	return task
+}
+
+// ParseTagsColumn decodes the video_infos.tags column into a tag slice.
+//
+// The scraper persists tags as a JSON array string (e.g. `["主人","女仆"]`);
+// older rows may carry a comma/、/space separated plain string. JSON decode
+// is attempted first, with the delimited fallback for anything else.
+func ParseTagsColumn(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" || trimmed == "[]" {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(trimmed), &arr); err == nil {
+		out := make([]string, 0, len(arr))
+		for _, t := range arr {
+			if t = strings.TrimSpace(t); t != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == ',' || r == '、' || r == '|' || r == ';'
+	})
+	out := make([]string, 0, len(parts))
+	for _, t := range parts {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

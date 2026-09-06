@@ -13,6 +13,7 @@ import (
 	"backend/internal/db"
 	"backend/internal/downloader/video"
 	"backend/internal/i18n"
+	"backend/internal/sites"
 )
 
 func (h *Handlers) AccountsList(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +237,16 @@ func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.blocklist.missingFields"))
 		return
 	}
+	// Reject invalid match modes / oversized keywords / uncompilable regexes
+	// at the boundary — a saved-but-broken rule previously matched nothing
+	// silently forever (users believed filtering was active when it wasn't).
+	if br.MatchMode == "" {
+		br.MatchMode = "includes"
+	}
+	if err := sites.ValidateRule(br.Keyword, br.MatchMode); err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.blocklist.invalidRule", map[string]string{"reason": err.Error()}))
+		return
+	}
 	var id int
 	err := h.DB.QueryRow(r.Context(),
 		`INSERT INTO blocklist_rules (site_id, field_type, keyword, match_mode, enabled, remark)
@@ -256,6 +267,13 @@ func (h *Handlers) BlocklistUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var br db.BlocklistRule
 	if !decodeJSON(w, r, &br) {
+		return
+	}
+	if br.MatchMode == "" {
+		br.MatchMode = "includes"
+	}
+	if err := sites.ValidateRule(br.Keyword, br.MatchMode); err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.blocklist.invalidRule", map[string]string{"reason": err.Error()}))
 		return
 	}
 	_, err := h.DB.Exec(r.Context(),
