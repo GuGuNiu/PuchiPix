@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -116,21 +117,35 @@ func sniffVideoM3U8(ctx context.Context, database *db.Database, siteReg *sites.S
 		return "", "", "", fmt.Errorf("no M3U8 URL found on page: %s", pageURL)
 	}
 
-	_, _ = database.Exec(ctx,
-		`UPDATE download_tasks SET m3u8_url = ?, title = ? WHERE seq = ?`,
-		result.M3U8URL, result.Title, taskSeq)
+	// Persist m3u8_url — title is stored via preWriteVideoInfo into
+	// video_infos, not download_tasks. Previously the UPDATE referenced
+	// a non-existent "title" column and the error was silently discarded
+	// ( _, _ = ), causing scrape node to report success while the
+	// download node later read an empty m3u8_url and failed with 0
+	// segments.
+	if _, err := database.Exec(ctx,
+		`UPDATE download_tasks SET m3u8_url = ? WHERE seq = ?`,
+		result.M3U8URL, taskSeq); err != nil {
+		return "", "", "", fmt.Errorf("persist m3u8_url for seq %s: %w", taskSeq, err)
+	}
 
 	preWriteVideoInfo(ctx, database, taskID, result)
 
-	// Emit task:metadata so SSE clients receive the scraped title
-	// and actors in real-time without waiting for the polling fallback.
-	// Use taskSeq as the taskId for uniform ID format across the site.
+	// Emit task:metadata so SSE clients receive the scraped title,
+	// actors AND tags in real-time without waiting for the polling
+	// fallback. Tags/Actors are emitted as plain string arrays — the
+	// store normalizes defensively on the client side.
+	// Use the NUMERIC task ID: the frontend store keys tasks as
+	// "${taskType}-${numericID}", and a string taskSeq here would never
+	// match (metadata silently dropped → title only visible after F5).
 	if eventBus != nil {
 		eventBus.Emit("task:metadata", map[string]any{
-			"taskId":       taskSeq,
+			"taskId":       taskID,
 			"taskType":     "video",
 			"GalleryTitle": result.Title,
 			"Person":       strings.Join(result.Actors, ", "),
+			"Tags":         result.Tags,
+			"Actors":       result.Actors,
 		})
 	}
 
@@ -172,15 +187,54 @@ func loadVideoTaskInput(ctx context.Context, database *db.Database, siteReg *sit
 		RefererDomains: refererDomains,
 	}
 
+	// Seed tags/actors/etc. from the already-persisted video_infos row.
+	// The best-effort scrape below frequently fails (anti-bot, timeout);
+	// without this seed the empty result was later upserted over good
+	// metadata, wiping tags/actors on every retry (2026-09-05 defect).
+	var dbTags, dbActors, dbCategories, dbDirector string
+	_ = database.QueryRow(ctx,
+		`SELECT COALESCE(tags, ''), COALESCE(actors, ''), COALESCE(categories, ''), COALESCE(director, '')
+		 FROM video_infos WHERE task_id = ?`, taskID).
+		Scan(&dbTags, &dbActors, &dbCategories, &dbDirector)
+	task.Tags = decodeJSONStringArray(dbTags)
+	task.Actors = decodeJSONStringArray(dbActors)
+	task.Categories = decodeJSONStringArray(dbCategories)
+	task.Director = dbDirector
+
 	// Lightweight best-effort metadata scrape to enrich the input.
 	metaCtx, metaCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer metaCancel()
 	if meta, metaErr := universal.ScrapePage(metaCtx, pageURL); metaErr == nil {
-		task.Title = meta.Title
-		task.Tags = meta.Tags
-		task.Actors = meta.Actors
-		task.Categories = meta.Categories
-		task.Director = meta.Director
+		if len(meta.Title) > 0 {
+			task.Title = meta.Title
+		}
+		if len(meta.Tags) > 0 {
+			task.Tags = meta.Tags
+		}
+		if len(meta.Actors) > 0 {
+			task.Actors = meta.Actors
+		}
+		if len(meta.Categories) > 0 {
+			task.Categories = meta.Categories
+		}
+		if meta.Director != "" {
+			task.Director = meta.Director
+		}
 	}
 	return task, nil
+}
+
+// decodeJSONStringArray parses the JSON array format used by the
+// video_infos tags/actors/categories columns. Returns nil for empty or
+// malformed values.
+func decodeJSONStringArray(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" || trimmed == "[]" {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(trimmed), &arr); err != nil {
+		return nil
+	}
+	return arr
 }
