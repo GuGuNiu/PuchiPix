@@ -286,6 +286,30 @@
   100% { transform: translateX(300%); }
 }
 
+// ── Transcode/post-process phase ──
+// Purple gradient driven by the REAL transcode percentage: the inline
+// width is the phase progress (0→100%) reported via SSE while FFmpeg
+// runs, with a shimmer sweep layered on top as texture. Once the task
+// completes, the fill class switches back to the green "completed" bar.
+.progress-bar-fill.transcoding {
+  background: linear-gradient(
+    90deg,
+    #ede9fe 0%,
+    #c4b5fd 22%,
+    #a78bfa 45%,
+    #e9d5ff 68%,
+    #a78bfa 86%,
+    #ede9fe 100%
+  );
+  background-size: 200% 100%;
+  animation: transcoding-shimmer 2.2s linear infinite;
+}
+
+@keyframes transcoding-shimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
 .animate-card-entrance {
   animation: card-entrance 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }

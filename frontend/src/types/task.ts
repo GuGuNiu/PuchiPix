@@ -64,6 +64,10 @@ export interface DownloadTask {
   SniffTotalCreated?: number;
   SniffTotalSkipped?: number;
   Person?: string;
+  /** Scraped tags from video_infos.tags (video pipeline tasks). */
+  Tags?: string[];
+  /** Scraped actors from video_infos.actors (video pipeline tasks). */
+  Actors?: string[];
   GalleryProgressInfo?: { completed: number; total: number; failed: number };
   GalleryZipProgressInfo?: { downloaded: number; total: number; percent: number };
   GalleryZipStatus?: string;
