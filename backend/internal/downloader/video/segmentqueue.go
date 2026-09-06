@@ -249,14 +249,74 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 		Referer: item.Referer,
 	}, q.cfg.MaxRetries)
 
+	// ── Bookkeeping under q.mu ──
+	// Record the outcome and compute everything the callbacks need, then
+	// RELEASE q.mu before invoking any callback.
+	//
+	// DEADLOCK FIX (2026-09-05): the completion section previously held
+	// q.mu across the OnSegmentUpdate / OnSegmentReady / OnProgress
+	// callbacks. OnSegmentReady → DownloadManager.handleSegmentReady locks
+	// m.mu — the SAME mutex (SegmentQueue shares it with the manager) —
+	// so the first completed segment self-deadlocked on the
+	// non-reentrant mutex and wedged the whole download pipeline
+	// (other workers blocked at the completion section, runDownload's
+	// cond.Wait never signaled). Never hold a lock across callbacks.
 	q.mu.Lock()
-	if download.Status == StatusCancelled || download.Status == StatusPaused {
-		q.mu.Unlock()
+	var statusCancelled, statusPaused bool
+	if download.Status == StatusCancelled {
+		statusCancelled = true
+	} else if download.Status == StatusPaused {
+		statusPaused = true
+	}
+
+	var cbFailed bool
+	var cbErr error
+	var readyFile string
+	var readySize int64
+	var progress float64
+	var completed, failed, total int
+	var speed string
+	var persistProgress bool
+
+	if !statusCancelled && !statusPaused {
+		if result.Error != nil {
+			download.FailedSegments[item.Segment.Index] = result.Error
+			cbFailed = true
+			cbErr = result.Error
+		} else {
+			download.CompletedSegments[item.Segment.Index] = true
+			if info, err := os.Stat(result.FilePath); err == nil {
+				readySize = info.Size()
+			}
+			readyFile = result.FilePath
+		}
+
+		completed = download.CompletedCount()
+		failed = download.FailedCount()
+		total = download.TotalSegments
+		// Map segment download progress to 0-100 range.
+		// Previously this was * 90 to reserve 90-100 for post-processing.
+		// Now we use the full 0-100 range; post-processing steps set
+		// explicit values (100) which override the last segment progress.
+		progress = float64(completed) / float64(total) * 100
+		now := time.Now()
+		if now.Sub(download.LastProgressTime) > 500*time.Millisecond {
+			elapsed := now.Sub(download.StartTime).Seconds()
+			if elapsed > 0 && completed > 0 {
+				speed = fmt.Sprintf("%.1f seg/s", float64(completed)/elapsed)
+			}
+			download.LastProgressTime = now
+		}
+		persistProgress = completed%5 == 0 || completed+failed == total
+	}
+	q.mu.Unlock()
+
+	if statusCancelled || statusPaused {
 		return
 	}
 
-	if result.Error != nil {
-		download.FailedSegments[item.Segment.Index] = result.Error
+	// ── Callbacks outside q.mu ──
+	if cbFailed {
 		if q.cfg.Logger != nil {
 			q.cfg.Logger.Error("Segment download failed",
 				infra.LogContext{Extra: map[string]any{
@@ -265,55 +325,34 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 					"tsid":     tsid,
 					"attempts": result.Attempts,
 				}},
-				result.Error)
+				cbErr)
 		}
 		if q.cfg.OnSegmentUpdate != nil {
-			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, false, "", 0, result.Error.Error())
+			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, false, "", 0, cbErr.Error())
 		}
 	} else {
-		download.CompletedSegments[item.Segment.Index] = true
 		if q.cfg.OnSegmentUpdate != nil {
 			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, true, result.FilePath, 0, "")
 		}
 		// 通知流式合并器分片已就绪
 		if q.cfg.OnSegmentReady != nil {
-			var fileSize int64
-			if info, err := os.Stat(result.FilePath); err == nil {
-				fileSize = info.Size()
-			}
-			q.cfg.OnSegmentReady(item.TaskID, item.Segment.Index, result.FilePath, fileSize)
+			q.cfg.OnSegmentReady(item.TaskID, item.Segment.Index, readyFile, readySize)
 		}
 	}
 
-	completed := download.CompletedCount()
-	failed := download.FailedCount()
-	progress := float64(completed) / float64(download.TotalSegments) * 90
-	now := time.Now()
-	var speed string
-	if now.Sub(download.LastProgressTime) > 500*time.Millisecond {
-		elapsed := now.Sub(download.StartTime).Seconds()
-		if elapsed > 0 && completed > 0 {
-			speed = fmt.Sprintf("%.1f seg/s", float64(completed)/elapsed)
-		}
-		download.LastProgressTime = now
-	}
-
-	if completed%5 == 0 || completed+failed == download.TotalSegments {
-		if q.cfg.DB != nil {
-			go func(taskID int, p float64, comp int) {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				_, _ = q.cfg.DB.Exec(ctx,
-					"UPDATE download_tasks SET progress = ?, completed_segments = ? WHERE id = ?",
-					p, comp, taskID)
-			}(item.TaskID, progress, completed)
-		}
+	if persistProgress && q.cfg.DB != nil {
+		go func(taskID int, p float64, comp int) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = q.cfg.DB.Exec(ctx,
+				"UPDATE download_tasks SET progress = ?, completed_segments = ? WHERE id = ?",
+				p, comp, taskID)
+		}(item.TaskID, progress, completed)
 	}
 
 	if q.cfg.OnProgress != nil {
-		q.cfg.OnProgress(item.TaskID, progress, completed, download.TotalSegments, "downloading", speed)
+		q.cfg.OnProgress(item.TaskID, progress, completed, total, "downloading", speed)
 	}
-	q.mu.Unlock()
 }
 
 // WaitForSegments blocks until the task has at least count segments

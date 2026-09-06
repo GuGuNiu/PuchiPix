@@ -24,6 +24,10 @@ type PipelineData struct {
 	TempFiles []string
 	// Ctx 上下文，支持取消
 	Ctx context.Context
+	// OnProgress 转码进度回调（0-100 百分比），由 TranscodeStep 消费。
+	// Nil = 不上报进度。回调在 ffmpeg 输出解析 goroutine 中触发，
+	// 实现必须轻量且并发安全。
+	OnProgress func(percent float64)
 }
 
 // NewPipelineData 创建新的 PipelineData
@@ -231,6 +235,7 @@ func (s *TranscodeStep) Process(ctx context.Context, data *PipelineData) (*Pipel
 	opts := TranscodeOptions{
 		UseGPU:       s.UseGPU,
 		ForceGPUType: s.ForceGPUType,
+		OnProgress:   data.OnProgress,
 	}
 
 	// 如果有自定义编码器参数，需要特殊处理

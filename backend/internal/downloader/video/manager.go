@@ -617,7 +617,12 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 				"count":   count,
 				"reason":  reason,
 			}})
-		m.emitProgress(task.ID, 90, completedCount, totalSegments, fmt.Sprintf("retry #%d", attempt), "")
+		// The SSE status field must stay within the task-status enum:
+		// emitting "retry #N" leaked straight into the frontend status
+		// pill as a raw string. The retry marker rides the (unused for
+		// video) speed field instead; merge is still the download stage.
+		m.emitProgress(task.ID, 100, completedCount, totalSegments,
+			"downloading", fmt.Sprintf("merge retry #%d", attempt))
 	}
 
 	if err := MergeRetryLoop(downloadCtx, segments, successSet, retryOpts); err != nil {
@@ -630,7 +635,14 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"segments": len(segments),
 		}})
 
-	m.emitProgress(task.ID, 97, completedCount, totalSegments, "transcoding", "")
+	// Phase progress resets at the transcode boundary: from here on the
+	// SSE `progress` field carries the TRANSCODE percentage (0→100), not
+	// the download percentage, so the frontend can restart its progress
+	// bar in the transcoding stage instead of showing a stale 100%.
+	// The old emitProgress(...,100,...) here raced with the frontend's
+	// progress>=99 probing heuristic and mislabeled the whole transcode
+	// phase as "probing" (探测中) before ffmpeg even started.
+	m.emitProgress(task.ID, 0, completedCount, totalSegments, "transcoding", "")
 
 	m.logger.Info("Transcoding to MP4",
 		infra.LogContext{Extra: map[string]any{
@@ -649,6 +661,9 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 
 	pipeline := NewDefaultPipeline(m.gpuTranscode, m.forceGPUType)
 	pipelineData := NewPipelineData(transcodeCtx, segDir, mp4OutputPath, segments)
+	pipelineData.OnProgress = func(pct float64) {
+		m.emitProgress(task.ID, pct, completedCount, totalSegments, "transcoding", "")
+	}
 	if _, err := pipeline.ExecuteWithCleanup(transcodeCtx, pipelineData); err != nil {
 		return fmt.Errorf("transcode pipeline: %w", err)
 	}
@@ -661,7 +676,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 
 	os.Remove(tsOutputPath)
 
-	m.emitProgress(task.ID, 99, completedCount, totalSegments, "transcoding", "")
+	m.emitProgress(task.ID, 100, completedCount, totalSegments, "transcoding", "")
 
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	durationSeconds, _ := ProbeDuration(probeCtx, mp4OutputPath)
@@ -1010,14 +1025,14 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 		INSERT INTO video_infos (task_id, title, source_url, file_size, duration, tags, actors, categories, director, resolution)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET
-			title = EXCLUDED.title,
+			title = CASE WHEN COALESCE(EXCLUDED.title, '') != '' THEN EXCLUDED.title ELSE video_infos.title END,
 			source_url = EXCLUDED.source_url,
 			file_size = EXCLUDED.file_size,
 			duration = EXCLUDED.duration,
-			tags = EXCLUDED.tags,
-			actors = EXCLUDED.actors,
-			categories = EXCLUDED.categories,
-			director = EXCLUDED.director,
+			tags = CASE WHEN EXCLUDED.tags != '[]' AND EXCLUDED.tags != '' THEN EXCLUDED.tags ELSE video_infos.tags END,
+			actors = CASE WHEN EXCLUDED.actors != '[]' AND EXCLUDED.actors != '' THEN EXCLUDED.actors ELSE video_infos.actors END,
+			categories = CASE WHEN EXCLUDED.categories != '[]' AND EXCLUDED.categories != '' THEN EXCLUDED.categories ELSE video_infos.categories END,
+			director = CASE WHEN COALESCE(EXCLUDED.director, '') != '' THEN EXCLUDED.director ELSE video_infos.director END,
 			resolution = EXCLUDED.resolution
 	`, task.ID, task.Title, task.PageURL, fileSize, durationMinutes,
 		string(tagsJSON), string(actorsJSON), string(categoriesJSON),
