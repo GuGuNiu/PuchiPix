@@ -204,10 +204,12 @@ func extractMetadata(ctx context.Context) pageMetadata {
 	var director string
 	_ = chromedp.Run(ctx, chromedp.Evaluate(directorExtractorJS(), &director))
 
+	actors = xutil.UniqueStrings(actors, true)
+
 	return pageMetadata{
 		Title:      title,
-		Tags:       xutil.UniqueStrings(tags, true),
-		Actors:     xutil.UniqueStrings(actors, true),
+		Tags:       stripActorsFromTags(xutil.UniqueStrings(tags, true), actors),
+		Actors:     actors,
 		Categories: xutil.UniqueStrings(categories, true),
 		Director:   director,
 	}
@@ -684,13 +686,6 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 				tags = append(tags, text)
 			}
 		})
-		if meta, ok := doc.Find(`meta[name="keywords"]`).Attr("content"); ok && len(tags) == 0 {
-			for _, t := range strings.Split(meta, ",") {
-				if t = strings.TrimSpace(t); t != "" {
-					tags = append(tags, t)
-				}
-			}
-		}
 
 		doc.Find(".video-countext-categories a[rel=\"tag\"]").Each(func(_ int, s *goquery.Selection) {
 			if text := strings.TrimSpace(s.Text()); text != "" && !strings.Contains(text, "上映") {
@@ -712,6 +707,8 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 					Actor    string `json:"vod_actor"`
 					Director string `json:"vod_director"`
 					Name     string `json:"vod_name"`
+					Tag      string `json:"vod_tag"`
+					Tags     string `json:"vod_tags"`
 				} `json:"vod_data"`
 			}
 			if err := json.Unmarshal([]byte(raw), &pd); err == nil {
@@ -727,6 +724,22 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 				// Use vod_name as title fallback if title is empty.
 				if title == "" && pd.VodData.Name != "" {
 					title = CleanTitle(strings.TrimSpace(pd.VodData.Name))
+				}
+				// MacCMS keeps the page's tag list in vod_tag(s).
+				// When the DOM tag section is missing or JS-rendered
+				// (invisible to the plain HTTP fetch), this is the
+				// only remaining source for page tags. vod_class is
+				// deliberately NOT used — on MacCMS it is the category
+				// name (already captured via .video-countext-categories)
+				// and would pollute the tag list with category names.
+				if len(tags) == 0 {
+					for _, field := range []string{pd.VodData.Tag, pd.VodData.Tags} {
+						for _, t := range strings.Split(field, ",") {
+							if t = strings.TrimSpace(t); t != "" && len(t) < 50 {
+								tags = append(tags, t)
+							}
+						}
+					}
 				}
 			} else {
 				// Fallback: regex extraction if JSON parsing fails.
@@ -755,12 +768,28 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		}
 	}
 
+	// Last-resort tag source: SEO meta keywords (often mixed with the
+	// title and actor names — stripActorsFromTags below removes the
+	// actor overlaps, but keywords stay noisier than vod_tag, hence
+	// lowest priority).
+	if len(tags) == 0 && doc != nil {
+		if meta, ok := doc.Find(`meta[name="keywords"]`).Attr("content"); ok {
+			for _, t := range strings.Split(meta, ",") {
+				if t = strings.TrimSpace(t); t != "" && len(t) < 50 {
+					tags = append(tags, t)
+				}
+			}
+		}
+	}
+
+	actors = xutil.UniqueStrings(actors, true)
+
 	result := &sites.ScrapeResult{
 		M3U8URL:    m3u8URL,
 		Title:      title,
 		PageURL:    pageURL,
-		Tags:       xutil.UniqueStrings(tags, true),
-		Actors:     xutil.UniqueStrings(actors, true),
+		Tags:       stripActorsFromTags(xutil.UniqueStrings(tags, true), actors),
+		Actors:     actors,
 		Categories: xutil.UniqueStrings(categories, true),
 		Director:   director,
 	}
@@ -775,6 +804,28 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		}})
 
 	return result, nil
+}
+
+// stripActorsFromTags removes actor names that leaked into the tag list.
+// Some site templates render actor links inside the tags block, so the
+// generic tag extraction picks them up (e.g. an actress appearing both as
+// Actor and Tag). Matching is exact, case-insensitive.
+func stripActorsFromTags(tags, actors []string) []string {
+	if len(tags) == 0 || len(actors) == 0 {
+		return tags
+	}
+	actorSet := make(map[string]struct{}, len(actors))
+	for _, a := range actors {
+		actorSet[strings.ToLower(a)] = struct{}{}
+	}
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		if _, hit := actorSet[strings.ToLower(t)]; hit {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // QuickMetadataResult holds the fast-extracted metadata from a

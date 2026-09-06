@@ -14,6 +14,65 @@ import (
 
 const blocklistCacheTTL = 60 * time.Second
 
+// maxKeywordLength bounds a rule keyword. Combined with Go's RE2 engine
+// (linear-time matching, no catastrophic backtracking) this keeps
+// user-supplied regexes from becoming a CPU amplification vector.
+const maxKeywordLength = 256
+
+// validMatchModes is the closed set of supported match modes.
+var validMatchModes = map[string]bool{
+	"exact":    true,
+	"includes": true,
+	"regex":    true,
+}
+
+// regexCache caches compiled user regexes so hot content checks do not
+// recompile the same pattern on every call (CheckUserRules runs per
+// scraped item). A failed compile is cached as nil and logged once per
+// distinct pattern — previously an invalid rule silently matched nothing
+// forever with no trace (the "silent failure" pattern from the 260823
+// code review).
+var regexCache sync.Map // map[string]*regexp.Regexp (nil = invalid pattern)
+
+// compileUserRegex returns the cached compiled form of a user-supplied
+// regex keyword, or nil when the pattern is invalid.
+func compileUserRegex(keyword string) *regexp.Regexp {
+	if cached, ok := regexCache.Load(keyword); ok {
+		re, _ := cached.(*regexp.Regexp)
+		return re
+	}
+	re, err := regexp.Compile("(?i)" + keyword)
+	if err != nil {
+		infra.NewLogger("BlocklistService").Warn(
+			"Blocklist regex rule failed to compile and will never match",
+			map[string]any{"keywordLength": len(keyword), "error": err.Error()})
+	}
+	regexCache.Store(keyword, re) // re == nil marks the pattern invalid
+	return re
+}
+
+// ValidateRule checks a rule's fields before persisting so invalid
+// match modes / oversized keywords / uncompilable regexes are rejected
+// with a 400 at the API boundary instead of silently never matching
+// after being saved.
+func ValidateRule(keyword, matchMode string) error {
+	if keyword == "" {
+		return fmt.Errorf("keyword must not be empty")
+	}
+	if len(keyword) > maxKeywordLength {
+		return fmt.Errorf("keyword too long (max %d characters)", maxKeywordLength)
+	}
+	if !validMatchModes[matchMode] {
+		return fmt.Errorf("unsupported match mode %q (allowed: exact, includes, regex)", matchMode)
+	}
+	if matchMode == "regex" {
+		if _, err := regexp.Compile("(?i)" + keyword); err != nil {
+			return fmt.Errorf("invalid regex: %w", err)
+		}
+	}
+	return nil
+}
+
 // blocklistRule mirrors a subset of the BlocklistRule model for in-memory
 // matching, avoiding full-row scans on every content check.
 type blocklistRule struct {
@@ -131,8 +190,8 @@ func matchValue(value, keyword, mode string) bool {
 	case "exact":
 		return value == keyword
 	case "regex":
-		re, err := regexp.Compile("(?i)" + keyword)
-		if err != nil {
+		re := compileUserRegex(keyword)
+		if re == nil {
 			return false
 		}
 		return re.MatchString(value)

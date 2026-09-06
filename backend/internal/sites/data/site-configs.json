@@ -19,7 +19,8 @@
           "https://kanav.ad",
           "https://v1.kanav.work",
           "https://kanav.work",
-          "https://v1.kanav.onl"
+          "https://v1.kanav.onl",
+          "https://v1.kanav.world"
         ]
       },
       "provider": {
@@ -225,6 +226,71 @@
           "(?i)\\s*[-–—]\\s*4KHD\\s*$",
           "\\[\\d+(?:\\.\\d+)?(?:MB|GB)-\\d+photos\\]$",
           "\\(\\d+(?:\\.\\d+)?(?:MB|GB)\\)\\(\\d+photos\\)$"
+        ],
+        "publisherPrefixes": [],
+        "blockedTitleKeywords": [],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
+    "91porn": {
+      "module": {
+        "id": "91porn",
+        "nameCn": "91短视频",
+        "nameEn": "91Porn",
+        "baseUrl": "https://91porn.plus",
+        "type": "video",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #ef4444, #dc2626)",
+          "solidColor": "#dc2626",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "scrapingStrategy": "http",
+        "domains": [
+          "https://91porn.plus"
+        ]
+      },
+      "provider": {
+        "publisherUrl": "",
+        "titleSuffixPatterns": [
+          "(?i)\\s*[-–—]\\s*91Porn.*$",
+          "(?i)\\s*[-–—]\\s*91短视频.*$"
+        ],
+        "publisherPrefixes": [],
+        "blockedTitleKeywords": [],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
+    "xvideos": {
+      "module": {
+        "id": "xvideos",
+        "nameCn": "XVIDEOS",
+        "nameEn": "XVIDEOS",
+        "baseUrl": "https://www.xvideos.com",
+        "type": "video",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #f97316, #ea580c)",
+          "solidColor": "#ea580c",
+          "textColor": "#ffffff"
+        },
+        "enabled": true,
+        "scrapingStrategy": "http",
+        "domains": [
+          "https://www.xvideos.com",
+          "https://xvideos.com",
+          "https://www.xvideos2.com",
+          "https://xvideos2.com"
+        ]
+      },
+      "provider": {
+        "publisherUrl": "",
+        "titleSuffixPatterns": [
+          "(?i)\\s*[-–—]\\s*XVIDEOS.*S$",
+          "(?i)\\s*[-–—]\\s*Xvideos.*S$"
         ],
         "publisherPrefixes": [],
         "blockedTitleKeywords": [],
