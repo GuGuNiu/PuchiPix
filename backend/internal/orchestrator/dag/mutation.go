@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"backend/internal/orchestrator"
+	"backend/internal/orchestrator/slot"
 )
 
 // ═══ Dynamic Runtime Mutation APIs (Stage 5) ═══
@@ -274,6 +275,16 @@ func (o *DagOrchestrator) RemoveDag(ctx context.Context, dagID string) error {
 	}
 
 	delete(o.dags, dagID)
+
+	// Clear any task-level slot quotas that this DAG may have set so
+	// the slot pool does not retain a stale reservation. checkDagCompletion
+	// also clears quotas on terminal DAGs, but RemoveDag can be called
+	// on a failed/timeout DAG that never reached checkDagCompletion's
+	// all-terminal check via the normal flow (e.g. user deletes a
+	// partially-failed DAG directly).
+	if sp, ok := o.slotPool.(*slot.SlotPool); ok {
+		sp.ClearDagQuota(dagID)
+	}
 
 	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
 		Type:      "dag:deleted",

@@ -151,6 +151,20 @@ type DagOrchestrator struct {
 	// one-way fire-and-forget callback: failures are logged, never fatal.
 	statusSyncFn func(ctx context.Context, dagID, nodeID string, def orchestrator.DagNodeDefinition, state orchestrator.NodeState)
 
+	// dagStatusSyncFn, when installed, is invoked once when a DAG reaches a
+	// terminal aggregate state (all nodes terminal) — see checkDagCompletion.
+	// While statusSyncFn covers per-node non-completed states, entity
+	// completion is normally written by executors together with richer data
+	// (sizes / file paths / partial-vs-completed). dagStatusSyncFn is the
+	// DAG-level guard rail: when the aggregate is "completed" it performs a
+	// CONDITIONAL terminal write that only fills entities still stuck in an
+	// active status (scraping/downloading/pending), so an executor crash
+	// between node completion and its final UPDATE can no longer leave the
+	// DB permanently "downloading" (the 260817 crash-recovery blind spot).
+	// It never clobbers executor-owned terminal statuses (partial/failed/
+	// cancelled/completed) because the WHERE clause excludes them.
+	dagStatusSyncFn func(ctx context.Context, dagID string, def orchestrator.DagDefinition, aggregateStatus string)
+
 	// reactivationStarted guards the auto-reactivation ticker so
 	// StartAutoReactivation is idempotent.
 	reactivationStarted bool
@@ -242,6 +256,14 @@ func (o *DagOrchestrator) SetStatusSyncFn(fn func(ctx context.Context, dagID, no
 	o.dagsMu.Lock()
 	defer o.dagsMu.Unlock()
 	o.statusSyncFn = fn
+}
+
+// SetDagStatusSyncFn installs the DAG-level terminal-status guard-rail
+// callback invoked from checkDagCompletion. See dagStatusSyncFn.
+func (o *DagOrchestrator) SetDagStatusSyncFn(fn func(ctx context.Context, dagID string, def orchestrator.DagDefinition, aggregateStatus string)) {
+	o.dagsMu.Lock()
+	defer o.dagsMu.Unlock()
+	o.dagStatusSyncFn = fn
 }
 
 // resolvePolicy returns the TransitionPolicy for a node definition,

@@ -110,6 +110,13 @@ func (r *StateReconciler) verifyScrapeNode(ctx context.Context, node DagNodeForV
 // verifyDownloadNode checks whether all expected files exist on disk
 // and their status is consistent, correcting stale database records.
 //
+// Video pipeline nodes (taskSeq/taskId in Config) produce a single
+// transcoded MP4 whose path is recorded in download_tasks.file_path —
+// verify that file directly. Without this branch, video nodes fell
+// through to the gallery savePath logic, found no savePath, and were
+// marked FAILED right after a fully successful download+merge+transcode
+// (the "merge phase always fails" defect, 2026-09-05).
+//
 // For gallery download nodes, the savePath is read from the galleries
 // table (where it was written by the galleryFn during download) rather
 // than from the node Config (which only carries url/galleryId/providerId
@@ -117,6 +124,27 @@ func (r *StateReconciler) verifyScrapeNode(ctx context.Context, node DagNodeForV
 func (r *StateReconciler) verifyDownloadNode(ctx context.Context, node DagNodeForVerification) VerificationResult {
 	if r.db == nil {
 		return VerificationResult{Status: "passed", Reason: "no database connection"}
+	}
+
+	// ── Video pipeline branch ──
+	if seq, ok := node.Config["taskSeq"].(string); ok && seq != "" {
+		var filePath string
+		if err := r.db.QueryRow(ctx,
+			"SELECT COALESCE(file_path, '') FROM download_tasks WHERE seq = ?",
+			seq).Scan(&filePath); err != nil || filePath == "" {
+			return VerificationResult{Status: "failed", Reason: "video output path not recorded in download_tasks"}
+		}
+		info, err := os.Stat(filePath)
+		if err != nil {
+			return VerificationResult{Status: "failed", Reason: "video output file missing: " + filePath}
+		}
+		if info.IsDir() || info.Size() == 0 {
+			return VerificationResult{Status: "failed", Reason: "video output file is empty: " + filePath}
+		}
+		return VerificationResult{
+			Status: "passed",
+			Reason: "video output verified (" + intToStr(int(info.Size()/1024/1024)) + " MB): " + filePath,
+		}
 	}
 
 	savePath, _ := node.Config["savePath"].(string)

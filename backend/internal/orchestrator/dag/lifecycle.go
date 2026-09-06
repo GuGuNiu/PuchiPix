@@ -775,6 +775,18 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 
 	// Use the single aggregate function to decide the terminal DAG state.
 	aggregateStatus := orchestrator.AggregateTaskStatus(taskType, nodeInfos)
+
+	// DAG-level terminal guard rail: when the DAG completes, push a
+	// conditional terminal write to the entity table so an executor crash
+	// between node completion and its final rich UPDATE (sizes / partial
+	// classification) cannot leave the entity stuck at "downloading"
+	// forever. The callback's UPDATE is restricted to entities still in an
+	// active status, so executor-owned terminal statuses (partial / failed /
+	// cancelled / completed) are never clobbered. See dagStatusSyncFn.
+	if o.dagStatusSyncFn != nil && (aggregateStatus == "completed" || aggregateStatus == "failed" || aggregateStatus == "cancelled") {
+		o.dagStatusSyncFn(ctx, dagID, dag.definition, aggregateStatus)
+	}
+
 	switch aggregateStatus {
 	case "completed":
 		_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{

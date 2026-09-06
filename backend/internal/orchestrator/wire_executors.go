@@ -492,24 +492,14 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			return fmt.Errorf("create save dir: %w", err)
 		}
 
-		// Update gallery save_path and status.
+		// Persist the resolved save path. The entity status is NOT written
+		// here: the node is already RUNNING when this executor runs, and the
+		// statusSync callback (main.go) has already written "downloading" to
+		// the DB and emitted the matching task:progress event — duplicating
+		// the write here only created a second authority for the same state.
 		_, _ = database.Exec(ctx,
-			`UPDATE galleries SET save_path = ?, status = 'downloading', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			`UPDATE galleries SET save_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 			saveDir, galleryID)
-
-		// Emit task:progress so SSE clients see the gallery
-		// transition to downloading in real-time.
-		if eventBus != nil {
-			eventBus.Emit("task:progress", map[string]any{
-				"taskId":    galleryID,
-				"taskType":  "gallery",
-				"progress":  0,
-				"completed": 0,
-				"total":     0,
-				"failed":    0,
-				"status":    "downloading",
-			})
-		}
 
 		// ZIP download path: when the gallery has an archive download URL
 		// (e.g. OUO/MediaFire/direct .zip), download the ZIP and extract
@@ -571,6 +561,9 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		for rows.Next() {
 			var t imgTask
 			if err := rows.Scan(&t.id, &t.url, &t.fileName, &t.orderIndex); err != nil {
+				// 记录而非吞掉：scan 失败会让待下载图片静默缺失
+				logger.Warn("Gallery batch download: image row scan failed",
+					map[string]any{"galleryId": galleryID, "error": err.Error()})
 				continue
 			}
 			images = append(images, t)
@@ -650,11 +643,17 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			for videoRows.Next() {
 				var v vidTask
 				if err := videoRows.Scan(&v.id, &v.url, &v.fileName); err != nil {
+					// 记录而非吞掉：scan 失败会让待下载视频静默缺失
+					logger.Warn("Gallery batch download: video row scan failed",
+						map[string]any{"galleryId": galleryID, "error": err.Error()})
 					continue
 				}
 				videos = append(videos, v)
 			}
 			videoRows.Close()
+		} else {
+			logger.Warn("Gallery batch download: video rows query failed",
+				map[string]any{"galleryId": galleryID, "error": err.Error()})
 		}
 
 		// Defensive guard: if neither images nor videos are pending, this is
@@ -1012,6 +1011,17 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		//   2. The video's file size was never added to totalSize,
 		//      so the shelf size column under-reported the actual
 		//      downloaded bytes.
+		// Pre-compute the terminal status so both the final task:progress
+		// event and the task:completed event carry the correct status.
+		// Previously the final task:progress event hard-coded status as
+		// "downloading" even when all files were already downloaded,
+		// which caused the frontend to show a perpetual "downloading"
+		// state that never resolved to completed/partial.
+		status := "completed"
+		if successCount < len(images) || videoFailed > 0 {
+			status = "partial"
+		}
+
 		if eventBus != nil {
 			// Recompute the video side from the authoritative per-video
 			// state so the final event reflects segments + merge.
@@ -1035,7 +1045,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 				"completed":      doneContent,
 				"total":          totalContent,
 				"failed":         failedCount + vidFailedFinal,
-				"status":         "downloading",
+				"status":         status,
 				"downloadedSize": totalSize,
 			})
 		}
@@ -1050,10 +1060,6 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 	// frontend size column can display the gallery's total volume after
 	// completion. Previously only downloaded_size was written, leaving
 	// total_size at its zero default — the frontend showed "—" for size.
-	status := "completed"
-	if successCount < len(images) || videoFailed > 0 {
-		status = "partial"
-	}
 	_, _ = database.Exec(ctx,
 		`UPDATE galleries SET status = ?, downloaded_size = ?, total_size = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, totalSize, totalSize, galleryID)
@@ -1089,11 +1095,28 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 
 		// Emit task:completed (or partial) so SSE clients see the
 		// gallery finish in real-time without requiring a refresh.
+		// The progress field is included so the frontend can set the
+		// final progress value atomically with the terminal status,
+		// preventing stale task:progress values from overriding it.
 		if eventBus != nil {
+			// Recompute finalPct for the completed event.
+			videoMu.Lock()
+			segTotals, segDone, discovered, merged := aggregateVideo()
+			videoMu.Unlock()
+			totalContent := totalImages + segTotals + discovered
+			doneContent := successCount + segDone + merged
+			completedPct := 100
+			if doneContent < totalContent {
+				completedPct = doneContent * 100 / totalContent
+				if completedPct > 99 {
+					completedPct = 99
+				}
+			}
 			eventBus.Emit("task:completed", map[string]any{
 				"taskId":   galleryID,
 				"taskType": "gallery",
 				"status":   status,
+				"progress": completedPct,
 			})
 		}
 

@@ -26,16 +26,39 @@ type StatusReporter struct{}
 func (r *StatusReporter) MapNodeToEntityStatus(def DagNodeDefinition, state NodeState) (string, bool) {
 	switch state {
 	case NodeStateQueued, NodeStateAllocated, NodeStateRunning:
+		// Post-processing nodes (extract/verify — PhaseFinalize) never
+		// drive the entity status for in-progress states: by the time they
+		// run, the download executor has already written the outcome
+		// (completed / partial / failed with sizes). Letting their QUEUED/
+		// RUNNING transitions write "downloading" REGRESSED that terminal
+		// write — the "100% + downloading forever" defect (260820). The
+		// DAG-level guard rail (checkDagCompletion) remains the backstop.
+		if def.Phase == PhaseFinalize {
+			return "", false
+		}
 		return r.inProgressStatus(def), true
 	case NodeStateReady, NodeStatePending:
 		// READY = rejected by the scheduler (queue full) or paused-and-
 		// resumed; the node is waiting for capacity. Report "pending".
+		// Finalize nodes are excluded for the same regression reason as
+		// above (a rolled-back extract must not flip completed → pending).
+		if def.Phase == PhaseFinalize {
+			return "", false
+		}
 		return "pending", true
 	case NodeStatePaused:
 		return "paused", true
 	case NodeStateCompleted:
 		return "completed", true
-	case NodeStateFailed, NodeStateTimeout, NodeStateNeedsRetry:
+	case NodeStateFailed, NodeStateTimeout:
+		// Non-critical failures (e.g. gallery extract) must not regress the
+		// entity: the download executor already recorded the real outcome,
+		// and a non-critical post-processing failure does not change it.
+		if def.NonCritical {
+			return "", false
+		}
+		return "failed", true
+	case NodeStateNeedsRetry:
 		return "failed", true
 	case NodeStateCancelled:
 		return "cancelled", true

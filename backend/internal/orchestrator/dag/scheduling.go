@@ -60,7 +60,11 @@ func (o *DagOrchestrator) activateReadyNodes(ctx context.Context, dagID string) 
 			continue
 		}
 
-		if state == orchestrator.NodeStatePending {
+		// PENDING and PREPARING (optimistic_preparing from the API retry
+		// path) are both activation-eligible: a PREPARING node whose
+		// dependencies completed must proceed to READY, otherwise the
+		// DAG wedges forever.
+		if state == orchestrator.NodeStatePending || state == orchestrator.NodeStatePreparing {
 			allDepsCompleted := true
 			for _, depID := range node.definition.Dependencies {
 				depNode, exists := dag.nodes[depID]
@@ -214,7 +218,13 @@ func (o *DagOrchestrator) propagateCompletion(ctx context.Context, dagID, comple
 				continue
 			}
 			succ.completedDeps++
-			if succ.fsm.State() != orchestrator.NodeStatePending {
+			// Accept PENDING and PREPARING: the API's optimistic
+			// "optimistic_preparing" transition moves not-yet-run nodes
+			// to PREPARING immediately after submit. Restricting this to
+			// PENDING meant a dependent whose deps completed later was
+			// permanently skipped (stuck in PREPARING, DAG wedged).
+			state := succ.fsm.State()
+			if state != orchestrator.NodeStatePending && state != orchestrator.NodeStatePreparing {
 				continue
 			}
 			if succ.completedDeps < len(succ.definition.Dependencies) {
