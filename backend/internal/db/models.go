@@ -23,6 +23,11 @@ type DownloadTask struct {
 	UpdatedAt time.Time `json:"UpdatedAt" db:"updated_at"`
 	Title  string `json:"GalleryTitle"`
 	Person string `json:"Person"`
+	Tags   []string `json:"Tags"`
+	// VideoInfo carries the joined video_infos metadata for detail views
+	// (title/duration/resolution/size/tags). Nil when the task has no
+	// video_infos row yet (e.g. before the first scrape completes).
+	VideoInfo *VideoInfo `json:"VideoInfo,omitempty"`
 	TotalSegments int `json:"TotalSegments" db:"total_segments"`
 	Segment       int `json:"Segment" db:"completed_segments"`
 	FileSize int64 `json:"FileSize" db:"file_size"`
@@ -33,6 +38,13 @@ type DownloadTask struct {
 }
 
 // VideoInfo stores metadata extracted from a download task's source URL.
+//
+// Tags/Actors/Categories are typed []string so the JSON contract matches
+// the frontend (`string[]`). The DB columns are JSON-array strings; the
+// API layer must decode them via task_compute.ParseTagsColumn before
+// populating this struct — never assign the raw column text (a JSON
+// string in a string field serialized the whole `["a","b"]` literal,
+// which the frontend then rendered as garbage tag pills / crashes).
 type VideoInfo struct {
 	ID         int       `json:"ID" db:"id"`
 	TaskID     int       `json:"TaskID" db:"task_id"`
@@ -40,9 +52,9 @@ type VideoInfo struct {
 	SourceURL  string    `json:"SourceURL" db:"source_url"`
 	FileSize   int64     `json:"FileSize" db:"file_size"`
 	Duration   float64   `json:"Duration" db:"duration"`
-	Tags       string    `json:"Tags" db:"tags"`
-	Actors     string    `json:"Actors" db:"actors"`
-	Categories string    `json:"Categories" db:"categories"`
+	Tags       []string  `json:"Tags" db:"tags"`
+	Actors     []string  `json:"Actors" db:"actors"`
+	Categories []string  `json:"Categories" db:"categories"`
 	Director   string    `json:"Director" db:"director"`
 	Resolution string    `json:"Resolution" db:"resolution"`
 	CreatedAt  time.Time `json:"CreatedAt" db:"created_at"`

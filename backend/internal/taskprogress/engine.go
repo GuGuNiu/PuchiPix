@@ -50,6 +50,16 @@ func (e *Engine) SetDatabase(database *db.Database) {
 	e.db = database
 }
 
+// RemoveGallery drops all in-memory tracking state (files + phase) for a
+// gallery. Called when the gallery is deleted; without this, the maps leak
+// an entry per deleted gallery for the lifetime of the process.
+func (e *Engine) RemoveGallery(galleryID int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.files, galleryID)
+	delete(e.phase, galleryID)
+}
+
 // tableFileProgress is the persistence table for per-file checkpoint state.
 const tableFileProgress = "gallery_file_progress"
 
