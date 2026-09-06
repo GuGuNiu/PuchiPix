@@ -91,9 +91,19 @@ export function getProgressStage(task: DownloadTask, t: TranslateFunction): stri
   if (task.Status === "cancelled") return t("tasks.progressStageCancelled");
   if (task.Status === "paused") return t("tasks.progressStagePaused");
   if (task.TaskType === "gallery") return t("tasks.progressStageDownloading");
-  if (task.Progress >= 99) return t("tasks.progressStageProbing");
-  if (task.Progress >= 97) return t("tasks.progressStageTranscoding");
-  if (task.Progress >= 95) return t("tasks.progressStageMerging");
+  // Post-processing phases are identified by the status field rather
+  // than progress thresholds, matching the backend ComputeProgressStage.
+  // Note: backend "merging" is surfaced via task.ProgressStage labels,
+  // not as a frontend TaskStatus union member.
+  if (task.Status === "transcoding") {
+    // The manager emits exactly one progress=100 event after the ffmpeg
+    // transcode completes and before probing duration/resolution; live
+    // transcode events are clamped to <100 by the backend parser. So
+    // 100 is the precise "probe window" signal, while any value below
+    // it is real transcode percentage.
+    if (task.Progress >= 100) return t("tasks.progressStageProbing");
+    return t("tasks.progressStageTranscoding");
+  }
   return t("tasks.progressStageDownloading");
 }
 
@@ -107,4 +117,59 @@ export function actionLabel(action: string, t: TranslateFunction): string {
     delete: t("tasks.actionDelete"),
   };
   return map[action] ?? action;
+}
+
+/**
+ * Defensive string-array decoder for scraped metadata fields.
+ *
+ * Backend rows store tags/actors as JSON-array strings; every API layer
+ * is expected to decode them already, but SSE payloads and older
+ * deployments may still deliver the raw `["a","b"]` literal (or a
+ * comma/、-separated plain string). Treating such a value as string[]
+ * rendered the whole JSON literal as one giant "tag pill" — this is
+ * how the actor of task #HSYZH3 ("欣欣子") ended up displayed as a tag.
+ */
+export function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "null" || trimmed === "[]") return [];
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+        }
+      } catch {
+        // fall through to delimited split
+      }
+    }
+    return trimmed
+      .split(/[,、|;]/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  return [];
+}
+
+/** Resolve the tag list for the detail popover: VideoInfo first, top-level passthrough second. */
+export function resolveTaskTags(task: DownloadTask): string[] {
+  const fromVideoInfo = normalizeStringArray(task.VideoInfo?.Tags);
+  if (fromVideoInfo.length > 0) return fromVideoInfo;
+  return normalizeStringArray(task.Tags);
+}
+
+/**
+ * Resolve the actor list for the detail popover: VideoInfo → top-level
+ * Actors passthrough (SSE task:metadata) → Person column string last,
+ * so 演员 still renders for tasks scraped before this field existed.
+ */
+export function resolveTaskActors(task: DownloadTask): string[] {
+  const fromVideoInfo = normalizeStringArray(task.VideoInfo?.Actors);
+  if (fromVideoInfo.length > 0) return fromVideoInfo;
+  const fromTask = normalizeStringArray(task.Actors);
+  if (fromTask.length > 0) return fromTask;
+  return normalizeStringArray(task.Person);
 }

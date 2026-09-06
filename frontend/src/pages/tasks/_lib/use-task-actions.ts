@@ -12,6 +12,20 @@ interface UseTaskActionsParams {
   t: TranslateFunction;
 }
 
+// Hard ceiling for task action requests. Without this, a backend handler
+// stuck on file I/O (e.g. delete blocked by locked files) leaves the batch
+// Promise.allSettled unresolved forever: the selection bar stays frozen and
+// the task list spins indefinitely (observed 2026-09-05, 16-item batch
+// delete). On abort the caller's existing failure-recovery path runs
+// (clearDeletedKey + fetchTasks).
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 export function useTaskActions({
   tasks,
   selectedIds,
@@ -54,7 +68,7 @@ export function useTaskActions({
       const total = urls.length;
 
       const submitOne = (u: string): void => {
-        fetch("/api/tasks", {
+        fetchWithTimeout("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: u }),
@@ -159,7 +173,7 @@ export function useTaskActions({
           fetchOpts.headers = { "Content-Type": "application/json" };
           fetchOpts.body = JSON.stringify({ action });
         }
-        const res = await fetch(endpoint, fetchOpts);
+        const res = await fetchWithTimeout(endpoint, fetchOpts);
         if (!res.ok) throw new Error(await res.text());
 
         const optimistic = computeOptimisticStatus(task, action);
@@ -217,7 +231,7 @@ export function useTaskActions({
 
       try {
         const endpoint = isSniff ? `/api/sniff?id=${taskId}` : isGallery ? `/api/shelf/${taskId}` : `/api/tasks/${taskId}`;
-        const res = await fetch(endpoint, { method: "DELETE" });
+        const res = await fetchWithTimeout(endpoint, { method: "DELETE" });
         if (!res.ok) throw new Error(await res.text());
         toast.success("tasks.deleted", { type: label, id: task.DisplayID ?? taskId });
       } catch (err: unknown) {
@@ -260,7 +274,7 @@ export function useTaskActions({
               : isGallery
                 ? `/api/shelf/${task.ID}`
                 : `/api/tasks/${task.ID}`;
-            return fetch(endpoint, { method: "DELETE" });
+            return fetchWithTimeout(endpoint, { method: "DELETE" });
           })
         );
 
@@ -313,7 +327,7 @@ export function useTaskActions({
           const isGallery = task.TaskType === "gallery";
           const id = task.ID;
           const endpoint = isGallery ? `/api/shelf/${id}` : `/api/tasks/${id}`;
-          return fetch(endpoint, {
+          return fetchWithTimeout(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action }),

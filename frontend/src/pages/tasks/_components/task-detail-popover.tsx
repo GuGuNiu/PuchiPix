@@ -1,9 +1,9 @@
-import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import { Copy, Clock, Monitor, HardDrive, Calendar, X } from "lucide-react";
 import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask, TaskStatus } from "@/types";
 import { useI18n } from "@/lib/i18n";
 import { formatFileSize } from "@/lib/utils";
+import { resolveTaskActors, resolveTaskTags } from "../_lib/task-helpers";
 
 interface TaskDetailPopoverProps {
   tasks: DownloadTask[];
@@ -29,12 +29,8 @@ export function TaskDetailPopover({
   const isSniffTask = task.TaskType === "sniff";
 
   return (
-    <Popover className="task-detail-overlay">
-      <PopoverPanel
-        static
-        anchor={{ to: "top", gap: 8 }}
-        className="task-detail-popover"
-      >
+    <div className="task-detail-overlay" onClick={() => setExpandedTask(null)}>
+      <div className="task-detail-popover" onClick={(e) => e.stopPropagation()}>
         <div className="task-detail-popover-header">
           <span className="task-detail-popover-title">
             {isSniffTask ? t("tasks.detailTaskTypeSniff") : isGalleryTask ? t("tasks.detailTaskTypeGallery") : t("tasks.detailTaskTypeVideo")}{t("tasks.detailTaskSuffix")} #{task.DisplayID ?? task.ID}
@@ -213,30 +209,60 @@ export function TaskDetailPopover({
                 <div className="task-detail-item task-detail-item-flex">
                   <span className="task-detail-label">{t("tasks.detailTags")}</span>
                   <span className="task-detail-value">
-                    {task.VideoInfo?.Tags && task.VideoInfo.Tags.length > 0 ? (
-                      <div className="task-detail-tags">
-                        {task.VideoInfo.Tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="pill pill-clickable"
-                            onClick={() => {
-                              navigator.clipboard.writeText(tag);
-                              toast.success("common.copied");
-                            }}
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    ) : "—"}
+                    {(() => {
+                      // resolveTaskTags: VideoInfo.Tags (detail fetch) first,
+                      // then the top-level Tags passthrough (SSE/list), with
+                      // defensive JSON-string decoding in between.
+                      const tags = resolveTaskTags(task);
+                      if (tags.length === 0) return "—";
+                      return (
+                        <div className="task-detail-tags">
+                          {tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="pill pill-clickable"
+                              onClick={() => {
+                                navigator.clipboard.writeText(tag);
+                                toast.success("common.copied");
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </span>
                 </div>
-              </div>
-            )}
-            {!isGalleryTask && task.VideoInfo?.Actors && task.VideoInfo.Actors.length > 0 && (
-              <div className="task-detail-item full-width">
-                <span className="task-detail-label">{t("tasks.detailActors")}</span>
-                <span className="task-detail-value">{task.VideoInfo.Actors.join("、")}</span>
+                <div className="task-detail-item task-detail-item-flex">
+                  <span className="task-detail-label">{t("tasks.detailActors")}</span>
+                  <span className="task-detail-value">
+                    {(() => {
+                      // resolveTaskActors falls back through VideoInfo →
+                      // Actors passthrough → Person so the actor (e.g.
+                      // "欣欣子" for #HSYZH3) always renders in the 演员
+                      // row — never inside the 标签 row above.
+                      const actors = resolveTaskActors(task);
+                      if (actors.length === 0) return "—";
+                      return (
+                        <div className="task-detail-tags">
+                          {actors.map((actor) => (
+                            <span
+                              key={actor}
+                              className="pill pill-clickable"
+                              onClick={() => {
+                                navigator.clipboard.writeText(actor);
+                                toast.success("common.copied");
+                              }}
+                            >
+                              {actor}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </span>
+                </div>
               </div>
             )}
             {!isGalleryTask && (
@@ -336,7 +362,7 @@ export function TaskDetailPopover({
             )}
           </div>
         </div>
-      </PopoverPanel>
-    </Popover>
+      </div>
+    </div>
   );
 }

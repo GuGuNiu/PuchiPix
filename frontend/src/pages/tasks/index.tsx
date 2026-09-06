@@ -15,7 +15,9 @@ import {
   ImageIcon,
   Film,
   Radar,
+  Copy,
 } from "lucide-react";
+import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import { formatFileSize } from "@/lib/utils";
@@ -26,6 +28,9 @@ import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
 import { useI18n } from "@/lib/i18n";
 import {
   useStatusLabel,
+  getProgressStage,
+  resolveTaskActors,
+  resolveTaskTags,
   TYPE_PILL_KEYS,
   FILTER_PILL_KEYS,
   SORT_OPTION_KEYS,
@@ -129,7 +134,7 @@ function sseAnimReducer(state: SseAnimState, action: SseAnimAction): SseAnimStat
 }
 
 export default function TasksPage(): React.JSX.Element {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const STATUS_LABEL = useStatusLabel(t);
   const {
     tasks,
@@ -343,6 +348,20 @@ export default function TasksPage(): React.JSX.Element {
     return result;
   }, [tasks, statusFilter, typeFilter, searchQuery]);
 
+  const { handleSubmit, handleAction, handleDelete, handleBatchAction } = useTaskActions({
+    tasks,
+    selectedIds,
+    setSelectedIds: (ids: Set<string>) => {
+      const newSelection: RowSelectionState = {};
+      ids.forEach((id) => {
+        newSelection[id] = true;
+      });
+      setRowSelection(newSelection);
+    },
+    fetchTasks,
+    t,
+  });
+
   // ===== TanStack Table Column Definitions =====
   const columns = useMemo<ColumnDef<DownloadTask>[]>(
     () => [
@@ -550,35 +569,61 @@ export default function TasksPage(): React.JSX.Element {
         id: "colProgress",
         accessorKey: "Progress",
         header: () => t("tasks.colProgress"),
-        cell: ({ row }) => (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 3,
-              minWidth: 70,
-            }}
-          >
-            <span
+        cell: ({ row }) => {
+          const task = row.original;
+          const isPreparing = task.Status === "preparing";
+          const isIdentifying = task.Status === "scraping" || task.Status === "scrape_pending";
+          const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending" || isPreparing;
+          const isPaused = task.Status === "paused";
+          // Transcode/post-process phase: purple fill driven by the
+          // REAL transcode percentage (SSE carries phase progress 0→100
+          // while status is "transcoding"); the stage text shows the
+          // live percentage. The bar reverts to the normal green
+          // completed fill once the task finishes.
+          const isTranscoding = task.Status === "transcoding";
+          const showStage = isIdentifying || isWaitingSlot || isPaused || isTranscoding;
+          const stage = getProgressStage(task, t);
+          const progress = typeof task.Progress === "number" ? task.Progress : 0;
+          const transcodeText =
+            isTranscoding && progress < 99 ? `${stage} ${progress.toFixed(1)}%` : stage;
+          const fillClass =
+            task.Status === "completed"
+              ? "completed"
+              : task.Status === "failed" || task.Status === "cancelled"
+                ? "failed"
+                : isPreparing
+                  ? "preparing"
+                  : "";
+          return (
+            <div
               style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-secondary)",
-                whiteSpace: "nowrap",
-                lineHeight: "16px",
-                fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace",
+                display: "flex",
+                flexDirection: "column",
+                gap: 3,
+                minWidth: 70,
               }}
             >
-              {row.original.Progress.toFixed(1) + "%"}
-            </span>
-            <div className="progress-bar" style={{ width: "100%" }}>
-              <div
-                className={`progress-bar-fill ${row.original.Status === "completed" ? "completed" : row.original.Status === "failed" ? "failed" : ""}`}
-                style={{ width: `${row.original.Progress}%` }}
-              />
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--text-secondary)",
+                  whiteSpace: "nowrap",
+                  lineHeight: "16px",
+                  fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace",
+                }}
+              >
+                {showStage ? transcodeText : progress.toFixed(1) + "%"}
+              </span>
+              <div className="progress-bar" style={{ width: "100%" }}>
+                <div
+                  className={`progress-bar-fill ${fillClass} ${isTranscoding ? "transcoding" : ""} ${showStage && !isTranscoding ? "progress-bar-indeterminate" : ""}`}
+                  style={showStage && !isTranscoding ? {} : { width: `${progress}%` }}
+                />
+              </div>
             </div>
-          </div>
-        ),
+          );
+        },
         size: 140,
       },
       {
@@ -641,10 +686,134 @@ export default function TasksPage(): React.JSX.Element {
         header: () => t("tasks.colActions"),
         cell: ({ row }) => {
           const task = row.original;
+          const isGallery = task.TaskType === "gallery";
+          const isSniff = task.TaskType === "sniff";
+          const isPreparing = task.Status === "preparing";
+          const canStart = !isGallery && !isSniff
+            ? (task.Status === "pending" || task.Status === "paused" || task.Status === "failed" || task.Status === "cancelled")
+            : (task.Status === "pending" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "paused" || task.Status === "failed" || task.Status === "scraping");
+          const canPause = !isGallery && !isSniff && (task.Status === "downloading" || isPreparing);
+          const canPauseGallery = isGallery && (task.Status === "scraping" || task.Status === "downloading" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "pending" || isPreparing);
+          const canCancel = !isGallery && !isSniff &&
+            (task.Status === "downloading" ||
+              task.Status === "paused" ||
+              task.Status === "pending" ||
+              task.Status === "scraping");
+          const canRetry = !isSniff && task.Status === "failed";
+          const canRetryPartial = isGallery && task.Status === "partial";
+          const canDelete = true;
           return (
             <div className="action-buttons">
-              <button className="btn btn-primary btn-sm" title={t("tasks.actionStart")}>
-                <Play size={14} />
+              {canStart && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={(e) => { e.stopPropagation(); handleAction(task, "start"); }}
+                  title={t("tasks.actionStart")}
+                >
+                  <Play size={14} />
+                </button>
+              )}
+              {(canPause || canPauseGallery) && (
+                <button
+                  className="btn btn-warning btn-sm"
+                  onClick={(e) => { e.stopPropagation(); handleAction(task, "pause"); }}
+                  title={t("tasks.actionPause")}
+                >
+                  <Pause size={14} />
+                </button>
+              )}
+              {canCancel && (
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={(e) => { e.stopPropagation(); handleAction(task, "cancel"); }}
+                  title={t("tasks.actionCancel")}
+                >
+                  <Square size={14} />
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={(e) => { e.stopPropagation(); handleDelete(task); }}
+                  title={t("tasks.actionDelete")}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+              {canRetry && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={(e) => { e.stopPropagation(); handleAction(task, "retry"); }}
+                  title={t("tasks.actionRetry")}
+                >
+                  <RotateCw size={14} />
+                </button>
+              )}
+              {canRetryPartial && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  style={{ borderColor: "var(--warning)", color: "var(--warning)" }}
+                  onClick={(e) => { e.stopPropagation(); handleAction(task, "retry"); }}
+                  title={t("tasks.retryFailedFiles")}
+                >
+                  <RotateCw size={14} />
+                </button>
+              )}
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const summary = {
+                    ID: task.ID,
+                    DisplayID: task.DisplayID,
+                    Type: isSniff ? t("tasks.typeSniff") : isGallery ? t("tasks.typeGallery") : t("tasks.typeVideo"),
+                    Title: isGallery ? (task.GalleryTitle || "—") : (task.VideoInfo?.Title || "—"),
+                    URL: task.URL,
+                    M3U8URL: task.M3U8URL || undefined,
+                    Status: STATUS_LABEL[task.Status] ?? task.Status,
+                    Progress: `${task.Progress.toFixed(1)}%`,
+                    FilePath: task.FilePath || undefined,
+                    CreatedAt: task.CreatedAt ? new Date(task.CreatedAt).toLocaleString(locale) : undefined,
+                    UpdatedAt: task.UpdatedAt ? new Date(task.UpdatedAt).toLocaleString(locale) : undefined,
+                    ...(isSniff ? {
+                      SniffTotalFound: task.SniffTotalFound ?? 0,
+                      SniffTotalCreated: task.SniffTotalCreated ?? 0,
+                      SniffTotalSkipped: task.SniffTotalSkipped ?? 0,
+                    } : isGallery ? {
+                      ImageCount: task.ImageCount ?? 0,
+                      VideoCount: task.VideoCount ?? 0,
+                      DownloadMethod: task.DownloadMethod,
+                      DownloadInfo: task.DownloadInfo ? {
+                        FileSizeText: task.DownloadInfo.FileSizeText,
+                        ActualSize: task.DownloadInfo.ActualSize > 0 ? formatFileSize(task.DownloadInfo.ActualSize) : undefined,
+                        Provider: task.DownloadInfo.Provider,
+                        Status: task.DownloadInfo.Status,
+                        DownloadURL: task.DownloadInfo.DownloadURL,
+                        ZipFileName: task.DownloadInfo.ZipFileName || undefined,
+                        Parallelism: task.DownloadInfo.Parallelism || undefined,
+                        AvgSpeed: task.DownloadInfo.AvgSpeed || undefined,
+                        VerifiedCount: task.DownloadInfo.VerifiedCount || undefined,
+                        CountMatched: task.DownloadInfo.CountMatched,
+                      } : undefined,
+                    } : {
+                      Segment: task.Segment ?? undefined,
+                      TotalSegments: task.TotalSegments ?? undefined,
+                      FileSize: task.VideoInfo?.FileSize ? formatFileSize(task.VideoInfo.FileSize) : undefined,
+                      Duration: task.VideoInfo?.Duration ? t("tasks.durationMinutes", { count: task.VideoInfo.Duration }) : undefined,
+                      Resolution: task.VideoInfo?.Resolution || undefined,
+                      Tags: resolveTaskTags(task).length > 0 ? resolveTaskTags(task) : undefined,
+                      Actors: resolveTaskActors(task).length > 0 ? resolveTaskActors(task) : undefined,
+                    }),
+                    ErrorMsg: task.ErrorMsg || undefined,
+                  };
+                  navigator.clipboard.writeText(JSON.stringify(summary, null, 2)).then(
+                    () => toast.success("tasks.taskDataCopied", { id: task.DisplayID ?? task.ID }),
+                    () => toast.error("tasks.copyFailed"),
+                  );
+                }}
+                title={t("tasks.copyTaskData")}
+              >
+                <Copy size={14} />
               </button>
             </div>
           );
@@ -653,7 +822,7 @@ export default function TasksPage(): React.JSX.Element {
         enableSorting: false,
       },
     ],
-    [t, STATUS_LABEL, rowSelection, filteredTasks.length]
+    [t, STATUS_LABEL, rowSelection, filteredTasks.length, handleAction, handleDelete, locale]
   );
 
   // ===== TanStack Table Instance =====
@@ -731,20 +900,6 @@ export default function TasksPage(): React.JSX.Element {
   useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter, typeFilter, searchQuery, sortBy]);
-
-  const { handleSubmit, handleAction, handleDelete, handleBatchAction } = useTaskActions({
-    tasks,
-    selectedIds,
-    setSelectedIds: (ids: Set<string>) => {
-      const newSelection: RowSelectionState = {};
-      ids.forEach((id) => {
-        newSelection[id] = true;
-      });
-      setRowSelection(newSelection);
-    },
-    fetchTasks,
-    t,
-  });
 
   const toggleExpand = useCallback((task: DownloadTask): void => {
     const key = task.DisplayID ?? String(task.ID);

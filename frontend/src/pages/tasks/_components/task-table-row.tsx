@@ -18,6 +18,8 @@ import { useI18n } from "@/lib/i18n";
 import {
   formatFileSize,
   getProgressStage,
+  resolveTaskActors,
+  resolveTaskTags,
 } from "../_lib/task-helpers";
 
 interface TaskTableRowProps {
@@ -367,8 +369,8 @@ export function TaskTableRow({
                     FileSize: task.VideoInfo?.FileSize ? formatFileSize(task.VideoInfo.FileSize) : undefined,
                     Duration: task.VideoInfo?.Duration ? t("tasks.durationMinutes", { count: task.VideoInfo.Duration }) : undefined,
                     Resolution: task.VideoInfo?.Resolution || undefined,
-                    Tags: task.VideoInfo?.Tags?.length ? task.VideoInfo.Tags : undefined,
-                    Actors: task.VideoInfo?.Actors?.length ? task.VideoInfo.Actors : undefined,
+                    Tags: resolveTaskTags(task).length > 0 ? resolveTaskTags(task) : undefined,
+                    Actors: resolveTaskActors(task).length > 0 ? resolveTaskActors(task) : undefined,
                   }),
                   ErrorMsg: task.ErrorMsg || undefined,
                 };
