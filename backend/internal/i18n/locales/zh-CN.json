@@ -7,6 +7,7 @@
   "api.blocklist.addFailed": "添加失败",
   "api.blocklist.createFailed": "创建屏蔽规则失败",
   "api.blocklist.deleteFailed": "删除屏蔽规则失败",
+  "api.blocklist.invalidRule": "屏蔽规则无效：{reason}",
   "api.blocklist.missingFields": "fieldType 和 keyword 为必填项",
   "api.blocklist.queryFailed": "查询屏蔽规则失败",
   "api.blocklist.updateFailed": "更新屏蔽规则失败",

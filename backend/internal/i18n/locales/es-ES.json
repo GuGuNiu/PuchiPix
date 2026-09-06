@@ -818,6 +818,7 @@
   "api.accounts.updateFailed": "Failed to update account",
   "api.blocklist.createFailed": "Failed to create blocklist rule",
   "api.blocklist.deleteFailed": "Failed to delete blocklist rule",
+  "api.blocklist.invalidRule": "Regla de lista de bloqueo no válida: {reason}",
   "api.blocklist.missingFields": "fieldType and keyword are required",
   "api.blocklist.queryFailed": "Failed to query blocklist",
   "api.blocklist.updateFailed": "Failed to update blocklist rule",
