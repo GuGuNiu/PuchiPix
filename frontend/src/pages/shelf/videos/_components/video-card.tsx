@@ -1,155 +1,193 @@
 import { memo, useState, useRef, useCallback, useEffect } from "react";
 import {
-  ImageIcon,
   Video,
   HardDrive,
-  Calendar,
   Play,
   Loader2,
   AlertCircle,
+  CheckCircle,
+  Circle,
 } from "lucide-react";
-import { useGalleryStore } from "@/store/gallery-store";
 import { useI18n } from "@/lib/i18n";
 import { formatFileSize } from "@/lib/utils";
-import type { GalleryData } from "@/types";
 import {
   VIDEO_STATUS_LABEL,
   VIDEO_STATUS_CLASS,
+  formatDuration,
+  formatClock,
+  videoFileUrl,
+  type VideoShelfItem,
 } from "../video-helpers";
 
 export interface VideoCardProps {
-  gallery: GalleryData;
-  isExpanded: boolean;
-  onExpand: (id: number) => void;
+  video: VideoShelfItem;
+  onPlay: (video: VideoShelfItem) => void;
+  /** Selection mode: clicking toggles selection instead of playing. */
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (video: VideoShelfItem) => void;
 }
 
 const HOVER_DELAY = 150;
 
+/**
+ * Effective hover-preview speed (user requirement: 32X).
+ * HTMLMediaElement.playbackRate is hard-capped at 16 in Chromium/Safari —
+ * anything higher throws NotSupportedError (or is silently clamped). To
+ * reach an effective 32x we compound the maximum supported rate with a
+ * periodic time-skip: every SKIP_INTERVAL_MS the playhead jumps forward by
+ * the media-seconds the capped rate cannot cover
+ * (16x * 0.5s playback + 8s skip = 16 media-seconds per 0.5s wall clock).
+ */
+const HOVER_EFFECTIVE_RATE = 32;
+const MAX_PLAYBACK_RATE = 16;
+const SKIP_INTERVAL_MS = 500;
+const SKIP_AHEAD_SECONDS =
+  ((HOVER_EFFECTIVE_RATE - MAX_PLAYBACK_RATE) * SKIP_INTERVAL_MS) / 1000;
+
+function setMaxHoverRate(el: HTMLVideoElement): void {
+  const rates = [MAX_PLAYBACK_RATE, 8, 4, 2, 1];
+  for (const rate of rates) {
+    // Browser rejected this rate — fall through to the next slower one.
+    try {
+      el.playbackRate = rate;
+      return;
+    } catch {
+    }
+  }
+}
+
 function VideoCardComponent({
-  gallery,
-  isExpanded,
-  onExpand,
+  video,
+  onPlay,
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
 }: VideoCardProps): React.JSX.Element {
   const { t } = useI18n();
-  const progress = useGalleryStore((s) => s.progressMap[gallery.ID]);
   const [isHovering, setIsHovering] = useState(false);
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [hoverReady, setHoverReady] = useState(false);
   const [videoError, setVideoError] = useState(false);
-  const [videoElementError, setVideoElementError] = useState(false);
+  /*
+   * Real duration probed from the file's own metadata — the most truthful
+   * source (guards against stale/misplaced DB values). Falls back to the
+   * DB minutes value when the file has no playable metadata.
+   */
+  const [fileDuration, setFileDuration] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMountedRef = useRef(true);
-  const fetchDetail = useGalleryStore((s) => s.fetchGalleryDetail);
-
-  const progressPct =
-    progress && progress.total > 0
-      ? Math.round((progress.completed / progress.total) * 100)
-      : gallery.Status === "completed"
-        ? 100
-        : 0;
-  const fillClass =
-    gallery.Status === "completed"
-      ? "completed"
-      : gallery.Status === "failed"
-        ? "failed"
-        : "";
+  const skipIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
-      isMountedRef.current = false;
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
+      }
+      if (skipIntervalRef.current) {
+        clearInterval(skipIntervalRef.current);
       }
     };
   }, []);
 
-  const loadVideoPreview = useCallback(async () => {
-    if (videoSrc || videoError) return;
-    const detail = await fetchDetail(gallery.ID);
-    if (!isMountedRef.current) return;
-    if (detail?.Videos && detail.Videos.length > 0) {
-      const firstVideo = detail.Videos[0];
-      const src = firstVideo.LocalPath
-        ? `/api/proxy?path=${encodeURIComponent(firstVideo.LocalPath)}`
-        : firstVideo.URL;
-      if (src) {
-        setVideoSrc(src);
-      } else {
-        setVideoError(true);
-      }
-    } else {
-      setVideoError(true);
+  const canPreview = video.HasFile;
+  const durationText =
+    fileDuration != null ? formatClock(fileDuration) : formatDuration(video.Duration);
+
+  const startPreview = useCallback(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    setMaxHoverRate(el);
+    el.play().catch(() => {});
+
+    /*
+     * Compound the capped playbackRate into an effective 32x: periodically
+     * jump the playhead forward by the uncovered media-seconds. Skipped
+     * frames render as keyframe hops — expected at extreme skim speeds.
+     */
+    if (skipIntervalRef.current) {
+      clearInterval(skipIntervalRef.current);
     }
-  }, [gallery.ID, fetchDetail, videoSrc, videoError]);
+    skipIntervalRef.current = setInterval(() => {
+      const v = videoRef.current;
+      if (!v || v.paused || v.error) return;
+      const dur = Number.isFinite(v.duration) ? v.duration : 0;
+      let next = v.currentTime + SKIP_AHEAD_SECONDS;
+      if (dur > 0 && next >= dur - 0.1) next = 0.1; // Wrap the muted loop
+      // Seek can fail while the target position is not yet buffered.
+      try { v.currentTime = next; } catch {}
+    }, SKIP_INTERVAL_MS);
+  }, []);
+
+  const stopPreview = useCallback(() => {
+    if (skipIntervalRef.current) {
+      clearInterval(skipIntervalRef.current);
+      skipIntervalRef.current = null;
+    }
+    const el = videoRef.current;
+    if (!el) return;
+    el.pause();
+    el.currentTime = 0;
+  }, []);
 
   const handleMouseEnter = useCallback(() => {
+    if (selectMode || !canPreview) return;
     setIsHovering(true);
     hoverTimerRef.current = setTimeout(() => {
-      loadVideoPreview();
+      setHoverReady(true);
+      startPreview();
     }, HOVER_DELAY);
-  }, [loadVideoPreview]);
+  }, [selectMode, canPreview, startPreview]);
 
   const handleMouseLeave = useCallback(() => {
     setIsHovering(false);
+    setHoverReady(false);
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
-    }
-  }, []);
+    stopPreview();
+  }, [stopPreview]);
 
-  const handleFocus = useCallback(() => {
-    setIsHovering(true);
-    loadVideoPreview();
-  }, [loadVideoPreview]);
-
-  const handleBlur = useCallback(() => {
-    setIsHovering(false);
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
+  const handleClick = useCallback(() => {
+    if (selectMode) {
+      onToggleSelect?.(video);
+      return;
     }
-  }, []);
+    if (canPreview) onPlay(video);
+  }, [selectMode, onToggleSelect, video, onPlay, canPreview]);
 
-  useEffect(() => {
-    if (isHovering && videoRef.current && videoSrc) {
-      videoRef.current.playbackRate = 8;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [isHovering, videoSrc]);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      if (selectMode) onToggleSelect?.(video);
+      else if (canPreview) onPlay(video);
+    },
+    [selectMode, onToggleSelect, video, onPlay, canPreview],
+  );
 
   return (
     <div
-      onClick={() => onExpand(gallery.ID)}
+      onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onExpand(gallery.ID);
-        }
-      }}
+      onKeyDown={handleKeyDown}
       tabIndex={0}
       role="button"
-      aria-label={gallery.Title || t("video.videoTitle", { id: gallery.ID })}
+      aria-label={video.Title || t("video.videoTitle", { id: video.ID })}
       style={{
         display: "flex",
         flexDirection: "column",
         width: "100%",
         height: "100%",
         background: "var(--bg-card)",
-        border: `1px solid ${isExpanded ? "var(--accent)" : "var(--border)"}`,
+        border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
         borderRadius: "var(--radius-md)",
         overflow: "hidden",
-        cursor: "pointer",
+        cursor: selectMode || canPreview ? "pointer" : "default",
         transition: "border-color 0.15s, box-shadow 0.15s",
         outline: "none",
+        boxShadow: selected ? "0 0 0 1px var(--accent)" : "none",
       }}
     >
       <div
@@ -162,29 +200,37 @@ function VideoCardComponent({
           overflow: "hidden",
         }}
       >
-        {gallery.CoverURL || gallery.CoverLocalPath || gallery.ImageCount > 0 ? (
-          <img
-            src={`/api/shelf/${gallery.ID}?type=cover&width=400`}
-            alt={gallery.Title}
-            loading="lazy"
-            decoding="async"
+        {canPreview ? (
+          <video
+            ref={videoRef}
+            src={`${videoFileUrl(video.ID)}#t=0.1`}
+            preload="metadata"
+            muted
+            loop
+            playsInline
+            onError={() => setVideoError(true)}
+            onLoadedData={(e) => {
+              /*
+               * Seek slightly past 0 so the browser paints a real frame
+               * as the poster instead of a blank player.
+               */
+              const el = e.target as HTMLVideoElement;
+              // Seek can fail while the element is not ready — ignore.
+              if (el.currentTime < 0.05) {
+                try { el.currentTime = 0.1; } catch {}
+              }
+            }}
+            onLoadedMetadata={(e) => {
+              // The file's own duration beats the DB value — use it.
+              const el = e.target as HTMLVideoElement;
+              if (Number.isFinite(el.duration) && el.duration > 0) {
+                setFileDuration(el.duration);
+              }
+            }}
             style={{
               width: "100%",
               height: "100%",
               objectFit: "cover",
-            }}
-            onError={(e) => {
-              const img = e.target as HTMLImageElement;
-              if (!img.dataset.fallback) {
-                img.dataset.fallback = '1';
-                if (gallery.CoverURL) {
-                  img.src = gallery.CoverURL;
-                } else {
-                  img.style.display = "none";
-                }
-              } else {
-                img.style.display = "none";
-              }
             }}
           />
         ) : (
@@ -197,29 +243,33 @@ function VideoCardComponent({
               color: "var(--text-muted)",
             }}
           >
-            <ImageIcon size={40} strokeWidth={1.5} />
+            <Video size={40} strokeWidth={1.5} />
           </div>
         )}
 
-        {isHovering && videoSrc && !videoError && !videoElementError && (
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            muted
-            loop
-            playsInline
-            onError={() => setVideoElementError(true)}
+        {isHovering && hoverReady && canPreview && !videoError && (
+          <div
             style={{
               position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
+              bottom: 6,
+              right: 6,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 6px",
+              background: "rgba(0,0,0,0.65)",
+              borderRadius: 4,
+              fontSize: 10,
+              color: "white",
+              fontWeight: 700,
             }}
-          />
+          >
+            <Play size={10} fill="white" />
+            {HOVER_EFFECTIVE_RATE}X
+          </div>
         )}
 
-        {isHovering && !videoSrc && !videoError && (
+        {isHovering && !hoverReady && canPreview && !videoError && (
           <div
             style={{
               position: "absolute",
@@ -227,14 +277,14 @@ function VideoCardComponent({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "rgba(0,0,0,0.4)",
+              background: "rgba(0,0,0,0.35)",
             }}
           >
             <Loader2 size={28} className="spin" style={{ color: "white" }} />
           </div>
         )}
 
-        {isHovering && videoElementError && (
+        {canPreview && videoError && (
           <div
             style={{
               position: "absolute",
@@ -258,9 +308,6 @@ function VideoCardComponent({
             position: "absolute",
             bottom: 6,
             left: 6,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
             padding: "2px 6px",
             background: "rgba(0,0,0,0.65)",
             borderRadius: 4,
@@ -269,25 +316,31 @@ function VideoCardComponent({
             fontWeight: 600,
           }}
         >
-          {isHovering && videoSrc && !videoElementError ? (
-            <>
-              <Play size={10} fill="white" />
-              8X
-            </>
-          ) : (
-            <>
-              <Video size={10} />
-              {gallery.VideoCount}V
-            </>
-          )}
+          {durationText}
         </div>
 
         <span
-          className={`badge ${VIDEO_STATUS_CLASS[gallery.Status] || "badge-default"}`}
+          className={`badge ${VIDEO_STATUS_CLASS[video.Status] || "badge-default"}`}
           style={{ position: "absolute", top: 8, right: 8, fontSize: 11 }}
         >
-          {VIDEO_STATUS_LABEL[gallery.Status] ? t(VIDEO_STATUS_LABEL[gallery.Status]) : gallery.Status}
+          {VIDEO_STATUS_LABEL[video.Status] ? t(VIDEO_STATUS_LABEL[video.Status]) : video.Status}
         </span>
+
+        {selectMode && (
+          <span
+            style={{
+              position: "absolute",
+              top: 8,
+              left: 8,
+              display: "flex",
+              alignItems: "center",
+              color: selected ? "var(--accent)" : "white",
+              filter: selected ? "none" : "drop-shadow(0 1px 2px rgba(0,0,0,0.6))",
+            }}
+          >
+            {selected ? <CheckCircle size={22} fill="var(--accent)" stroke="white" /> : <Circle size={22} />}
+          </span>
+        )}
       </div>
 
       <div
@@ -308,80 +361,52 @@ function VideoCardComponent({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            marginBottom: 2,
+            marginBottom: 6,
             flexShrink: 0,
           }}
-          title={gallery.Title}
+          title={video.Title}
         >
-          {gallery.Title || t("video.videoTitle", { id: gallery.ID })}
+          {video.Title || t("video.videoTitle", { id: video.ID })}
         </div>
-        {gallery.Protagonist && (
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--text-secondary)",
-              marginBottom: 8,
-              flexShrink: 0,
-            }}
-          >
-            {t("video.model")}{gallery.Protagonist}
-          </div>
-        )}
         <div
           style={{
             display: "flex",
             gap: 4,
-            marginBottom: 4,
             flexWrap: "wrap",
             overflow: "hidden",
+            marginTop: "auto",
           }}
         >
-          <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>
-            <Video size={11} style={{ marginRight: 3 }} />
-            {gallery.VideoCount}V
-          </span>
-          {gallery.PageCount > 1 && (
+          {video.Resolution && (
             <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>
-              {gallery.PageCount}{t("common.pages")}
+              {video.Resolution}
             </span>
           )}
-          {gallery.PublishTime && (
-            <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>
-              <Calendar size={11} style={{ marginRight: 3 }} />
-              {gallery.PublishTime}
-            </span>
-          )}
-          {gallery.TotalSize > 0 && (
+          {video.TotalSize > 0 && (
             <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>
               <HardDrive size={11} style={{ marginRight: 3 }} />
-              {formatFileSize(gallery.TotalSize)}
-            </span>
-          )}
-          {gallery.TotalSize <= 0 && gallery.DownloadedSize > 0 && (
-            <span className="pill" style={{ fontSize: 11, padding: "2px 8px" }}>
-              <HardDrive size={11} style={{ marginRight: 3 }} />
-              {formatFileSize(gallery.DownloadedSize)}
+              {formatFileSize(video.TotalSize)}
             </span>
           )}
         </div>
-        {(gallery.Status === "downloading" || gallery.Status === "scraping") && (
+        {(video.Status === "downloading" || video.Status === "scraping") && (
           <div
             style={{
               display: "flex",
               alignItems: "center",
               gap: 8,
-              marginTop: "auto",
+              marginTop: 8,
               flexShrink: 0,
             }}
           >
             <div className="progress-bar" style={{ minWidth: 60, flex: 1 }}>
               <div
-                className={`progress-bar-fill ${fillClass}`}
-                style={{ width: `${progressPct}%` }}
+                className="progress-bar-fill"
+                style={{ width: `${Math.round(video.Progress)}%` }}
               />
             </div>
             <span className="progress-text" style={{ fontSize: 11 }}>
-              {progress ? `${progress.completed}/${progress.total}` : `${progressPct}%`}
+              {Math.round(video.Progress)}%
             </span>
           </div>
         )}

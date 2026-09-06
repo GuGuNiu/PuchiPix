@@ -1,15 +1,16 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { toast } from "@/lib/i18n/toast";
 import {
   RefreshCw,
   Inbox,
   Search as SearchIcon,
-  Video,
+  ListChecks,
+  CheckSquare,
+  Square,
+  Play,
+  ListVideo,
 } from "lucide-react";
-import { useGalleryStore } from "@/store/gallery-store";
 import { useI18n } from "@/lib/i18n";
-import { useRouteState } from "@/lib/core/infra/route-state";
 import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
 import GlassSelect from "@/components/ui/glass-select";
 import {
@@ -17,40 +18,30 @@ import {
   VIDEO_SORT_OPTIONS,
   type VideoStatusFilter,
   type VideoSortBy,
+  type VideoShelfItem,
 } from "./video-helpers";
 import { VideoGrid } from "./_components/video-grid";
-import { GalleryDetailPanel } from "../photos/_components/gallery-detail-panel";
+import { VideoPlayerModal } from "./_components/video-player-modal";
+import { useVideoPlaylistStore } from "./playlist-store";
+
+async function fetchVideoShelf(): Promise<VideoShelfItem[]> {
+  const res = await fetch("/api/videos");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? (data as VideoShelfItem[]) : [];
+}
 
 export default function VideosPage(): React.JSX.Element {
   const { t } = useI18n();
-  const galleries = useGalleryStore((s) => s.galleries);
-  const listLoading = useGalleryStore((s) => s.loading);
-  const fetchGalleries = useGalleryStore((s) => s.fetchGalleries);
-  const deleteGallery = useGalleryStore((s) => s.deleteGallery);
-  const retryDownload = useGalleryStore((s) => s.retryDownload);
-  const downloadZip = useGalleryStore((s) => s.downloadZip);
-  const fetchGalleryDetail = useGalleryStore((s) => s.fetchGalleryDetail);
-  const subscribeToSocket = useGalleryStore((s) => s.subscribeToSocket);
-  const { pathname } = useLocation();
-  useRouteState(pathname, {
-    ttl: 5 * 60 * 1000,
-    saveScroll: true,
-    scrollSelector: ".gallery-grid",
-  });
 
   const { values: urlValues, update: updateUrl } = useUrlState({
     status: "all",
     sort: "date_desc",
-    id: "",
   });
   const [searchQuery, setSearchQuery] = useDebouncedUrlParam("q", "");
 
   const statusFilter = urlValues.status as VideoStatusFilter;
   const sortBy = urlValues.sort as VideoSortBy;
-  const expandedId = (() => {
-    const id = parseInt(urlValues.id, 10);
-    return isNaN(id) ? null : id;
-  })();
 
   const setStatusFilter = useCallback(
     (v: VideoStatusFilter) => updateUrl({ status: v === "all" ? null : v }),
@@ -60,135 +51,137 @@ export default function VideosPage(): React.JSX.Element {
     (v: VideoSortBy) => updateUrl({ sort: v === "date_desc" ? null : v }),
     [updateUrl],
   );
-  const setExpandedId = useCallback(
-    (id: number | null) => updateUrl({ id: id != null ? String(id) : null }),
-    [updateUrl],
-  );
 
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [videos, setVideos] = useState<VideoShelfItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  /*
+   * The playlist queue lives in the persistent playlist store (survives
+   * reloads); the page only owns whether the player modal is open.
+   */
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const addToQueue = useVideoPlaylistStore((s) => s.addToQueue);
+  const addManyToQueue = useVideoPlaylistStore((s) => s.addManyToQueue);
+  const queueCount = useVideoPlaylistStore((s) => s.queueIds.length);
+
+  // Selection mode state (cards toggle selection instead of playing).
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const refresh = useCallback(async () => {
+    try {
+      const items = await fetchVideoShelf();
+      setVideos(items);
+    } catch {
+      toast.error("common.failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetchGalleries();
-    const unsub = subscribeToSocket();
-    return () => unsub();
-  }, [fetchGalleries, subscribeToSocket]);
-
-  const videoOnlyGalleries = useMemo(() => {
-    return galleries.filter((g) => g.VideoCount > 0 && g.ImageCount === 0);
-  }, [galleries]);
+    refresh();
+    // Periodic refresh keeps download progress badges current without SSE.
+    const interval = setInterval(refresh, 15000);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: videoOnlyGalleries.length };
-    for (const g of videoOnlyGalleries) {
-      const s = g.Status;
-      counts[s] = (counts[s] || 0) + 1;
-      if (s === "partial") {
-        counts["completed"] = (counts["completed"] || 0) + 1;
-      }
-      if (s === "download_pending") {
-        counts["downloading"] = (counts["downloading"] || 0) + 1;
-      }
+    const counts: Record<string, number> = { all: videos.length };
+    for (const v of videos) {
+      counts[v.Status] = (counts[v.Status] || 0) + 1;
     }
     return counts;
-  }, [videoOnlyGalleries]);
+  }, [videos]);
 
-  const filteredGalleries = useMemo(() => {
-    let result = videoOnlyGalleries;
+  const filteredVideos = useMemo(() => {
+    let result = videos;
 
     if (statusFilter !== "all") {
       if (statusFilter === "completed") {
-        result = result.filter((g) => g.Status === "completed" || g.Status === "partial");
-      } else if (statusFilter === "failed") {
-        result = result.filter((g) => g.Status === "failed");
-      } else if (statusFilter === "downloading") {
-        result = result.filter((g) => g.Status === "downloading" || g.Status === "scraping" || g.Status === "download_pending");
+        result = result.filter((v) => v.Status === "completed");
       } else {
-        result = result.filter((g) => g.Status === statusFilter);
+        result = result.filter((v) => v.Status === statusFilter);
       }
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       result = result.filter(
-        (g) =>
-          (g.Title || "").toLowerCase().includes(q) ||
-          (g.Protagonist || "").toLowerCase().includes(q) ||
-          (g.Description || "").toLowerCase().includes(q) ||
-          g.SourceURL.toLowerCase().includes(q),
+        (v) =>
+          (v.Title || "").toLowerCase().includes(q) ||
+          v.DisplayID.toLowerCase().includes(q) ||
+          v.SourceURL.toLowerCase().includes(q),
       );
     }
 
     const sorted = [...result];
     switch (sortBy) {
-      case "date_desc":
-        sorted.sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
-        break;
       case "date_asc":
         sorted.sort((a, b) => new Date(a.CreatedAt).getTime() - new Date(b.CreatedAt).getTime());
-        break;
-      case "videos_desc":
-        sorted.sort((a, b) => b.VideoCount - a.VideoCount);
         break;
       case "size_desc":
         sorted.sort((a, b) => b.TotalSize - a.TotalSize);
         break;
+      case "date_desc":
+      default:
+        sorted.sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
+        break;
     }
 
     return sorted;
-  }, [videoOnlyGalleries, statusFilter, searchQuery, sortBy]);
+  }, [videos, statusFilter, searchQuery, sortBy]);
 
-  const expandedIdRef = useRef(expandedId);
-  expandedIdRef.current = expandedId;
-  const handleExpand = useCallback((id: number) => {
-    setExpandedId(expandedIdRef.current === id ? null : id);
-  }, [setExpandedId]);
+  // ---- Playback ----
 
-  useEffect(() => {
-    if (expandedId === null) return;
-    let cancelled = false;
-    setDetailLoading(true);
-    fetchGalleryDetail(expandedId)
-      .then((detail) => {
-        if (cancelled) return;
-        if (!detail) {
-          setExpandedId(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [expandedId, fetchGalleryDetail, setExpandedId]);
+  const handlePlay = useCallback((video: VideoShelfItem) => {
+    if (!video.HasFile) return;
+    addToQueue(video.ID, true);
+    setPlayerOpen(true);
+  }, [addToQueue]);
 
-  const handleDelete = useCallback(
-    async (id: number) => {
-      if (!confirm(t("video.confirmDelete", { id }))) return;
-      const ok = await deleteGallery(id);
-      if (ok) {
-        toast.success("video.deleted", { id });
-        if (expandedId === id) setExpandedId(null);
-      } else {
-        toast.error("video.deleteFailed");
-      }
-    },
-    [deleteGallery, expandedId, setExpandedId, t],
-  );
+  const openPlayer = useCallback(() => {
+    if (queueCount > 0) setPlayerOpen(true);
+  }, [queueCount]);
 
-  const handleRetry = useCallback(
-    async (id: number) => {
-      const ok = await retryDownload(id);
-      if (ok) toast.success("video.retryStarted", { id });
-      else toast.error("video.retryFailed");
-    },
-    [retryDownload],
-  );
+  // ---- Selection ----
 
-  const expandedGallery = useMemo(
-    () => (expandedId === null ? null : galleries.find((g) => g.ID === expandedId) ?? null),
-    [galleries, expandedId],
-  );
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode((prev) => {
+      const next = !prev;
+      if (!next) setSelectedIds(new Set());
+      return next;
+    });
+  }, []);
+
+  const handleToggleSelect = useCallback((video: VideoShelfItem) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(video.ID)) next.delete(video.ID);
+      else next.add(video.ID);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(filteredVideos.map((v) => v.ID)));
+  }, [filteredVideos]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const playSelected = useCallback(() => {
+    const playable = filteredVideos.filter(
+      (v) => selectedIds.has(v.ID) && v.HasFile,
+    );
+    if (playable.length === 0) {
+      toast.error("video.noPlayableSelected");
+      return;
+    }
+    addManyToQueue(playable.map((v) => v.ID));
+    setPlayerOpen(true);
+  }, [filteredVideos, selectedIds, addManyToQueue]);
 
   return (
     <div className="tasks-layout">
@@ -251,48 +244,96 @@ export default function VideosPage(): React.JSX.Element {
           </div>
 
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-            <button className="btn btn-outline btn-sm" onClick={() => fetchGalleries()}>
+            <button
+              className={`btn btn-sm ${selectMode ? "btn-primary" : "btn-outline"}`}
+              onClick={toggleSelectMode}
+              title={t("video.selectModeHint")}
+            >
+              <ListChecks size={14} />
+              {t(selectMode ? "video.exitSelectMode" : "video.selectMode")}
+            </button>
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={openPlayer}
+              disabled={queueCount === 0}
+              title={t("video.openPlayer")}
+            >
+              <ListVideo size={14} />
+              {queueCount > 0 ? `(${queueCount})` : ""}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => refresh()}>
               <RefreshCw size={14} />
               {t("common.refresh")}
             </button>
           </div>
         </div>
 
-        {listLoading && galleries.length === 0 ? (
+        {selectMode && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              padding: "8px 16px",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg-inset)",
+            }}
+          >
+            <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {t("video.selectedCount", { count: selectedIds.size })}
+            </span>
+            <button className="btn btn-outline btn-sm" onClick={selectAll}>
+              <CheckSquare size={14} />
+              {t("video.selectAll")}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={clearSelection}>
+              <Square size={14} />
+              {t("video.clearSelection")}
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={playSelected}
+              disabled={selectedIds.size === 0}
+              style={{ marginLeft: "auto" }}
+            >
+              <Play size={14} />
+              {t("video.playSelected", { count: selectedIds.size })}
+            </button>
+          </div>
+        )}
+
+        {loading && videos.length === 0 ? (
           <div className="loading-container">
             <div className="spinner" />
           </div>
-        ) : filteredGalleries.length === 0 ? (
+        ) : filteredVideos.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">
               <Inbox size={48} strokeWidth={1.5} />
             </div>
             <div className="empty-state-text">
-              {videoOnlyGalleries.length === 0 ? t("video.noVideos") : t("video.noMatchingVideos")}
+              {videos.length === 0 ? t("video.noVideos") : t("video.noMatchingVideos")}
             </div>
             <div className="empty-state-subtext">
-              {videoOnlyGalleries.length === 0
-                ? t("video.emptyHintNew")
-                : t("video.emptyHintFilter")}
+              {videos.length === 0 ? t("video.emptyHintNew") : t("video.emptyHintFilter")}
             </div>
           </div>
         ) : (
           <VideoGrid
-            items={filteredGalleries}
-            expandedId={expandedId}
-            onExpand={handleExpand}
+            items={filteredVideos}
+            onPlay={handlePlay}
+            selectMode={selectMode}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
           />
         )}
       </div>
 
-      {expandedGallery && (
-        <GalleryDetailPanel
-          gallery={expandedGallery}
-          loading={detailLoading}
-          onClose={() => setExpandedId(null)}
-          onDelete={handleDelete}
-          onRetry={handleRetry}
-          onDownloadZip={downloadZip}
+      {playerOpen && (
+        <VideoPlayerModal
+          items={videos}
+          onClose={() => setPlayerOpen(false)}
         />
       )}
     </div>

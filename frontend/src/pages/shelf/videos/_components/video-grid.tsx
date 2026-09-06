@@ -1,26 +1,30 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Grid, useGridRef } from "react-window";
-import type { GalleryData } from "@/types";
 import { VideoCard } from "./video-card";
+import type { VideoShelfItem } from "../video-helpers";
 
 const COL_WIDTH = 288;
 const GAP = 16;
 const ROW_HEIGHT = 356;
 
 interface VideoGridProps {
-  items: GalleryData[];
-  expandedId: number | null;
-  onExpand: (id: number) => void;
+  items: VideoShelfItem[];
+  onPlay: (video: VideoShelfItem) => void;
+  selectMode?: boolean;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (video: VideoShelfItem) => void;
 }
 
 interface VideoGridCellData {
-  items: GalleryData[];
+  items: VideoShelfItem[];
   columnCount: number;
-  expandedId: number | null;
-  onExpand: (id: number) => void;
+  onPlay: (video: VideoShelfItem) => void;
+  selectMode: boolean;
+  selectedIds: Set<number>;
+  onToggleSelect?: (video: VideoShelfItem) => void;
 }
 
-export function VideoGrid({ items, expandedId, onExpand }: VideoGridProps): React.JSX.Element {
+export function VideoGrid({ items, onPlay, selectMode = false, selectedIds, onToggleSelect }: VideoGridProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const gridRef = useGridRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -48,8 +52,8 @@ export function VideoGrid({ items, expandedId, onExpand }: VideoGridProps): Reac
   const rowCount = Math.ceil(items.length / columnCount);
 
   const cellProps = useMemo<VideoGridCellData>(
-    () => ({ items, columnCount, expandedId, onExpand }),
-    [items, columnCount, expandedId, onExpand],
+    () => ({ items, columnCount, onPlay, selectMode, selectedIds: selectedIds ?? new Set<number>(), onToggleSelect }),
+    [items, columnCount, onPlay, selectMode, selectedIds, onToggleSelect],
   );
 
   return (
@@ -82,20 +86,24 @@ function VideoGridCell({
   style,
   items,
   columnCount,
-  expandedId,
-  onExpand,
+  onPlay,
+  selectMode,
+  selectedIds,
+  onToggleSelect,
 }: {
   columnIndex: number;
   rowIndex: number;
   style: React.CSSProperties;
-  items: GalleryData[];
+  items: VideoShelfItem[];
   columnCount: number;
-  expandedId: number | null;
-  onExpand: (id: number) => void;
+  onPlay: (video: VideoShelfItem) => void;
+  selectMode: boolean;
+  selectedIds: Set<number>;
+  onToggleSelect?: (video: VideoShelfItem) => void;
 } & { ariaAttributes: { "aria-colindex": number; role: "gridcell" } }): React.JSX.Element | null {
   const index = rowIndex * columnCount + columnIndex;
-  const gallery = items[index];
-  if (!gallery) return null;
+  const video = items[index];
+  if (!video) return null;
 
   return (
     <div
@@ -108,9 +116,11 @@ function VideoGridCell({
       }}
     >
       <VideoCard
-        gallery={gallery}
-        isExpanded={expandedId === gallery.ID}
-        onExpand={onExpand}
+        video={video}
+        onPlay={onPlay}
+        selectMode={selectMode}
+        selected={selectedIds.has(video.ID)}
+        onToggleSelect={onToggleSelect}
       />
     </div>
   );
