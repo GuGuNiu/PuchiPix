@@ -21,22 +21,25 @@ func NewDagFactory() *DagFactory {
 // SelectGalleryPipeline chooses the appropriate gallery pipeline based
 // on the current gallery state. This implements context-aware pipeline
 // selection to avoid the cascade failure pattern where a full pipeline
-// (with scrape) is used on a gallery that already has data, causing the
-// scrape node to fail immediately and cascade to downstream nodes.
+// (with scrape) is used on a gallery that already has data: the scrape
+// executor wipes gallery_images/gallery_videos and re-inserts every row
+// as pending, so re-running it on a partially-downloaded gallery resets
+// the checkpoint of files already on disk.
 //
-// Selection logic:
-//   - "pending" / "scraping" → Full pipeline (scrape → download → extract → verify)
-//   - "completed" / "downloaded" / "partial" / "failed" → Resume pipeline (download → extract → verify)
-//   - unknown state → Full pipeline (safe default)
-func (f *DagFactory) SelectGalleryPipeline(url, providerID string, galleryID int, status string) orchestrator.DagDefinition {
-	switch status {
-	case "pending", "scraping":
-		return f.NewGalleryPipeline(url, providerID, galleryID)
-	case "completed", "downloaded", "partial", "failed":
+// Selection logic (scrapeDataExists = image_count > 0 || video_count > 0):
+//   - scrape data missing  → Full pipeline (scrape → download → extract → verify)
+//   - scrape data present  → Resume pipeline (download → extract → verify)
+//
+// The choice is keyed on scrape data rather than the galleries.status
+// column because status labels ("failed", "partial", "completed") do not
+// reliably indicate whether gallery_images rows exist — a gallery can
+// be marked failed before scraping populated anything, or hold a full
+// image list while some files are still pending.
+func (f *DagFactory) SelectGalleryPipeline(url, providerID string, galleryID int, scrapeDataExists bool) orchestrator.DagDefinition {
+	if scrapeDataExists {
 		return f.NewGalleryResumePipeline(galleryID)
-	default:
-		return f.NewGalleryPipeline(url, providerID, galleryID)
 	}
+	return f.NewGalleryPipeline(url, providerID, galleryID)
 }
 
 // dagBlueprint holds the pre-configured parameters for building a node
@@ -148,14 +151,19 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 
 // NewGalleryResumePipeline builds a 3-node download-only DAG for
 // retrying partial/failed galleries whose metadata already exists in
-// the database. Skipping the scrape phase avoids immediate failure
-// when the gallery record already exists, which cascades to all
-// downstream nodes.
+// the database. Skipping the scrape phase is REQUIRED, not just
+// convenient: the scrape executor treats an existing gallery as a
+// re-scrape — it DELETEs all gallery_images/gallery_videos rows and
+// re-inserts them as pending — so routing a retry of a partially
+// downloaded gallery through the full pipeline would reset the
+// checkpoint of every file already on disk and re-download the whole
+// gallery.
 //
 //	download (download slot) → extract → verify
 //
-// Used by ShelfAction retry-failed when the gallery has been scraped
-// but files are incomplete.
+// Used by shelf retry-failed / GalleryFileRetry (via
+// SelectGalleryPipeline) when the gallery has been scraped but files
+// are incomplete or failed.
 func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{

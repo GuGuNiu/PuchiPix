@@ -88,7 +88,7 @@ func ComputeAllowedActions(status, taskType string) []string {
 		case "pending", "scrape_pending":
 			actions = append(actions, "start", "pause", "delete")
 		case "scraping", "downloading":
-			actions = append(actions, "pause", "delete")
+			actions = append(actions, "pause", "cancel", "delete")
 		case "scraped", "download_pending":
 			actions = append(actions, "start", "pause", "delete")
 		case "paused":

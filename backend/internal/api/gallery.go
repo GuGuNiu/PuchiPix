@@ -529,7 +529,11 @@ func (h *Handlers) Protagonists(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(ctx,
-		`SELECT protagonist, COUNT(*) as gallery_count
+		`SELECT protagonist, COUNT(*) as gallery_count,
+		        COALESCE((SELECT cover_url FROM galleries g2
+		                  WHERE g2.protagonist = galleries.protagonist
+		                    AND g2.cover_url != '' AND g2.status = 'completed'
+		                  ORDER BY g2.id DESC LIMIT 1), '') AS cover_url
 		 FROM galleries WHERE protagonist != '' AND status = 'completed'
 		 GROUP BY protagonist ORDER BY gallery_count DESC LIMIT 100`)
 	if err != nil {
@@ -542,11 +546,12 @@ func (h *Handlers) Protagonists(w http.ResponseWriter, r *http.Request) {
 		Name         string `json:"name"`
 		GalleryCount int    `json:"galleryCount"`
 		Count        int    `json:"count"`
+		CoverURL     string `json:"coverUrl"`
 	}
 	result := []protagonistStat{}
 	for rows.Next() {
 		var ps protagonistStat
-		if err := rows.Scan(&ps.Name, &ps.GalleryCount); err != nil {
+		if err := rows.Scan(&ps.Name, &ps.GalleryCount, &ps.CoverURL); err != nil {
 			continue
 		}
 		ps.Count = ps.GalleryCount
@@ -771,6 +776,25 @@ func (h *Handlers) ShelfAction(w http.ResponseWriter, r *http.Request) {
 			"error":   "zip download is only available through the gallery download pipeline",
 		})
 
+	case "cancel":
+		if h.DagOrch != nil && dagID != "" {
+			if st := h.DagOrch.GetDagStatus(dagID); st != nil {
+				if err := h.DagOrch.CancelDag(ctx, dagID); err != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Sprintf("cancel DAG failed: %v", err))
+					return
+				}
+			}
+		}
+		h.DB.Exec(ctx, "UPDATE galleries SET status = 'cancelled', error_msg = '' WHERE id = ?", id)
+		if h.EventBus != nil {
+			h.EventBus.Emit("task:cancelled", map[string]any{
+				"taskId":   id,
+				"taskType": "gallery",
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "cancel", "status": "cancelled"})
+		return
+
 	default:
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unknownAction")+" "+req.Action)
 	}
@@ -787,30 +811,49 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 				// Classify node states so "start" means the right thing:
 				//   - paused nodes  → ResumeDag (user paused; re-schedule them)
 				//   - failed nodes  → RetryDag (retry only FAILED/TIMEOUT/NEEDS_RETRY)
-				//   - otherwise     → already running/finished; do NOT create a
+				//   - active nodes  → genuinely in flight; do NOT create a
 				//                      duplicate DAG (double-execution caused file
 				//                      conflicts / download anomalies after resume)
-				hasPaused, hasFailed := false, false
+				//   - all-terminal  → a COMPLETED download whose individual
+				//                      file failures were tolerated by the batch
+				//                      executor (gallery reads "partial").
+				//                      RetryDag would no-op on COMPLETED nodes,
+				//                      so submit a fresh resume pipeline for the
+				//                      failed/missing rows that
+				//                      cleanupGalleryCache just reset above.
+				hasPaused, hasFailed, hasActive := false, false, false
 				for _, ns := range status.Nodes {
 					switch ns.State {
 					case orchestrator.NodeStatePaused:
 						hasPaused = true
 					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
 						hasFailed = true
+					case orchestrator.NodeStatePending, orchestrator.NodeStatePreparing, orchestrator.NodeStateReady,
+						orchestrator.NodeStateQueued, orchestrator.NodeStateAllocated, orchestrator.NodeStateRunning,
+						orchestrator.NodeStateVerifying, orchestrator.NodeStateResumeVerify:
+						hasActive = true
 					}
 				}
 				var err error
+				dagIdOut := dagID
 				switch {
 				case hasPaused:
 					err = h.DagOrch.ResumeDag(ctx, dagID, "")
 				case hasFailed:
 					err = h.DagOrch.RetryDag(ctx, dagID, "")
-				default:
+				case hasActive:
 					writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "start", "dagId": dagID, "status": "already-running"})
 					return nil
+				default:
+					// all-terminal (completed/cancelled): resume pipeline.
+					dagIdOut, err = h.resubmitGalleryResume(ctx, id)
 				}
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume/retry failed: %v", err))
+					if resp, ok := err.(*retrySubmitError); ok {
+						writeError(w, resp.status, resp.msg)
+					} else {
+						writeError(w, http.StatusInternalServerError, fmt.Sprintf("DAG resume/retry failed: %v", err))
+					}
 					return nil
 				}
 				// ResumeDag/RetryDag already re-transitioned the nodes and
@@ -820,31 +863,24 @@ func (h *Handlers) shelfRetryFailed(ctx context.Context, w http.ResponseWriter, 
 				// writing a hardcoded status here would overwrite the
 				// FSM-derived value and reintroduce status divergence.
 				h.DB.Exec(ctx, "UPDATE galleries SET error_msg = '' WHERE id = ?", id)
-				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "start", "dagId": dagID, "status": "resuming"})
+				writeJSON(w, http.StatusOK, map[string]any{"id": id, "action": "start", "dagId": dagIdOut, "status": "resuming"})
 				return nil
 			}
 		}
-		var sourceURL, siteID string
-		var imageCount, videoCount int
-		err := h.DB.QueryRow(ctx,
-			"SELECT source_url, site_id, COALESCE(image_count,0), COALESCE(video_count,0) FROM galleries WHERE id = ?", id).
-			Scan(&sourceURL, &siteID, &imageCount, &videoCount)
+		// Resubmit through the state-aware selector so retry-failed and
+		// GalleryFileRetry pick the same pipeline for the same gallery
+		// state (resubmitGalleryResume). scrapeDataExists (image/video
+		// count > 0) is the single decision key — see
+		// SelectGalleryPipeline for why status labels are not used.
+		newDagID, err := h.resubmitGalleryResume(ctx, id)
 		if err != nil {
-			writeError(w, http.StatusNotFound, "Gallery not found")
+			if resp, ok := err.(*retrySubmitError); ok {
+				writeError(w, resp.status, resp.msg)
+			} else {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
 			return nil
 		}
-		var def orchestrator.DagDefinition
-		if imageCount > 0 || videoCount > 0 {
-			def = dag.NewDagFactory().NewGalleryResumePipeline(id)
-		} else {
-			def = dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
-		}
-		newDagID, err := h.DagOrch.SubmitDag(ctx, def)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
-			return nil
-		}
-		h.updateGalleryDagID(ctx, id, newDagID)
 		// Freshly submitted DAGs start with PENDING nodes: per the
 		// StatusReporter design (260821) the entity must read "pending"
 		// until the scheduler actually dispatches a node — NOT "scraping",
@@ -905,6 +941,13 @@ func (h *Handlers) cleanupGalleryCache(ctx context.Context, galleryID int) {
 
 	_, _ = h.DB.Exec(ctx,
 		"UPDATE gallery_images SET status = 'pending', error_msg = '' WHERE gallery_id = ? AND status = 'failed'", galleryID)
+
+	// Videos need the same failed→pending reset as images: the download
+	// executor loads gallery_videos rows with status='pending' only, so a
+	// failed video left in 'failed' would never be re-downloaded by the
+	// resume pipeline this cleanup is preparing.
+	_, _ = h.DB.Exec(ctx,
+		"UPDATE gallery_videos SET status = 'pending', error_msg = '' WHERE gallery_id = ? AND status = 'failed'", galleryID)
 
 	// Reset 'downloaded' images whose file was deleted between attempts;
 	// those files must be re-fetched.
@@ -1127,6 +1170,17 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 
 	// If progress engine is available, use its retry computation.
 	if h.ProgressEngine != nil {
+		// Restart recovery: the engine's file map is only populated by
+		// the download executor or LoadProgress — after a restart it is
+		// empty and ComputeRetryRange would 500 with "not found in
+		// progress tracker". Load from the checkpoint table on demand.
+		if h.DB != nil {
+			if err := h.ProgressEngine.EnsureLoadedForRetry(ctx, h.DB, id); err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to load progress: %v", err))
+				return
+			}
+		}
+
 		retryReq := taskprogress.RetryRequest{
 			FileIndices: req.FileIndices,
 			Range:       req.Range,
@@ -1149,34 +1203,84 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Trigger DAG retry for the download/extract/verify nodes.
-		// The DAG-level retry will re-process all specified files.
+		// ── Reset the checkpoint BEFORE driving the DAG ──
+		// The download executor reads gallery_images rows with
+		// status='pending' (wire_executors.go) — a retried file whose row
+		// still says 'failed' is invisible to it, making the whole retry
+		// a no-op. This is the file-level analogue of
+		// cleanupGalleryCache, which shelfRetryFailed already runs:
+		// reset exactly the computed indices (order_index space), keep
+		// every other file's status untouched.
+		resetCount, resetErr := h.resetGalleryFilesForRetry(ctx, id, indices)
+		if resetErr != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to reset file states: %v", resetErr))
+			return
+		}
+		if resetCount == 0 {
+			writeJSON(w, http.StatusOK, taskprogress.RetryResult{
+				GalleryID: id,
+				Message:   "No pending-able files among computed indices (all already pending or not found)",
+			})
+			return
+		}
+		// Keep the in-memory tracker in sync so subsequent retry
+		// computations and progress summaries see the same truth as the
+		// DB. The checkpoint table itself is rewritten by the download
+		// executor's SaveProgress after the batch finishes.
+		h.ProgressEngine.ResetFileStatusForRetry(id, indices)
+
+		// ── Drive the DAG ──
+		// The DAG-level retry only re-dispatches FAILED/TIMEOUT/
+		// NEEDS_RETRY nodes. But individual file failures are tolerated
+		// inside the download executor (each failed image writes
+		// status='failed' on its row and the batch continues), so the dl
+		// node usually ends COMPLETED with the gallery marked "partial" —
+		// exactly the situation file-level retry exists for. In that
+		// case there is no failed node to retry: submit a fresh resume
+		// pipeline (download → extract → verify) which will pick up the
+		// rows just reset to pending above.
 		dagID := h.getGalleryDagID(ctx, id)
 		if h.DagOrch != nil {
 			if dagID != "" {
 				if st := h.DagOrch.GetDagStatus(dagID); st != nil {
-					// Only drive the download node when it is in a state we
-					// can actually act on. RetryDag is a no-op for non-FAILED
-					// nodes, yet the previous code always wrote
-					// status='downloading' afterwards — the same false-state
-					// bug class as shelfRetryFailed (paused/running nodes
-					// were shown as actively downloading while nothing ran).
+					// Classify the download node state so the retry drives
+					// the right thing. RetryDag is a no-op for non-FAILED
+					// nodes; a completed dl node must instead get a new
+					// resume DAG, or the retry silently does nothing.
 					dlNodeID := fmt.Sprintf("dl-%d", id)
+					dlFound := false
 					dlState := orchestrator.NodeState("")
 					for _, ns := range st.Nodes {
 						if ns.NodeID == dlNodeID {
 							dlState = ns.State
+							dlFound = true
 							break
 						}
 					}
 					var retryErr error
-					switch dlState {
-					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
+					switch {
+					case !dlFound:
+						// Legacy/snapshot DAG without a dl node (e.g. the old
+						// single-node pipeline): nothing to drive here, but the
+						// files were just reset — submit a resume pipeline so
+						// they are actually downloaded.
+						_, retryErr = h.resubmitGalleryResume(ctx, id)
+					case dlState == orchestrator.NodeStateFailed,
+						dlState == orchestrator.NodeStateTimeout,
+						dlState == orchestrator.NodeStateNeedsRetry:
 						retryErr = h.DagOrch.RetryDag(ctx, dagID, dlNodeID)
-					case orchestrator.NodeStatePaused:
+					case dlState == orchestrator.NodeStatePaused:
 						retryErr = h.DagOrch.ResumeDag(ctx, dagID, "")
+					case dlState == orchestrator.NodeStateCompleted:
+						// dl finished but individual files failed → new
+						// resume pipeline for the rows reset above. Node
+						// IDs may repeat across DAGs: the scheduler keys
+						// submissions by (dagID, nodeID) so the fresh DAG
+						// does not collide with the old instance.
+						_, retryErr = h.resubmitGalleryResume(ctx, id)
 					default:
-						// running / completed / node absent: nothing to retry.
+						// running / queued / verifying / held back: nothing
+						// to retry while the node is in flight.
 						writeJSON(w, http.StatusOK, taskprogress.RetryResult{
 							GalleryID: id,
 							Message:   "Download node is not in a retryable state (already running or finished)",
@@ -1188,43 +1292,60 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				} else {
-					// DAG not active → re-submit gallery pipeline.
-					var sourceURL, siteID string
-					err := h.DB.QueryRow(ctx,
-						"SELECT source_url, site_id FROM galleries WHERE id = ?", id).
-						Scan(&sourceURL, &siteID)
-					if err != nil {
-						writeError(w, http.StatusNotFound, "Gallery not found")
+					// DAG not active (removed via RemoveDag or restart with
+					// no snapshot) → re-submit a pipeline through the
+					// state-aware selector. A gallery that already has
+					// scraped image/video rows must NOT go through the
+					// full pipeline: the scrape executor wipes
+					// gallery_images/gallery_videos and re-inserts every
+					// row as pending, resetting the checkpoint of
+					// already-downloaded files.
+					if _, err := h.resubmitGalleryResume(ctx, id); err != nil {
+						if resp, ok := err.(*retrySubmitError); ok {
+							writeError(w, resp.status, resp.msg)
+						} else {
+							writeError(w, http.StatusInternalServerError, err.Error())
+						}
 						return
 					}
-					def := dag.NewDagFactory().NewGalleryPipeline(sourceURL, siteID, id)
-					newDagID, err := h.DagOrch.SubmitDag(ctx, def)
-					if err != nil {
-						writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to submit gallery DAG: %v", err))
-						return
+				}
+			} else {
+				// No DAG ID on record (legacy gallery created before DAG
+				// IDs were persisted): same resume submission.
+				if _, err := h.resubmitGalleryResume(ctx, id); err != nil {
+					if resp, ok := err.(*retrySubmitError); ok {
+						writeError(w, resp.status, resp.msg)
+					} else {
+						writeError(w, http.StatusInternalServerError, err.Error())
 					}
-					h.updateGalleryDagID(ctx, id, newDagID)
+					return
 				}
 			}
 		}
 
-		// Update gallery status for SSE propagation.
+		// Update gallery status for SSE propagation. Resume-pipeline
+		// nodes start PENDING: per the StatusReporter design (260821) the
+		// entity must read "pending" until the scheduler dispatches a
+		// node — the previous unconditional "downloading" write here was
+		// the same false-state bug class fixed in shelfRetryFailed
+		// (a queued gallery looked like it was actively downloading).
+		// statusSync takes over as soon as nodes transition.
 		if h.DB != nil {
-			h.DB.Exec(ctx, "UPDATE galleries SET status = 'downloading', error_msg = '' WHERE id = ?", id)
+			h.DB.Exec(ctx, "UPDATE galleries SET status = 'pending', error_msg = '' WHERE id = ?", id)
 			if h.EventBus != nil {
 				h.EventBus.Emit("task:progress", map[string]any{
 					"taskId":   id,
 					"taskType": "gallery",
-					"status":   "downloading",
+					"status":   "pending",
 				})
 			}
 		}
 
 		writeJSON(w, http.StatusOK, taskprogress.RetryResult{
 			GalleryID:      id,
-			RetriedCount:   len(indices),
+			RetriedCount:   resetCount,
 			RetriedIndices: indices,
-			Message:        fmt.Sprintf("Retrying %d file(s) with strategy %s", len(indices), retryReq.Strategy),
+			Message:        fmt.Sprintf("Retrying %d file(s) with strategy %s", resetCount, retryReq.Strategy),
 		})
 		return
 	}
@@ -1279,4 +1400,75 @@ func (h *Handlers) GalleryFileRetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeError(w, http.StatusServiceUnavailable, "DAG orchestrator not available")
+}
+
+// retrySubmitError wraps a gallery resubmission failure with the HTTP
+// status the endpoint should respond with, so resubmitGalleryResume can
+// distinguish "gallery vanished" (404) from submission failure (500).
+type retrySubmitError struct {
+	status int
+	msg    string
+}
+
+func (e *retrySubmitError) Error() string { return e.msg }
+
+// resubmitGalleryResume re-submits a pipeline for a gallery whose DAG is
+// no longer active, routed through the state-aware selector: a gallery
+// that already holds scraped image/video rows gets the download-only
+// resume pipeline; only a never-scraped gallery gets the full pipeline
+// (whose scrape node would otherwise wipe gallery_images/gallery_videos
+// and re-insert every row as pending, resetting the checkpoint of files
+// already on disk — the cascade failure pattern documented on
+// SelectGalleryPipeline). Returns the new DAG ID.
+func (h *Handlers) resubmitGalleryResume(ctx context.Context, galleryID int) (string, error) {
+	var sourceURL, siteID string
+	var imageCount, videoCount int
+	err := h.DB.QueryRow(ctx,
+		"SELECT source_url, site_id, COALESCE(image_count,0), COALESCE(video_count,0) FROM galleries WHERE id = ?", galleryID).
+		Scan(&sourceURL, &siteID, &imageCount, &videoCount)
+	if err != nil {
+		return "", &retrySubmitError{status: http.StatusNotFound, msg: "Gallery not found"}
+	}
+	def := dag.NewDagFactory().SelectGalleryPipeline(sourceURL, siteID, galleryID, imageCount > 0 || videoCount > 0)
+	newDagID, err := h.DagOrch.SubmitDag(ctx, def)
+	if err != nil {
+		return "", &retrySubmitError{
+			status: http.StatusInternalServerError,
+			msg:    fmt.Sprintf("Failed to submit gallery DAG: %v", err),
+		}
+	}
+	h.updateGalleryDagID(ctx, galleryID, newDagID)
+	return newDagID, nil
+}
+
+// resetGalleryFilesForRetry resets exactly the given file indices
+// (order_index space — the same key the progress engine uses) back to
+// 'pending' in gallery_images so the download executor, which only
+// loads rows with status='pending', actually re-downloads them. Without
+// this reset a file-level retry computes the right indices but the
+// executor never sees the files — the retry is a silent no-op.
+// Rows whose files were already deleted from disk are not distinguished
+// here; both failed and missing-file cases need a re-download either way.
+func (h *Handlers) resetGalleryFilesForRetry(ctx context.Context, galleryID int, indices []int) (int, error) {
+	if len(indices) == 0 {
+		return 0, nil
+	}
+	placeholders := strings.Repeat("?,", len(indices))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(indices)+2)
+	args = append(args, galleryID)
+	for _, idx := range indices {
+		args = append(args, idx)
+	}
+	res, err := h.DB.Exec(ctx,
+		`UPDATE gallery_images
+		 SET status = 'pending', error_msg = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE gallery_id = ? AND order_index IN (`+placeholders+`)
+		   AND status != 'downloaded'`,
+		args...)
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := res.RowsAffected()
+	return int(affected), nil
 }

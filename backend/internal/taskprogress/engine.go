@@ -559,6 +559,58 @@ func (e *Engine) SaveProgress(ctx context.Context, database *db.Database, galler
 	return nil
 }
 
+// EnsureLoadedForRetry guarantees the in-memory file map for a gallery
+// exists before a retry computes its file set. The API layer's retry
+// endpoints previously called ComputeRetryRange directly; after a server
+// restart the map is empty (only the download executor calls
+// LoadProgress), so every fine-grained retry failed with
+// "gallery N not found in progress tracker" until the next download
+// attempt re-populated it. Loading is idempotent: an already-populated
+// gallery is left untouched so in-flight statuses are not clobbered.
+// attempt on LoadProgress) is not treated as "loaded" — a later call
+// must still be able to hydrate from the checkpoint table.
+func (e *Engine) EnsureLoadedForRetry(ctx context.Context, database *db.Database, galleryID int) error {
+	e.mu.RLock()
+	tracked := len(e.files[galleryID]) > 0
+	e.mu.RUnlock()
+	if tracked {
+		return nil
+	}
+	return e.LoadProgress(ctx, database, galleryID)
+}
+
+// ResetFileStatusForRetry marks the given file indices as pending again
+// in the in-memory tracker so a subsequent ComputeRetryRange / progress
+// summary reflects the queued re-download. Only non-completed files are
+// reset; a completed file whose download actually succeeded must not be
+// re-queued by an over-broad retry strategy (e.g. regional/all).
+func (e *Engine) ResetFileStatusForRetry(galleryID int, fileIndices []int) int {
+	e.mu.Lock()
+	galleryFiles, ok := e.files[galleryID]
+	if !ok {
+		e.mu.Unlock()
+		return 0
+	}
+	now := time.Now()
+	reset := 0
+	for _, idx := range fileIndices {
+		if f, ok := galleryFiles[idx]; ok && f.Status != FileCompleted {
+			f.Status = FilePending
+			f.ErrorMsg = ""
+			f.UpdatedAt = now
+			reset++
+		}
+	}
+	summary := e.computeSummaryLocked(galleryID)
+	cb := e.onProgress
+	e.mu.Unlock()
+
+	if cb != nil {
+		cb(galleryID, summary)
+	}
+	return reset
+}
+
 // LoadProgress reconstructs per-file progress for a gallery from the DB.
 // Used after restart to skip re-downloading files that already completed.
 // The phase is also restored so the state machine can continue from where
