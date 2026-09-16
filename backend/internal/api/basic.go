@@ -90,7 +90,10 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch != nil {
 		dagStats := h.DagOrch.GetStats()
 		result["dagTotal"] = dagStats.TotalDags
+		// dagActive counts only truly-running DAGs; paused ones are broken
+		// out separately so the dashboard no longer overstates concurrency.
 		result["dagActive"] = dagStats.ActiveDags
+		result["dagPaused"] = dagStats.PausedDags
 	}
 
 	writeJSON(w, http.StatusOK, result)

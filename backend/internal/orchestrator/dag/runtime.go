@@ -42,24 +42,36 @@ func (o *DagOrchestrator) GetStats() orchestrator.DagOrchestratorStats {
 	o.dagsMu.RUnlock()
 
 	activeDags := 0
+	pausedDags := 0
 	totalNodes := 0
 	for _, dag := range dags {
 		dag.mu.Lock()
 		hasActive := false
+		hasPaused := false
 		for _, node := range dag.nodes {
-			if !orchestrator.IsTerminalState(node.fsm.State()) {
-				hasActive = true
+			state := node.fsm.State()
+			if !orchestrator.IsTerminalState(state) {
+				if state == orchestrator.NodeStatePaused {
+					hasPaused = true
+				} else {
+					hasActive = true
+				}
 			}
 			totalNodes++
 		}
 		if hasActive {
 			activeDags++
+		} else if hasPaused {
+			// Only count as paused when nothing is truly running — a DAG
+			// mixing paused and running nodes is active overall.
+			pausedDags++
 		}
 		dag.mu.Unlock()
 	}
 	return orchestrator.DagOrchestratorStats{
 		TotalDags:  len(dags),
 		ActiveDags: activeDags,
+		PausedDags: pausedDags,
 		TotalNodes: totalNodes,
 	}
 }

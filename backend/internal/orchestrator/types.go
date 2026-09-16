@@ -382,8 +382,12 @@ type SchedulerStats struct {
 
 // DagOrchestratorStats reports aggregate DAG counts for monitoring.
 type DagOrchestratorStats struct {
-	TotalDags  int `json:"totalDags"`
+	TotalDags int `json:"totalDags"`
+	// ActiveDags counts DAGs with at least one non-terminal, non-paused
+	// node (truly running). DAGs whose only non-terminal nodes are paused
+	// are reported in PausedDags instead.
 	ActiveDags int `json:"activeDags"`
+	PausedDags int `json:"pausedDags"`
 	TotalNodes int `json:"totalNodes"`
 }
 
