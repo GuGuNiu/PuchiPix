@@ -250,14 +250,51 @@ func formatJSON(entry StructuredLogEntry) string {
 	return string(b)
 }
 
+// normalizeLogArgs converts variadic key-value pairs into a map. String
+// values at even positions pair with the following arg; anything that does
+// not fit becomes arg<N> so no argument is silently dropped.
+func normalizeLogArgs(data []any) map[string]any {
+	out := make(map[string]any, len(data))
+	for i := 0; i < len(data); {
+		if key, ok := data[i].(string); ok && i+1 < len(data) {
+			out[key] = logArgValue(data[i+1])
+			i += 2
+		} else {
+			out[fmt.Sprintf("arg%d", i)] = logArgValue(data[i])
+			i++
+		}
+	}
+	return out
+}
+
+// logArgValue stringifies errors so they serialize as messages instead of
+// empty objects.
+func logArgValue(v any) any {
+	if err, ok := v.(error); ok {
+		return err.Error()
+	}
+	return v
+}
+
 func (l *Logger) log(level LogLevel, message string, data ...any) {
 	if level < l.minLevel {
 		return
 	}
 
 	var dataVal any
-	if len(data) > 0 {
+	switch len(data) {
+	case 0:
+		// No data payload.
+	case 1:
 		dataVal = data[0]
+	default:
+		// Multiple variadic args are key-value pairs ("key", value, ...).
+		// The old implementation kept only data[0], silently dropping the
+		// rest — every structured field past the first vanished. Normalize
+		// into a map so nothing is lost; args that do not fit the pair
+		// pattern fall back to argN keys, and error values are stringified
+		// so they survive JSON marshaling.
+		dataVal = normalizeLogArgs(data)
 	}
 
 	entry := StructuredLogEntry{
