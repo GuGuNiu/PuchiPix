@@ -3,7 +3,7 @@ import { Grid, useGridRef } from "react-window";
 import { VideoCard } from "./video-card";
 import type { VideoShelfItem } from "../video-helpers";
 
-const COL_WIDTH = 288;
+const COL_MIN_WIDTH = 288;
 const GAP = 16;
 const ROW_HEIGHT = 356;
 
@@ -47,8 +47,9 @@ export function VideoGrid({ items, onPlay, selectMode = false, selectedIds, onTo
 
   const columnCount = Math.max(
     1,
-    Math.floor((size.width + GAP) / (COL_WIDTH + GAP)),
+    Math.floor((size.width + GAP) / (COL_MIN_WIDTH + GAP)),
   );
+  const columnWidth = (size.width + GAP) / columnCount;
   const rowCount = Math.ceil(items.length / columnCount);
 
   const cellProps = useMemo<VideoGridCellData>(
@@ -64,7 +65,7 @@ export function VideoGrid({ items, onPlay, selectMode = false, selectedIds, onTo
           cellComponent={VideoGridCell}
           cellProps={cellProps}
           columnCount={columnCount}
-          columnWidth={COL_WIDTH + GAP}
+          columnWidth={columnWidth}
           rowCount={rowCount}
           rowHeight={ROW_HEIGHT}
           overscanCount={2}
@@ -109,9 +110,7 @@ function VideoGridCell({
     <div
       style={{
         ...style,
-        padding: `${GAP / 2}px ${columnIndex === columnCount - 1 ? 0 : GAP / 2}px ${GAP / 2}px ${
-          columnIndex === 0 ? 0 : GAP / 2
-        }px`,
+        padding: `${GAP / 2}px ${GAP}px ${GAP / 2}px 0`,
         boxSizing: "border-box",
       }}
     >
