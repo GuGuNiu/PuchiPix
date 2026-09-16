@@ -11,24 +11,26 @@ import (
 var DefaultDBPath = computeDefaultDBPath()
 
 // computeDefaultDBPath resolves the default DB path without consulting
-// the DB_PATH environment variable. Resolution order:
-// 1. <exeDir>/../data/puchipix.db (when running compiled binary from backend/)
-// 2. <cwd>/data/puchipix.db (when running `go run` from project root)
-// 3. <cwd>/../data/puchipix.db (when running from backend/ directory)
+// the DB_PATH environment variable. Resolution order (CWD first — the
+// directory the user launched from is the stronger intent signal than
+// wherever the binary happens to be installed):
+// 1. <cwd>/data/puchipix.db (when running `go run` from project root)
+// 2. <cwd>/../data/puchipix.db (when running from backend/ directory)
+// 3. <exeDir>/../data/puchipix.db (when running compiled binary from backend/)
 func computeDefaultDBPath() string {
 	// Candidate paths to try.
 	var candidates []string
-
-	// From executable directory: <exeDir>/../data/puchipix.db
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		candidates = append(candidates, filepath.Join(exeDir, "..", "data", "puchipix.db"))
-	}
 
 	// From working directory.
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, filepath.Join(cwd, "data", "puchipix.db"))
 		candidates = append(candidates, filepath.Join(cwd, "..", "data", "puchipix.db"))
+	}
+
+	// From executable directory: <exeDir>/../data/puchipix.db
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates, filepath.Join(exeDir, "..", "data", "puchipix.db"))
 	}
 
 	// Return the first candidate that exists.
