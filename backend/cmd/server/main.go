@@ -34,6 +34,7 @@ import (
 	"backend/internal/sites/fourkhd"
 	"backend/internal/sites/kanav"
 	"backend/internal/sites/porn91"
+	"backend/internal/sites/pornhub"
 	siteSjs "backend/internal/sites/sjs"
 	"backend/internal/sites/universal"
 	"backend/internal/sites/xsnvshen"
@@ -488,8 +489,9 @@ func main() {
 		siteReg.Register(fourkhd.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(porn91.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(xvideos.NewProvider(dataStore, blocklistSvc))
+		siteReg.Register(pornhub.NewProvider(dataStore, blocklistSvc))
 		siteReg.Register(universal.NewProvider())
-		logger.Info("Site providers registered", "count", 9)
+		logger.Info("Site providers registered", "count", 10)
 	}
 
 	h := api.New(database, eventBus)

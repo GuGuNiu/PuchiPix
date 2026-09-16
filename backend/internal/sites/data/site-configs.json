@@ -299,6 +299,40 @@
         "blockedProtagonistsEnabled": false
       }
     },
+    "pornhub": {
+      "module": {
+        "id": "pornhub",
+        "nameCn": "Pornhub",
+        "nameEn": "Pornhub",
+        "baseUrl": "https://www.pornhub.com",
+        "type": "video",
+        "badge": {
+          "gradient": "linear-gradient(135deg, #fbbf24, #f59e0b)",
+          "solidColor": "#f59e0b",
+          "textColor": "#1a1a1a"
+        },
+        "enabled": true,
+        "scrapingStrategy": "http",
+        "domains": [
+          "https://www.pornhub.com",
+          "https://pornhub.com",
+          "https://www.pornhubpremium.com",
+          "https://pornhubpremium.com"
+        ]
+      },
+      "provider": {
+        "publisherUrl": "",
+        "titleSuffixPatterns": [
+          "(?i)\\s*[-–—|]\\s*Pornhub(\\.com)?\\s*$",
+          "(?i)\\s*[-–—|]\\s*PORNHUB(\\.COM)?\\s*$"
+        ],
+        "publisherPrefixes": [],
+        "blockedTitleKeywords": [],
+        "blockedCategories": [],
+        "blockedProtagonists": [],
+        "blockedProtagonistsEnabled": false
+      }
+    },
     "universal": {
       "module": {
         "id": "universal",
