@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"math"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -13,21 +14,19 @@ import (
 	"backend/internal/orchestrator/slot"
 )
 
-// Starvation-lottery tuning, mirroring the TypeScript scheduler: LOW
-// priority nodes waiting longer than starvationThreshold get a
-// starvationLotteryRate chance of promotion per scheduling pass.
+// Defaults for the starvation lottery and scheduling iteration params.
+// Tuned at runtime via the Set* methods below — loaded from app_configs
+// at startup and hot-updated through PUT /api/config (260817 工单 11).
 const (
-	starvationThreshold   = 30 * time.Minute
-	starvationLotteryRate = 0.1
-	lowPriorityValue      = 3 // PriorityLow
+	defaultStarvationThreshold   = 30 * time.Minute
+	defaultStarvationLotteryRate = 0.1
+	lowPriorityValue             = 3 // PriorityLow
+	defaultMaxScheduleIterations = 256
 
-	// maxScheduleIterations caps the number of PopBest attempts in a
-	// single Schedule() pass. Each iteration either dispatches a node
-	// or skips a non-fitting one; without this cap, a queue full of
-	// non-fitting nodes would spin indefinitely under the scheduling
-	// flag. The cap is set well above any realistic queue depth so
-	// legitimate batches dispatch in a single pass.
-	maxScheduleIterations = 256
+	// maxStarvationThreshold bounds the configurable starvation threshold
+	// (24h): a threshold beyond a day means the lottery effectively never
+	// fires and LOW-priority nodes starve for the process lifetime.
+	maxStarvationThreshold = 24 * time.Hour
 )
 
 // SchedulingStrategy is the interface for selecting the next node
@@ -193,6 +192,16 @@ type SchedulerEngine struct {
 	// lottery fires (default: 10% chance per scheduling pass).
 	lotteryFunc func() bool
 
+	// Runtime-tunable scheduling params. Atomics (not mu-guarded fields)
+	// because the Schedule() hot path runs without the lock while
+	// Set*/Get* may fire concurrently — an atomic load per pass is
+	// race-free and lets hot updates take effect on the very next pass.
+	// starvationThreshold is stored as nanoseconds, lotteryRate as
+	// float64 bits.
+	starvationThreshold   atomic.Int64
+	starvationLotteryRate atomic.Uint64
+	maxScheduleIterations atomic.Int64
+
 	// drain state (Stage 4 graceful shutdown)
 	draining   bool
 	runningWg  sync.WaitGroup
@@ -214,7 +223,7 @@ type DagOrchestratorInterface interface {
 
 // NewSchedulerEngine creates a scheduler with the given slot pool.
 func NewSchedulerEngine(sp *slot.SlotPool) *SchedulerEngine {
-	return &SchedulerEngine{
+	s := &SchedulerEngine{
 		strategy:   &PriorityFairStrategy{},
 		readyQueue: NewReadyQueue(),
 		slotPool:   sp,
@@ -224,11 +233,74 @@ func NewSchedulerEngine(sp *slot.SlotPool) *SchedulerEngine {
 			"download": 5,
 			"sniff":    1,
 		},
-		stopCh:      make(chan struct{}),
-		nowFunc:     time.Now,
-		lotteryFunc: func() bool { return rand.Float64() < starvationLotteryRate },
-		nodeCancel:  make(map[string]context.CancelFunc),
+		stopCh:  make(chan struct{}),
+		nowFunc: time.Now,
+		nodeCancel: make(map[string]context.CancelFunc),
 	}
+	s.starvationThreshold.Store(int64(defaultStarvationThreshold))
+	s.starvationLotteryRate.Store(math.Float64bits(defaultStarvationLotteryRate))
+	s.maxScheduleIterations.Store(defaultMaxScheduleIterations)
+	// The default lottery closure reads the atomic rate so runtime
+	// updates (SetStarvationLotteryRate) take effect without replacing
+	// the (test-injectable) closure.
+	s.lotteryFunc = func() bool {
+		return rand.Float64() < math.Float64frombits(s.starvationLotteryRate.Load())
+	}
+	return s
+}
+
+// SchedulerConfigSnapshot exposes the current tuning values for logging
+// and API responses.
+type SchedulerConfigSnapshot struct {
+	StarvationThreshold   time.Duration `json:"starvationThreshold"`
+	StarvationLotteryRate float64       `json:"starvationLotteryRate"`
+	MaxScheduleIterations int           `json:"maxScheduleIterations"`
+}
+
+// GetSchedulerConfig returns the current tuning values.
+func (s *SchedulerEngine) GetSchedulerConfig() SchedulerConfigSnapshot {
+	return SchedulerConfigSnapshot{
+		StarvationThreshold:   time.Duration(s.starvationThreshold.Load()),
+		StarvationLotteryRate: math.Float64frombits(s.starvationLotteryRate.Load()),
+		MaxScheduleIterations: int(s.maxScheduleIterations.Load()),
+	}
+}
+
+// SetStarvationThreshold sets the age at which LOW-priority nodes become
+// eligible for lottery promotion. Values outside (0, 24h] are ignored and
+// the current value is kept; returns false on rejection.
+func (s *SchedulerEngine) SetStarvationThreshold(d time.Duration) bool {
+	if d <= 0 || d > maxStarvationThreshold {
+		s.logger.Warn("Rejected starvation threshold, keeping current",
+			"requested", d.String())
+		return false
+	}
+	s.starvationThreshold.Store(int64(d))
+	return true
+}
+
+// SetStarvationLotteryRate sets the per-pass promotion probability.
+// Values outside [0, 1] are ignored; returns false on rejection.
+func (s *SchedulerEngine) SetStarvationLotteryRate(rate float64) bool {
+	if rate < 0 || rate > 1 {
+		s.logger.Warn("Rejected lottery rate, keeping current",
+			"requested", rate)
+		return false
+	}
+	s.starvationLotteryRate.Store(math.Float64bits(rate))
+	return true
+}
+
+// SetMaxScheduleIterations caps the PopBest attempts per Schedule() pass.
+// Values <= 0 are ignored; returns false on rejection.
+func (s *SchedulerEngine) SetMaxScheduleIterations(n int) bool {
+	if n <= 0 {
+		s.logger.Warn("Rejected max schedule iterations, keeping current",
+			"requested", n)
+		return false
+	}
+	s.maxScheduleIterations.Store(int64(n))
+	return true
 }
 
 // SetDagOrchestrator connects the orchestrator for transition callbacks.
@@ -388,7 +460,8 @@ func (s *SchedulerEngine) Schedule() {
 	// Starvation lottery: occasionally promote the oldest starving LOW
 	// node so it can out-compete same-band peers on the FIFO tie-break.
 	if lotteryFunc() {
-		if s.readyQueue.PromoteOldestLowPriority(lowPriorityValue, starvationThreshold, nowFunc()) {
+		if s.readyQueue.PromoteOldestLowPriority(lowPriorityValue,
+			time.Duration(s.starvationThreshold.Load()), nowFunc()) {
 			s.metrics.TotalStarvationPromotions.Add(1)
 			s.logger.Info("Starvation lottery promoted a LOW priority node")
 		}
@@ -414,7 +487,10 @@ func (s *SchedulerEngine) Schedule() {
 	}
 
 	dispatched := 0
-	for i := 0; i < maxScheduleIterations; i++ {
+	// Hoisted atomic load: one read caps the whole pass (the value cannot
+	// meaningfully change mid-pass).
+	maxIter := int(s.maxScheduleIterations.Load())
+	for i := 0; i < maxIter; i++ {
 		if s.readyQueue.Len() == 0 {
 			break
 		}
