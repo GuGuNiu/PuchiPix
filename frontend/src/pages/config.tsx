@@ -3,31 +3,35 @@ import { toast } from "@/lib/i18n/toast";
 import { useI18n } from "@/lib/i18n";
 import { Save, RefreshCw, Cpu, Settings } from "lucide-react";
 
+// Mirrors the backend GET /api/gpu-info contract (crud.go GPUInfo):
+// snake_case keys, gpu_enabled only present when DownloadManager is wired.
 interface GpuInfo {
   gpu_enabled: boolean;
   gpu_name?: string;
-  gpu_memory?: string;
-}
-
-interface ConfigItem {
-  key: string;
-  value: string;
+  driver_version?: string;
   description?: string;
 }
 
 export default function ConfigPage(): React.JSX.Element {
   const { t } = useI18n();
-  const [config, setConfig] = useState<ConfigItem[]>([]);
+  const [config, setConfig] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
 
+  // GET /api/config returns a flat {key: value} map (crud.go ConfigList).
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/config");
-      const data = await res.json();
-      setConfig(Array.isArray(data) ? data : []);
+      const data = (await res.json()) as Record<string, unknown>;
+      const flat: Record<string, string> = {};
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        for (const [key, value] of Object.entries(data)) {
+          flat[key] = String(value ?? "");
+        }
+      }
+      setConfig(flat);
     } catch {
       toast.error("config.loadFailed");
     } finally {
@@ -37,15 +41,15 @@ export default function ConfigPage(): React.JSX.Element {
 
   const fetchGPUInfo = useCallback(async () => {
     try {
-      const res = await fetch("/api/config/gpu");
+      const res = await fetch("/api/gpu-info");
       if (res.ok) {
-        const data = await res.json();
-        if (data?.gpu_enabled !== undefined) {
+        const data = (await res.json()) as GpuInfo;
+        if (data && typeof data.gpu_enabled === "boolean") {
           setGpuInfo(data);
         }
       }
     } catch {
-    } finally {
+      // GPU card stays hidden — no hardware transcoding backend.
     }
   }, []);
 
@@ -54,13 +58,16 @@ export default function ConfigPage(): React.JSX.Element {
     fetchGPUInfo();
   }, [fetchConfig, fetchGPUInfo]);
 
+  // PUT /api/config accepts the flat {key: value} object (crud.go
+  // ConfigUpdate); the old {config: [...]} wrapper was stored as a
+  // literal "config" key and the real entries never saved.
   const handleSaveConfig = async (): Promise<void> => {
     setSaving(true);
     try {
       const res = await fetch("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(config),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -75,13 +82,16 @@ export default function ConfigPage(): React.JSX.Element {
     }
   };
 
+  // PUT /api/gpu-setting expects {enabled, force_gpu_type} (crud.go
+  // GPUSettingUpdate) — the old {gpu_enabled} field decoded to the Go
+  // zero value, silently disabling the toggle.
   const handleSaveGpu = async (): Promise<void> => {
     if (!gpuInfo) return;
     try {
-      const res = await fetch("/api/config/gpu", {
+      const res = await fetch("/api/gpu-setting", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gpu_enabled: gpuInfo.gpu_enabled }),
+        body: JSON.stringify({ enabled: gpuInfo.gpu_enabled }),
       });
       if (!res.ok) throw new Error("Save failed");
       toast.success("config.gpuSaved");
@@ -91,9 +101,7 @@ export default function ConfigPage(): React.JSX.Element {
   };
 
   const updateConfigValue = (key: string, value: string) => {
-    setConfig((prev) =>
-      prev.map((c) => (c.key === key ? { ...c, value } : c)),
-    );
+    setConfig((prev) => ({ ...prev, [key]: value }));
   };
 
   if (loading) {
@@ -120,20 +128,14 @@ export default function ConfigPage(): React.JSX.Element {
           <div className="card-title">{t("config.basicSettings")}</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {config.map((item) => (
-            <div key={item.key} className="form-group">
-              <label>{item.key}</label>
+          {Object.entries(config).map(([key, value]) => (
+            <div key={key} className="form-group">
+              <label>{key}</label>
               <input
                 type="text"
-                value={item.value}
-                onChange={(e) => updateConfigValue(item.key, e.target.value)}
-                placeholder={item.description}
+                value={value}
+                onChange={(e) => updateConfigValue(key, e.target.value)}
               />
-              {item.description && (
-                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                  {item.description}
-                </span>
-              )}
             </div>
           ))}
         </div>
@@ -177,7 +179,7 @@ export default function ConfigPage(): React.JSX.Element {
             <span>{t("config.enableGpuTranscoding")}</span>
             {gpuInfo.gpu_name && (
               <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                ({gpuInfo.gpu_name} {gpuInfo.gpu_memory})
+                ({gpuInfo.gpu_name})
               </span>
             )}
           </div>

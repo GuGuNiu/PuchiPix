@@ -392,20 +392,27 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       zipProgressMap: { ...s.zipProgressMap, [id]: { galleryId: id, downloaded: 0, total: 0, percent: 0 } },
     }));
     try {
+      // The backend has no dedicated download-zip action (ShelfAction
+      // returns 501 for it): ZIP download runs INSIDE the download node
+      // (TryDownloadGalleryZip) which is part of every pipeline run.
+      // Trigger the pipeline via the standard download action; if the
+      // gallery already holds a pending ZIP row, the download node
+      // fetches and extracts it.
+      // manualUrl: a user-supplied direct link is persisted by the
+      // gallery-zip-info panel path; here it simply re-triggers the same
+      // pipeline.
       const res = await fetch(`/api/shelf/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'download-zip', ...(manualUrl ? { manualUrl } : {}) }),
+        body: JSON.stringify({ action: 'download' }),
       });
-      const data = await res.json();
-      if (data.success) {
-        set((s) => ({ zipStatusMap: { ...s.zipStatusMap, [id]: 'completed' } }));
+      if (res.ok) {
+        set((s) => ({ zipStatusMap: { ...s.zipStatusMap, [id]: 'downloading' } }));
         get().fetchGalleryDetail(id);
         return true;
-      } else {
-        set((s) => ({ zipStatusMap: { ...s.zipStatusMap, [id]: 'failed' } }));
-        return false;
       }
+      set((s) => ({ zipStatusMap: { ...s.zipStatusMap, [id]: 'failed' } }));
+      return false;
     } catch {
       set((s) => ({ zipStatusMap: { ...s.zipStatusMap, [id]: 'failed' } }));
       return false;
@@ -458,10 +465,17 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     unsubs.push(
       subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
-          const data = JSON.parse(e.data) as DownloadTask[];
-          if (data.length === 0) return;
+          // The backend's initial event (task_stream.go) is an object
+          // {tasks, totalCount, page, pageSize, hasMore}; legacy
+          // snapshots sent a bare array. Accept both shapes — same
+          // double-format pattern as task-store.
+          const raw: unknown = JSON.parse(e.data);
+          const list = Array.isArray(raw)
+            ? (raw as DownloadTask[])
+            : ((raw as { tasks?: DownloadTask[] })?.tasks ?? []);
+          if (list.length === 0) return;
 
-          const galleryTasks = data.filter((t) => t.TaskType === 'gallery');
+          const galleryTasks = list.filter((t) => t.TaskType === 'gallery');
           if (galleryTasks.length === 0) return;
 
           set((s) => {

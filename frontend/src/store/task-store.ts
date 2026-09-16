@@ -369,10 +369,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     unsubs.push(
       subscribeSseEvent('task:failed', (e: MessageEvent) => {
         try {
-          const payload = JSON.parse(e.data) as { taskId: number; error?: string };
+          const payload = JSON.parse(e.data) as { taskId: number; taskType?: string; error?: string };
+          // taskType comes from the event itself (gallery/sniff executors
+          // emit it); a hardcoded `video-` prefix left gallery DAG
+          // submission failures unmatched in the unified task list.
+          const taskType = payload.taskType || 'video';
+          const key = `${taskType}-${payload.taskId}`;
           set((s) => ({
             tasks: s.tasks.map((t) =>
-              taskKey(t) === `video-${payload.taskId}`
+              taskKey(t) === key
                 ? { ...t, Status: 'failed' as TaskStatus, ErrorMsg: payload.error || t.ErrorMsg }
                 : t,
             ),

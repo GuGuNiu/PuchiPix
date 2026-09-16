@@ -214,8 +214,9 @@ export default function SjsPage(): React.JSX.Element {
           body: JSON.stringify({ id, action: "refresh" }),
         });
         if (!res.ok) {
-          const err = await res.json();
-          toast.error("sjs.shelf.refreshFailed", { error: err.detail || "" });
+          const err = (await res.json()) as { error?: string };
+          // Backend writeError responds with {error: message}.
+          toast.error("sjs.shelf.refreshFailed", { error: err.error || "" });
           return;
         }
         const data = await res.json();
