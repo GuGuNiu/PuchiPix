@@ -243,6 +243,12 @@ func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 	if br.MatchMode == "" {
 		br.MatchMode = "includes"
 	}
+	// A rule created without an explicit enabled flag defaults to ACTIVE —
+	// the JSON zero value (false) previously created rules that were dead
+	// on arrival and silently matched nothing until manually toggled.
+	if !br.Enabled {
+		br.Enabled = true
+	}
 	if err := sites.ValidateRule(br.Keyword, br.MatchMode); err != nil {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.blocklist.invalidRule", map[string]string{"reason": err.Error()}))
 		return
