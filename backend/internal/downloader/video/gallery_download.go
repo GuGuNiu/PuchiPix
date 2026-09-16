@@ -83,6 +83,13 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		return fmt.Errorf("create segments dir: %w", mkdirErr)
 	}
 
+	// A re-run against the same saveDir must not mix old-variant segments
+	// into the new merge — wipe the cache when the playlist changed.
+	if EnsurePlaylistFingerprint(segDir, fetchResult.Segments) {
+		m3u8Logger.Warn("Playlist changed since last run, segment cache reset",
+			infra.LogContext{Extra: map[string]any{"output": outputPath}})
+	}
+
 	// Use the effective referer (accepted by the CDN) for all segment downloads
 	// to avoid repeated 403 failures.
 	segmentConcurrent := opts.SegmentConcurrent
@@ -116,61 +123,14 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		UseGPU:       opts.UseGPU && gpuInfo.SupportsHWTranscode(),
 		ForceGPUType: forceType,
 	}
-	if transcodeErr := TranscodeTSWithFallback(ctx, segDir, outputPath, transcodeOpts); transcodeErr != nil {
+	manifest := SegmentManifest(fetchResult.Segments)
+	if transcodeErr := TranscodeTSWithFallback(ctx, segDir, outputPath, manifest, transcodeOpts); transcodeErr != nil {
 		return fmt.Errorf("transcode segments to MP4: %w", transcodeErr)
 	}
 
 	// All segments merged successfully — report the merge milestone so
 	// the gallery progress can complete that video's final unit.
 	emitProgress(GalleryVideoProgressEvent{SegmentsTotal: totalSegs, SegmentsDone: totalSegs, Merged: true})
-
-	return nil
-}
-
-// MergeSegmentsToMP4 concatenates downloaded TS segments into a single
-// MP4 file using binary concatenation (TS format supports this directly).
-// Missing segments are logged as warnings and skipped — this tolerates
-// partial download failures within the 20% threshold enforced by the
-// caller. Streaming writes avoid loading full segments into memory.
-func MergeSegmentsToMP4(segDir, outputPath string, totalSegs int) error {
-	out, err := os.Create(outputPath)
-	if err != nil {
-		return fmt.Errorf("create output file: %w", err)
-	}
-	defer out.Close()
-
-	written := 0
-	missing := 0
-	for i := 0; i < totalSegs; i++ {
-		segPath := filepath.Join(segDir, fmt.Sprintf("seg_%04d.ts", i))
-		data, readErr := os.ReadFile(segPath)
-		if readErr != nil {
-			missing++
-			continue
-		}
-		if len(data) == 0 {
-			missing++
-			continue
-		}
-		if _, writeErr := out.Write(data); writeErr != nil {
-			return fmt.Errorf("write segment %d: %w", i, writeErr)
-		}
-		written++
-	}
-
-	if missing > 0 {
-		m3u8Logger.Warn("Segments missing during MP4 merge",
-			infra.LogContext{Extra: map[string]any{
-				"total":   totalSegs,
-				"written": written,
-				"missing": missing,
-				"output":  outputPath,
-			}})
-	}
-
-	if written == 0 {
-		return fmt.Errorf("no segments available for merge")
-	}
 
 	return nil
 }

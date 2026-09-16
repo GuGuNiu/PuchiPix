@@ -403,7 +403,12 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 
 	segDir := filepath.Join(m.segmentsPath, fmt.Sprintf("task_%d", task.ID))
 	mp4OutputPath := filepath.Join(m.downloadPath, safeTitle+".mp4")
-	tsOutputPath := filepath.Join(segDir, safeTitle+".ts")
+	// The merged TS output must live OUTSIDE the segment directory root:
+	// scan-based consumers (merge/transcode) read *.ts from that root, so
+	// an output placed there gets swallowed into the next merge input set
+	// and the file doubles on every retry round. The _merged subdir stays
+	// inside the task dir, so task-level cleanup still removes it.
+	tsOutputPath := filepath.Join(segDir, mergedOutputDir, safeTitle+".ts")
 
 	if err := os.MkdirAll(segDir, 0755); err != nil {
 		return fmt.Errorf("cannot create segment directory: %w", err)
@@ -464,9 +469,17 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		return err
 	}
 
-	// Use the effective referer accepted by the CDN for all segment downloads.
+	// Use the effective referer (accepted by the CDN) for all segment downloads.
 	referer = fetchResult.EffectiveReferer
 	segments := fetchResult.Segments
+
+	// Task retries reuse the segment directory. If the playlist changed
+	// (variant switch / source re-slice), stale segments would otherwise
+	// be merged together with the new ones — reset the cache instead.
+	if EnsurePlaylistFingerprint(segDir, segments) {
+		m.logger.Warn("Playlist fingerprint mismatch, segment cache reset",
+			infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
+	}
 
 	if fetchResult.IsMaster {
 		m.logger.Info("Selected variant from master playlist",
@@ -642,6 +655,22 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	// The old emitProgress(...,100,...) here raced with the frontend's
 	// progress>=99 probing heuristic and mislabeled the whole transcode
 	// phase as "probing" (探测中) before ffmpeg even started.
+	//
+	// The transcode phase must ALSO be persisted to download_tasks:
+	// SSE is live-only, so a page refresh during a long transcode used to
+	// read the stale DB row (status='downloading', progress=100) and
+	// render a green "done" bar while ffmpeg was still running — the
+	// purple merge-progress style never came back until the task
+	// finished. Writing status='transcoding' here lets the REST path
+	// (ComputeEffectiveStatus passes it through verbatim) restore the
+	// same purple state the SSE stream showed.
+	if m.db != nil {
+		transcodeDbCtx, transcodeDbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _ = m.db.Exec(transcodeDbCtx,
+			"UPDATE download_tasks SET status = 'transcoding', progress = 0, error_msg = '' WHERE id = ?",
+			task.ID)
+		transcodeDbCancel()
+	}
 	m.emitProgress(task.ID, 0, completedCount, totalSegments, "transcoding", "")
 
 	m.logger.Info("Transcoding to MP4",
@@ -807,7 +836,10 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 				infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
 			if err := m.StartDownload(context.Background(), task); err != nil {
 				m.logger.Error("Auto-retry failed",
-					infra.LogContext{Extra: map[string]any{"taskId": task.ID}}, err)
+					infra.LogContext{Extra: map[string]any{
+						"taskId": task.ID,
+						"error":  err.Error(),
+					}})
 			}
 
 			// Do NOT delete the retry counter here — that resets it to 0

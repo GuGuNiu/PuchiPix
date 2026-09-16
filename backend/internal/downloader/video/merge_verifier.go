@@ -2,11 +2,9 @@ package video
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -54,10 +52,18 @@ func DefaultNeighborOptions(totalSegments int) NeighborOptions {
 // file-level (output and segments exist, non-empty), count-level (segment count
 // matches), and duration-level (deviation within 10% of expected). Validation
 // failures are encoded in the result, not returned as errors.
-func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expectedSegments int, expectedDuration time.Duration) MergeValidationResult {
+//
+// The segments slice is the authoritative identity set: a segment exists iff
+// its canonical file (SegmentFileName) is present and non-empty. This keys
+// validation on the same identity the downloader writes, closing the D3 gap
+// where a raw directory scan + _N suffix regex silently misclassified
+// segments whenever M3U8 media-sequence offsets made Index != slice
+// position, and let non-manifest residue (stale outputs, foreign variants)
+// count as "actual" segments.
+func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, segments []M3U8Segment, manifest []string, expectedDuration time.Duration) MergeValidationResult {
 	result := MergeValidationResult{
 		OutputPath:       outputPath,
-		ExpectedSegments: expectedSegments,
+		ExpectedSegments: len(segments),
 		ExpectedDuration: expectedDuration,
 	}
 
@@ -65,38 +71,28 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expecte
 		result.OutputSize = info.Size()
 	} else {
 		// Output file missing — definitely invalid.
-		result.MissingIndices = allIndices(expectedSegments)
+		result.MissingIndices = segmentIndices(segments)
 		return result
 	}
 
-	entries, err := os.ReadDir(segDir)
-	if err != nil {
-		result.MissingIndices = allIndices(expectedSegments)
+	if len(manifest) != len(segments) {
+		// Caller contract violation; treat every segment as missing
+		// rather than guessing.
+		result.MissingIndices = segmentIndices(segments)
 		return result
 	}
 
-	foundIndices := make(map[int]bool)
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".tmp") {
+	for i, seg := range segments {
+		result.ActualSegments++ // expected slots counted; invalidated below if absent
+		info, err := os.Stat(filepath.Join(segDir, manifest[i]))
+		if err != nil {
+			result.ActualSegments--
+			result.MissingIndices = append(result.MissingIndices, seg.Index)
 			continue
 		}
-		idx := extractSegmentIndex(name)
-		foundIndices[idx] = true
-		result.ActualSegments++
-
-		// Check for empty files.
-		if info, err := os.Stat(filepath.Join(segDir, name)); err == nil {
-			if info.Size() == 0 {
-				result.EmptyIndices = append(result.EmptyIndices, idx)
-			}
-		}
-	}
-
-	// Determine missing indices.
-	for i := 0; i < expectedSegments; i++ {
-		if !foundIndices[i] {
-			result.MissingIndices = append(result.MissingIndices, i)
+		if info.Size() == 0 {
+			result.ActualSegments--
+			result.EmptyIndices = append(result.EmptyIndices, seg.Index)
 		}
 	}
 
@@ -111,8 +107,13 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, expecte
 			// Check if deviation exceeds 10% threshold.
 			if result.OutputDuration < expectedDuration*9/10 ||
 				result.OutputDuration > expectedDuration*11/10 {
-				// Duration mismatch — mark missing segments as corrupted.
-				result.CorruptedIndices = append(result.CorruptedIndices, result.MissingIndices...)
+				// Duration mismatch with no file-level findings: the
+				// corruption is real but unlocalized. Re-queue the full
+				// expected set minus confirmed-good segments — the previous
+				// behavior of copying MissingIndices (empty here) produced
+				// an empty redownload set, and MergeRetryLoop aborted with
+				// "no redownload candidates" on every attempt.
+				result.CorruptedIndices = segmentIndices(segments)
 				result.Valid = false
 			}
 		}
@@ -173,32 +174,33 @@ func SumSegmentDurations(segments []M3U8Segment) time.Duration {
 	return time.Duration(total * float64(time.Second))
 }
 
-// cleanupFailedSegments removes segment files at the given indices from
-// disk. Errors are swallowed because this is best-effort cleanup before
-// a redownload attempt.
-func cleanupFailedSegments(segDir string, indices []int) {
+// cleanupFailedSegments removes the canonical segment files for the given
+// indices from disk. Errors are swallowed because this is best-effort
+// cleanup before a redownload attempt.
+func cleanupFailedSegments(segDir string, segments []M3U8Segment, indices []int) {
+	indexSet := make(map[int]bool, len(indices))
 	for _, idx := range indices {
-		// Try common naming patterns.
-		for _, name := range []string{
-			fmt.Sprintf("seg_%04d.ts", idx),
-			fmt.Sprintf("segment_%04d.ts", idx),
-			fmt.Sprintf("%d.ts", idx),
-		} {
-			_ = os.Remove(filepath.Join(segDir, name))
+		indexSet[idx] = true
+	}
+	for _, seg := range segments {
+		if indexSet[seg.Index] {
+			_ = os.Remove(filepath.Join(segDir, SegmentFileName(seg)))
 		}
 	}
 }
 
-// filterByIndices returns the subset of segments whose index is in the
-// index set. The returned slice preserves the original order.
+// filterByIndices returns the subset of segments whose playlist Index is
+// in the index set. Index (not slice position) is the contract: validation
+// findings and neighbor expansion both operate in Index space, which may
+// be offset from slice positions by M3U8 media-sequence numbers.
 func filterByIndices(segments []M3U8Segment, indexSet []int) []M3U8Segment {
 	set := make(map[int]bool, len(indexSet))
 	for _, idx := range indexSet {
 		set[idx] = true
 	}
 	filtered := make([]M3U8Segment, 0, len(indexSet))
-	for i, seg := range segments {
-		if set[i] {
+	for _, seg := range segments {
+		if set[seg.Index] {
 			filtered = append(filtered, seg)
 		}
 	}
@@ -207,22 +209,25 @@ func filterByIndices(segments []M3U8Segment, indexSet []int) []M3U8Segment {
 
 // filterSegments returns segments whose index is NOT in the success set.
 // This is used for incremental downloads: skip already-confirmed-good
-// segments.
+// segments. The success set is keyed by playlist Index (the same key the
+// segment queue and download batch report).
 func filterSegments(segments []M3U8Segment, successSet map[int]bool) []M3U8Segment {
 	filtered := make([]M3U8Segment, 0, len(segments))
-	for i, seg := range segments {
-		if !successSet[i] {
+	for _, seg := range segments {
+		if !successSet[seg.Index] {
 			filtered = append(filtered, seg)
 		}
 	}
 	return filtered
 }
 
-// allIndices returns [0, n-1].
-func allIndices(n int) []int {
-	indices := make([]int, n)
-	for i := range indices {
-		indices[i] = i
+// segmentIndices returns the playlist Index values of all segments, in
+// order. Used as the full redownload candidate set when validation fails
+// without localizable findings (e.g. duration mismatch).
+func segmentIndices(segments []M3U8Segment) []int {
+	indices := make([]int, len(segments))
+	for i, seg := range segments {
+		indices[i] = seg.Index
 	}
 	return indices
 }

@@ -180,8 +180,8 @@ func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts Seg
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, opts.Concurrency)
 
-	for i, seg := range segments {
-		i, seg := i, seg
+	for _, seg := range segments {
+		seg := seg
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -191,19 +191,26 @@ func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts Seg
 			result := DownloadSegment(ctx, SegmentTask{
 				Segment: seg,
 				DestDir: opts.SegDir,
-				TSID:    fmt.Sprintf("seg_%04d", i),
+				// Canonical (URI, Index) identity so retry re-downloads
+				// overwrite the primary-path files instead of coexisting
+				// under a second name and being merged twice.
+				TSID:    GenerateTSID(seg.URI, seg.Index),
 				Referer: opts.Referer,
 			}, opts.MaxRetries)
 
 			segMu.Lock()
+			// Report in playlist-Index space, not slice position: with
+			// M3U8 media-sequence offsets the two differ, and consumers
+			// (MergeRetryLoop success sets, gallery OnSegmentDone) key on
+			// Index.
 			if result.Error != nil {
-				failedSegs = append(failedSegs, i)
+				failedSegs = append(failedSegs, seg.Index)
 			} else {
 				downloadedSegs++
-				downloadedIndices = append(downloadedIndices, i)
+				downloadedIndices = append(downloadedIndices, seg.Index)
 			}
 			if opts.OnSegmentDone != nil {
-				opts.OnSegmentDone(i, result.Error == nil)
+				opts.OnSegmentDone(seg.Index, result.Error == nil)
 			}
 			segMu.Unlock()
 		}()

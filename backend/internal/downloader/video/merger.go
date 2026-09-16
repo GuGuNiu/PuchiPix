@@ -1,16 +1,77 @@
 package video
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strings"
 )
 
 var segmentIdxRe = regexp.MustCompile(`_(\d+)\.ts$`)
+
+// playlistFingerprintFile stores the M3U8 playlist fingerprint inside the
+// segment directory so a task retry can detect playlist changes.
+const playlistFingerprintFile = ".m3u8-fingerprint"
+
+// mergedOutputDir is the subdirectory (inside the segment directory) where
+// intermediate merge outputs are written. Scan-based consumers only look at
+// *.ts files in the segment directory root, so the merged output must NOT
+// live there — otherwise the next directory scan swallows it into the input
+// set and the output doubles on every retry round.
+const mergedOutputDir = "_merged"
+
+// SegmentFileName returns the canonical on-disk file name for a segment.
+// Both the primary download path (SegmentQueue) and the retry path
+// (DownloadSegmentsBatch) must use this identity so a re-downloaded
+// segment overwrites its stale copy instead of coexisting under a
+// second name and being merged twice.
+func SegmentFileName(seg M3U8Segment) string {
+	return GenerateTSID(seg.URI, seg.Index) + ".ts"
+}
+
+// SegmentManifest builds the ordered list of canonical segment file names
+// for a playlist. The manifest is the single source of truth for merge
+// and transcode inputs — never a directory scan.
+func SegmentManifest(segments []M3U8Segment) []string {
+	files := make([]string, len(segments))
+	for i, seg := range segments {
+		files[i] = SegmentFileName(seg)
+	}
+	return files
+}
+
+// PlaylistFingerprint returns a stable digest of the playlist identity
+// (segment URIs). A change means the source switched variants or was
+// re-sliced, so cached segments are no longer valid merge inputs.
+func PlaylistFingerprint(segments []M3U8Segment) string {
+	h := sha256.New()
+	for _, seg := range segments {
+		h.Write([]byte(seg.FullURI))
+		h.Write([]byte{'\n'})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// EnsurePlaylistFingerprint validates the playlist fingerprint against the
+// one recorded in segDir. On mismatch it wipes the cached .ts segments (and
+// the merged-output cache) and reports the reset so the caller can log it.
+// The current fingerprint is then persisted for the next run.
+func EnsurePlaylistFingerprint(segDir string, segments []M3U8Segment) (reset bool) {
+	fpPath := filepath.Join(segDir, playlistFingerprintFile)
+	fp := PlaylistFingerprint(segments)
+
+	if stored, err := os.ReadFile(fpPath); err == nil && string(stored) != fp {
+		cleanupAllSegments(segDir)
+		_ = os.RemoveAll(filepath.Join(segDir, mergedOutputDir))
+		reset = true
+	}
+
+	_ = os.WriteFile(fpPath, []byte(fp), 0644)
+	return reset
+}
 
 // MergeResult reports the outcome of a segment merge operation.
 type MergeResult struct {
@@ -18,41 +79,29 @@ type MergeResult struct {
 	TotalSize  int64
 }
 
-// MergeSegments concatenates all .ts segment files in segDir into a
-// single output file, sorted by their index suffix to preserve
-// playback order. Empty files abort the merge to prevent corruption.
-func MergeSegments(segDir, outputPath string) (*MergeResult, error) {
+// MergeSegments concatenates the manifest-listed .ts segment files (in the
+// given playlist order) into a single output file. Files in segDir that are
+// not part of the manifest — stale merged outputs, foreign-variant residue,
+// duplicate-named copies — are ignored. Missing or empty manifest entries
+// are skipped; the caller's validation detects them and triggers a
+// targeted redownload.
+func MergeSegments(segDir, outputPath string, manifest []string) (*MergeResult, error) {
+	if len(manifest) == 0 {
+		return nil, errors.New("merge manifest is empty")
+	}
 	dirPath := filepath.Clean(segDir)
 
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return nil, fmt.Errorf("segment directory does not exist: %s", dirPath)
-	}
-
-	var files []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".tmp") {
-			files = append(files, name)
+	files := make([]string, 0, len(manifest))
+	for _, name := range manifest {
+		info, err := os.Stat(filepath.Join(dirPath, name))
+		if err != nil || info.Size() == 0 {
+			continue
 		}
+		files = append(files, name)
 	}
 
 	if len(files) == 0 {
 		return nil, errors.New("no .ts segment files found to merge")
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		return extractSegmentIndex(files[i]) < extractSegmentIndex(files[j])
-	})
-
-	for _, file := range files {
-		info, err := os.Stat(filepath.Join(dirPath, file))
-		if err != nil {
-			return nil, fmt.Errorf("cannot stat segment %s: %w", file, err)
-		}
-		if info.Size() == 0 {
-			return nil, fmt.Errorf("segment file is empty (0 bytes): %s", file)
-		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
@@ -82,82 +131,6 @@ func MergeSegments(segDir, outputPath string) (*MergeResult, error) {
 		TotalFiles: len(files),
 		TotalSize:  totalSize,
 	}, nil
-}
-
-// SegmentVerification holds the result of checking whether all expected
-// segments are present and non-empty on disk.
-type SegmentVerification struct {
-	Valid        bool
-	Missing      []int
-	EmptyFiles   []string
-	TotalSize    int64
-	ActualCount  int
-}
-
-// VerifySegments checks that exactly expectedCount segments exist in
-// segDir, none are empty, and reports any missing indices so the
-// caller can decide whether to retry or fail.
-func VerifySegments(segDir string, expectedCount int) SegmentVerification {
-	dirPath := filepath.Clean(segDir)
-
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		missing := make([]int, expectedCount)
-		for i := range missing {
-			missing[i] = i
-		}
-		return SegmentVerification{
-			Valid:       false,
-			Missing:     missing,
-			ActualCount: 0,
-		}
-	}
-
-	foundIndices := make(map[int]bool)
-	var emptyFiles []string
-	var totalSize int64
-	var actualCount int
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".tmp") {
-			continue
-		}
-
-		match := segmentIdxRe.FindStringSubmatch(name)
-		if match == nil {
-			continue
-		}
-
-		idx := parseSegmentIndex(match[1])
-		foundIndices[idx] = true
-		actualCount++
-
-		fullPath := filepath.Join(dirPath, name)
-		info, err := os.Stat(fullPath)
-		if err != nil {
-			continue
-		}
-		totalSize += info.Size()
-		if info.Size() == 0 {
-			emptyFiles = append(emptyFiles, name)
-		}
-	}
-
-	var missing []int
-	for i := 0; i < expectedCount; i++ {
-		if !foundIndices[i] {
-			missing = append(missing, i)
-		}
-	}
-
-	return SegmentVerification{
-		Valid:       len(missing) == 0 && len(emptyFiles) == 0,
-		Missing:     missing,
-		EmptyFiles:  emptyFiles,
-		TotalSize:   totalSize,
-		ActualCount: actualCount,
-	}
 }
 
 // CleanupSegments removes a segment directory and all its contents,

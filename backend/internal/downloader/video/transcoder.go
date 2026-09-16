@@ -29,7 +29,12 @@ type TranscodeOptions struct {
 	OnProgress func(percent float64)
 }
 
-func TranscodeTS(ctx context.Context, inputDir, outputPath string, opts ...TranscodeOptions) error {
+// TranscodeTS concatenates TS segments and transcodes them into outputPath.
+// When manifest is non-empty it is the ordered list of segment file names to
+// feed ffmpeg — this is the authoritative input set, so stray .ts files in
+// inputDir (stale merge outputs, foreign-variant residue) are ignored. A nil
+// manifest falls back to a directory scan (legacy callers only).
+func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []string, opts ...TranscodeOptions) error {
 	dirPath := filepath.Clean(inputDir)
 
 	absDir, err := filepath.Abs(dirPath)
@@ -37,26 +42,39 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, opts ...Trans
 		absDir = dirPath
 	}
 
-	entries, err := os.ReadDir(absDir)
-	if err != nil {
-		return fmt.Errorf("cannot read segment directory: %w", err)
-	}
-
 	var files []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".tmp") {
+	if len(manifest) > 0 {
+		// Manifest order is playlist order — never re-sorted. Missing or
+		// empty entries are skipped (callers tolerate partial downloads
+		// within the failure threshold); an empty usable set is an error.
+		for _, name := range manifest {
+			info, statErr := os.Stat(filepath.Join(absDir, name))
+			if statErr != nil || info.Size() == 0 {
+				continue
+			}
 			files = append(files, name)
 		}
+	} else {
+		entries, err := os.ReadDir(absDir)
+		if err != nil {
+			return fmt.Errorf("cannot read segment directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			name := entry.Name()
+			if strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".tmp") {
+				files = append(files, name)
+			}
+		}
+
+		sort.Slice(files, func(i, j int) bool {
+			return extractSegmentIndex(files[i]) < extractSegmentIndex(files[j])
+		})
 	}
 
 	if len(files) == 0 {
 		return fmt.Errorf("no .ts segment files found for transcoding")
 	}
-
-	sort.Slice(files, func(i, j int) bool {
-		return extractSegmentIndex(files[i]) < extractSegmentIndex(files[j])
-	})
 
 	concatPath := filepath.Join(absDir, "concat.txt")
 	var buf bytes.Buffer
@@ -353,19 +371,20 @@ func buildHWAccelArgs(concatPath, outputPath, forceGPUType string) []string {
 
 // TranscodeTSWithFallback attempts GPU transcoding first, then falls back to
 // CPU stream copy on failure. Returns an error only if both methods fail.
-func TranscodeTSWithFallback(ctx context.Context, inputDir, outputPath string, opts TranscodeOptions) error {
+// manifest is the ordered segment file list (see TranscodeTS).
+func TranscodeTSWithFallback(ctx context.Context, inputDir, outputPath string, manifest []string, opts TranscodeOptions) error {
 	if !opts.UseGPU {
-		return TranscodeTS(ctx, inputDir, outputPath, opts)
+		return TranscodeTS(ctx, inputDir, outputPath, manifest, opts)
 	}
 
-	gpuErr := TranscodeTS(ctx, inputDir, outputPath, opts)
+	gpuErr := TranscodeTS(ctx, inputDir, outputPath, manifest, opts)
 	if gpuErr == nil {
 		return nil
 	}
 
 	// Preserve OnProgress across the CPU fallback (see transcodeCopyDirect).
 	fallbackOpts := TranscodeOptions{UseGPU: false, OnProgress: opts.OnProgress}
-	fallbackErr := transcodeCopyDirect(ctx, inputDir, outputPath, fallbackOpts)
+	fallbackErr := transcodeCopyDirect(ctx, inputDir, outputPath, manifest, fallbackOpts)
 	if fallbackErr == nil {
 		return nil
 	}
@@ -376,10 +395,10 @@ func TranscodeTSWithFallback(ctx context.Context, inputDir, outputPath string, o
 // transcodeCopyDirect performs a direct stream copy without GPU options.
 // OnProgress (if any) is preserved so the CPU fallback keeps reporting
 // progress instead of silently going indeterminate mid-task.
-func transcodeCopyDirect(ctx context.Context, inputDir, outputPath string, opts TranscodeOptions) error {
+func transcodeCopyDirect(ctx context.Context, inputDir, outputPath string, manifest []string, opts TranscodeOptions) error {
 	// Reuse TranscodeTS with UseGPU=false
 	opts.UseGPU = false
-	return TranscodeTS(ctx, inputDir, outputPath, opts)
+	return TranscodeTS(ctx, inputDir, outputPath, manifest, opts)
 }
 
 // buildHWArgsForType builds ffmpeg args for a detected GPU type. Input-side

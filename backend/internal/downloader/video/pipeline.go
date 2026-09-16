@@ -247,7 +247,12 @@ func (s *TranscodeStep) Process(ctx context.Context, data *PipelineData) (*Pipel
 			}})
 	}
 
-	if err := TranscodeTSWithFallback(ctx, data.InputDir, data.OutputPath, opts); err != nil {
+	// The segment manifest is the authoritative transcode input set —
+	// derived from the playlist, never from a directory scan, so stray .ts
+	// files (stale merge outputs, foreign-variant residue) are excluded.
+	manifest := SegmentManifest(data.Segments)
+
+	if err := TranscodeTSWithFallback(ctx, data.InputDir, data.OutputPath, manifest, opts); err != nil {
 		return data, fmt.Errorf("transcode failed: %w", err)
 	}
 

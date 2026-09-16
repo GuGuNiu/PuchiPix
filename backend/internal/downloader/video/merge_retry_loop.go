@@ -80,6 +80,11 @@ func MergeRetryLoop(
 	// Working copy of segments — narrowed down on each retry.
 	remaining := segments
 
+	// The merge manifest is derived from the FULL playlist (not the
+	// remaining subset): a targeted redownload re-creates missing files at
+	// their canonical names before the merge runs.
+	manifest := SegmentManifest(segments)
+
 	for attempt := 0; attempt <= opts.MaxMergeRetries; attempt++ {
 		toDownload := filterSegments(remaining, successSet)
 		if len(toDownload) == 0 {
@@ -102,7 +107,7 @@ func MergeRetryLoop(
 			}
 		}
 
-		mergeResult, err := MergeSegments(opts.SegDir, opts.OutputPath)
+		mergeResult, err := MergeSegments(opts.SegDir, opts.OutputPath, manifest)
 		if err != nil {
 			logger.Warn("Merge failed",
 				"attempt", attempt+1, "error", err.Error())
@@ -122,7 +127,8 @@ func MergeRetryLoop(
 			ctx,
 			opts.SegDir,
 			opts.OutputPath,
-			len(segments),
+			segments,
+			manifest,
 			opts.ExpectedDuration,
 		)
 
@@ -164,7 +170,7 @@ func MergeRetryLoop(
 					len(validation.EmptyIndices)))
 		}
 
-		cleanupFailedSegments(opts.SegDir,
+		cleanupFailedSegments(opts.SegDir, segments,
 			append(append(validation.MissingIndices, validation.EmptyIndices...),
 				validation.CorruptedIndices...))
 
