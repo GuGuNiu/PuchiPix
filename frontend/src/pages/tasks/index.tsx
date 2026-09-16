@@ -825,7 +825,12 @@ export default function TasksPage(): React.JSX.Element {
     [t, STATUS_LABEL, rowSelection, filteredTasks.length, handleAction, handleDelete, locale]
   );
 
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
+
   // ===== TanStack Table Instance =====
+  // Connect manual pagination state to the table so it doesn't fall back
+  // to its internal default (pageSize=10). currentPage is 1-based in the
+  // component but TanStack expects 0-based pageIndex.
   const table = useReactTable({
     data: filteredTasks,
     columns,
@@ -833,16 +838,29 @@ export default function TasksPage(): React.JSX.Element {
       sorting,
       rowSelection,
       globalFilter,
+      pagination: {
+        pageIndex: currentPage - 1,
+        pageSize: pageSize,
+      },
     },
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
+    onPaginationChange: (updater) => {
+      const newState = typeof updater === "function"
+        ? updater({ pageIndex: currentPage - 1, pageSize })
+        : updater;
+      setCurrentPage(newState.pageIndex + 1);
+      setPageSize(newState.pageSize);
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     manualSorting: true,
     manualFiltering: true,
+    manualPagination: true,
+    pageCount: totalPages,
     enableRowSelection: true,
     enableMultiRowSelection: true,
     getRowId: (row) => `${row.TaskType || "video"}-${row.ID}`,
@@ -871,7 +889,6 @@ export default function TasksPage(): React.JSX.Element {
     return counts;
   }, [tasks]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
   const clampedPage = Math.min(currentPage, totalPages);
   const paginatedTasks = useMemo(() => {
     const start = (clampedPage - 1) * pageSize;
