@@ -46,11 +46,9 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Build Next.js (standalone)
+      - name: Build Vite
         working-directory: frontend
         run: pnpm build
-        env:
-          NEXT_TELEMETRY_DISABLED: 1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -122,4 +120,4 @@ jobs:
       - name: Deploy to production server
         run: |
           echo "Deploying to Production"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}}"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"

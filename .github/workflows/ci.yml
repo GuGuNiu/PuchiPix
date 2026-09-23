@@ -64,14 +64,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Next.js
+      - name: Build Vite
         run: pnpm build
-        env:
-          NEXT_TELEMETRY_DISABLED: 1
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v5
         with:
-          name: nextjs-build
-          path: frontend/.next/standalone
+          name: vite-build
+          path: frontend/dist
           retention-days: 7
