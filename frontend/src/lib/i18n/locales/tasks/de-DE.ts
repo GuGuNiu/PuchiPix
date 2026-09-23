@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// Texte der Aufgabenverwaltungsseite — Deutsch
+// Task management page text — de-DE
 const deDE: TranslationDict = {
   "tasks.typeAll": "Alle",
   "tasks.typeVideo": "Video",

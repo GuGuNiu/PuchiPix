@@ -1,15 +1,15 @@
 import type { TranslationDict } from "../../types";
 
-// API-Fehlermeldungen — Deutsch
+// API error messages — de-DE
 const deDE: TranslationDict = {
-  // Aufgabeneinstellungen validieren
+  // Task settings validation
   "api.validation.maxConcurrentTasks": "Max. gleichzeitige Aufgaben muss zwischen 1 und 50 liegen",
   "api.validation.maxSniffConcurrent": "Max. Sniffing-Parallelität muss zwischen 1 und 10 liegen",
   "api.validation.maxScrapingSlots": "Max. Scraping-Slots muss zwischen 1 und 50 liegen",
   "api.validation.tsSegmentConcurrent": "TS-Segment-Parallelität muss zwischen 1 und 200 liegen",
   "api.validation.galleryImageConcurrent": "Galeriebild-Parallelität muss zwischen 1 und 50 liegen",
 
-  // SJS-Forenoperationen
+  // SJS forum actions
   "api.sjs.missingAction": "Action-Parameter fehlt",
   "api.sjs.signMissingAccountId": "Anmeldung benötigt accountId-Parameter",
   "api.sjs.buyMissingAccountId": "Kauf des Posts benötigt accountId-Parameter",
@@ -26,7 +26,7 @@ const deDE: TranslationDict = {
   "api.sjsShelf.refreshFailed": "Aktualisierung der Metadaten fehlgeschlagen",
   "api.sjsShelf.unknownAction": "Unbekannte Aktion",
 
-  // Suche
+  // Search
   "api.search.missingJobId": "Bitte jobId angeben",
   "api.search.batchScrapeStarted": "Massen-Scraping gestartet",
   "api.search.missingPageUrl": "Bitte pageUrl angeben",
@@ -34,15 +34,15 @@ const deDE: TranslationDict = {
   "api.search.missingKeyword": "Bitte Suchbegriffe angeben",
   "api.search.missingVideoTitle": "Bitte Videotitel angeben",
 
-  // Charaktere
+  // Protagonist
   "api.protagonist.galleryNotFound": "Keine Galerien für diesen Charakter gefunden",
   "api.protagonist.fetchFailed": "Abruf der Charakterinformationen fehlgeschlagen",
 
-  // OUO-Orchestrierung
+  // OUO orchestration
   "api.ouo.missingParams": "Erforderliche Parameter fehlen: galleryId, ouoUrl",
   "api.ouo.missingGalleryId": "Erforderlicher Parameter fehlt: galleryId",
 
-  // Galerie
+  // Gallery
   "api.gallery.notFound": "Galerie nicht gefunden",
   "api.gallery.noProviderMatch": "Kein passender Seiten-Provider gefunden, erneutes Scrapen nicht möglich",
   "api.gallery.rescrapeStarted": "Galerie-Erneutes-Scrapen gestartet",
@@ -62,10 +62,10 @@ const deDE: TranslationDict = {
   "api.gallery.batchEmptyUrl": "Leere URL",
   "api.gallery.noProviderForRescrape": "Kein Galerie-Anbieter gefunden, erneutes Scrapen nicht möglich",
 
-  // Aufgaben
+  // Tasks
   "api.tasks.noM3u8Extracted": "M3U8-Link konnte nicht aus der Seite extrahiert werden",
 
-  // Sperrliste
+  // Blocklist
   "api.blocklist.addFailed": "Hinzufügen fehlgeschlagen",
 
   // Logs
@@ -73,15 +73,15 @@ const deDE: TranslationDict = {
   "api.logs.taskNumber": "Aufgabe #{id}",
   "api.logs.fetchFailed": "Logs konnten nicht abgerufen werden",
 
-  // Galerie (Ergänzung)
+  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "Site {site} unterstützt kein Galerie-Scraping",
   "api.gallery.allDomainsFailed": "Alle Domains konnten nicht gescrapt werden",
 
-  // Aufgaben (Ergänzung)
+  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "{count} M3U8-Adressen erkannt, bitte auswählen",
   "api.tasks.unsupportedListScrape": "Provider unterstützt kein Listen-Seiten-Scraping",
 
-  // Allgemein
+  // Common
   "api.characterDb.syncRunning": "Synchronisierungsaufgabe läuft bereits",
   "api.common.internalError": "Interner Serverfehler",
   "api.common.missingParams": "Erforderliche Parameter fehlen: {params}",

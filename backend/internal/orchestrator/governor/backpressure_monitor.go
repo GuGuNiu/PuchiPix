@@ -9,17 +9,17 @@ import (
 )
 
 // BackpressureLayer identifies one of the six layers in the multi-layer
-// backpressure协同 mechanism. Each layer operates at a different scope
+// backpressure coordination mechanism. Each layer operates at a different scope
 // and must coordinate with the others to prevent resource exhaustion.
 type BackpressureLayer string
 
 const (
-	LayerAPIGate       BackpressureLayer = "api_gate"        // FlowController 令牌桶
-	LayerScheduler     BackpressureLayer = "scheduler"       // 调度器队列
-	LayerSlotPool      BackpressureLayer = "slot_pool"       // 执行槽位
-	LayerGlobalDownload BackpressureLayer = "global_download" // 全局下载并发
-	LayerSSE           BackpressureLayer = "sse"             // SSE流量整形
-	LayerExecutor      BackpressureLayer = "executor"        // Executor协作式暂停
+	LayerAPIGate       BackpressureLayer = "api_gate"        // FlowController token bucket
+	LayerScheduler     BackpressureLayer = "scheduler"       // scheduler queue
+	LayerSlotPool      BackpressureLayer = "slot_pool"       // execution slots
+	LayerGlobalDownload BackpressureLayer = "global_download" // global download concurrency
+	LayerSSE           BackpressureLayer = "sse"             // SSE traffic shaping
+	LayerExecutor      BackpressureLayer = "executor"        // executor cooperative pause
 )
 
 // LayerStatus captures the instantaneous load of one backpressure layer.
@@ -57,7 +57,7 @@ type LayerSampler interface {
 
 // BackpressureMonitor periodically samples all registered layers and
 // computes a composite pressure index. It is the "dashboard" for the
-// multi-layer backpressure协同 mechanism — callers (API, SSE, scheduler)
+// multi-layer backpressure coordination mechanism — callers (API, SSE, scheduler)
 // consult it to make shedding decisions when the system is under stress.
 //
 // The monitor itself does NOT enforce backpressure; it only observes and

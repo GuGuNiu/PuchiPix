@@ -444,7 +444,7 @@ func (h *Handlers) ConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hot-apply scheduler tuning keys to the live engine so changes take
-	// effect without a restart (260817 工单 11). Setters validate ranges;
+	// effect without a restart (260817 ticket 11). Setters validate ranges;
 	// invalid values were persisted above but are ignored here — the
 	// engine keeps its current value and the operator sees the rejection
 	// in the scheduler log.

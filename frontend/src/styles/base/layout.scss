@@ -1,7 +1,4 @@
-// ============================================================
-// Layout — 布局骨架
-// app-layout / status-bar / content-area / main-area
-// ============================================================
+// Layout — app shell skeleton
 
 // ===== App Layout =====
 .app-layout {
@@ -59,7 +56,7 @@
   overflow-y: auto;
   padding: var(--space-6) var(--space-8);
 
-  // 全宽页面：移除 padding 让页面四角贴边
+  // Full-bleed pages: drop padding so content reaches corners
   &:has(.search-page),
   &:has(.dashboard-page),
   &:has(.tasks-layout) {

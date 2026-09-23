@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// API error messages — American English
+// API error messages — en-US
 const enUS: TranslationDict = {
   "api.validation.maxConcurrentTasks": "Max concurrent tasks must be between 1 and 50",
   "api.validation.maxSniffConcurrent": "Max sniff concurrency must be between 1 and 10",

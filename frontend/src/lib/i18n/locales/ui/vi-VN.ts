@@ -1,7 +1,7 @@
 import type { TranslationDict } from "../../types";
 
 const viVN: TranslationDict = {
-  /* ─── Chung ─── */
+  /* ─── Common ─── */
   "common.refresh": "Làm mới",
   "common.delete": "Xóa",
   "common.cancel": "Hủy",
@@ -36,7 +36,7 @@ const viVN: TranslationDict = {
   "common.adding": "Đang thêm...",
   "common.pages": "trang",
 
-  /* ─── Điều hướng ─── */
+  /* ─── Navigation ─── */
   "nav.dashboard": "Sảnh Puchi",
   "nav.tasks": "Quản lý tác vụ",
   "nav.shelf": "Kệ tài nguyên",
@@ -100,7 +100,7 @@ const viVN: TranslationDict = {
   "sjs.shelf.refreshed": "Refreshed",
   "sjs.shelf.refreshNetworkError": "Refresh request failed, please check network",
 
-  /* ─── Bảng điều khiển ─── */
+  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "Trực tiếp",
   "dashboard.offline": "Ngoại tuyến",
   "dashboard.totalTasks": "Tổng tác vụ",
@@ -130,7 +130,7 @@ const viVN: TranslationDict = {
   "dashboard.addLinkToStart": "Thêm liên kết để bắt đầu tải xuống",
   "dashboard.identifying": "Đang nhận dạng",
 
-  /* ─── Quản lý thư viện ─── */
+  /* ─── Gallery ─── */
   "gallery.statusScraping": "Đang cào",
   "gallery.statusScrapePending": "Chờ nhận dạng",
   "gallery.statusDownloadPending": "Chờ tải xuống",
@@ -200,7 +200,7 @@ const viVN: TranslationDict = {
   "gallery.zipExtractLabel": "Giải nén: ",
   "gallery.clickToCopy": "Nhấp để sao chép",
 
-  /* ─── Tìm kiếm ─── */
+  /* ─── Search ─── */
   "search.placeholderGallery": "Nhập từ khóa hoặc dán URL đầy đủ (ví dụ: /article/ /tag/ pages)...",
   "search.placeholderVideo": "Nhập từ khóa tìm kiếm, phân tách bằng dấu phẩy hoặc khoảng trắng...",
   "search.searching": "Đang tìm...",
@@ -246,7 +246,7 @@ const viVN: TranslationDict = {
   "search.statusCancelled": "Đã hủy",
   "search.statusScraping": "Đang cào",
 
-  /* ─── Cấu hình ─── */
+  /* ─── Settings ─── */
   "config.title": "Cấu hình hệ thống",
   "config.pathSettings": "Cài đặt đường dẫn",
   "config.chromeDriverPath": "Đường dẫn ChromeDriver",
@@ -286,7 +286,7 @@ const viVN: TranslationDict = {
   "sniff.addedToDownload": "Đã thêm vào tác vụ tải xuống",
   "sniff.untitled": "Không tiêu đề",
 
-  /* ─── Nhân vật ─── */
+  /* ─── Characters ─── */
   "protagonists.title": "Thư viện nhân vật",
   "protagonists.subtitle": "Danh sách nhân vật đã chuẩn hóa — nhấp để xem tất cả thư viện của nhân vật đó",
   "protagonists.searchPlaceholder": "Tìm kiếm tên nhân vật...",
@@ -302,8 +302,8 @@ const viVN: TranslationDict = {
   "protagonists.statGalleries": "{count} thư viện",
   "protagonists.statAliases": "{count} bí danh",
 
-  /* ─── Bảng Ops ─── */ "ops.online": "Trực tuyến", "ops.offline": "Ngoại tuyến", "ops.todayTasks": "Tác vụ hôm nay", "ops.avgSpeed": "Tốc độ TB", "ops.uptime": "Thời gian hoạt động", "ops.lastChecked": "Kiểm tra cuối", "ops.loadingSites": "Đang tải dữ liệu giám sát trang...", "ops.systemConsole": "Bảng điều khiển hệ thống", "ops.realtimeConnected": "Trực tiếp", "ops.disconnected": "Đã ngắt", "ops.all": "Tất cả", "ops.resume": "Tiếp tục", "ops.pause": "Tạm dừng", "ops.clear": "Xóa", "ops.noLogs": "Không có log", "ops.pausedBuffer": "Đã tạm dừng — {count} log mới trong bộ đệm",
-  /* ─── Tìm kiếm (bổ sung) ─── */   "createTask.title": "Tạo tác vụ tải xuống",
+  /* ─── Ops Panel ─── */ "ops.online": "Trực tuyến", "ops.offline": "Ngoại tuyến", "ops.todayTasks": "Tác vụ hôm nay", "ops.avgSpeed": "Tốc độ TB", "ops.uptime": "Thời gian hoạt động", "ops.lastChecked": "Kiểm tra cuối", "ops.loadingSites": "Đang tải dữ liệu giám sát trang...", "ops.systemConsole": "Bảng điều khiển hệ thống", "ops.realtimeConnected": "Trực tiếp", "ops.disconnected": "Đã ngắt", "ops.all": "Tất cả", "ops.resume": "Tiếp tục", "ops.pause": "Tạm dừng", "ops.clear": "Xóa", "ops.noLogs": "Không có log", "ops.pausedBuffer": "Đã tạm dừng — {count} log mới trong bộ đệm",
+  /* ─── Search (Supplements) ─── */   "createTask.title": "Tạo tác vụ tải xuống",
   "createTask.pleaseFillLink": "Vui lòng nhập liên kết",
   "createTask.exactMatch": "Khớp chính xác",
   "createTask.mirrorMatch": "Khớp tên miền gương",
@@ -326,8 +326,8 @@ const viVN: TranslationDict = {
   "createTask.createTask": "Tạo tác vụ",
 
   "search.scrape": "Cào", "search.scrapeThisVideo": "Cào video này", "search.loadingData": "Đang tải dữ liệu...", "search.statusDownloaded": "Đã tải", "search.taskId": "Tác vụ #{id}", "search.tags": "Thẻ", "search.noDetailData": "Không có dữ liệu chi tiết. Vui lòng {scrape} hoặc tải xuống trước.", "search.videoData": "Dữ liệu video", "search.fieldTitle": "Tiêu đề", "search.fieldDate": "Ngày", "search.fieldResolution": "Độ phân giải", "search.fieldDuration": "Thời lượng", "search.fieldStatus": "Trạng thái", "search.categories": "Danh mục", "search.actors": "Diễn viên", "search.director": "Đạo diễn", "search.segmentData": "Dữ liệu phân đoạn", "search.segmentCount": "Số phân đoạn", "search.totalDuration": "Tổng thời lượng", "search.avgSegmentDuration": "Thời lượng phân đoạn TB", "search.sizeData": "Dữ liệu kích thước", "search.fieldFileSize": "Kích thước tệp", "search.estimatedSize": "Kích thước ước tính", "search.estimatedSizeValue": "Đang ước tính", "search.bitrate": "Tốc độ bit",
-  /* ─── Tìm kiếm hàng loạt ─── */ "batchSearch.title": "Tìm kiếm hàng loạt", "batchSearch.titleLabel": "Tiêu đề", "batchSearch.siteLabel": "Trang web", "batchSearch.startSearch": "Bắt đầu tìm", "batchSearch.searching": "Đang tìm...", "batchSearch.collapse": "Thu gọn", "batchSearch.expand": "Mở rộng", "batchSearch.downloaded": "Đã tải", "batchSearch.notFound": "Không tìm thấy", "batchSearch.failed": "Thất bại", "batchSearch.total": "Tổng", "batchSearch.all": "Tất cả", "batchSearch.candidates": "{count} ứng viên", "batchSearch.progress": "Tiến độ: ", "batchSearch.copyNotFound": "Sao chép không tìm thấy", "batchSearch.retryFailed": "Thử lại thất bại", "batchSearch.hideLogs": "Ẩn log", "batchSearch.showLogs": "Hiện log", "batchSearch.colInputTitle": "Tiêu đề nhập", "batchSearch.colMatchResult": "Kết quả", "batchSearch.colScore": "Điểm", "batchSearch.colStatus": "Trạng thái", "batchSearch.colTask": "Tác vụ", "batchSearch.complete": "Tìm kiếm hàng loạt hoàn tất: đã tải {downloaded}, không tìm thấy {notFound}, thất bại {failed}", "batchSearch.started": "Tìm kiếm hàng loạt đã bắt đầu, {count} tiêu đề", "batchSearch.copied": "Đã sao chép {count} tiêu đề vào clipboard", "batchSearch.placeholder": "Dán tiêu đề video, mỗi dòng một tiêu đề, ví dụ:\nCuộc sống bí mật của người hầu gái xinh đẹp\nSự cám dỗ của thiên thần\nNhật ký huấn luyện", "batchSearch.pleaseInputTitle": "Vui lòng nhập tiêu đề", "batchSearch.noValidTitle": "Không tìm thấy tiêu đề hợp lệ", "batchSearch.cancelled": "Tìm kiếm hàng loạt đã hủy", "batchSearch.cancelFailed": "Hủy thất bại", "batchSearch.noNotFound": "Không có tiêu đề không tìm thấy", "batchSearch.noRetry": "Không có tiêu đề để thử lại", "batchSearch.refilled": "Đã điền tiêu đề thất bại vào ô nhập", "batchSearch.inputHint": "Phát hiện {count} tiêu đề · Tự động tìm kiếm mờ và tải video phù hợp · Cách 3-5 giây giữa các tiêu đề để chống chặn",
-  /* ─── Cài đặt tác vụ ─── */ "taskSettings.title": "Cài đặt tác vụ", "taskSettings.maxConcurrentTasks": "Số tác vụ đồng thời tối đa", "taskSettings.maxConcurrentTasksDesc": "Giới hạn tác vụ tải video/thư viện đồng thời", "taskSettings.maxScrapingTasks": "Số tác vụ cào tối đa", "taskSettings.maxScrapingTasksDesc": "Giới hạn tác vụ cào (nhận dạng) đồng thời", "taskSettings.sniffMaxConcurrentTasks": "Số tác vụ sniff đồng thời tối đa", "taskSettings.maxSniffTasksDesc": "Giới hạn tác vụ sniff đồng thời", "taskSettings.tsSegmentConcurrent": "Số phân đoạn TS đồng thời", "taskSettings.tsSegmentConcurrentDesc": "Số yêu cầu phân đoạn TS đồng thời khi tải video", "taskSettings.galleryImageConcurrent": "Số ảnh thư viện đồng thời", "taskSettings.galleryImageConcurrentDesc": "Số yêu cầu ảnh đồng thời khi tải thư viện", "taskSettings.unitTasks": "tác vụ", "taskSettings.unitSegments": "phân đoạn", "taskSettings.unitFiles": "tệp", "taskSettings.note": "Thay đổi có hiệu lực ngay lập tức, không cần khởi động lại", "taskSettings.refresh": "Làm mới", "taskSettings.save": "Lưu", "taskSettings.loadFailed": "Tải cài đặt thất bại", "taskSettings.saveFailed": "Lưu cài đặt thất bại", "taskSettings.saved": "Đã lưu cài đặt", "console.noTaskLogs": "Không có nhật ký tác vụ", "console.fetchFailed": "Tải nhật ký thất bại",
+  /* ─── Batch Search ─── */ "batchSearch.title": "Tìm kiếm hàng loạt", "batchSearch.titleLabel": "Tiêu đề", "batchSearch.siteLabel": "Trang web", "batchSearch.startSearch": "Bắt đầu tìm", "batchSearch.searching": "Đang tìm...", "batchSearch.collapse": "Thu gọn", "batchSearch.expand": "Mở rộng", "batchSearch.downloaded": "Đã tải", "batchSearch.notFound": "Không tìm thấy", "batchSearch.failed": "Thất bại", "batchSearch.total": "Tổng", "batchSearch.all": "Tất cả", "batchSearch.candidates": "{count} ứng viên", "batchSearch.progress": "Tiến độ: ", "batchSearch.copyNotFound": "Sao chép không tìm thấy", "batchSearch.retryFailed": "Thử lại thất bại", "batchSearch.hideLogs": "Ẩn log", "batchSearch.showLogs": "Hiện log", "batchSearch.colInputTitle": "Tiêu đề nhập", "batchSearch.colMatchResult": "Kết quả", "batchSearch.colScore": "Điểm", "batchSearch.colStatus": "Trạng thái", "batchSearch.colTask": "Tác vụ", "batchSearch.complete": "Tìm kiếm hàng loạt hoàn tất: đã tải {downloaded}, không tìm thấy {notFound}, thất bại {failed}", "batchSearch.started": "Tìm kiếm hàng loạt đã bắt đầu, {count} tiêu đề", "batchSearch.copied": "Đã sao chép {count} tiêu đề vào clipboard", "batchSearch.placeholder": "Dán tiêu đề video, mỗi dòng một tiêu đề, ví dụ:\nCuộc sống bí mật của người hầu gái xinh đẹp\nSự cám dỗ của thiên thần\nNhật ký huấn luyện", "batchSearch.pleaseInputTitle": "Vui lòng nhập tiêu đề", "batchSearch.noValidTitle": "Không tìm thấy tiêu đề hợp lệ", "batchSearch.cancelled": "Tìm kiếm hàng loạt đã hủy", "batchSearch.cancelFailed": "Hủy thất bại", "batchSearch.noNotFound": "Không có tiêu đề không tìm thấy", "batchSearch.noRetry": "Không có tiêu đề để thử lại", "batchSearch.refilled": "Đã điền tiêu đề thất bại vào ô nhập", "batchSearch.inputHint": "Phát hiện {count} tiêu đề · Tự động tìm kiếm mờ và tải video phù hợp · Cách 3-5 giây giữa các tiêu đề để chống chặn",
+  /* ─── Task Settings ─── */ "taskSettings.title": "Cài đặt tác vụ", "taskSettings.maxConcurrentTasks": "Số tác vụ đồng thời tối đa", "taskSettings.maxConcurrentTasksDesc": "Giới hạn tác vụ tải video/thư viện đồng thời", "taskSettings.maxScrapingTasks": "Số tác vụ cào tối đa", "taskSettings.maxScrapingTasksDesc": "Giới hạn tác vụ cào (nhận dạng) đồng thời", "taskSettings.sniffMaxConcurrentTasks": "Số tác vụ sniff đồng thời tối đa", "taskSettings.maxSniffTasksDesc": "Giới hạn tác vụ sniff đồng thời", "taskSettings.tsSegmentConcurrent": "Số phân đoạn TS đồng thời", "taskSettings.tsSegmentConcurrentDesc": "Số yêu cầu phân đoạn TS đồng thời khi tải video", "taskSettings.galleryImageConcurrent": "Số ảnh thư viện đồng thời", "taskSettings.galleryImageConcurrentDesc": "Số yêu cầu ảnh đồng thời khi tải thư viện", "taskSettings.unitTasks": "tác vụ", "taskSettings.unitSegments": "phân đoạn", "taskSettings.unitFiles": "tệp", "taskSettings.note": "Thay đổi có hiệu lực ngay lập tức, không cần khởi động lại", "taskSettings.refresh": "Làm mới", "taskSettings.save": "Lưu", "taskSettings.loadFailed": "Tải cài đặt thất bại", "taskSettings.saveFailed": "Lưu cài đặt thất bại", "taskSettings.saved": "Đã lưu cài đặt", "console.noTaskLogs": "Không có nhật ký tác vụ", "console.fetchFailed": "Tải nhật ký thất bại",
 
   /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "Chờ sẵn sàng",

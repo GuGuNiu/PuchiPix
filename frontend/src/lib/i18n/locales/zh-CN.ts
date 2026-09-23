@@ -19,7 +19,7 @@ const zhCN = {
   ...log,
 } satisfies TranslationDict;
 
-/** 所有合法的翻译键联合类型 — 从各子模块的键类型组合（不依赖 spread 推断） */
+/** Union of all valid translation keys — composed from submodule key types (no spread inference) */
 export type TranslationKey =
   | UiTranslationKeys
   | TasksTranslationKeys

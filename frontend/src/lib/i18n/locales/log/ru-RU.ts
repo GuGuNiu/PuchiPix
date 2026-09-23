@@ -1,14 +1,14 @@
 import type { TranslationDict } from "../../types";
 
-// Шаблоны лог-сообщений — Русский
+// Log message templates — ru-RU
 const ruRU: TranslationDict = {
-  // Безопасное удаление
+  // Safe delete
   "log.safeDelete.fileFailed": "Ошибка удаления файла ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "Финальная ошибка удаления файла: {path} — {msg}",
   "log.safeDelete.dirFailed": "Ошибка удаления директории ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.dirFinalFailed": "Финальная ошибка удаления директории: {path} — {msg}",
 
-  // Обработчик галерей
+  // Gallery handler
   "log.galleryHandler.cancelledInQueue": "Галерея #{id} отменена во время ожидания в очереди",
   "log.galleryHandler.cancelledInScrapeQueue": "Галерея #{id} отменена во время ожидания в очереди сканирования",
   "log.galleryHandler.domainRateLimited": "Домен {url} вернул {status} (ограничение скорости), быстрое переключение",
@@ -17,7 +17,7 @@ const ruRU: TranslationDict = {
   "log.galleryHandler.downloadFailed": "Download failed: {msg}",
   "log.galleryHandler.downloadComplete": "Download complete: {success} succeeded, {failed} failed, {skipped} skipped",
 
-  // Сайт SJS
+  // SJS site
   "log.sjs.noAccount": "Нет доступного аккаунта, доступ в режиме гостя (полный контент может быть недоступен)",
   "log.sjs.cookieInjected": "Cookie аккаунта #{id} внедрены ({count} шт.)",
   "log.sjs.cookieInjectionFailed": "Ошибка внедрения Cookie, попытка повторного входа",
@@ -40,10 +40,10 @@ const ruRU: TranslationDict = {
   "log.sjs.buyFormParams": "Параметры формы покупки: formhash={formhash}, tid={tid}",
   "log.sjs.startSign": "Начало отметки: {username}",
 
-  // Реестр сайтов
+  // Site registry
   "log.siteRegistry.providerNotFound": "Не найдена реализация Provider для сайта \"{id}\"",
 
-  // Управление аккаунтами сайтов
+  // Site account management
   "log.siteAccountManager.cookieSaved": "Cookie аккаунта #{id} сохранены ({count} шт.)",
 
   // ExHentai
@@ -66,13 +66,13 @@ const ruRU: TranslationDict = {
   "log.aimeizizi.gameCharDetected": "Обнаружены игровые персонажи: {chars}",
   "log.aimeizizi.listPageFailed": "Ошибка сканирования страницы списка {page}",
 
-  // Общее сканирование
+  // Common scraping
   "log.scrape.capturedM3u8": "{url} — захвачено M3U8 URL: {count} шт.: {urls}",
 
-  // Сервис персонажей
+  // Protagonist service
   "log.protagonist.personCacheInitFailed": "Ошибка инициализации кэша персонажей",
 
-  // Поисковая система
+  // Search engine
   "log.search.batchComplete": "Пакетное сканирование завершено! Успешно {ok}, с ошибками {fail}",
   "log.search.terminated": "Search task terminated abnormally: {msg}",
   "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
@@ -82,7 +82,7 @@ const ruRU: TranslationDict = {
   "log.downloadManager.segmentFailed": "  Segment #{idx}: {msg}",
   "log.downloadManager.incomplete": "Download incomplete: {failedCount} segments failed (out of {totalSegments} total)\n{details}",
 
-  // Менеджер очереди задач
+  // Task queue manager
   "log.taskQueue.slotAllocated": "Слот выделен: {key} (выполняется: обычные={normal}/{maxNormal}, сниффинг={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "Слот освобождён: {key} (выполняется: обычные={normal}/{maxNormal}, сниффинг={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "Слот идентификации выделен: {key} (идентификация: {scraping}/{maxScraping})",
@@ -101,13 +101,13 @@ const ruRU: TranslationDict = {
 "log.taskQueue.startupRecovery": "Восстановление при запуске: перезапланировано задач: {count}",
   "log.taskQueue.configLoadFailed": "Ошибка загрузки конфигурации, используются значения по умолчанию: {error}",
 
-  // Жизненный цикл сервера
+  // Server lifecycle
   "log.server.taskStateReset": "Сброс состояния задач при запуске завершён",
   "log.server.downloadManagerInit": "Менеджер загрузок инициализирован",
   "log.server.eventBusBridgeInit": "Мост EventBus инициализирован",
   "log.server.ouoOrchestratorStart": "Оркестратор OUO запущен",
 
-  // Сброс состояния задач
+  // Task state reset
   "log.taskStateReset.started": "Запуск сброса состояния выполняющихся задач...",
   "log.taskStateReset.cleanupSlots": "Очистка зависших слотов: обычные={normal}, сниффинг={sniff}, идентификация={scraping}",
   "log.taskStateReset.completed": "Сброс завершён: видео {videoTasks}, галереи {galleries}, изображения {galleryImages}, видео {galleryVideos}, сниффинг {sniffTasks}, ZIP-инфо {galleryDownloadInfos}, всего {total} задач сброшено в ожидание",

@@ -2,10 +2,12 @@ package orchestrator
 
 import "testing"
 
-// TestStatusReporterFinalizeNoWrite 锁定 260820「100%+downloading 永久卡死」缺陷的修复：
-// 后处理节点（extract/verify — PhaseFinalize）在执行期间不得回写实体状态。
-// 此前 extract/verify 的 QUEUED/RUNNING 转换把下载执行器刚写入的
-// completed/partial 覆盖回 downloading，前端与 DB 同时回退。
+// TestStatusReporterFinalizeNoWrite locks in the fix for the 260820
+// "100%+downloading stuck forever" defect: post-processing nodes
+// (extract/verify — PhaseFinalize) must NOT write back entity status while
+// running. Previously their QUEUED/RUNNING transitions overwrote the download
+// executor's fresh completed/partial with downloading, regressing both the
+// frontend and the DB.
 func TestStatusReporterFinalizeNoWrite(t *testing.T) {
 	r := NewStatusReporter()
 
@@ -23,9 +25,11 @@ func TestStatusReporterFinalizeNoWrite(t *testing.T) {
 	}
 }
 
-// TestStatusReporterNonCriticalFailureNoWrite 非关键节点（gallery extract）失败
-// 不得把实体回退为 failed：下载执行器已记录真实结果，
-// 非关键后处理失败不改变任务结局（否则全内容图库被误标 failed 且守卫无法治愈）。
+// TestStatusReporterNonCriticalFailureNoWrite: a non-critical node
+// (gallery extract) failing must NOT roll the entity back to failed — the
+// download executor already recorded the real outcome, and a non-critical
+// post-processing failure does not change the task result (otherwise a
+// fully-downloaded gallery would be mislabeled failed with no way to heal).
 func TestStatusReporterNonCriticalFailureNoWrite(t *testing.T) {
 	r := NewStatusReporter()
 
@@ -36,14 +40,15 @@ func TestStatusReporterNonCriticalFailureNoWrite(t *testing.T) {
 		}
 	}
 
-	// 关键节点失败仍必须写 failed。
+	// Critical node failure must still write failed.
 	criticalDef := DagNodeDefinition{ID: "dl-1", Executor: "download", Phase: PhaseDownload}
 	if status, ok := r.MapNodeToEntityStatus(criticalDef, NodeStateFailed); !ok || status != "failed" {
 		t.Errorf("critical node FAILED = (%q, %v), want (failed, true)", status, ok)
 	}
 }
 
-// TestStatusReporterCoreMapping 验证核心管线节点的标准映射不被本次调整破坏。
+// TestStatusReporterCoreMapping verifies the standard mappings of core
+// pipeline nodes are not broken by this change.
 func TestStatusReporterCoreMapping(t *testing.T) {
 	r := NewStatusReporter()
 

@@ -1,6 +1,6 @@
 /**
- * Coser.io MCP验证脚本 - 第二阶段深度验证
- * 验证JS文件中发现的API端点和潜在绕过路径
+ * Coser.io MCP verification script — phase 2 deep verification.
+ * Verifies API endpoints and potential bypass paths found in JS files.
  */
 
 const https = require('https');
@@ -11,7 +11,7 @@ const path = require('path');
 const OUTPUT_DIR = 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\data';
 const GALLERY_ID = '69218';
 
-// HTTP请求工具
+// HTTP request helper
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -66,12 +66,12 @@ function request(url, options = {}) {
   });
 }
 
-// 1. 验证JS文件中新发现的API端点
+// 1. Verify newly found API endpoints from JS files
 async function verifyNewAPIEndpoints() {
   console.log('=== 1. 验证JS文件中发现的API端点 ===\n');
 
   const endpoints = [
-    // 从JS文件中提取的端点
+    // Endpoints extracted from JS files
     { url: '/web-api/v1/random-models/refresh', method: 'POST' },
     { url: '/web-api/v1/random-tags/refresh', method: 'POST' },
     { url: '/web-api/v1/favorite', method: 'POST', body: JSON.stringify({ galleryId: GALLERY_ID }) },
@@ -80,7 +80,7 @@ async function verifyNewAPIEndpoints() {
     { url: '/comments/send', method: 'POST', body: JSON.stringify({ galleryId: GALLERY_ID, content: 'test' }) },
     { url: '/user/subscription', method: 'POST' },
 
-    // 其他可能的端点
+    // Other possible endpoints
     { url: `/web-api/v1/gallery/${GALLERY_ID}/unlock`, method: 'POST' },
     { url: `/web-api/v1/gallery/${GALLERY_ID}/purchase`, method: 'POST' },
     { url: '/web-api/v1/pay/create', method: 'POST' },
@@ -120,7 +120,7 @@ async function verifyNewAPIEndpoints() {
           console.log(`  Content-Type: ${res.headers['content-type']}`);
           console.log(`  Body: ${res.body.substring(0, 200)}...\n`);
 
-          // 保存响应
+          // Save response
           const safeName = endpoint.url.replace(/[\/=?&]/g, '_');
           fs.writeFileSync(path.join(OUTPUT_DIR, `verify-api-${safeName}.json`), res.body);
         } else if (res.statusCode === 401 || res.statusCode === 403) {
@@ -142,7 +142,7 @@ async function verifyNewAPIEndpoints() {
   fs.writeFileSync(path.join(OUTPUT_DIR, 'mcp-verification-api-results.json'), JSON.stringify(results, null, 2));
 }
 
-// 2. 验证页面动态加载行为
+// 2. Verify dynamic page loading behavior
 async function verifyDynamicLoading() {
   console.log('\n=== 2. 验证页面动态加载行为 ===\n');
 
@@ -150,7 +150,7 @@ async function verifyDynamicLoading() {
     const res = await request(`https://coser.io/latp/${GALLERY_ID}.html`);
     const html = res.body;
 
-    // 检查是否有懒加载或动态加载的标记
+    // Check for lazy-loading or dynamic-loading markers
     const checks = {
       lazyImages: (html.match(/loading="lazy"/g) || []).length,
       dataSrc: (html.match(/data-src=/g) || []).length,
@@ -167,7 +167,7 @@ async function verifyDynamicLoading() {
       console.log(`  ${key}: ${value}`);
     });
 
-    // 查找可能的数据加载代码
+    // Find possible data loading code
     const dataLoadingPatterns = [
       /loadImages[\s\S]{0,500}/,
       /getGalleryData[\s\S]{0,500}/,
@@ -183,7 +183,7 @@ async function verifyDynamicLoading() {
       }
     });
 
-    // 检查是否有隐藏的image数据
+    // Check for hidden image data
     const imageDataMatch = html.match(/"images":\s*(\[[^\]]+\])/);
     if (imageDataMatch) {
       console.log('\n⚠️ 发现页面中包含images数组数据!');
@@ -203,7 +203,7 @@ async function verifyDynamicLoading() {
   }
 }
 
-// 3. 尝试获取完整的图集详情
+// 3. Try fetching full gallery detail
 async function verifyGalleryDetail() {
   console.log('\n=== 3. 尝试获取完整图集详情 ===\n');
 
@@ -216,7 +216,7 @@ async function verifyGalleryDetail() {
     `/web-api/v1/gallery/${GALLERY_ID}/files`,
     `/web-api/v1/gallery/${GALLERY_ID}/images`,
 
-    // 带参数
+    // With params
     `/web-api/v1/gallery/${GALLERY_ID}?include=images`,
     `/web-api/v1/gallery/${GALLERY_ID}?with=media`,
     `/web-api/v1/gallery/${GALLERY_ID}?expand=files`,
@@ -232,11 +232,11 @@ async function verifyGalleryDetail() {
         console.log(`  ✅ 成功! 响应大小: ${res.body.length}`);
         console.log(`  预览: ${res.body.substring(0, 300)}...\n`);
 
-        // 保存
+        // Save
         const safeName = endpoint.replace(/[\/=?&]/g, '_');
         fs.writeFileSync(path.join(OUTPUT_DIR, `verify-detail-${safeName}.json`), res.body);
 
-        // 检查是否包含图片列表
+        // Check whether an image list is included
         if (res.body.includes('.webp') || res.body.includes('image')) {
           console.log('  ⚠️ 响应中包含图片相关数据!');
         }
@@ -253,7 +253,7 @@ async function verifyGalleryDetail() {
   }
 }
 
-// 4. 验证登录相关端点
+// 4. Verify login-related endpoints
 async function verifyAuthEndpoints() {
   console.log('\n=== 4. 验证登录/认证相关端点 ===\n');
 
@@ -294,7 +294,7 @@ async function verifyAuthEndpoints() {
   }
 }
 
-// 5. 检查是否有GraphQL端点
+// 5. Check for a GraphQL endpoint
 async function verifyGraphQL() {
   console.log('\n=== 5. 检查GraphQL端点 ===\n');
 
@@ -340,7 +340,7 @@ async function verifyGraphQL() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('Coser.io MCP验证 - 第二阶段深度验证\n');
   console.log('=====================================\n');

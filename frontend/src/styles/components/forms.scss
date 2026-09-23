@@ -1,7 +1,4 @@
-// ============================================================
-// Forms — 表单组件
-// form-group / form-label / form-control / form-row
-// ============================================================
+// Forms — form-group / form-label / form-control / form-row
 
 .form-group {
   display: flex;
@@ -108,7 +105,7 @@ select.form-control {
   border-top: 1px solid var(--border);
 }
 
-// ===== 设置行（标签 + 开关） =====
+// ===== Setting row (label + toggle) =====
 .setting-row {
   display: flex;
   align-items: center;

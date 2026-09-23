@@ -1,16 +1,4 @@
-// ============================================================
-// PuchiPix — Main SCSS Entry
-//
-// 模块化拆分设计，按加载顺序：
-//   tokens         设计令牌（CSS 变量 + 动画关键帧）
-//   base           基础样式 / 滚动条 / 布局骨架
-//   layout         侧边栏导航布局
-//   components     通用 UI 组件
-//   pages          页面级布局（仪表盘、搜索、任务…）
-//   ops            Ops 运维监控面板
-//   responsive     响应式媒体查询
-//   backend-banner 后端连接状态横幅
-// ============================================================
+// PuchiPix — main SCSS entry (modules loaded in order below)
 
 @use 'tokens';
 @use 'base';

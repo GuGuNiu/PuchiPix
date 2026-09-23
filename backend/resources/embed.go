@@ -10,7 +10,7 @@ import (
 //go:embed model/coser.json
 var CoserJSON []byte
 
-// NetredJSON holds the pre-populated netred (网红模特) model database,
+// NetredJSON holds the pre-populated netred (internet-famous model) database,
 // used for protagonist name recognition for internet-famous models.
 //
 //go:embed model/netred.json

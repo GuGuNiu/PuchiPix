@@ -1,6 +1,6 @@
 /**
- * Coser.io 图片URL提取与下载脚本
- * 目标: 获取全部85张图片
+ * Coser.io image URL extraction and download script.
+ * Target: fetch all 85 images.
  */
 
 const https = require('https');
@@ -13,12 +13,12 @@ const IMAGES_DIR = 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\downloads\\downl
 const GALLERY_ID = '69218';
 const CDN_BASE = 'https://coserbox.static.iloli.io';
 
-// 确保目录存在
+// Ensure directory exists
 if (!fs.existsSync(IMAGES_DIR)) {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
-// HTTP请求工具
+// HTTP request helper
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -74,13 +74,13 @@ function request(url, options = {}) {
   });
 }
 
-// 下载图片
+// Download image
 function downloadImage(url, filename) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
     const filepath = path.join(IMAGES_DIR, filename);
 
-    // 如果文件已存在，跳过
+    // Skip if file already exists
     if (fs.existsSync(filepath)) {
       console.log(`  跳过已存在: ${filename}`);
       resolve({ skipped: true, filename });
@@ -125,12 +125,12 @@ function downloadImage(url, filename) {
   });
 }
 
-// 探测图片详情API
+// Probe image detail API
 async function probeImageDetailAPI() {
   console.log('=== 探测图片详情API ===\n');
 
   const endpoints = [
-    // 可能的图片列表端点
+    // Possible image list endpoints
     `/web-api/v1/gallery/${GALLERY_ID}/images`,
     `/web-api/v1/gallery/${GALLERY_ID}/media`,
     `/web-api/v1/gallery/${GALLERY_ID}/files`,
@@ -139,14 +139,14 @@ async function probeImageDetailAPI() {
     `/web-api/v1/media?gallery_id=${GALLERY_ID}`,
     `/web-api/v1/files?gallery_id=${GALLERY_ID}`,
 
-    // 带不同参数
+    // With different params
     `/web-api/v1/gallery/detail?id=${GALLERY_ID}`,
     `/web-api/v1/gallery/detail?id=${GALLERY_ID}&with_images=1`,
     `/web-api/v1/gallery/detail?id=${GALLERY_ID}&include=images`,
     `/web-api/v1/gallery/view?id=${GALLERY_ID}`,
     `/web-api/v1/gallery/content?id=${GALLERY_ID}`,
 
-    // 其他可能的路径
+    // Other possible paths
     `/api/gallery/${GALLERY_ID}/images`,
     `/api/gallery/${GALLERY_ID}/media`,
     `/api/v1/gallery/${GALLERY_ID}/images`,
@@ -168,11 +168,11 @@ async function probeImageDetailAPI() {
         console.log(`✅ ${endpoint} -> ${res.statusCode}`);
         console.log(`   预览: ${res.body.substring(0, 300)}...\n`);
 
-        // 保存响应
+        // Save response
         const safeName = endpoint.replace(/[\/=?&]/g, '_');
         fs.writeFileSync(path.join(OUTPUT_DIR, `image-api-${safeName}.json`), res.body);
 
-        // 尝试解析JSON
+        // Try parsing JSON
         try {
           const json = JSON.parse(res.body);
           console.log(`   JSON结构:`, Object.keys(json));
@@ -193,28 +193,28 @@ async function probeImageDetailAPI() {
   fs.writeFileSync(path.join(OUTPUT_DIR, 'image-api-probe-results.json'), JSON.stringify(results, null, 2));
 }
 
-// 尝试从页面HTML中提取所有图片URL
+// Try extracting all image URLs from the page HTML
 async function extractImagesFromPage() {
   console.log('\n=== 从页面HTML提取图片信息 ===\n');
 
   try {
     const res = await request(`https://coser.io/latp/${GALLERY_ID}.html`);
 
-    // 查找所有图片URL
+    // Find all image URLs
     const imgRegex = /https:\/\/coserbox\.static\.iloli\.io\/gallery\/[^"'\s<>]+/g;
     const matches = res.body.matchAll(imgRegex);
     const uniqueUrls = [...new Set([...matches].map(m => m[0]))];
 
     console.log(`找到 ${uniqueUrls.length} 个唯一图片URL`);
 
-    // 查找data属性中的图片
+    // Find images in data attributes
     const dataImgRegex = /data-[a-z-]+="([^"]*gallery[^"]*)"/g;
     const dataMatches = res.body.matchAll(dataImgRegex);
     const dataUrls = [...new Set([...dataMatches].map(m => m[1]))];
 
     console.log(`找到 ${dataUrls.length} 个data属性图片URL`);
 
-    // 查找JSON数据
+    // Find JSON data
     const jsonMatches = res.body.matchAll(/\{[^}]*"url"[^}]*gallery[^}]*\}/g);
     const jsonData = [...jsonMatches].map(m => {
       try {
@@ -226,7 +226,7 @@ async function extractImagesFromPage() {
 
     console.log(`找到 ${jsonData.length} 个JSON图片数据`);
 
-    // 保存结果
+    // Save results
     const result = {
       pageUrls: uniqueUrls,
       dataUrls: dataUrls,
@@ -243,11 +243,11 @@ async function extractImagesFromPage() {
   }
 }
 
-// 尝试通过URL规律生成图片列表
+// Try generating the image list from URL patterns
 async function generateImageUrls() {
   console.log('\n=== 基于URL规律生成图片列表 ===\n');
 
-  // 从已知信息构建
+  // Build from known info
   const baseInfo = {
     folderHash: '0535b46d1a0d72b1036970bc489c739b',
     datePath: '2026/07/30',
@@ -256,23 +256,23 @@ async function generateImageUrls() {
     cdnDomain: CDN_BASE
   };
 
-  // 分析已知文件名的规律
+  // Analyze known filename patterns
   console.log('已知文件名:');
   baseInfo.knownFiles.forEach(f => {
     console.log(`  - ${f} (长度: ${f.length})`);
   });
 
-  // 注意: 无法直接生成其他文件名，因为它们是随机哈希
-  // 需要找到API来获取完整列表
+  // Note: other filenames cannot be generated directly — they are random hashes
+  // Need an API to get the full list
 
   return baseInfo;
 }
 
-// 尝试通过R2 Archive ID获取
+// Try fetching via R2 Archive ID
 async function tryR2ArchiveAccess() {
   console.log('\n=== 尝试R2 Archive访问 ===\n');
 
-  // 从之前的API响应中，我们知道 r2ArchiveId: 22154
+  // From earlier API responses we know r2ArchiveId: 22154
   const r2ArchiveId = 22154;
 
   const endpoints = [
@@ -302,7 +302,7 @@ async function tryR2ArchiveAccess() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('Coser.io 图片提取器');
   console.log('====================\n');

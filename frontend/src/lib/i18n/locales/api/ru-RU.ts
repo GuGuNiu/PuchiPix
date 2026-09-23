@@ -1,15 +1,15 @@
 import type { TranslationDict } from "../../types";
 
-// Сообщения об ошибках API — Русский
+// API error messages — ru-RU
 const ruRU: TranslationDict = {
-  // Проверка настроек задач
+  // Task settings validation
   "api.validation.maxConcurrentTasks": "Макс. одновременных задач должно быть от 1 до 50",
   "api.validation.maxSniffConcurrent": "Макс. параллельных сниффингов должно быть от 1 до 10",
   "api.validation.maxScrapingSlots": "Макс. слотов идентификации должно быть от 1 до 50",
   "api.validation.tsSegmentConcurrent": "Параллельность TS-сегментов должна быть от 1 до 200",
   "api.validation.galleryImageConcurrent": "Параллельность изображений галереи должна быть от 1 до 50",
 
-  // Операции форума SJS
+  // SJS forum actions
   "api.sjs.missingAction": "Отсутствует параметр action",
   "api.sjs.signMissingAccountId": "Для отметки требуется параметр accountId",
   "api.sjs.buyMissingAccountId": "Для покупки поста требуется параметр accountId",
@@ -26,7 +26,7 @@ const ruRU: TranslationDict = {
   "api.sjsShelf.refreshFailed": "Не удалось обновить метаданные",
   "api.sjsShelf.unknownAction": "Неизвестное действие",
 
-  // Поиск
+  // Search
   "api.search.missingJobId": "Укажите jobId",
   "api.search.batchScrapeStarted": "Пакетное сканирование начато",
   "api.search.missingPageUrl": "Укажите pageUrl",
@@ -34,15 +34,15 @@ const ruRU: TranslationDict = {
   "api.search.missingKeyword": "Укажите ключевые слова поиска",
   "api.search.missingVideoTitle": "Укажите название видео",
 
-  // Персонажи
+  // Protagonist
   "api.protagonist.galleryNotFound": "Галереи этого персонажа не найдены",
   "api.protagonist.fetchFailed": "Ошибка получения информации о персонаже",
 
-  // Оркестрация OUO
+  // OUO orchestration
   "api.ouo.missingParams": "Отсутствуют обязательные параметры: galleryId, ouoUrl",
   "api.ouo.missingGalleryId": "Отсутствует обязательный параметр: galleryId",
 
-  // Галерея
+  // Gallery
   "api.gallery.notFound": "Галерея не найдена",
   "api.gallery.noProviderMatch": "Не найден подходящий провайдер сайта, повторное сканирование невозможно",
   "api.gallery.rescrapeStarted": "Повторное сканирование галереи начато",
@@ -62,26 +62,26 @@ const ruRU: TranslationDict = {
   "api.gallery.batchEmptyUrl": "Пустой URL",
   "api.gallery.noProviderForRescrape": "Не найден поставщик галереи, невозможно повторное сканирование",
 
-  // Задачи
+  // Tasks
   "api.tasks.noM3u8Extracted": "Не удалось извлечь M3U8-ссылку со страницы",
 
-  // Чёрный список
+  // Blocklist
   "api.blocklist.addFailed": "Ошибка добавления",
 
-  // Логи
+  // Logs
   "api.logs.systemReady": "Система готова, ожидание задач...",
   "api.logs.taskNumber": "Задача #{id}",
   "api.logs.fetchFailed": "Не удалось получить логи",
 
-  // Галерея (дополнение)
+  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "Сайт {site} не поддерживает сбор галерей",
   "api.gallery.allDomainsFailed": "Не удалось выполнить сбор со всех доменов",
 
-  // Задачи (дополнение)
+  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "Обнаружено {count} адресов M3U8, выберите",
   "api.tasks.unsupportedListScrape": "Провайдер не поддерживает сбор страниц списка",
 
-  // Общее
+  // Common
   "api.characterDb.syncRunning": "Задача синхронизации уже выполняется",
   "api.common.internalError": "Внутренняя ошибка сервера",
   "api.common.missingParams": "Отсутствуют обязательные параметры: {params}",

@@ -66,18 +66,18 @@ const zhTW: TranslationDict = {
   "log.search.terminated": "搜尋任務異常終止: {msg}",
   "log.search.batchTerminated": "批次搜尋任務異常終止: {msg}",
 
-  // 任務隊列管理器
+  // Task queue manager
   "log.taskCreator.downloadStartFailed": "下載任務 #{taskId} 啟動失敗: {msg}",
 
-  // 並行下載器
+  // Parallel downloader
   "log.parallelDL.writeFailed": "[ParallelDL] 寫入失敗: {msg}",
   "log.parallelDL.requestFailed": "[ParallelDL] 請求失敗: {msg}",
 
-  // 下載管理器
+  // Download manager
   "log.downloadManager.segmentFailed": "  分片 #{idx}: {msg}",
   "log.downloadManager.incomplete": "下載不完整{failedCount} 個分片下載失敗共 {totalSegments} 個分片\n{details}",
 
-  // 任務隊列管理器
+  // Task queue manager
   "log.taskQueue.slotAllocated": "槽位已分配: {key} (執行中: 普通={normal}/{maxNormal}, 嗅探={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "槽位已釋放: {key} (執行中: 普通={normal}/{maxNormal}, 嗅探={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "識別槽位已分配: {key} (識別中: {scraping}/{maxScraping})",
@@ -96,20 +96,20 @@ const zhTW: TranslationDict = {
 "log.taskQueue.startupRecovery": "啟動恢復已重新排隊 {count} 個任務",
   "log.taskQueue.configLoadFailed": "載入配置失敗使用預設值: {error}",
 
-  // 服務端生命週期
+  // Server lifecycle
   "log.server.taskStateReset": "啟動時任務狀態重置完成",
   "log.server.downloadManagerInit": "下載管理器已初始化",
   "log.server.eventBusBridgeInit": "EventBus 橋接已初始化",
   "log.server.ouoOrchestratorStart": "OUO 編排器已啟動",
 
-  // 任務狀態重置
+  // Task state reset
   "log.taskStateReset.started": "開始重置執行中任務狀態...",
   "log.taskStateReset.cleanupSlots": "清理殘留槽位: 普通={normal}, 嗅探={sniff}, 識別={scraping}",
   "log.taskStateReset.completed": "重置完成影片 {videoTasks}, 圖庫 {galleries}, 圖片 {galleryImages}, 影片 {galleryVideos}, 嗅探 {sniffTasks}, ZIP資訊 {galleryDownloadInfos}, 共 {total} 個任務已重置為待處理狀態",
   "log.taskStateReset.noop": "未發現執行中任務無需重置",
   "log.taskStateReset.suspended": "伺服器重啟，任務已暫停",
 
-  // 預置資料種子
+  // Preset data seed
   "log.seed.presetDataSeeded": "預置資料已寫入資料庫: 使用者偏好 {prefs} 條, 屏蔽詞 {blocklists} 條",
   "log.dagOrchestrator.initComplete": "[DagOrchestrator] 初始化完成",
   "log.dagOrchestrator.dagCompleted": "[DagOrchestrator] DAG {dagId} 全部完成",

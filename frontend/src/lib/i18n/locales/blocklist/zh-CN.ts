@@ -45,7 +45,7 @@ const zhCN: TranslationDict = {
   "blocklist.pleaseInputKeyword": "请输入屏蔽关键词",
 } satisfies TranslationDict;
 
-/** Blocklist 模块的翻译键联合类型 */
+/** Union of Blocklist translation keys */
 export type BlocklistTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

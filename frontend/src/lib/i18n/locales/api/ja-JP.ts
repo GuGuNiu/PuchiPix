@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// API エラーメッセージ — 日本語
+// API error messages — ja-JP
 const jaJP: TranslationDict = {
   "api.validation.maxConcurrentTasks": "同時実行タスク数は 1~50 の範囲で指定してください",
   "api.validation.maxSniffConcurrent": "スニッフ最大並行数は 1~10 の範囲で指定してください",
@@ -14,7 +14,7 @@ const jaJP: TranslationDict = {
   "api.sjs.buyMissingTid": "投稿購入には tid パラメータ投稿 IDが必要です",
   "api.sjs.loginMissingAccountId": "ログインには accountId パラメータが必要です",
 
-  // SJS シェルフ
+  // SJS Shelf
   "api.sjsShelf.noUrls": "URL リストを提供してください",
   "api.sjsShelf.emptyUrl": "空の URL",
   "api.sjsShelf.invalidSjsUrl": "有効な SJS URL ではありません",
@@ -60,20 +60,20 @@ const jaJP: TranslationDict = {
 
   "api.blocklist.addFailed": "追加失敗",
 
-// ログ
+// Logs
   "api.logs.systemReady": "システム準備完了、タスク待機中...",
   "api.logs.taskNumber": "タスク #{id}",
   "api.logs.fetchFailed": "ログ取得失敗",
 
-  // ギャラリー（補足）
+  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "サイト {site} はギャラリースクレイピングをサポートしていません",
   "api.gallery.allDomainsFailed": "すべてのドメインでスクレイピングに失敗しました",
 
-  // タスク（補足）
+  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "{count} 個の M3U8 アドレスを検出しました、選択してください",
   "api.tasks.unsupportedListScrape": "プロバイダーはリストページのスクレイピングをサポートしていません",
 
-  // 共通
+  // Common
   "api.characterDb.syncRunning": "同期タスクが実行中です",
   "api.common.internalError": "サーバー内部エラー",
   "api.common.missingParams": "必須パラメータが不足しています: {params}",

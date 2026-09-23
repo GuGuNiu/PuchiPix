@@ -1,6 +1,6 @@
 /**
- * Coser.io Images Sitemap分析
- * 检查是否包含图片URL
+ * Coser.io images sitemap analysis.
+ * Checks whether it contains image URLs.
  */
 
 const https = require('https');
@@ -54,28 +54,28 @@ function request(url, options = {}) {
 async function analyzeImagesSitemap() {
   console.log('=== Images Sitemap 分析 ===\n');
 
-  // 获取第一个images sitemap
+  // Fetch the first images sitemap
   try {
     const res = await request('https://coser.io/sitemap/images.xml');
     console.log(`Status: ${res.statusCode}`);
     console.log(`Content-Type: ${res.headers['content-type']}`);
     console.log(`Size: ${res.body.length} bytes\n`);
 
-    // 保存完整内容
+    // Save full content
     fs.writeFileSync(path.join(OUTPUT_DIR, 'sitemap-images.xml'), res.body);
 
-    // 分析内容
+    // Analyze content
     console.log('前2000字符:');
     console.log(res.body.substring(0, 2000));
     console.log('...\n');
 
-    // 提取所有URL
+    // Extract all URLs
     const urlMatches = res.body.matchAll(/<loc>([^<]+)<\/loc>/g);
     const urls = [...urlMatches].map(m => m[1]);
 
     console.log(`总共 ${urls.length} 个URL\n`);
 
-    // 分析URL类型
+    // Analyze URL types
     const galleryUrls = urls.filter(u => u.includes('/latp/'));
     const imageUrls = urls.filter(u => u.includes('.webp') || u.includes('.jpg') || u.includes('.png'));
     const otherUrls = urls.filter(u => !u.includes('/latp/') && !u.includes('.webp') && !u.includes('.jpg'));
@@ -94,7 +94,7 @@ async function analyzeImagesSitemap() {
       imageUrls.slice(0, 10).forEach(u => console.log(`  - ${u}`));
     }
 
-    // 检查是否包含目标图集
+    // Check for the target gallery
     const targetGallery = urls.filter(u => u.includes('69218'));
     if (targetGallery.length > 0) {
       console.log('\n✅ 找到目标图集69218的URL:');
@@ -103,7 +103,7 @@ async function analyzeImagesSitemap() {
       console.log('\n❌ 未在images sitemap中找到目标图集69218');
     }
 
-    // 分析最后修改时间
+    // Analyze lastmod times
     const lastmodMatches = res.body.matchAll(/<lastmod>([^<]+)<\/lastmod>/g);
     const lastmods = [...lastmodMatches].map(m => m[1]);
     if (lastmods.length > 0) {
@@ -117,7 +117,7 @@ async function analyzeImagesSitemap() {
   }
 }
 
-// 检查多个images sitemap
+// Check multiple images sitemaps
 async function checkMultipleSitemaps() {
   console.log('\n=== 检查多个Images Sitemap ===\n');
 
@@ -150,7 +150,7 @@ async function checkMultipleSitemaps() {
   }
 }
 
-// 分析main sitemap
+// Analyze main sitemap
 async function analyzeMainSitemap() {
   console.log('\n=== Main Sitemap 分析 ===\n');
 
@@ -161,14 +161,14 @@ async function analyzeMainSitemap() {
 
     console.log(`总共 ${urls.length} 个URL\n`);
 
-    // 检查是否包含目标
+    // Check for the target
     const targetUrls = urls.filter(u => u.includes('69218'));
     if (targetUrls.length > 0) {
       console.log('✅ 找到目标图集69218:');
       targetUrls.forEach(u => console.log(`  - ${u}`));
     }
 
-    // 统计URL类型
+    // Count URL types
     const types = {};
     urls.forEach(u => {
       if (u.includes('/latp/')) types['gallery'] = (types['gallery'] || 0) + 1;
@@ -188,7 +188,7 @@ async function analyzeMainSitemap() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   await analyzeImagesSitemap();
   await checkMultipleSitemaps();

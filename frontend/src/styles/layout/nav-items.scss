@@ -1,6 +1,4 @@
-// ============================================================
-// Nav Items — 导航项 & 导航区域
-// ============================================================
+// Nav items & nav sections
 
 .sidebar-nav {
   flex: 1;
@@ -114,7 +112,7 @@
   white-space: nowrap;
 }
 
-// ─── 折叠状态 ───
+// ─── Collapsed state ───
 .sidebar.collapsed:not(.hover-expand) {
   .nav-item {
     justify-content: center;

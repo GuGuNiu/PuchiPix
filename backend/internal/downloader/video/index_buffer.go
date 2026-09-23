@@ -7,28 +7,29 @@ import (
 	"sync"
 )
 
-// BufferMode 定义 IndexBuffer 的存储模式
+// BufferMode selects the storage mode of an IndexBuffer.
 type BufferMode int
 
 const (
-	// MemoryMode 内存模式：适用于小文件，分片数据直接存储在内存中
+	// MemoryMode keeps segment data in memory — for small files.
 	MemoryMode BufferMode = iota
-	// DiskMode 磁盘模式：适用于大文件，分片数据存储在临时文件中
+	// DiskMode stores segment data in temp files — for large files.
 	DiskMode
 )
 
-// SegmentEntry 表示一个下载完成的分片
+// SegmentEntry is a single downloaded segment.
 type SegmentEntry struct {
 	Index    int
-	Data     []byte // 内存模式：直接存储数据
-	FilePath string // 磁盘模式：存储临时文件路径
-	Ready    bool   // 是否已下载完成
-	Size     int64  // 分片大小
-	IsDisk   bool   // 是否为磁盘模式
+	Data     []byte // memory mode: raw data
+	FilePath string // disk mode: temp file path
+	Ready    bool   // download finished
+	Size     int64  // segment size
+	IsDisk   bool   // disk mode flag
 }
 
-// IndexBuffer 按索引存储分片，支持乱序到达、顺序消费
-// 借鉴 cat-catch 的 buffer[index] 设计（研学文档 §2.5.1）
+// IndexBuffer stores segments by index, supporting out-of-order arrival
+// and in-order consumption. Follows cat-catch's buffer[index] design
+// (see design doc §2.5.1).
 type IndexBuffer struct {
 	segments  []*SegmentEntry
 	pushIndex int
@@ -36,12 +37,11 @@ type IndexBuffer struct {
 	mu        sync.Mutex
 	cond      *sync.Cond
 	mode      BufferMode
-	cancelled bool // 是否已取消，用于唤醒阻塞的 goroutine
+	cancelled bool // cancellation flag; wakes blocked goroutines
 }
 
-// NewIndexBuffer 创建一个新的 IndexBuffer
-// count: 分片总数
-// mode: 存储模式（MemoryMode 或 DiskMode）
+// NewIndexBuffer creates an IndexBuffer.
+// count: total segment count; mode: MemoryMode or DiskMode.
 func NewIndexBuffer(count int, mode BufferMode) *IndexBuffer {
 	buf := &IndexBuffer{
 		segments: make([]*SegmentEntry, count),
@@ -51,25 +51,24 @@ func NewIndexBuffer(count int, mode BufferMode) *IndexBuffer {
 	return buf
 }
 
-// Cancel 取消缓冲区操作，唤醒所有阻塞的 goroutine
-// 用于防止 goroutine 泄漏，当调用方需要停止操作时调用
+// Cancel aborts buffer operations and wakes all blocked goroutines,
+// preventing goroutine leaks when the caller must stop.
 func (b *IndexBuffer) Cancel() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.cancelled = true
-	b.cond.Broadcast() // 唤醒所有等待者
+	b.cond.Broadcast() // wake all waiters
 }
 
-// IsCancelled 检查是否已取消
+// IsCancelled reports whether Cancel was called.
 func (b *IndexBuffer) IsCancelled() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.cancelled
 }
 
-// Store 存储一个下载完成的分片
-// 如果 index 超出范围，返回 error
+// Store saves a downloaded segment; returns an error if index is out of range.
 func (b *IndexBuffer) Store(index int, data []byte) error {
 	if index < 0 || index >= len(b.segments) {
 		return fmt.Errorf("index %d out of range [0, %d)", index, len(b.segments))
@@ -88,13 +87,12 @@ func (b *IndexBuffer) Store(index int, data []byte) error {
 	b.segments[index] = entry
 	b.totalSize += entry.Size
 
-	// 唤醒可能在等待的顺序推送 goroutine
-	b.cond.Broadcast()
+	b.cond.Broadcast() // wake any blocked sequential pusher
 	return nil
 }
 
-// StoreDisk 存储一个下载完成的分片（磁盘模式）
-// filePath: 分片文件的磁盘路径
+// StoreDisk saves a downloaded segment in disk mode.
+// filePath: on-disk path of the segment file.
 func (b *IndexBuffer) StoreDisk(index int, filePath string, size int64) error {
 	if index < 0 || index >= len(b.segments) {
 		return fmt.Errorf("index %d out of range [0, %d)", index, len(b.segments))
@@ -113,46 +111,39 @@ func (b *IndexBuffer) StoreDisk(index int, filePath string, size int64) error {
 	b.segments[index] = entry
 	b.totalSize += size
 
-	// 唤醒可能在等待的顺序推送 goroutine
-	b.cond.Broadcast()
+	b.cond.Broadcast() // wake any blocked sequential pusher
 	return nil
 }
 
-// SequentialPush 按顺序将分片推送到 writer
-// 遇到未就绪的索引时阻塞等待
-// 返回写入的总字节数和任何错误
-// 如果 Cancel() 被调用，会返回 context.Canceled 错误
+// SequentialPush writes segments to w in order, blocking on not-yet-ready
+// indices. Returns total bytes written and any error; returns an error if
+// Cancel() is called.
 func (b *IndexBuffer) SequentialPush(w io.Writer) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	var written int64
 	for b.pushIndex < len(b.segments) {
-		// 检查是否已取消
 		if b.cancelled {
 			return written, fmt.Errorf("index buffer cancelled")
 		}
 
 		entry := b.segments[b.pushIndex]
 		if entry == nil || !entry.Ready {
-			// 等待该索引的分片就绪
 			b.cond.Wait()
-			// 唤醒后检查是否已取消
 			if b.cancelled {
 				return written, fmt.Errorf("index buffer cancelled")
 			}
 			continue
 		}
 
-		// 写入分片数据
 		n, err := b.writeEntry(w, entry)
 		if err != nil {
 			return written, fmt.Errorf("write segment %d: %w", b.pushIndex, err)
 		}
 		written += n
 
-		// 清理已消费的分片（释放内存或删除临时文件）
-		b.cleanupEntry(entry)
+		b.cleanupEntry(entry) // free memory / delete temp file
 
 		b.pushIndex++
 		b.cond.Broadcast()
@@ -161,15 +152,14 @@ func (b *IndexBuffer) SequentialPush(w io.Writer) (int64, error) {
 	return written, nil
 }
 
-// SequentialPushWithCallback 按顺序推送，并在每个分片写入后调用回调
-// 如果 Cancel() 被调用，会返回错误
+// SequentialPushWithCallback pushes segments in order, invoking onSegment
+// after each write. Returns an error if Cancel() is called.
 func (b *IndexBuffer) SequentialPushWithCallback(w io.Writer, onSegment func(index int, size int64)) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	var written int64
 	for b.pushIndex < len(b.segments) {
-		// 检查是否已取消
 		if b.cancelled {
 			return written, fmt.Errorf("index buffer cancelled")
 		}
@@ -177,7 +167,6 @@ func (b *IndexBuffer) SequentialPushWithCallback(w io.Writer, onSegment func(ind
 		entry := b.segments[b.pushIndex]
 		if entry == nil || !entry.Ready {
 			b.cond.Wait()
-			// 唤醒后检查是否已取消
 			if b.cancelled {
 				return written, fmt.Errorf("index buffer cancelled")
 			}
@@ -202,10 +191,10 @@ func (b *IndexBuffer) SequentialPushWithCallback(w io.Writer, onSegment func(ind
 	return written, nil
 }
 
-// writeEntry 将单个分片写入 writer
+// writeEntry writes a single segment to w.
 func (b *IndexBuffer) writeEntry(w io.Writer, entry *SegmentEntry) (int64, error) {
 	if entry.IsDisk {
-		// 磁盘模式：从文件流式读取
+		// Disk mode: stream from file
 		f, err := os.Open(entry.FilePath)
 		if err != nil {
 			return 0, fmt.Errorf("open segment file: %w", err)
@@ -213,29 +202,25 @@ func (b *IndexBuffer) writeEntry(w io.Writer, entry *SegmentEntry) (int64, error
 		defer f.Close()
 		return io.Copy(w, f)
 	}
-	// 内存模式：直接写入
 	n, err := w.Write(entry.Data)
 	return int64(n), err
 }
 
-// cleanupEntry 清理已消费的分片
+// cleanupEntry releases a consumed segment.
 func (b *IndexBuffer) cleanupEntry(entry *SegmentEntry) {
 	if entry.IsDisk && entry.FilePath != "" {
-		// 删除临时文件
-		_ = os.Remove(entry.FilePath)
+		_ = os.Remove(entry.FilePath) // delete temp file
 	}
-	// 内存模式：GC 会自动回收
-	entry.Data = nil
+	entry.Data = nil // memory mode: let GC reclaim
 }
 
-// WaitForIndex 阻塞等待指定索引的分片就绪
-// 如果 Cancel() 被调用，会立即返回
+// WaitForIndex blocks until the segment at index is ready, or returns
+// immediately if Cancel() was called.
 func (b *IndexBuffer) WaitForIndex(index int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	for {
-		// 检查是否已取消
 		if b.cancelled {
 			return
 		}
@@ -250,7 +235,7 @@ func (b *IndexBuffer) WaitForIndex(index int) {
 	}
 }
 
-// IsComplete 检查所有分片是否都已就绪
+// IsComplete reports whether all segments are ready.
 func (b *IndexBuffer) IsComplete() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -263,7 +248,7 @@ func (b *IndexBuffer) IsComplete() bool {
 	return true
 }
 
-// GetProgress 返回当前进度（已就绪的分片数 / 总分片数）
+// GetProgress returns ready segments / total segments.
 func (b *IndexBuffer) GetProgress() (ready, total int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -277,7 +262,7 @@ func (b *IndexBuffer) GetProgress() (ready, total int) {
 	return ready, total
 }
 
-// GetPushProgress 返回顺序推送的进度
+// GetPushProgress returns sequential-push progress (pushed, total).
 func (b *IndexBuffer) GetPushProgress() (pushed, total int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -285,19 +270,19 @@ func (b *IndexBuffer) GetPushProgress() (pushed, total int) {
 	return b.pushIndex, len(b.segments)
 }
 
-// TotalSize 返回所有分片的总大小
+// TotalSize returns the total size of all segments.
 func (b *IndexBuffer) TotalSize() int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.totalSize
 }
 
-// Reset 重置缓冲区状态，用于重试场景
+// Reset clears push/size state for retry scenarios.
 func (b *IndexBuffer) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.pushIndex = 0
 	b.totalSize = 0
-	// 注意：不清理 segments，因为可能还有有效的分片
+	// Do NOT clear segments: valid entries may still be present.
 }

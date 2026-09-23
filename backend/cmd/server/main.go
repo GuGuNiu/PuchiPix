@@ -285,7 +285,7 @@ func main() {
 		//      ("100% + downloading forever", 260820/01).
 		//   2. An executor crash between node completion and its final
 		//      UPDATE leaves nothing to write the terminal status at all
-		//      (260817 工单06 crash-recovery blind spot).
+		//      (260817 ticket 06 crash-recovery blind spot).
 		//
 		// This guard rail runs once at DAG terminal aggregate and performs a
 		// CONDITIONAL write: it only touches entities still holding an active
@@ -829,7 +829,7 @@ func applyPersistedSlotMax(sp *slot.SlotPool, database *db.Database, logger *inf
 }
 
 // applyPersistedSchedulerConfig loads the scheduler tuning keys from
-// app_configs and applies them to the engine at startup (260817 工单 11),
+// app_configs and applies them to the engine at startup (260817 ticket 11),
 // mirroring applyPersistedSlotMax: user-saved starvation threshold /
 // lottery rate / max schedule iterations survive restarts. The engine's
 // setters validate ranges; invalid or absent keys keep defaults.

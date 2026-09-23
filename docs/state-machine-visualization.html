@@ -48,7 +48,7 @@ h1 {
   font-size: 0.95rem;
 }
 
-/* 标签页导航 */
+/* Tab navigation */
 .tabs {
   display: flex;
   gap: 0.5rem;
@@ -71,11 +71,11 @@ h1 {
 .tab-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
 .tab-btn.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
 
-/* 面板 */
+/* Panels */
 .panel { display: none; }
 .panel.active { display: block; }
 
-/* 状态图 SVG */
+/* State diagram SVG */
 .state-graph {
   width: 100%;
   height: 700px;
@@ -85,7 +85,7 @@ h1 {
   overflow: hidden;
 }
 
-/* 状态节点样式 */
+/* State node styles */
 .state-node {
   cursor: pointer;
   transition: all 0.3s;
@@ -117,7 +117,7 @@ h1 {
   pointer-events: none;
 }
 
-/* 状态分类颜色 */
+/* State category colors */
 .cat-initial .node-rect { fill: #1f6feb; stroke: #58a6ff; }
 .cat-intermediate .node-rect { fill: #0d419d; stroke: #388bfd; }
 .cat-running .node-rect { fill: #1a7f37; stroke: #3fb950; }
@@ -126,7 +126,7 @@ h1 {
 .cat-terminal .node-rect { fill: #da3633; stroke: #f85149; }
 .cat-retry .node-rect { fill: #116329; stroke: #56d364; }
 
-/* 转移箭头 */
+/* Transition arrows */
 .transition-link {
   stroke: var(--border-color);
   stroke-width: 1.5;
@@ -141,7 +141,7 @@ h1 {
   opacity: 1;
 }
 
-/* 详情面板 */
+/* Detail panel */
 .detail-panel {
   margin-top: 1.5rem;
   background: var(--bg-secondary);
@@ -182,7 +182,7 @@ h1 {
 
 .detail-card ul { padding-left: 1.2rem; }
 
-/* 状态表格 */
+/* State table */
 .state-table {
   width: 100%;
   border-collapse: collapse;
@@ -219,7 +219,7 @@ h1 {
 .badge-terminal { background: #da363333; color: #f85149; }
 .badge-retry { background: #11632933; color: #56d364; }
 
-/* 架构图 */
+/* Architecture diagram */
 .arch-diagram {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -256,7 +256,7 @@ h1 {
   margin: 0.25rem 0;
 }
 
-/* 流程图 */
+/* Flow chart */
 .flow-container {
   display: flex;
   flex-wrap: wrap;
@@ -285,7 +285,7 @@ h1 {
 
 .flow-arrow { color: var(--text-secondary); font-size: 1.2rem; }
 
-/* 图例 */
+/* Legend */
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -308,7 +308,7 @@ h1 {
   border-radius: 3px;
 }
 
-/* 响应式 */
+/* Responsive */
 @media (max-width: 768px) {
   body { padding: 1rem; }
   .state-graph { height: 500px; }
@@ -321,7 +321,7 @@ h1 {
   <h1>PuchiPix 任务状态机设计</h1>
   <p class="subtitle">14 态 · 60+ 转移路径 · 三层状态体系 · Policy 策略驱动</p>
 
-  <!-- 标签页 -->
+  <!-- Tabs -->
   <div class="tabs">
     <button class="tab-btn active" onclick="showPanel('graph', this)">状态转移图</button>
     <button class="tab-btn" onclick="showPanel('states', this)">状态定义表</button>
@@ -330,7 +330,7 @@ h1 {
     <button class="tab-btn" onclick="showPanel('policy', this)">策略与不变量</button>
   </div>
 
-  <!-- 面板1: 状态转移图 -->
+  <!-- Panel 1: State transition diagram -->
   <div id="panel-graph" class="panel active">
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:#1f6feb"></div>初始态</div>
@@ -352,7 +352,7 @@ h1 {
         </marker>
       </defs>
 
-      <!-- 转移连线 -->
+      <!-- Transition edges -->
       <path class="transition-link" id="link-pending-preparing" d="M 150,100 L 150,140" marker-end="url(#arrowhead)"/>
       <path class="transition-link" id="link-preparing-ready" d="M 150,200 L 150,240" marker-end="url(#arrowhead)"/>
       <path class="transition-link" id="link-ready-queued" d="M 200,300 L 300,300" marker-end="url(#arrowhead)"/>
@@ -378,7 +378,7 @@ h1 {
       <path class="transition-link" id="link-paused-cancelled" d="M 80,520 L 1040,600" marker-end="url(#arrowhead)"/>
       <path class="transition-link" id="link-failed-timeout" d="M 1070,400 L 1070,500" marker-end="url(#arrowhead)"/>
 
-      <!-- 状态节点 -->
+      <!-- State nodes -->
       <g class="state-node cat-initial" onclick="showStateDetail('pending')" transform="translate(100,50)">
         <rect class="node-rect" width="100" height="50" rx="8"/>
         <text class="node-label" x="50" y="22">PENDING</text>
@@ -464,7 +464,7 @@ h1 {
       </g>
     </svg>
 
-    <!-- 状态详情面板 -->
+    <!-- State detail panel -->
     <div class="detail-panel" id="stateDetail">
       <h3 id="detailTitle">点击状态节点查看详情</h3>
       <div class="detail-grid" id="detailContent">
@@ -476,7 +476,7 @@ h1 {
     </div>
   </div>
 
-  <!-- 面板2: 状态定义表 -->
+  <!-- Panel 2: State definition table -->
   <div id="panel-states" class="panel">
     <div class="detail-panel">
       <h3>14 态完整定义</h3>
@@ -536,7 +536,7 @@ h1 {
     </div>
   </div>
 
-  <!-- 面板3: 三层架构 -->
+  <!-- Panel 3: Three-layer architecture -->
   <div id="panel-architecture" class="panel">
     <div class="arch-diagram">
       <div class="arch-layer layer-frontend">
@@ -589,7 +589,7 @@ h1 {
     </div>
   </div>
 
-  <!-- 面板4: 转移流程 -->
+  <!-- Panel 4: Transition flow -->
   <div id="panel-flow" class="panel">
     <div class="detail-panel">
       <h3>Transition() 执行流程</h3>
@@ -628,7 +628,7 @@ h1 {
     </div>
   </div>
 
-  <!-- 面板5: 策略与不变量 -->
+  <!-- Panel 5: Policies and invariants -->
   <div id="panel-policy" class="panel">
     <div class="detail-panel">
       <h3>TransitionPolicy 策略链</h3>
@@ -860,7 +860,7 @@ function showStateDetail(state) {
   document.getElementById('detailTitle').textContent = detail.title;
   document.getElementById('detailContent').innerHTML = detail.content;
   
-  // 高亮相关连线
+  // Highlight related edges
   document.querySelectorAll('.transition-link').forEach(link => {
     link.classList.remove('highlighted');
   });

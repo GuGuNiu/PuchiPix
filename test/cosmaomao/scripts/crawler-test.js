@@ -1,7 +1,7 @@
 /**
- * COS猫猫爬虫测试脚本
- * 目标: https://cosmaomao.com/cos-online/487022.html
- * 测试内容: 提取 "当前作品数量共 55张 ，普通用户免费查看前三张；会员全站免费看：解锁会员权限"
+ * COSMaomao crawler test script.
+ * Target: https://cosmaomao.com/cos-online/487022.html
+ * Test: extract the image-count / membership notice from the page.
  */
 
 const { chromium } = require('playwright');
@@ -33,25 +33,25 @@ const { chromium } = require('playwright');
         timeout: 30000
     });
 
-    // 等待页面渲染
+    // Wait for page render
     await page.waitForTimeout(2000);
 
     const title = await page.title();
     console.log(`📄 页面标题: ${title}`);
 
-    // 获取页面内容
+    // Get page content
     const content = await page.content();
 
     console.log('\n========================================');
     console.log('测试结果');
     console.log('========================================');
 
-    // 测试 1: 检查目标文本
+    // Test 1: check target text
     const targetText = '当前作品数量共';
     const hasTarget = content.includes(targetText);
     console.log(`✅ 目标文本存在于HTML中: ${hasTarget}`);
 
-    // 测试 2: CSS选择器提取
+    // Test 2: CSS selector extraction
     console.log('\n--- CSS选择器测试 ---');
     const selectors = [
         '.images-number-tips',
@@ -68,7 +68,7 @@ const { chromium } = require('playwright');
                 console.log(`✅ 选择器 "${selector}" 成功:`);
                 console.log(`   内容: ${text.trim().substring(0, 100)}`);
 
-                // 提取图片数量
+                // Extract image count
                 const match = text.match(/(\d+)\s*张/);
                 if (match) {
                     console.log(`   📊 提取到图片数量: ${match[1]} 张`);
@@ -81,13 +81,13 @@ const { chromium } = require('playwright');
         }
     }
 
-    // 测试 3: JavaScript 执行
+    // Test 3: JavaScript execution
     console.log('\n--- JavaScript 执行测试 ---');
     const jsResult = await page.evaluate(() => {
-        // 方法1: querySelector
+        // Method 1: querySelector
         const byClass = document.querySelector('.images-number-tips');
 
-        // 方法2: 遍历文本节点
+        // Method 2: walk text nodes
         const walker = document.createTreeWalker(
             document.body,
             NodeFilter.SHOW_TEXT,
@@ -107,7 +107,7 @@ const { chromium } = require('playwright');
             }
         }
 
-        // 提取图片数量
+        // Extract image count
         const pageText = document.body.innerText;
         const match = pageText.match(/当前作品数量共\s*(\d+)\s*张/);
 
@@ -122,7 +122,7 @@ const { chromium } = require('playwright');
     console.log(`✅ JS 提取图片数: ${jsResult.extractedCount} 张`);
     console.log(`📋 文本节点匹配数: ${jsResult.textResults.length}`);
 
-    // 测试 4: 正则提取
+    // Test 4: Regex extraction
     console.log('\n--- 正则提取测试 ---');
     const regex = /当前作品数量共\s*(\d+)\s*张\s*，\s*普通用户免费查看前三张；\s*会员全站免费看：\s*解锁会员权限/;
     const match = content.match(regex);
@@ -130,7 +130,7 @@ const { chromium } = require('playwright');
         console.log(`✅ 正则匹配成功，图片数量: ${match[1]} 张`);
     }
 
-    // 截图
+    // Screenshot
     console.log('\n--- 截图保存 ---');
     const screenshotPath = '../data/crawler-test-screenshot.png';
     await page.screenshot({ path: screenshotPath, fullPage: true });

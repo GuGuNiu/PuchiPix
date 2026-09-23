@@ -1,7 +1,4 @@
-// ============================================================
-// Tooltip — 工具提示
-// data-tooltip 属性 + Radix Tooltip
-// ============================================================
+// Tooltips — data-tooltip attribute + Radix Tooltip
 
 [data-tooltip] {
   position: relative;
@@ -59,7 +56,7 @@
   }
 }
 
-// 表格内 tooltip 显示在元素正下方
+// In-table tooltip renders directly below the element
 table td [data-tooltip] {
   &::after,
   &::before {

@@ -1,35 +1,35 @@
 /**
- * tutuotaku.com 下载限制绕过分析
- * 
- * 当前限制: 普通用户每日5次下载
- * 目标: 绕过限制获取无限百度网盘URL
+ * tutuotaku.com download limit bypass analysis.
+ *
+ * Current limit: 5 downloads/day for normal users.
+ * Goal: bypass the limit for unlimited Baidu pan URLs.
  */
 
 const BASE_URL = 'https://tutuotaku.com';
 
 // ============================================
-// 已识别的限制机制
+// Identified limit mechanisms
 // ============================================
 
 /**
- * 1. 下载限制机制分析
- * 
- * 根据测试观察:
- * - 限制基于用户ID (current_user_id: 22)
- * - 每日计数在服务端维护
- * - 访问 /goto?down={token} 时检查并增加计数
- * - 同一篇文章可以多次下载 (下载记录显示同一文章下载3次)
+ * 1. Download limit mechanism analysis
+ *
+ * Observed from testing:
+ * - Limit is keyed on user ID (current_user_id: 22)
+ * - Daily counter is maintained server-side
+ * - Visiting /goto?down={token} checks and increments the counter
+ * - The same article can be downloaded repeatedly (log showed 3 downloads of one article)
  */
 
 /**
- * 2. 可能的绕过策略
+ * 2. Possible bypass strategies
  */
 
 const BYPASS_STRATEGIES = {
   
-  // 策略1: 多账户轮换
-  // 可行性: ⭐⭐⭐⭐⭐ 高
-  // 原理: 每个新账户有独立的5次限制
+  // Strategy 1: Multi-account rotation
+  // Feasibility: ⭐⭐⭐⭐⭐ High
+  // Rationale: each new account has its own 5-download limit
   strategy_multi_account: {
     name: '多账户轮换',
     description: '注册多个账户，每个账户5次，轮换使用',
@@ -57,9 +57,9 @@ const BYPASS_STRATEGIES = {
     `
   },
   
-  // 策略2: 直接提取页面中的goto token
-  // 可行性: ⭐⭐⭐⭐ 中高
-  // 原理: 文章页面直接包含加密的goto token，无需点击下载按钮
+  // Strategy 2: Extract goto token directly from the page
+  // Feasibility: ⭐⭐⭐⭐ Medium-high
+  // Rationale: article pages embed the encrypted goto token without clicking Download
   strategy_extract_token: {
     name: '直接提取Token',
     description: '从文章页面HTML直接提取goto链接，不触发下载计数',
@@ -89,9 +89,9 @@ const BYPASS_STRATEGIES = {
     `
   },
   
-  // 策略3: 分析token加密算法
-  // 可行性: ⭐⭐ 低
-  // 原理: 如果token是本地生成的，可能可以伪造
+  // Strategy 3: Analyze token encryption
+  // Feasibility: ⭐⭐ Low
+  // Rationale: if the token is generated client-side it may be forgeable
   strategy_token_analysis: {
     name: 'Token加密分析',
     description: '分析goto token的生成算法，尝试本地生成有效token',
@@ -118,9 +118,9 @@ const BYPASS_STRATEGIES = {
     `
   },
   
-  // 策略4: 利用签到获取金币兑换VIP
-  // 可行性: ⭐⭐⭐ 中
-  // 原理: 通过每日签到积累金币，兑换VIP会员获得更多下载次数
+  // Strategy 4: Check in for coins to exchange for VIP
+  // Feasibility: ⭐⭐⭐ Medium
+  // Rationale: daily check-ins accumulate coins; exchange for VIP for more downloads
   strategy_qiandao_vip: {
     name: '签到积累金币',
     description: '每日签到获取金币，积累后兑换VIP会员',
@@ -139,9 +139,9 @@ const BYPASS_STRATEGIES = {
     }
   },
   
-  // 策略5: 利用提取码直接访问百度网盘
-  // 可行性: ⭐⭐⭐⭐ 中高
-  // 原理: 提取码是明文暴露的，可以尝试直接猜测百度网盘链接
+  // Strategy 5: Access Baidu pan directly with the extraction code
+  // Feasibility: ⭐⭐⭐⭐ Medium-high
+  // Rationale: the extraction code is plaintext, so Baidu pan links may be guessable
   strategy_baidu_direct: {
     name: '百度网盘直链猜测',
     description: '提取码已知(6666)，尝试找到百度网盘分享链接的规律',
@@ -157,13 +157,13 @@ const BYPASS_STRATEGIES = {
     cons: ['百度网盘ID随机性高', '需要大量请求验证'],
     samples: [
       'https://pan.baidu.com/s/18hiv32MdUp1i06FXJR5rww?pwd=6666',
-      // 需要收集更多样本分析规律
+      // Need more samples to analyze the pattern
     ]
   },
   
-  // 策略6: 利用图片CDN直接访问原图
-  // 可行性: ⭐⭐⭐⭐⭐ 高
-  // 原理: 图片存储在 pic.pipicos.xyz，可能可以直接访问
+  // Strategy 6: Access originals directly via the image CDN
+  // Feasibility: ⭐⭐⭐⭐⭐ High
+  // Rationale: images live on pic.pipicos.xyz and may be directly accessible
   strategy_cdn_direct: {
     name: 'CDN直链访问',
     description: '站点图片存储在 pic.pipicos.xyz CDN，可能无需下载限制即可访问',
@@ -180,12 +180,12 @@ const BYPASS_STRATEGIES = {
 };
 
 // ============================================
-// 推荐实施方案
+// Recommended implementation plans
 // ============================================
 
 const RECOMMENDED_APPROACH = {
   
-  // 方案A: 快速方案 - 多账户轮换
+  // Plan A: Quick - multi-account rotation
   plan_a: {
     name: '多账户轮换 (推荐)',
     steps: [
@@ -199,7 +199,7 @@ const RECOMMENDED_APPROACH = {
     reliability: '高'
   },
   
-  // 方案B: 技术方案 - Token提取+计数绕过验证
+  // Plan B: Technical - token extraction + counter bypass verification
   plan_b: {
     name: 'Token提取与计数绕过验证',
     steps: [
@@ -213,7 +213,7 @@ const RECOMMENDED_APPROACH = {
     reliability: '取决于计数触发点'
   },
   
-  // 方案C: 长期方案 - 签到自动化
+  // Plan C: Long-term - check-in automation
   plan_c: {
     name: '签到自动化+VIP兑换',
     steps: [
@@ -229,7 +229,7 @@ const RECOMMENDED_APPROACH = {
 };
 
 // ============================================
-// 关键测试点
+// Critical test points
 // ============================================
 
 const CRITICAL_TESTS = [

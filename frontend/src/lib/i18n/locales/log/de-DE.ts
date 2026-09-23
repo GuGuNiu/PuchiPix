@@ -1,13 +1,13 @@
 import type { TranslationDict } from "../../types";
 
 const deDE: TranslationDict = {
-  // Sicheres Löschen
+  // Safe delete
   "log.safeDelete.fileFailed": "Dateilöschung fehlgeschlagen ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "Dateilöschung endgültig fehlgeschlagen: {path} — {msg}",
   "log.safeDelete.dirFailed": "Verzeichnislöschung fehlgeschlagen ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.dirFinalFailed": "Verzeichnislöschung endgültig fehlgeschlagen: {path} — {msg}",
 
-  // Galerie-Handler
+  // Gallery handler
   "log.galleryHandler.cancelledInQueue": "Galerie #{id} in Warteschlange zur Löschung abgebrochen",
   "log.galleryHandler.cancelledInScrapeQueue": "Galerie #{id} im Scraping-Wartezustand abgebrochen",
   "log.galleryHandler.domainRateLimited": "Domain {url} hat {status} zurückgegeben (Rate-Limit), schnelles Umschalten",
@@ -16,7 +16,7 @@ const deDE: TranslationDict = {
   "log.galleryHandler.downloadFailed": "Download failed: {msg}",
   "log.galleryHandler.downloadComplete": "Download complete: {success} succeeded, {failed} failed, {skipped} skipped",
 
-  // SJS-Seite
+  // SJS site
   "log.sjs.noAccount": "Kein verfügbares Konto, Zugriff als Gast (Inhalt möglicherweise unvollständig)",
   "log.sjs.cookieInjected": "Konto-{id} Cookie injiziert ({count} Stück)",
   "log.sjs.cookieInjectionFailed": "Cookie-Injektion fehlgeschlagen, erneuter Login wird versucht",
@@ -39,10 +39,10 @@ const deDE: TranslationDict = {
   "log.sjs.buyFormParams": "Kaufen-Formularparameter: formhash={formhash}, tid={tid}",
   "log.sjs.startSign": "Sign-in wird gestartet: {username}",
 
-  // Seitenregistrierung
+  // Site registry
   "log.siteRegistry.providerNotFound": "Keine Provider-Implementierung für die Seite \"{id}\" gefunden",
 
-  // Seitenkonto-Verwaltung
+  // Site account management
   "log.siteAccountManager.cookieSaved": "Konto-#{id} Cookie gespeichert ({count} Stück)",
 
   // ExHentai
@@ -65,13 +65,13 @@ const deDE: TranslationDict = {
   "log.aimeizizi.gameCharDetected": "Spiel-Charaktere erkannt: {chars}",
   "log.aimeizizi.listPageFailed": "Scraping der Listenseite {page} fehlgeschlagen",
 
-  // Allgemeines Scraping
+  // Common scraping
   "log.scrape.capturedM3u8": "{url} — {count} M3U8-URLs erfasst: {urls}",
 
-  // Charakter-Service
+  // Protagonist service
   "log.protagonist.personCacheInitFailed": "Initialisierung des Person-Cache fehlgeschlagen",
 
-  // Suchmaschine
+  // Search engine
   "log.search.batchComplete": "Massen-Scraping abgeschlossen! {ok} erfolgreich, {fail} fehlgeschlagen",
   "log.search.terminated": "Search task terminated abnormally: {msg}",
   "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
@@ -81,7 +81,7 @@ const deDE: TranslationDict = {
   "log.downloadManager.segmentFailed": "  Segment #{idx}: {msg}",
   "log.downloadManager.incomplete": "Download incomplete: {failedCount} segments failed (out of {totalSegments} total)\n{details}",
 
-  // Aufgabenwarteschlangen-Manager
+  // Task queue manager
   "log.taskQueue.slotAllocated": "Slot zugewiesen: {key} (läuft: normal={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "Slot freigegeben: {key} (läuft: normal={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "Scraping-Slot zugewiesen: {key} (Scraping: {scraping}/{maxScraping})",
@@ -100,13 +100,13 @@ const deDE: TranslationDict = {
   "log.taskQueue.startupRecovery": "Startwiederherstellung: {count} Aufgabe(n) neu eingeplant",
   "log.taskQueue.configLoadFailed": "Konfiguration konnte nicht geladen werden, Standardwerte werden verwendet: {error}",
 
-  // Server-Lebenszyklus
+  // Server lifecycle
   "log.server.taskStateReset": "Zurücksetzen des Aufgabenstatus beim Start abgeschlossen",
   "log.server.downloadManagerInit": "Download-Manager initialisiert",
   "log.server.eventBusBridgeInit": "EventBus-Brücke initialisiert",
   "log.server.ouoOrchestratorStart": "OUO-Orchestrator gestartet",
 
-  // Aufgabenstatus-Zurücksetzung
+  // Task state reset
   "log.taskStateReset.started": "Zurücksetzen laufender Aufgaben gestartet...",
   "log.taskStateReset.cleanupSlots": "Alte Slots bereinigen: normal={normal}, sniff={sniff}, Scraping={scraping}",
   "log.taskStateReset.completed": "Zurücksetzung abgeschlossen: Video {videoTasks}, Galerien {galleries}, Bilder {galleryImages}, Videos {galleryVideos}, Sniffing {sniffTasks}, ZIP-Informationen {galleryDownloadInfos}, insgesamt {total} Aufgaben wurden auf Ausstehend zurückgesetzt",

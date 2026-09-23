@@ -1,6 +1,6 @@
 /**
- * Coser.io API深度探测脚本
- * 处理gzip压缩响应，探测更多端点
+ * Coser.io deep API probing script.
+ * Handles gzip-compressed responses and probes additional endpoints.
  */
 
 const https = require('https');
@@ -11,7 +11,7 @@ const path = require('path');
 const OUTPUT_DIR = 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\data';
 const GALLERY_ID = '69218';
 
-// 带gzip解压的请求
+// Request with gzip decompression
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -66,30 +66,30 @@ function request(url, options = {}) {
   });
 }
 
-// 扩展的API端点列表
+// Extended API endpoint list
 const EXTENDED_ENDPOINTS = [
-  // 图集相关 - 带参数
+  // Gallery related - with params
   `/web-api/v1/galleries?id=${GALLERY_ID}`,
   `/web-api/v1/galleries?gallery_id=${GALLERY_ID}`,
   `/web-api/v1/galleries?slug=latp/${GALLERY_ID}`,
 
-  // 可能的图片获取端点
+  // Possible image fetch endpoints
   `/web-api/v1/gallery/images?id=${GALLERY_ID}`,
   `/web-api/v1/gallery/images?gallery_id=${GALLERY_ID}`,
   `/web-api/v1/images?gallery_id=${GALLERY_ID}`,
   `/web-api/v1/media?gallery_id=${GALLERY_ID}`,
 
-  // 内容解锁相关
+  // Content unlock related
   '/web-api/v1/unlock',
   '/web-api/v1/purchase',
   '/web-api/v1/buy',
 
-  // 用户状态
+  // User status
   '/web-api/v1/user/status',
   '/web-api/v1/user/check',
   '/web-api/v1/auth/check',
 
-  // 其他可能的端点
+  // Other possible endpoints
   '/api/galleries',
   '/api/images',
   '/api/media',
@@ -117,16 +117,16 @@ async function probeExtended() {
         console.log(`   Content-Type: ${res.headers['content-type']}`);
         console.log(`   Body: ${res.body.substring(0, 200)}...\n`);
 
-        // 保存响应
+        // Save response
         const safeName = endpoint.replace(/[\/=?&]/g, '_');
         fs.writeFileSync(path.join(OUTPUT_DIR, `api-ext-${safeName}.json`), res.body);
 
-        // 尝试解析JSON
+        // Try parsing JSON
         try {
           const json = JSON.parse(res.body);
           console.log(`   JSON解析成功:`, Object.keys(json));
         } catch (e) {
-          // 不是JSON
+          // Not JSON
         }
       } else {
         console.log(`❌ ${endpoint} -> ${res.statusCode}`);
@@ -136,7 +136,7 @@ async function probeExtended() {
       console.log(`⚠️  ${endpoint} -> 错误: ${err.message}`);
     }
 
-    // 延迟
+    // Delay
     await new Promise(r => setTimeout(r, 800));
   }
 
@@ -144,11 +144,11 @@ async function probeExtended() {
   console.log('\n=== 探测完成 ===');
 }
 
-// 分析已知的galleries端点
+// Analyze known galleries endpoint
 async function analyzeGalleriesEndpoint() {
   console.log('\n=== 分析 /web-api/v1/galleries ===\n');
 
-  // 尝试不同的查询参数
+  // Try different query params
   const params = [
     '',
     '?page=1',
@@ -176,7 +176,7 @@ async function analyzeGalleriesEndpoint() {
         const safeName = param.replace(/[\/=?&]/g, '_') || 'default';
         fs.writeFileSync(path.join(OUTPUT_DIR, `galleries-${safeName}.json`), res.body);
 
-        // 尝试解析
+        // Try parsing
         try {
           const json = JSON.parse(res.body);
           console.log(`   数据结构:`, Object.keys(json));
@@ -197,7 +197,7 @@ async function analyzeGalleriesEndpoint() {
   }
 }
 
-// 尝试获取特定图集详情
+// Try fetching a specific gallery detail
 async function probeGalleryDetail() {
   console.log('\n=== 探测图集详情端点 ===\n');
 
@@ -232,7 +232,7 @@ async function probeGalleryDetail() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   await probeExtended();
   await analyzeGalleriesEndpoint();

@@ -1,14 +1,14 @@
 import type { TranslationDict } from "../../types";
 
-// Mẫu thông báo nhật ký — Tiếng Việt
+// Log message templates — vi-VN
 const viVN: TranslationDict = {
-  // Xóa an toàn
+  // Safe delete
   "log.safeDelete.fileFailed": "Xóa tệp thất bại ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "Xóa tệp cuối cùng thất bại: {path} — {msg}",
   "log.safeDelete.dirFailed": "Xóa thư mục thất bại ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.dirFinalFailed": "Xóa thư mục cuối cùng thất bại: {path} — {msg}",
 
-  // Thư viện Handler
+  // Handler library
   "log.galleryHandler.cancelledInQueue": "Thư viện #{id} bị hủy khi đang chờ trong hàng đợi",
   "log.galleryHandler.cancelledInScrapeQueue": "Thư viện #{id} bị hủy khi đang chờ trong hàng đợi cào",
   "log.galleryHandler.domainRateLimited": "Tên miền {url} trả về {status} (giới hạn tốc độ), chuyển đổi nhanh",
@@ -17,7 +17,7 @@ const viVN: TranslationDict = {
   "log.galleryHandler.downloadFailed": "Download failed: {msg}",
   "log.galleryHandler.downloadComplete": "Download complete: {success} succeeded, {failed} failed, {skipped} skipped",
 
-  // Trang web SJS
+  // SJS site
   "log.sjs.noAccount": "Không có tài khoản khả dụng, truy cập với chế độ khách (nội dung đầy đủ có thể không hiển thị)",
   "log.sjs.cookieInjected": "Cookie tài khoản #{id} đã được chèn ({count} mục)",
   "log.sjs.cookieInjectionFailed": "Chèn Cookie thất bại, sẽ thử đăng nhập lại",
@@ -40,10 +40,10 @@ const viVN: TranslationDict = {
   "log.sjs.buyFormParams": "Tham số form mua: formhash={formhash}, tid={tid}",
   "log.sjs.startSign": "Bắt đầu điểm danh: {username}",
 
-  // Đăng ký trang web
+  // Site registry
   "log.siteRegistry.providerNotFound": "Không tìm thấy triển khai Provider cho trang web \"{id}\"",
 
-  // Quản lý tài khoản trang web
+  // Site account management
   "log.siteAccountManager.cookieSaved": "Cookie tài khoản #{id} đã được lưu ({count} mục)",
 
   // ExHentai
@@ -66,13 +66,13 @@ const viVN: TranslationDict = {
   "log.aimeizizi.gameCharDetected": "Phát hiện nhân vật trò chơi: {chars}",
   "log.aimeizizi.listPageFailed": "Cào trang danh sách {page} thất bại",
 
-  // Cào chung
+  // Common scraping
   "log.scrape.capturedM3u8": "{url} — bắt được {count} URL M3U8: {urls}",
 
-  // Dịch vụ nhân vật
+  // Protagonist service
   "log.protagonist.personCacheInitFailed": "Khởi tạo bộ nhớ đệm Person thất bại",
 
-  // Công cụ tìm kiếm
+  // Search engine
   "log.search.batchComplete": "Cào hàng loạt hoàn tất! {ok} thành công, {fail} thất bại",
   "log.search.terminated": "Search task terminated abnormally: {msg}",
   "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
@@ -82,7 +82,7 @@ const viVN: TranslationDict = {
   "log.downloadManager.segmentFailed": "  Segment #{idx}: {msg}",
   "log.downloadManager.incomplete": "Download incomplete: {failedCount} segments failed (out of {totalSegments} total)\n{details}",
 
-  // Trình quản lý hàng đợi tác vụ
+  // Task queue manager
   "log.taskQueue.slotAllocated": "Slot được phân bổ: {key} (đang chạy: thường={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "Slot được giải phóng: {key} (đang chạy: thường={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "Slot nhận dạng được phân bổ: {key} (nhận dạng: {scraping}/{maxScraping})",
@@ -101,13 +101,13 @@ const viVN: TranslationDict = {
 "log.taskQueue.startupRecovery": "Khôi phục khởi động: đã xếp lại {count} tác vụ",
   "log.taskQueue.configLoadFailed": "Tải cấu hình thất bại, sử dụng giá trị mặc định: {error}",
 
-  // Vòng đời máy chủ
+  // Server lifecycle
   "log.server.taskStateReset": "Hoàn tất đặt lại trạng thái tác vụ khi khởi động",
   "log.server.downloadManagerInit": "Trình quản lý tải xuống đã được khởi tạo",
   "log.server.eventBusBridgeInit": "Cầu EventBus đã được khởi tạo",
   "log.server.ouoOrchestratorStart": "Bộ điều phối OUO đã khởi động",
 
-  // Đặt lại trạng thái tác vụ
+  // Task state reset
   "log.taskStateReset.started": "Bắt đầu đặt lại trạng thái tác vụ đang chạy...",
   "log.taskStateReset.cleanupSlots": "Dọn dẹp slot cũ: thường={normal}, sniff={sniff}, nhận dạng={scraping}",
   "log.taskStateReset.completed": "Hoàn tất đặt lại: video {videoTasks}, thư viện {galleries}, ảnh {galleryImages}, video {galleryVideos}, sniff {sniffTasks}, thông tin ZIP {galleryDownloadInfos}, tổng {total} tác vụ đã được đặt lại",

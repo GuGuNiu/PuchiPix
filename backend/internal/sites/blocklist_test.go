@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-// TestValidateRule 覆盖屏蔽规则边界校验：
-// 空关键词 / 超长关键词 / 非法匹配模式 / 非法正则必须在保存前被拒绝，
-// 防止“已保存但永不匹配”的静默失效规则进入数据库（260823 代码审计遗留项）。
+// TestValidateRule covers blocklist rule boundary validation:
+// empty / oversized keywords, invalid match modes, and invalid regexes must
+// be rejected before save, so "saved but never matches" dead rules cannot
+// reach the database (leftover item from the 260823 code audit).
 func TestValidateRule(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -37,8 +38,8 @@ func TestValidateRule(t *testing.T) {
 	}
 }
 
-// TestMatchValue 验证三种匹配模式的行为一致性，
-// 特别是非法正则规则必须返回 false（不匹配）而非 panic。
+// TestMatchValue verifies consistent behavior across the three match modes,
+// especially that an invalid regex rule returns false (no match) rather than panicking.
 func TestMatchValue(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -67,8 +68,9 @@ func TestMatchValue(t *testing.T) {
 	}
 }
 
-// TestCompileUserRegexCache 并发调用同一模式必须复用缓存实例，
-// 且非法模式缓存为 nil 时重复调用不重复记日志、不 panic。
+// TestCompileUserRegexCache: concurrent calls for the same pattern must reuse
+// the cached instance, and a cached-nil invalid pattern must not re-log or
+// panic on repeated calls.
 func TestCompileUserRegexCache(t *testing.T) {
 	valid := compileUserRegex(`example\.com`)
 	if valid == nil {
@@ -88,7 +90,7 @@ func TestCompileUserRegexCache(t *testing.T) {
 		t.Fatal("invalid pattern second call should still be nil")
 	}
 
-	// 并发场景：大量 goroutine 同时编译同一模式。
+	// Concurrency: many goroutines compiling the same pattern at once.
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)

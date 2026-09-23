@@ -1,13 +1,12 @@
 /**
- * 4KHD — 数据提取验证脚本
- * 
- * 通过 HTTP 直接抓取目标页面，验证：
- * 1. 标题提取（主角、描述、文件大小、图片数量）
- * 2. 图片 URL 提取（全量分页）
- * 3. 分页导航解析
- * 4. 下载链接 + 提取码
- * 5. 元数据（发布时间、作者、JSON-LD）
- * 6. 相关推荐
+ * 4KHD — Data extraction verification script.
+ * Fetches the target page over HTTP and verifies:
+ * 1. Title extraction (protagonist, description, file size, image count)
+ * 2. Image URL extraction (all pages)
+ * 3. Pagination parsing
+ * 4. Download link + extraction code
+ * 5. Metadata (publish time, author, JSON-LD)
+ * 6. Related recommendations
  */
 
 const https = require('https');
@@ -40,18 +39,18 @@ function fetch(url) {
   });
 }
 
-// 简易 HTML 解析器（正则提取，模拟 goquery 选择器）
+// Simple HTML parser (regex-based, mimics goquery selectors)
 function extractImages(html) {
   const images = [];
-  // 匹配 <a href="...bunny-girl-4khd.com-NNN.webp"><img src="..."></a>
-  // 图片 URL 包含 pic.4khd.com 或 4khd.com 在路径中
+  // Match <a href="...bunny-girl-4khd.com-NNN.webp"><img src="..."></a>
+  // Image URLs contain pic.4khd.com or 4khd.com in the path
   const pattern = /<a\s+href="([^"]*4khd\.com[^"]*\.(?:webp|jpg|png|jpeg)[^"]*)"[^>]*>\s*<img\s+[^>]*?src="([^"]*)"[^>]*>/gi;
   let match;
   let idx = 0;
   while ((match = pattern.exec(html)) !== null) {
     const linkHref = match[1];
     const imgSrc = match[2];
-    // 排除相关推荐中的缩略图（通常是 4KHD-beautifulGirls.webp）
+    // Exclude related-recommendation thumbnails (usually 4KHD-beautifulGirls.webp)
     if (imgSrc.includes('4KHD-beautifulGirls') || imgSrc.includes('wp-post-image')) {
       continue;
     }
@@ -67,15 +66,15 @@ function extractImages(html) {
 }
 
 function extractGalleryImages(html) {
-  // 4KHD 图片在 <p> 标签内的 <a><img></a> 结构中
-  // 先找到 page-link-box 之前的内容区域
+  // 4KHD images live in <a><img></a> structures inside <p> tags
+  // Find the content area before page-link-box first
   const pageBoxIdx = html.indexOf('page-link-box');
   let contentArea = html;
   if (pageBoxIdx > 0) {
     contentArea = html.substring(0, pageBoxIdx);
   }
   
-  // 从 contentArea 中找到 entry-content 之后的部分
+  // Find the part after entry-content within contentArea
   const entryIdx = contentArea.indexOf('entry-content');
   if (entryIdx > 0) {
     contentArea = contentArea.substring(entryIdx);
@@ -96,27 +95,27 @@ function extractPagination(html) {
     }
   }
 
-  // 也检查当前页
+  // Also check the current page
   const currentMatch = html.match(/<li class="numpages current"><span>(\d+)<\/span>/);
   const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
 
-  // 最大页码
+  // Max page number
   const maxPage = pageLinks.length > 0 ? Math.max(...pageLinks.map(p => p.page)) : 1;
 
   return { currentPage, totalPages: maxPage, pageLinks };
 }
 
 function extractDownloadInfo(html) {
-  // 提取码 — 4KHD 格式: <p>Extracting passwords: </p><p>4KHD</p>
-  // 先匹配整个 block
+  // Extraction code — 4KHD format: <p>Extracting passwords: </p><p>4KHD</p>
+  // Match the whole block first
   const passwordBlockMatch = html.match(/Extracting passwords:\s*<\/p>\s*<p[^>]*>(.+?)<\/p>/);
   const password = passwordBlockMatch ? passwordBlockMatch[1].trim() : '';
 
-  // 下载链接
+  // Download link
   const downloadMatch = html.match(/href="(https:\/\/m\.4khd\.com\/[^"]+)"/);
   const downloadURL = downloadMatch ? downloadMatch[1] : '';
 
-  // 文件大小和数量（从标题中提取）
+  // File size and count (extracted from title)
   const titleMatch = html.match(/<h3[^>]*class="[^"]*wp-block-post-title[^"]*"[^>]*>(.+?)<\/h3>/);
   const fullTitle = titleMatch ? titleMatch[1].trim() : '';
 
@@ -128,15 +127,15 @@ function extractDownloadInfo(html) {
 }
 
 function extractMetadata(html) {
-  // 标题
+  // Title
   const titleMatch = html.match(/<title>(.+?)<\/title>/);
   const title = titleMatch ? titleMatch[1].trim() : '';
 
-  // 发布时间
+  // Publish time
   const pubMatch = html.match(/<meta property="article:published_time" content="([^"]+)"/);
   const publishTime = pubMatch ? pubMatch[1] : '';
 
-  // 作者
+  // Author
   const authorMatch = html.match(/<meta name="author" content="([^"]+)"/);
   const author = authorMatch ? authorMatch[1] : '';
 
@@ -144,7 +143,7 @@ function extractMetadata(html) {
   const canonicalMatch = html.match(/<link rel="canonical" href="([^"]+)"/);
   const canonicalURL = canonicalMatch ? canonicalMatch[1] : '';
 
-  // OpenGraph 数据
+  // OpenGraph data
   const ogTypeMatch = html.match(/<meta property="og:type" content="([^"]+)"/);
   const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
   const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
@@ -188,32 +187,32 @@ function extractRelatedGalleries(html) {
 }
 
 function extractProtagonist(title) {
-  // 标题格式: "屿鱼  欧根亲王 兔女郎[258MB-81photos]"
-  // 或: "Bunny Ayumi – Polka Dot Bikini(46MB)(15photos)"
+  // Title format: "<protagonist>  <work name>[258MB-81photos]"
+  // Or: "Bunny Ayumi – Polka Dot Bikini(46MB)(15photos)"
   
-  // 先去掉方括号/圆括号中的大小和数量
+  // Strip size/count from brackets/parentheses first
   const cleanTitle = title.replace(/\[.+?\]$/, '').replace(/\(.+?\)$/, '').trim();
   
-  // 尝试按空格分割
+  // Try splitting by spaces
   const parts = cleanTitle.split(/\s{2,}|\s+[-–—]\s+/);
   if (parts.length >= 2) {
     return parts[0].trim();
   }
   
-  // 如果没有明确分隔符，取第一个词
+  // If no clear separator, take the first word
   const firstWord = cleanTitle.split(/\s/)[0];
   return firstWord || '';
 }
 
 function extractDescription(title, protagonist) {
   let desc = title;
-  // 去掉主角名
+  // Strip the protagonist name
   if (protagonist && desc.startsWith(protagonist)) {
     desc = desc.substring(protagonist.length);
   }
-  // 去掉方括号/圆括号内容
+  // Strip bracketed/parenthesized content
   desc = desc.replace(/\[.+?\]$/, '').replace(/\(.+?\)$/, '').trim();
-  // 去掉前导空格和连字符
+  // Strip leading spaces and hyphens
   desc = desc.replace(/^[\s\-–—]+/, '').trim();
   return desc;
 }
@@ -234,7 +233,7 @@ async function main() {
   const html = firstResponse.body;
   const canonicalURL = extractMetadata(html).canonicalURL || TARGET_URL.replace(FRONTEND_URL, BASE_URL);
 
-  // 提取首页数据
+  // Extract first-page data
   console.log('\n[2] 提取首页数据...');
   const metadata = extractMetadata(html);
   const downloadInfo = extractDownloadInfo(html);
@@ -255,7 +254,7 @@ async function main() {
   console.log('    首页图片数:', firstPageImages.length);
   console.log('    相关推荐数:', related.length);
 
-  // 提取主角和描述
+  // Extract protagonist and description
   const protagonist = extractProtagonist(downloadInfo.fullTitle);
   const description = extractDescription(downloadInfo.fullTitle, protagonist);
   const category = extractCategory(canonicalURL);
@@ -263,13 +262,13 @@ async function main() {
   console.log('    描述:', description);
   console.log('    分类ID:', category);
 
-  // 抓取剩余分页（使用 qbep.uuss.uk 域名，避免 www.4khd.com 的 302 重定向）
+  // Fetch remaining pages (use qbep.uuss.uk to avoid www.4khd.com 302 redirects)
   console.log('\n[3] 抓取分页...');
   const allImages = [...firstPageImages];
   const imageUrlSet = new Set(firstPageImages.map(i => i.src));
 
   for (let page = 2; page <= pagination.totalPages; page++) {
-    // 使用前端域名拼接分页 URL
+    // Build paginated URLs with the frontend domain
     const pageURL = `${FRONTEND_URL}/content/${category}/${canonicalURL.split('/').pop().split('.')[0]}.html/${page}`;
     console.log(`    [${page}/${pagination.totalPages}] 抓取:`, pageURL);
 
@@ -301,7 +300,7 @@ async function main() {
   console.log('    预计图片数:', downloadInfo.photoCount);
   console.log('    匹配:', allImages.length === downloadInfo.photoCount ? '✅ 一致' : '⚠️ 不一致');
 
-  // 构造 GalleryScrapeResult
+  // Build GalleryScrapeResult
   const result = {
     sourceURL: canonicalURL,
     title: downloadInfo.fullTitle.replace(/\[.+?\]$/, '').replace(/\(.+?\)$/, '').trim(),
@@ -334,10 +333,10 @@ async function main() {
     },
   };
 
-  // 保存结果
+  // Save results
   fs.writeFileSync(RESULT_PATH, JSON.stringify(result, null, 2), 'utf-8');
 
-  // 输出图片 URL 列表
+  // Output image URL list
   const imgListPath = path.join(DATA_DIR, 'all-image-urls.json');
   fs.writeFileSync(imgListPath, JSON.stringify(allImages.map(i => i.src), null, 2), 'utf-8');
 
@@ -345,7 +344,7 @@ async function main() {
   console.log('    提取结果:', RESULT_PATH);
   console.log('    图片列表:', imgListPath);
 
-  // 验证
+  // Verification
   console.log('\n=== 验证报告 ===');
   const checks = [
     { name: '标题非空', pass: result.title.length > 0 },
@@ -368,7 +367,7 @@ async function main() {
   }
   console.log(`\n通过: ${passed}/${checks.length}`);
 
-  // 输出前5张图片 URL 示例
+  // Output first 5 image URLs as examples
   console.log('\n前5张图片 URL:');
   for (let i = 0; i < Math.min(5, allImages.length); i++) {
     console.log(`  [${i}] ${allImages[i].src.substring(0, 120)}...`);

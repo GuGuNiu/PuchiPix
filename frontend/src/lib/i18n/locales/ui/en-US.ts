@@ -1,10 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-/**
- * 前端 UI 文本 — American English
- *
- * Covers: Common UI, Navigation, Dashboard, Gallery, Search, Settings, Sniff, Characters
- */
+/** Frontend UI text — en-US */
 const enUS: TranslationDict = {
   /* ─── Common ─── */
   "common.refresh": "Refresh",

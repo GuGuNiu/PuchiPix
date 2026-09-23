@@ -1,10 +1,10 @@
 /**
- * Coser.io 签到 + 解锁完整流程
- * 1. 登录
- * 2. 导航到首页获取新 CSRF token
- * 3. 尝试签到获取积分
- * 4. 解锁图集
- * 5. 提取全部图片
+ * Coser.io check-in + unlock full flow.
+ * 1. Login
+ * 2. Navigate home to fetch a fresh CSRF token
+ * 3. Attempt check-in for points
+ * 4. Unlock the gallery
+ * 5. Extract all images
  */
 
 const { chromium } = require('playwright');
@@ -97,7 +97,7 @@ async function main() {
   });
 
   try {
-    // === Step 1: 登录 ===
+    // === Step 1: Login ===
     console.log('[1] 登录...');
     await page.goto('https://coser.io/login.html', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('input[type="email"]', { timeout: 15000 });
@@ -115,7 +115,7 @@ async function main() {
     console.log(`  登录: ${loginResult.success ? '✅ 成功' : '❌ 失败'} - ${loginResult.message}`);
     if (!loginResult.success) throw new Error('登录失败');
 
-    // === Step 2: 导航到首页，获取新 CSRF ===
+    // === Step 2: Navigate home, fetch fresh CSRF ===
     console.log('\n[2] 导航到首页获取新 CSRF token...');
     await page.goto('https://coser.io/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
@@ -127,7 +127,7 @@ async function main() {
     console.log(`  CSRF: ${homeCsrf.csrf ? homeCsrf.csrf.substring(0, 20) + '...' : '未找到'}`);
     console.log(`  已登录: ${homeCsrf.isLoggedIn}`);
 
-    // === Step 3: 检查积分 ===
+    // === Step 3: Check points ===
     console.log('\n[3] 检查当前积分...');
     const pointsResult = await page.evaluate(async () => {
       const res = await fetch('/web-api/v1/user/points', { credentials: 'include' });
@@ -135,17 +135,17 @@ async function main() {
     });
     console.log(`  当前积分: ${pointsResult.data?.points || 0}`);
 
-    // === Step 4: 尝试签到 ===
+    // === Step 4: Attempt check-in ===
     console.log('\n[4] 尝试签到获取积分...');
 
-    // 先尝试从会员页面签到
+    // Try check-in from the member page first
     await page.goto('https://coser.io/member.html', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
 
     const memberCsrf = await page.evaluate(() => window.__csrfToken || '');
     console.log(`  会员页面 CSRF: ${memberCsrf.substring(0, 20)}...`);
 
-    // 尝试各种签到端点
+    // Try various check-in endpoints
     const checkinEndpoints = [
       { url: '/web-api/v1/user/checkin', method: 'POST' },
       { url: '/web-api/v1/checkin', method: 'POST' },
@@ -190,7 +190,7 @@ async function main() {
       }
     }
 
-    // 也尝试 GET 请求
+    // Also try a GET request
     if (!checkinSuccess) {
       console.log('\n  尝试 GET 方式签到...');
       for (const ep of checkinEndpoints) {
@@ -215,7 +215,7 @@ async function main() {
       }
     }
 
-    // === Step 5: 再次检查积分 ===
+    // === Step 5: Check points again ===
     console.log('\n[5] 签到后检查积分...');
     const pointsAfter = await page.evaluate(async () => {
       const res = await fetch('/web-api/v1/user/points', { credentials: 'include' });
@@ -224,14 +224,14 @@ async function main() {
     const currentPoints = pointsAfter.data?.points || 0;
     console.log(`  当前积分: ${currentPoints}`);
 
-    // === Step 6: 尝试在会员页面找签到按钮 ===
+    // === Step 6: Look for a check-in button on the member page ===
     if (!checkinSuccess && currentPoints === 0) {
       console.log('\n[6] 在会员页面寻找签到按钮...');
 
-      // 截图会员页面
+      // Screenshot the member page
       await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-member-page.png'), fullPage: true });
 
-      // 查找签到按钮
+      // Look for the check-in button
       const buttons = await page.evaluate(() => {
         const btns = document.querySelectorAll('button, a');
         return [...btns].filter(b => {
@@ -248,7 +248,7 @@ async function main() {
       });
       console.log('  签到按钮:', JSON.stringify(buttons, null, 2));
 
-      // 尝试点击签到按钮
+      // Try clicking the check-in button
       if (buttons.length > 0) {
         try {
           await page.click(`text=签到`, { timeout: 5000 }).catch(() => {});
@@ -257,7 +257,7 @@ async function main() {
         } catch (e) {}
       }
 
-      // 下载会员页面的所有 JS 文件
+      // Download all JS files from the member page
       console.log('\n  下载会员页面 JS 文件...');
       const memberJsFiles = await page.evaluate(() => {
         return [...document.querySelectorAll('script[src]')].map(s => s.src).filter(s => s.includes('/js/'));
@@ -273,7 +273,7 @@ async function main() {
           fs.writeFileSync(path.join(CONFIG.outputDir, `auth-js-${filename}`), content);
           console.log(`    下载: ${filename} (${content.length} bytes)`);
 
-          // 搜索 API 端点
+          // Search API endpoints
           const apiMatches = content.match(/fetch\(['"`]([^'"`]+)['"`]/g);
           if (apiMatches) {
             console.log(`    API 端点:`);
@@ -283,10 +283,10 @@ async function main() {
       }
     }
 
-    // === Step 7: 如果有积分，解锁图集 ===
+    // === Step 7: Unlock the gallery if points allow ===
     console.log(`\n[7] 尝试解锁图集 (积分: ${currentPoints})...`);
 
-    // 导航到图集页面
+    // Navigate to the gallery page
     await page.goto(CONFIG.galleryUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => window.__latpConfig !== undefined, { timeout: 15000 });
 
@@ -325,36 +325,36 @@ async function main() {
     } else if (!galleryConfig.isPurchase) {
       console.log(`  ❌ 积分不足: 需要 ${galleryConfig.viewPrice}，当前 ${galleryConfig.userPoints}`);
 
-      // 即使积分不足，也尝试从页面中提取所有可见的图片
+      // Even without enough points, try extracting all visible images from the page
       console.log('\n  尝试从已加载的页面中提取所有可见图片...');
     }
 
-    // === Step 8: 提取图片 ===
+    // === Step 8: Extract images ===
     console.log('\n[8] 提取所有图片...');
 
-    // 截图
+    // Screenshot
     await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-gallery-final.png'), fullPage: true });
 
-    // 保存 HTML 源码
+    // Save HTML source
     const html = await page.content();
     fs.writeFileSync(path.join(CONFIG.outputDir, 'auth-gallery-final.html'), html);
 
-    // 提取所有图片 URL（从 DOM + HTML 源码）
+    // Extract all image URLs (from DOM + HTML source)
     const extracted = await page.evaluate(() => {
       const cfg = window.__latpConfig || {};
       const cdnDomain = cfg.cdnDomain || 'https://coserbox.static.iloli.io';
 
-      // 从 DOM 中提取
+      // Extract from DOM
       const domImages = [...document.querySelectorAll('img')].map(img => ({
         src: img.src,
         dataSrc: img.dataset.src || null,
         dataHref: img.dataset.href || null,
       }));
 
-      // 从 HTML 源码中提取
+      // Extract from HTML source
       const htmlSource = document.documentElement.outerHTML;
 
-      // 各种 URL 模式
+      // Various URL patterns
       const patterns = [
         /https?:\/\/[^"'\s)<>]+coserbox[^"'\s)<>]+\.webp[^"'\s)<>]*/g,
         /\/gallery\/[^"'\s)<>]+\.webp[^"'\s)<>]*/g,
@@ -366,7 +366,7 @@ async function main() {
         if (matches) matches.forEach(m => htmlUrls.add(m));
       });
 
-      // 从 a[data-fancybox] 中提取
+      // Extract from a[data-fancybox]
       const fancyboxAnchors = [...document.querySelectorAll('a[data-fancybox]')].map(a => ({
         href: a.href,
         dataHref: a.dataset.href || null,
@@ -389,7 +389,7 @@ async function main() {
     console.log(`  HTML URL 数: ${extracted.htmlUrls.length}`);
     console.log(`  Fancybox 锚点数: ${extracted.fancyboxAnchors.length}`);
 
-    // 合并所有唯一 URL
+    // Merge all unique URLs
     const allUrls = new Set();
     extracted.htmlUrls.forEach(u => allUrls.add(u));
     extracted.domImages.forEach(img => {
@@ -403,7 +403,7 @@ async function main() {
       if (a.dataSrc) allUrls.add(a.dataSrc);
     });
 
-    // 标准化 URL（补全 CDN 域名）
+    // Normalize URLs (fill in CDN domain)
     const cdnDomain = extracted.cdnDomain || 'https://coserbox.static.iloli.io';
     const normalizedUrls = [...allUrls].map(url => {
       if (url.startsWith('http')) return url;
@@ -411,7 +411,7 @@ async function main() {
       return url;
     }).filter(url => url.includes('.webp'));
 
-    // 去重
+    // Deduplicate
     const uniqueUrls = [...new Set(normalizedUrls)];
 
     console.log(`\n  唯一图片 URL 数: ${uniqueUrls.length}`);
@@ -424,18 +424,18 @@ async function main() {
       JSON.stringify({ uniqueUrls, summary: { total: uniqueUrls.length, target: extracted.imageCount } }, null, 2)
     );
 
-    // === Step 9: 下载图片 ===
+    // === Step 9: Download images ===
     if (uniqueUrls.length > 0) {
       console.log(`\n[9] 下载 ${uniqueUrls.length} 张图片...`);
 
       const results = [];
       for (let i = 0; i < uniqueUrls.length; i++) {
         const url = uniqueUrls[i];
-        const cleanUrl = url.split('?')[0]; // 去掉查询参数获取原始图片
+        const cleanUrl = url.split('?')[0]; // Strip query params to get the original image
         const filename = cleanUrl.split('/').pop() || `image_${i + 1}.webp`;
         const filepath = path.join(CONFIG.imagesDir, `${String(i + 1).padStart(3, '0')}_${filename}`);
 
-        // 使用带 class 参数的 URL 下载（获取最大质量）
+        // Download with the class param (max quality)
         const downloadUrl = url.includes('?class=') ? url : url + '?class=normalvip';
 
         try {
@@ -457,7 +457,7 @@ async function main() {
       fs.writeFileSync(path.join(CONFIG.outputDir, 'auth-final-download-results.json'), JSON.stringify(results, null, 2));
     }
 
-    // === Step 10: 最终报告 ===
+    // === Step 10: Final report ===
     console.log('\n[10] 最终报告:');
     const report = {
       time: new Date().toISOString(),

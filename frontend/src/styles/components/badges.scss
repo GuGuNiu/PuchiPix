@@ -1,6 +1,4 @@
-// ============================================================
-// Badges & Status Pills — 徽章 / 状态标签
-// ============================================================
+// Badges & status pills
 
 .badge {
   display: inline-flex;
@@ -20,7 +18,7 @@
   &-paused { background: var(--warning-soft); color: var(--warning); }
 }
 
-// ===== Status Pills (圆角色块 + 白色文字) =====
+// ===== Status Pills (rounded color blocks + white text) =====
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -46,7 +44,7 @@
   &-transcoding { background: var(--status-transcoding); }
 }
 
-// ===== Dual Capsule (简约文字 + 细边框) =====
+// ===== Dual Capsule (minimal text + thin border) =====
 .dual-capsule {
   display: inline-flex;
   align-items: center;

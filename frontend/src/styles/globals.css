@@ -1,18 +1,4 @@
-/**
- * PuchiPix — 全局样式入口
- *
- * 采用模块化拆分设计，此文件仅包含 Tailwind 导入和主题变量。
- * 子模块通过 layout.tsx 的 JS import 引入，确保 webpack 正确解析路径。
- *
- * 下属模块（按加载顺序）：
- *   tokens.css     设计令牌（CSS 变量 + 动画关键帧）
- *   base.css       基础样式 / 滚动条 / 布局骨架
- *   layout.css     侧边栏导航布局
- *   components.css 通用 UI 组件
- *   pages.css      页面级布局（仪表盘、搜索、任务…）
- *   ops.css        Ops 运维监控面板
- *   responsive.css 响应式媒体查询
- */
+/* PuchiPix — global style entry (submodules loaded via JS imports in layout.tsx) */
 
 @import "tailwindcss";
 

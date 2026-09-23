@@ -1,6 +1,4 @@
-// ============================================================
-// Sidebar Header — 侧边栏头部（Logo / 版本号）
-// ============================================================
+// Sidebar header (logo / version)
 
 .sidebar-header {
   padding: var(--space-6) var(--space-5) var(--space-5);
@@ -15,7 +13,7 @@
   flex-shrink: 0;
   transition: padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  // 折叠状态
+  // Collapsed state
   .sidebar.collapsed:not(.hover-expand) & {
     padding: var(--space-5) var(--space-2) var(--space-4);
   }
@@ -38,7 +36,7 @@
               padding 0.3s ease,
               margin 0.3s ease;
 
-  // 文字渐变色（浏览器支持时）
+  // Gradient text where supported
   @supports (-webkit-background-clip: text) and (background-clip: text) {
     background: var(--accent-shimmer);
     -webkit-background-clip: text;
@@ -83,7 +81,7 @@
   }
 }
 
-// ─── 版本号 ───
+// ─── Version badge ───
 .sidebar-version {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -102,7 +100,7 @@
   flex-shrink: 0;
 }
 
-// ─── 折叠时图标 ───
+// ─── Collapsed icon ───
 .sidebar-logo-collapsed {
   display: none;
 
@@ -125,7 +123,7 @@
   to { opacity: 1; transform: scale(1); }
 }
 
-// 折叠时隐藏完整 Logo
+// Hide full logo when collapsed
 .sidebar.collapsed:not(.hover-expand) .sidebar-logo {
   display: none;
 }

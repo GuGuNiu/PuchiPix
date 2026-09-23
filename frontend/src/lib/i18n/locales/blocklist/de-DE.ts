@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// Sperrlistenseite — Deutsch
+// Blocklist page text — de-DE
 const deDE: TranslationDict = {
   "blocklist.title": "Sperrliste",
   "blocklist.subtitle": "Inhalts-Sperrregeln verwalten — nach Titel/Kategorie/Charakter/Regisseur filtern",

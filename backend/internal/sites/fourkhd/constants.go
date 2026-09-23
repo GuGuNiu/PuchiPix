@@ -41,7 +41,7 @@ var (
 	contentIDPattern = regexp.MustCompile(`/content/(\d+)/([^/]+)\.html`)
 	pageNumPattern   = regexp.MustCompile(`\.html/(\d+)(?:/|$)`)
 
-	// Title pattern: "主角 描述[大小-数量photos]"
+	// Title pattern: "protagonist description[size-countphotos]"
 	titleSizePattern = regexp.MustCompile(`\[(\d+(?:\.\d+)?(?:MB|GB))-(\d+)photos\]`)
 
 	// Image URL pattern — matches URLs containing 4khd.com in the path

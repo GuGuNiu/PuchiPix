@@ -2,7 +2,7 @@ import type { TranslationDict } from "../../types";
 
 
 const zhCN: TranslationDict = {
-  /* ─── 通用 ─── */
+  /* ─── Common ─── */
   "common.refresh": "刷新",
   "common.delete": "删除",
   "common.cancel": "取消",
@@ -38,7 +38,7 @@ const zhCN: TranslationDict = {
   "common.adding": "添加中...",
   "common.pages": "页",
 
-  /* ─── 导航 ─── */
+  /* ─── Navigation ─── */
   "nav.dashboard": "噗呲大厅",
   "nav.tasks": "任务管理",
   "nav.shelf": "资源架",
@@ -61,11 +61,11 @@ const zhCN: TranslationDict = {
   "nav.videos": "大黄片",
   "nav.sjs": "司机社",
 
-  /* ─── 司机社 ─── */
+  /* ─── SJS ─── */
   "sjs.comingSoon": "司机社即将上线",
   "sjs.underConstruction": "正在建设中，敬请期待",
 
-  /* ─── 司机社收藏架 ─── */
+  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "批量导入",
   "sjs.shelf.searchPlaceholder": "搜索标题、作者、URL...",
   "sjs.shelf.allForums": "全部分区",
@@ -103,7 +103,7 @@ const zhCN: TranslationDict = {
   "sjs.shelf.refreshed": "已刷新",
   "sjs.shelf.refreshNetworkError": "刷新请求失败，请检查网络",
 
-  /* ─── 仪表盘 ─── */
+  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "实时连接",
   "dashboard.offline": "离线",
   "dashboard.totalTasks": "总任务",
@@ -133,7 +133,7 @@ const zhCN: TranslationDict = {
   "dashboard.addLinkToStart": "添加链接开始下载",
   "dashboard.identifying": "识别中",
 
-  /* ─── 图包管理 ─── */
+  /* ─── Gallery ─── */
   "gallery.statusScraping": "爬取中",
 "gallery.statusScrapePending": "等待识别",
 "gallery.statusDownloadPending": "等待下载",
@@ -203,7 +203,7 @@ const zhCN: TranslationDict = {
   "gallery.zipExtractLabel": "解压",
   "gallery.clickToCopy": "点击复制",
 
-  /* ─── 大黄片 ─── */
+  /* ─── Videos ─── */
   "video.statusScraping": "爬取中",
   "video.statusScrapePending": "等待识别",
   "video.statusDownloadPending": "等待下载",
@@ -261,7 +261,7 @@ const zhCN: TranslationDict = {
   "video.nextVideo": "下一个",
   "video.noPlayableSelected": "选中的视频均没有可播放的文件",
 
-  /* ─── 搜索 ─── */
+  /* ─── Search ─── */
   "search.placeholderGallery": "输入关键词或粘贴完整URL链接如 /article/ /tag/ 页面...",
   "search.placeholderVideo": "输入搜索关键词支持逗号、空格分隔...",
   "search.searching": "搜索中...",
@@ -307,7 +307,7 @@ const zhCN: TranslationDict = {
   "search.statusCancelled": "已取消",
   "search.statusScraping": "爬取中",
 
-  /* ─── 配置 ─── */
+  /* ─── Settings ─── */
   "config.title": "系统配置",
   "config.pathSettings": "路径设置",
   "config.chromeDriverPath": "ChromeDriver 路径",
@@ -335,7 +335,7 @@ const zhCN: TranslationDict = {
   "config.gpuEncoder": "编码器",
   "config.gpuNotAvailable": "未检测到支持的独立显卡，将使用 CPU 转码",
 
-  /* ─── 嗅探 ─── */
+  /* ─── Sniff ─── */
   "sniff.title": "嗅探 M3U8 链接",
   "sniff.control": "嗅探控制",
   "sniff.targetUrl": "目标链接",
@@ -354,7 +354,7 @@ const zhCN: TranslationDict = {
   "sniff.addedToDownload": "已添加到下载任务",
   "sniff.untitled": "未命名",
 
-  /* ─── 主角展示架 ─── */
+  /* ─── Characters ─── */
   "protagonists.title": "主角展示架",
   "protagonists.subtitle": "已归一化的主角列表点击可查看该主角的所有图库",
   "protagonists.searchPlaceholder": "搜索主角名字...",
@@ -370,7 +370,7 @@ const zhCN: TranslationDict = {
   "protagonists.statGalleries": "{count} 个图库",
   "protagonists.statAliases": "{count} 个别名",
 
-  /* ─── 运维面板 ─── */
+  /* ─── Ops Panel ─── */
   "ops.online": "在线",
   "ops.offline": "离线",
   "ops.todayTasks": "今日任务",
@@ -388,7 +388,7 @@ const zhCN: TranslationDict = {
   "ops.noLogs": "暂无日志",
   "ops.pausedBuffer": "已暂停 — 缓冲区有 {count} 条新日志",
 
-  /* ─── 创建任务 ─── */
+  /* ─── Create Task ─── */
   "createTask.title": "创建下载任务",
   "createTask.pleaseFillLink": "请填写链接",
   "createTask.exactMatch": "精确匹配",
@@ -437,7 +437,7 @@ const zhCN: TranslationDict = {
   "search.estimatedSizeValue": "估算中",
   "search.bitrate": "比特率",
 
-  /* ─── 批量搜索 ─── */
+  /* ─── Batch Search ─── */
   "batchSearch.title": "批量搜索",
   "batchSearch.titleLabel": "标题",
   "batchSearch.siteLabel": "站点",
@@ -474,7 +474,7 @@ const zhCN: TranslationDict = {
   "batchSearch.refilled": "已将失败标题填入输入框",
   "batchSearch.inputHint": "检测到 {count} 个标题 · 将自动模糊搜索并下载匹配的视频 · 每个标题间隔 3~5 秒防爬虫",
 
-  /* ─── 任务设置面板 ─── */
+  /* ─── Task Settings ─── */
   "taskSettings.title": "任务设置",
   "taskSettings.maxConcurrentTasks": "最大并发任务数",
   "taskSettings.maxConcurrentTasksDesc": "同时运行的视频/图库下载任务上限",
@@ -496,11 +496,11 @@ const zhCN: TranslationDict = {
   "taskSettings.saveFailed": "保存设置失败",
   "taskSettings.saved": "保存成功",
 
-  /* ─── 控制台日志 ─── */
+  /* ─── Console Log ─── */
   "console.noTaskLogs": "暂无任务日志",
   "console.fetchFailed": "日志获取失败",
 
-  /* ─── DAG 节点状态 ─── */
+  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "待就绪",
   "dag.nodeState.ready": "就绪",
   "dag.nodeState.queued": "排队中",
@@ -523,7 +523,7 @@ const zhCN: TranslationDict = {
   "modelstage.title": "模特台",
 } satisfies TranslationDict;
 
-/** Ui 模块的翻译键联合类型 */
+/** Union of Ui translation keys */
 export type UiTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

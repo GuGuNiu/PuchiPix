@@ -15,10 +15,10 @@ import (
 // *time.Time directly ("storing driver.Value type string into type
 // *time.Time").
 //
-// P-TSG 缺陷根因（2026-08-04 治理）：所有读取 SQLite 时间列（*_at）
-// 的 rows.Scan 目标必须是 SQLTime 或 string，禁止直接 scan 进
-// time.Time / *time.Time 字段——否则 Scan 失败被 continue 静默吞掉，
-// 列表 API 返回空。
+// P-TSG defect root cause (fixed 2026-08-04): every rows.Scan target for
+// SQLite time columns (*_at) must be SQLTime or string — never scan
+// directly into time.Time / *time.Time, or the Scan error is silently
+// swallowed by continue and the list API returns empty.
 const timeTextLayout = "2006-01-02 15:04:05.999999999 -0700 MST"
 
 // timeTextLayoutNoTZ matches bare "2006-01-02 15:04:05" datetimes

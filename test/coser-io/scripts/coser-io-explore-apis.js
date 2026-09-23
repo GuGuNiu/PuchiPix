@@ -1,6 +1,6 @@
 /**
- * Coser.io API 端点探测脚本
- * 登录后探测签到、用户信息、VIP 等 API 端点
+ * Coser.io API endpoint probing script.
+ * After login, probes check-in, user info, VIP, and other API endpoints.
  */
 
 const { chromium } = require('playwright');
@@ -27,7 +27,7 @@ async function main() {
 
   const page = await ctx.newPage();
 
-  // 登录
+  // Login
   await page.goto('https://coser.io/login.html', { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('input[type="email"]', { timeout: 15000 });
 
@@ -50,20 +50,20 @@ async function main() {
     return;
   }
 
-  // 探测各种 API 端点
+  // Probe various API endpoints
   const endpoints = [
-    // 用户信息
+    // User info
     { url: '/web-api/v1/user/info', method: 'GET' },
     { url: '/web-api/v1/user/profile', method: 'GET' },
     { url: '/web-api/v1/user/me', method: 'GET' },
     { url: '/web-api/v1/user/points', method: 'GET' },
     
-    // VIP/会员
+    // VIP/membership
     { url: '/web-api/v1/user/vip', method: 'GET' },
     { url: '/web-api/v1/user/membership', method: 'GET' },
     { url: '/web-api/v1/user/subscription', method: 'GET' },
     
-    // 签到
+    // Check-in
     { url: '/web-api/v1/user/checkin', method: 'GET' },
     { url: '/web-api/v1/user/checkin', method: 'POST' },
     { url: '/web-api/v1/user/sign-in', method: 'GET' },
@@ -77,26 +77,26 @@ async function main() {
     { url: '/web-api/v1/user/daily', method: 'GET' },
     { url: '/web-api/v1/user/daily', method: 'POST' },
     
-    // 邀请/奖励
+    // Invite/rewards
     { url: '/web-api/v1/user/invite', method: 'GET' },
     { url: '/web-api/v1/user/invitations', method: 'GET' },
     { url: '/web-api/v1/user/rewards', method: 'GET' },
     { url: '/web-api/v1/user/tasks', method: 'GET' },
     
-    // 图集相关
+    // Gallery related
     { url: '/web-api/v1/galleries/69218', method: 'GET' },
     { url: '/web-api/v1/gallery/69218', method: 'GET' },
     { url: '/web-api/v1/gallery/69218/detail', method: 'GET' },
     { url: '/web-api/v1/gallery/69218/images', method: 'GET' },
     { url: '/web-api/v1/gallery/69218/files', method: 'GET' },
     
-    // 购买相关
+    // Purchase related
     { url: '/web-api/v1/user/purchases', method: 'GET' },
     { url: '/web-api/v1/user/orders', method: 'GET' },
     { url: '/web-api/v1/purchases', method: 'GET' },
     { url: '/web-api/v1/orders', method: 'GET' },
     
-    // 其他
+    // Others
     { url: '/web-api/v1/user/favorites', method: 'GET' },
     { url: '/web-api/v1/user/history', method: 'GET' },
     { url: '/web-api/v1/user/downloads', method: 'GET' },
@@ -136,13 +136,13 @@ async function main() {
     }
   }
 
-  // 保存结果
+  // Save results
   fs.writeFileSync(
     path.join(CONFIG.outputDir, 'auth-api-exploration.json'),
     JSON.stringify(results.filter(r => r.status !== 404), null, 2)
   );
 
-  // 也尝试访问会员页面，查看 VIP 信息
+  // Also try the member page to view VIP info
   console.log('\n--- 访问会员页面 ---');
   await page.goto('https://coser.io/member.html', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
@@ -157,7 +157,7 @@ async function main() {
   });
   console.log('会员页面:', JSON.stringify(memberInfo, null, 2));
 
-  // 尝试访问用户中心
+  // Try accessing the user center
   console.log('\n--- 访问用户中心 ---');
   await page.goto('https://coser.io/user.html', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
@@ -171,13 +171,13 @@ async function main() {
   });
   console.log('用户中心:', JSON.stringify(userInfo, null, 2));
 
-  // 下载用户中心页面 JS
+  // Download user center page JS
   const userJsLinks = await page.evaluate(() => {
     return [...document.querySelectorAll('script[src]')].map(s => s.src).filter(s => s.includes('/js/'));
   });
   console.log('\n用户中心 JS 文件:', userJsLinks);
 
-  // 下载并分析每个 JS 文件
+  // Download and analyze each JS file
   for (const jsUrl of userJsLinks) {
     if (!jsUrl.includes('login-page') && !jsUrl.includes('frontend/global') && !jsUrl.includes('frontend/comment') && !jsUrl.includes('frontend/share') && !jsUrl.includes('latp-page')) {
       try {
@@ -190,10 +190,10 @@ async function main() {
         fs.writeFileSync(path.join(CONFIG.outputDir, `auth-js-${filename}`), jsContent);
         console.log(`  下载: ${filename} (${jsContent.length} bytes)`);
 
-        // 搜索签到/checkin/point 相关代码
+        // Search for checkin/point related code
         if (jsContent.includes('checkin') || jsContent.includes('sign') || jsContent.includes('point') || jsContent.includes('积分')) {
           console.log(`    ⚠️ 包含签到/积分相关代码!`);
-          // 提取相关行
+          // Extract relevant lines
           const lines = jsContent.split('\n');
           const relevantLines = lines.filter(l =>
             l.includes('checkin') || l.includes('sign-in') || l.includes('签到') ||

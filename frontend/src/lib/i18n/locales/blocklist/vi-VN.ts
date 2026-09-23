@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// Văn bản trang danh sách chặn — Tiếng Việt
+// Blocklist page text — vi-VN
 const viVN: TranslationDict = {
   "blocklist.title": "Danh sách chặn",
   "blocklist.subtitle": "Quản lý quy tắc chặn nội dung — lọc theo tiêu đề/danh mục/nhân vật/đạo diễn",

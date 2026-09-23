@@ -1,12 +1,11 @@
 /**
- * 4KHD — 深度页面逆向分析（第二阶段）
- * 
- * 修复点：
- * 1. 等待 Cloudflare challenge 完成
- * 2. 等待 DOM 中出现实际内容（非 about:blank）
- * 3. 拦截 admin-ajax.php 请求和响应
- * 4. 分析 lazy-loading 图片策略
- * 5. 检测 Cloudflare 反爬虫机制
+ * 4KHD — Deep page reverse analysis (phase 2).
+ * Fixes:
+ * 1. Wait for the Cloudflare challenge to complete
+ * 2. Wait for real DOM content (not about:blank)
+ * 3. Intercept admin-ajax.php requests/responses
+ * 4. Analyze lazy-loading image strategy
+ * 5. Detect Cloudflare anti-bot mechanisms
  */
 
 const { chromium } = require('playwright');
@@ -39,7 +38,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
     },
   });
 
-  // 隐藏 webdriver 特征
+  // Hide webdriver fingerprints
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     // Override Chrome runtime to avoid detection
@@ -56,7 +55,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
 
   const page = await context.newPage();
 
-  // 收集所有网络请求
+  // Collect all network requests
   const allRequests = [];
   const ajaxResponses = [];
 
@@ -75,7 +74,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
     const status = response.status();
     const headers = response.headers();
 
-    // 拦截 AJAX 请求
+    // Intercept AJAX requests
     if (url.includes('admin-ajax.php') || url.includes('4khd.php') || url.includes('/api/')) {
       try {
         const body = await response.text();
@@ -95,7 +94,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       }
     }
 
-    // 记录 Cloudflare challenge 响应
+    // Log Cloudflare challenge responses
     if (url.includes('cdn-cgi/challenge-platform') || status === 403 || status === 503) {
       try {
         const body = await response.text();
@@ -113,7 +112,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
     }
   });
 
-  // 拦截页面导航事件
+  // Intercept page navigation events
   const navigations = [];
   page.on('framenavigated', (frame) => {
     navigations.push({
@@ -125,7 +124,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
 
   console.log('[1/6] Navigating to:', TARGET_URL);
 
-  // 使用 domcontentloaded 而非 networkidle，让 Cloudflare challenge 有时间完成
+  // Use domcontentloaded instead of networkidle so the Cloudflare challenge can finish
   const response = await page.goto(TARGET_URL, {
     waitUntil: 'domcontentloaded',
     timeout: 60000,
@@ -134,17 +133,17 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
   console.log('[1/6] Initial status:', response?.status());
   console.log('[1/6] Initial URL:', page.url());
 
-  // 等待 Cloudflare challenge 完成
+  // Wait for the Cloudflare challenge to complete
   console.log('[2/6] Waiting for Cloudflare challenge to complete...');
   try {
-    // Cloudflare challenge 通常会在 5-10 秒内完成
+    // Cloudflare challenges usually finish within 5-10 seconds
     await page.waitForFunction(
       () => {
-        // 检测是否仍在 challenge 页面
+        // Check whether still on the challenge page
         const challengeForm = document.querySelector('#challenge-form, #cf-challenge-running');
         if (challengeForm) return false;
         
-        // 检测是否有实际内容
+        // Check whether real content is present
         const hasContent = document.body && document.body.textContent.length > 100;
         const hasArticle = document.querySelector('article, .post, .entry-content, .content-area, #content') !== null;
         const hasImages = document.querySelectorAll('img').length > 0;
@@ -160,11 +159,11 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
     console.log('[2/6] Challenge wait error:', e.message);
   }
 
-  // 额外等待动态内容加载
+  // Extra wait for dynamic content to load
   console.log('[3/6] Waiting for dynamic content...');
   await page.waitForTimeout(5000);
 
-  // 尝试滚动以触发懒加载
+  // Try scrolling to trigger lazy-loading
   console.log('[4/6] Scrolling to trigger lazy-loading...');
   await page.evaluate(async () => {
     const delay = (ms) => new Promise(r => setTimeout(r, ms));
@@ -187,7 +186,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
   console.log('[5/6] Page title:', title);
   console.log('[5/6] HTML length:', html.length);
 
-  // 提取详细页面数据
+  // Extract detailed page data
   const pageData = await page.evaluate(() => {
     const result = {};
 
@@ -205,7 +204,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
 
     result.generator = result.meta['generator'] || '';
 
-    // CMS 检测
+    // CMS detection
     result.cms = {
       wordpress: !!document.querySelector('head > link[href*="wp-content"], head > link[href*="wp-includes"], meta[name="generator"][content*="WordPress"]'),
       wix: !!document.querySelector('script[src*="wix"], meta[name="generator"][content*="Wix"]'),
@@ -218,7 +217,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
     const h1 = document.querySelector('h1');
     result.h1 = h1 ? h1.textContent.trim() : '';
 
-    // 文章内容
+    // Article content
     const article = document.querySelector('article, .post-content, .entry-content, .content-area, .post, #content, .single-content');
     result.article = {
       exists: !!article,
@@ -227,7 +226,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       textLength: article ? article.textContent.trim().length : 0,
     };
 
-    // 所有图片
+    // All images
     result.allImages = [];
     document.querySelectorAll('img').forEach((img, idx) => {
       result.allImages.push({
@@ -251,16 +250,16 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       });
     });
 
-    // 分页
+    // Pagination
     const pagination = document.querySelector('.pagination, .page-navigation, .wp-pagenavi, nav.pagination, .nav-links, .page-numbers');
     result.pagination = pagination ? pagination.textContent.trim().replace(/\s+/g, ' ') : '';
     result.paginationHTML = pagination ? pagination.innerHTML.trim() : '';
 
-    // 面包屑
+    // Breadcrumbs
     const breadcrumb = document.querySelector('nav[aria-label="breadcrumb"], .breadcrumb, .breadcrumbs, .crumbs');
     result.breadcrumb = breadcrumb ? breadcrumb.textContent.trim().replace(/\s+/g, ' ') : '';
 
-    // 下载相关
+    // Download related
     result.downloadButtons = [];
     document.querySelectorAll('a[href*="download"], .download-btn, .btn-download, [class*="download"], a[href*=".zip"], a[href*=".rar"]').forEach(el => {
       result.downloadButtons.push({
@@ -272,27 +271,27 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       });
     });
 
-    // 标签
+    // Tags
     result.tags = [];
     document.querySelectorAll('a[href*="/tag/"], a[rel="tag"], .tag-cloud a, .post-tags a, .tags a').forEach(a => {
       result.tags.push({ text: a.textContent.trim(), href: a.getAttribute('href') });
     });
 
-    // 发布时间
+    // Publish time
     const timeEl = document.querySelector('time, .post-date, .publish-date, .date, .entry-date, .post-meta time');
     result.publishTime = timeEl ? (timeEl.getAttribute('datetime') || timeEl.textContent.trim()) : '';
 
-    // 分类
+    // Category
     const catEl = document.querySelector('.post-category, .entry-category, .cat-links, .category, .post-meta .category');
     result.category = catEl ? catEl.textContent.trim().replace(/\s+/g, ' ') : '';
 
-    // 分页链接
+    // Pagination links
     const nextLink = document.querySelector('a.next, a[rel="next"], .nav-next a, .next-page a');
     const prevLink = document.querySelector('a.prev, a[rel="prev"], .nav-previous a, .prev-page a');
     result.nextPage = nextLink ? nextLink.getAttribute('href') : '';
     result.prevPage = prevLink ? prevLink.getAttribute('href') : '';
 
-    // Cloudflare 检测
+    // Cloudflare detection
     result.waf = {
       cfRay: document.querySelector('script[src*="cloudflare"], script[src*="cdn-cgi/challenge-platform"]') !== null,
       challenge: document.querySelector('#cf-challenge-running, #challenge-form, .cf-browser-verification') !== null,
@@ -309,7 +308,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       }
     });
 
-    // inline scripts 内容
+    // Inline scripts content
     result.inlineScripts = [];
     document.querySelectorAll('script:not([src])').forEach(s => {
       const text = s.textContent.trim();
@@ -318,7 +317,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       }
     });
 
-    // 外部 scripts
+    // External scripts
     result.externalScripts = [];
     document.querySelectorAll('script[src]').forEach(s => {
       result.externalScripts.push({
@@ -328,7 +327,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
       });
     });
 
-    // 链接分析
+    // Link analysis
     result.contentLinks = [];
     document.querySelectorAll('a[href]').forEach(a => {
       const href = a.getAttribute('href');
@@ -343,7 +342,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
     // body class
     result.bodyClass = document.body ? document.body.className : '';
 
-    // 页面结构分析 — 提取主要容器的直接子元素
+    // Page structure analysis — direct children of main containers
     const main = document.querySelector('main, #main, .site-main, #content, .content-area') || document.body;
     if (main) {
       result.mainStructure = [];
@@ -393,7 +392,7 @@ const AJAX_PATH = path.join(DATA_DIR, 'ajax-response.json');
 
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), 'utf-8');
 
-  // 输出图片 URL 列表
+  // Output image URL list
   const imageUrls = pageData.allImages
     .map(img => img.dataSrc || img.dataOriginal || img.dataLazySrc || img.dataOriginalSrc || img.src)
     .filter(u => u && !u.startsWith('data:') && u !== '');

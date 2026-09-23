@@ -58,39 +58,38 @@ type SSEStream struct {
 	dropped uint64
 	mu      sync.Mutex
 
-	// 批量聚合器：当短时间内有大量事件时，合并成聚合摘要
+	// Batch aggregator: under event bursts, merge fine-grained events into summaries
 	aggregator *sseAggregator
 }
 
-// sseAggregator 批量事件聚合器
-// 当事件风暴来临时（如 1400+ 任务同时恢复），将大量细粒度事件
-// 合并成聚合摘要推送，避免 SSE 队列溢出和前端卡顿
+// sseAggregator batches events into aggregate summaries during storms
+// (e.g. 1400+ tasks resuming at once), preventing SSE queue overflow and frontend lag.
 type sseAggregator struct {
 	mu       sync.Mutex
 	events   []sseEvent
 	timer    *time.Timer
 	stream   *SSEStream
-	aggCount atomic.Int64 // 聚合触发次数统计
+	aggCount atomic.Int64 // aggregation trigger count
 }
 
-// TryGetAggCount 返回聚合触发次数（用于监控）
+// TryGetAggCount returns the aggregation trigger count (for monitoring).
 func (a *sseAggregator) TryGetAggCount() int64 {
 	return a.aggCount.Load()
 }
 
 const (
-	sseQueueSize       = 4096  // 扩容: 256 → 4096，应对任务风暴
+	sseQueueSize       = 4096  // grew 256 → 4096 for task storms
 	sseWriteTimeout    = 30 * time.Second
 	sseDrainTimeout    = 2 * time.Second
 	sseSyncWaitTimeout = 5 * time.Second
 	SseRetryDelayMs    = 2000
-	sseBatchMaxSize    = 256   // 扩容: 64 → 256，减少系统调用
+	sseBatchMaxSize    = 256   // grew 64 → 256 to reduce syscalls
 	sseMaxUnwrapDepth  = 8
 
-	// 批量聚合参数：当短时间内有大量事件时，合并成聚合摘要推送
-	sseAggregateThreshold = 100   // 事件数阈值，超过此值触发聚合
-	sseAggregateTimeout   = 100 * time.Millisecond  // 聚合等待超时
-	sseAggregateMaxSize   = 64    // 单次聚合最多包含的原事件数
+	// Aggregation tuning: merge events into summaries when a burst arrives.
+	sseAggregateThreshold = 100   // event count that triggers aggregation
+	sseAggregateTimeout   = 100 * time.Millisecond  // max wait before flushing a partial batch
+	sseAggregateMaxSize   = 64    // max original events per aggregate
 )
 
 type writeDeadliner interface{ SetWriteDeadline(time.Time) error }
@@ -145,20 +144,20 @@ func NewSSEStream(w http.ResponseWriter) *SSEStream {
 		done:         make(chan struct{}),
 		writeTimeout: sseWriteTimeout,
 	}
-	// 初始化聚合器
+	// Initialize the aggregator
 	s.aggregator = newSseAggregator(s)
 	go s.writerLoop()
 	return s
 }
 
-// newSseAggregator 创建批量事件聚合器
+// newSseAggregator creates a batch event aggregator.
 func newSseAggregator(stream *SSEStream) *sseAggregator {
 	return &sseAggregator{
 		stream: stream,
 	}
 }
 
-// flush 将缓存的事件合并成聚合摘要推送
+// flush merges buffered events into an aggregate summary and pushes it.
 func (a *sseAggregator) flush() {
 	a.mu.Lock()
 	events := a.events
@@ -170,7 +169,7 @@ func (a *sseAggregator) flush() {
 		return
 	}
 
-	// 统计各类型事件数量
+	// Count events by type
 	type eventSummary struct {
 		EventType string `json:"eventType"`
 		Count     int    `json:"count"`
@@ -180,7 +179,7 @@ func (a *sseAggregator) flush() {
 		summaries[ev.event]++
 	}
 
-	// 构建聚合摘要
+	// Build the aggregate summary
 	summaryList := make([]eventSummary, 0, len(summaries))
 	for eventType, count := range summaries {
 		summaryList = append(summaryList, eventSummary{
@@ -189,7 +188,7 @@ func (a *sseAggregator) flush() {
 		})
 	}
 
-	// 推送聚合摘要
+	// Push the aggregate summary
 	a.stream.enqueueRaw("events:aggregated", mustJSON(map[string]any{
 		"type":      "aggregated",
 		"count":     len(events),
@@ -197,7 +196,7 @@ func (a *sseAggregator) flush() {
 		"timestamp": time.Now().UnixMilli(),
 	}), false)
 
-	// 通知原事件 ack（避免阻塞）
+	// Ack original events (non-blocking)
 	for _, ev := range events {
 		if ev.ack != nil {
 			close(ev.ack)
@@ -207,14 +206,14 @@ func (a *sseAggregator) flush() {
 	a.aggCount.Add(1)
 }
 
-// add 添加事件到聚合器，如果触发阈值则立即 flush
+// add appends an event; flushes immediately when the threshold is reached.
 func (a *sseAggregator) add(ev sseEvent) {
 	a.mu.Lock()
 	a.events = append(a.events, ev)
 	shouldFlush := len(a.events) >= sseAggregateThreshold
 
 	if a.timer == nil && !shouldFlush {
-		// 设置超时 flush
+		// Schedule a timeout flush
 		a.timer = time.AfterFunc(sseAggregateTimeout, func() {
 			a.flush()
 		})
@@ -226,8 +225,8 @@ func (a *sseAggregator) add(ev sseEvent) {
 	}
 }
 
-// maybeAggregate 判断是否应该聚合
-// 当队列积压超过阈值时，启用聚合模式
+// shouldAggregate reports whether to enable aggregation mode
+// (queue backlog at or above the threshold).
 func (a *sseAggregator) shouldAggregate(queueLen int) bool {
 	return queueLen >= sseAggregateThreshold
 }
@@ -365,16 +364,16 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 		priority: eventPriorityFor(event),
 	}
 
-	// 聚合模式判断：当队列积压超过阈值时，启用聚合。
-	// 低优先级事件（progress/heartbeat）直接进入聚合器，
-	// 高/关键事件仍尝试入队，保证关键信息不丢失。
+	// Aggregation mode: when queue backlog exceeds the threshold, low-priority
+	// events (progress/heartbeat) go straight to the aggregator; high/critical
+	// events still try the queue so key information is never lost.
 	if !wait && s.aggregator != nil && s.aggregator.shouldAggregate(len(s.queue)) {
 		if ev.priority == PriorityLow {
 			s.aggregator.add(ev)
 			return true
 		}
-		// 高/关键事件在聚合模式下仍尝试直接入队，
-		// 只在队列满时才进入聚合器作为降级。
+		// High/critical events still attempt direct enqueue in aggregation
+		// mode; they fall back to the aggregator only when the queue is full.
 	}
 
 	if !wait {
@@ -382,20 +381,20 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 		case s.queue <- ev:
 			return true
 		default:
-			// 队列满时的优先级处理：
-			// 低优先级事件直接丢弃（进度可丢失），计数递增
+			// Queue-full priority handling: low-priority events are dropped
+			// (progress is lossy); the drop counter still increments.
 			if ev.priority == PriorityLow {
 				s.mu.Lock()
 				s.dropped++
 				s.mu.Unlock()
-				// 尝试进入聚合器（如果启用）
+				// Try the aggregator if it is enabled
 				if s.aggregator != nil {
 					s.aggregator.add(ev)
 					return true
 				}
 				return false
 			}
-			// 高/关键事件不轻易丢弃，尝试挤出一条低优先级事件
+			// High/critical events are not dropped lightly: evict one low-priority event.
 			s.mu.Lock()
 			s.dropped++
 			s.mu.Unlock()
@@ -440,7 +439,7 @@ func (s *SSEStream) Dropped() uint64 {
 	return s.dropped
 }
 
-// AggregatedCount 返回聚合触发次数（用于监控）
+// AggregatedCount returns the aggregation trigger count (for monitoring).
 func (s *SSEStream) AggregatedCount() int64 {
 	if s.aggregator == nil {
 		return 0
@@ -448,7 +447,7 @@ func (s *SSEStream) AggregatedCount() int64 {
 	return s.aggregator.TryGetAggCount()
 }
 
-// mustJSON 是 json.Marshal 的 panic 版本（用于确定性的结构体序列化）
+// mustJSON marshals v, returning "{}" on error (for deterministic struct serialization).
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

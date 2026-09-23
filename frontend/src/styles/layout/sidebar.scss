@@ -1,6 +1,4 @@
-// ============================================================
-// Sidebar — 侧边栏主容器
-// ============================================================
+// Sidebar main container
 
 .sidebar {
   width: var(--sidebar-width);
@@ -44,7 +42,7 @@
     z-index: 0;
   }
 
-  // 折叠时右侧悬停热区
+  // Hover hotspot when collapsed
   &.collapsed::after {
     content: '';
     position: absolute;

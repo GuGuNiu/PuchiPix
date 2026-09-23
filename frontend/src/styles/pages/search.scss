@@ -1,6 +1,4 @@
-// ============================================================
-// Search — 搜索页面（全宽画廊）
-// ============================================================
+// Search page (full-width gallery)
 
 .search-page {
   width: 100%;
@@ -27,7 +25,7 @@
   box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight-soft) inset;
 }
 
-// 搜索栏上层：输入框 + 按钮
+// Search bar top row: input + buttons
 .search-bar-top {
   display: flex;
   gap: var(--space-3);
@@ -99,7 +97,7 @@
   }
 }
 
-// 搜索栏下层：站点选择 + 状态信息
+// Search bar bottom row: site picker + status info
 .search-bar-bottom {
   display: flex;
   align-items: center;
@@ -199,7 +197,7 @@
   transition: width 0.5s ease;
 }
 
-// 搜索结果工具栏（嵌入顶部浮动栏）
+// Results toolbar (embedded in floating top bar)
 .search-results-bar {
   display: flex;
   align-items: center;
@@ -415,7 +413,7 @@
   color: var(--text-muted);
 }
 
-// 视频卡片爬取按钮
+// Video card scrape button
 .video-card-scrape-btn {
   position: absolute;
   bottom: 8px;
@@ -441,7 +439,7 @@
   }
 }
 
-// 视频卡片标签按钮
+// Video card tag button
 .video-card-tag-btn {
   display: inline-flex;
   align-items: center;
@@ -466,7 +464,7 @@
   }
 }
 
-// ===== 视频信息悬浮弹窗 =====
+// ===== Video info hover popup =====
 .video-info-popup {
   position: absolute;
   bottom: calc(100% + 8px);

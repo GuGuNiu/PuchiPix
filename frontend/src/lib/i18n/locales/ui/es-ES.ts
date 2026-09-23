@@ -1,7 +1,7 @@
 import type { TranslationDict } from "../../types";
 
 const esES: TranslationDict = {
-  /* ─── Común ─── */
+  /* ─── Common ─── */
   "common.refresh": "Actualizar",
   "common.delete": "Eliminar",
   "common.cancel": "Cancelar",
@@ -36,7 +36,7 @@ const esES: TranslationDict = {
   "common.adding": "Añadiendo...",
   "common.pages": "páginas",
 
-  /* ─── Navegación ─── */
+  /* ─── Navigation ─── */
   "nav.dashboard": "Sala Puchi",
   "nav.tasks": "Tareas",
   "nav.shelf": "Estante de recursos",
@@ -100,7 +100,7 @@ const esES: TranslationDict = {
   "sjs.shelf.refreshed": "Refreshed",
   "sjs.shelf.refreshNetworkError": "Refresh request failed, please check network",
 
-  /* ─── Panel principal ─── */
+  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "En vivo",
   "dashboard.offline": "Sin conexión",
   "dashboard.totalTasks": "Tareas totales",
@@ -130,7 +130,7 @@ const esES: TranslationDict = {
   "dashboard.addLinkToStart": "Añade un enlace para empezar a descargar",
   "dashboard.identifying": "Identificando",
 
-  /* ─── Gestión de galerías ─── */
+  /* ─── Gallery ─── */
   "gallery.statusScraping": "Raspando",
 "gallery.statusScrapePending": "En cola (Identificar)",
 "gallery.statusDownloadPending": "En cola (Descarga)",
@@ -200,7 +200,7 @@ const esES: TranslationDict = {
   "gallery.zipExtractLabel": "Extraer: ",
   "gallery.clickToCopy": "Clic para copiar",
 
-  /* ─── Búsqueda ─── */
+  /* ─── Search ─── */
   "search.placeholderGallery": "Ingresa palabras clave o pega una URL completa (ej. páginas /article/ /tag/)...",
   "search.placeholderVideo": "Ingresa palabras clave de búsqueda, separadas por comas o espacios...",
   "search.searching": "Buscando...",
@@ -246,7 +246,7 @@ const esES: TranslationDict = {
   "search.statusCancelled": "Cancelado",
   "search.statusScraping": "Raspando",
 
-  /* ─── Ajustes ─── */
+  /* ─── Settings ─── */
   "config.title": "Ajustes del sistema",
   "config.pathSettings": "Ajustes de ruta",
   "config.chromeDriverPath": "Ruta de ChromeDriver",
@@ -267,7 +267,7 @@ const esES: TranslationDict = {
   "config.downloadMaxSpeed": "Límite de velocidad (MB/s, 0=sin límite)",
   "config.downloadMinFileSize": "Tamaño mínimo de archivo (MB)",
 
-  /* ─── Sniffing ─── */
+  /* ─── Sniff ─── */
   "sniff.title": "Sniffing de enlaces M3U8",
   "sniff.control": "Control de sniffing",
   "sniff.targetUrl": "URL objetivo",
@@ -286,7 +286,7 @@ const esES: TranslationDict = {
   "sniff.addedToDownload": "Añadido a las tareas de descarga",
   "sniff.untitled": "Sin título",
 
-  /* ─── Personajes ─── */
+  /* ─── Characters ─── */
   "protagonists.title": "Galería de personajes",
   "protagonists.subtitle": "Lista normalizada de personajes — haz clic para ver todas las galerías de ese personaje",
   "protagonists.searchPlaceholder": "Buscar nombre de personaje...",
@@ -302,8 +302,8 @@ const esES: TranslationDict = {
   "protagonists.statGalleries": "{count} galerías",
   "protagonists.statAliases": "{count} alias",
 
-  /* ─── Panel Ops ─── */ "ops.online": "En línea", "ops.offline": "Desconectado", "ops.todayTasks": "Tareas de hoy", "ops.avgSpeed": "Velocidad media", "ops.uptime": "Disponibilidad", "ops.lastChecked": "Última comprobación", "ops.loadingSites": "Cargando datos de monitoreo de sitios...", "ops.systemConsole": "Consola del sistema", "ops.realtimeConnected": "En vivo", "ops.disconnected": "Desconectado", "ops.all": "Todos", "ops.resume": "Reanudar", "ops.pause": "Pausar", "ops.clear": "Limpiar", "ops.noLogs": "Sin logs", "ops.pausedBuffer": "En pausa — {count} logs nuevos en búfer",
-  /* ─── Búsqueda (complementos) ─── */   "createTask.title": "Crear tarea de descarga",
+  /* ─── Ops Panel ─── */ "ops.online": "En línea", "ops.offline": "Desconectado", "ops.todayTasks": "Tareas de hoy", "ops.avgSpeed": "Velocidad media", "ops.uptime": "Disponibilidad", "ops.lastChecked": "Última comprobación", "ops.loadingSites": "Cargando datos de monitoreo de sitios...", "ops.systemConsole": "Consola del sistema", "ops.realtimeConnected": "En vivo", "ops.disconnected": "Desconectado", "ops.all": "Todos", "ops.resume": "Reanudar", "ops.pause": "Pausar", "ops.clear": "Limpiar", "ops.noLogs": "Sin logs", "ops.pausedBuffer": "En pausa — {count} logs nuevos en búfer",
+  /* ─── Search (Supplements) ─── */   "createTask.title": "Crear tarea de descarga",
   "createTask.pleaseFillLink": "Por favor, introduce un enlace",
   "createTask.exactMatch": "Coincidencia exacta",
   "createTask.mirrorMatch": "Coincidencia de dominio espejo",
@@ -326,8 +326,8 @@ const esES: TranslationDict = {
   "createTask.createTask": "Crear tarea",
 
   "search.scrape": "Rastrear", "search.scrapeThisVideo": "Rastrear este video", "search.loadingData": "Cargando datos...", "search.statusDownloaded": "Descargado", "search.taskId": "Tarea #{id}", "search.tags": "Etiquetas", "search.noDetailData": "Sin datos detallados. {scrape} o descarga primero.", "search.videoData": "Datos de video", "search.fieldTitle": "Título", "search.fieldDate": "Fecha", "search.fieldResolution": "Resolución", "search.fieldDuration": "Duración", "search.fieldStatus": "Estado", "search.categories": "Categorías", "search.actors": "Actores", "search.director": "Director", "search.segmentData": "Datos de segmentos", "search.segmentCount": "N.º de segmentos", "search.totalDuration": "Duración total", "search.avgSegmentDuration": "Duración media de segmento", "search.sizeData": "Datos de tamaño", "search.fieldFileSize": "Tamaño de archivo", "search.estimatedSize": "Tamaño estimado", "search.estimatedSizeValue": "Estimando", "search.bitrate": "Tasa de bits",
-  /* ─── Búsqueda por lotes ─── */ "batchSearch.title": "Búsqueda por lotes", "batchSearch.titleLabel": "Título", "batchSearch.siteLabel": "Sitio", "batchSearch.startSearch": "Iniciar búsqueda", "batchSearch.searching": "Buscando...", "batchSearch.collapse": "Contraer", "batchSearch.expand": "Expandir", "batchSearch.downloaded": "Descargados", "batchSearch.notFound": "No encontrados", "batchSearch.failed": "Fallidos", "batchSearch.total": "Total", "batchSearch.all": "Todos", "batchSearch.candidates": "{count} candidatos", "batchSearch.progress": "Progreso: ", "batchSearch.copyNotFound": "Copiar no encontrados", "batchSearch.retryFailed": "Reintentar fallidos", "batchSearch.hideLogs": "Ocultar logs", "batchSearch.showLogs": "Mostrar logs", "batchSearch.colInputTitle": "Título de entrada", "batchSearch.colMatchResult": "Resultado", "batchSearch.colScore": "Puntuación", "batchSearch.colStatus": "Estado", "batchSearch.colTask": "Tarea", "batchSearch.complete": "Búsqueda por lotes completada: descargados {downloaded}, no encontrados {notFound}, fallidos {failed}", "batchSearch.started": "Búsqueda por lotes iniciada, {count} títulos", "batchSearch.copied": "Copiados {count} títulos al portapapeles", "batchSearch.placeholder": "Pega títulos de video, uno por línea, ej.:\nVida secreta de una criada hermosa\nTentación de un ángel\nDiario de entrenamiento", "batchSearch.pleaseInputTitle": "Introduce un título", "batchSearch.noValidTitle": "No se encontraron títulos válidos", "batchSearch.cancelled": "Búsqueda por lotes cancelada", "batchSearch.cancelFailed": "Error al cancelar", "batchSearch.noNotFound": "No hay títulos no encontrados", "batchSearch.noRetry": "No hay títulos para reintentar", "batchSearch.refilled": "Títulos fallidos rellenados en el campo de entrada", "batchSearch.inputHint": "Detectados {count} títulos · Búsqueda difusa automática y descarga de videos coincidentes · Intervalo de 3-5s entre títulos para evitar bloqueos",
-  /* ─── Ajustes de tareas ─── */ "taskSettings.title": "Ajustes de tareas", "taskSettings.maxConcurrentTasks": "Máx. tareas simultáneas", "taskSettings.maxConcurrentTasksDesc": "Límite de tareas simultáneas de descarga de video/galería", "taskSettings.maxScrapingTasks": "Máx. tareas de rastreo", "taskSettings.maxScrapingTasksDesc": "Límite de tareas simultáneas de rastreo (identificación)", "taskSettings.sniffMaxConcurrentTasks": "Máx. tareas simultáneas de sniffing", "taskSettings.maxSniffTasksDesc": "Límite de tareas simultáneas de sniffing", "taskSettings.tsSegmentConcurrent": "Concurrencia de segmentos TS", "taskSettings.tsSegmentConcurrentDesc": "Solicitudes paralelas de segmentos TS por descarga de video", "taskSettings.galleryImageConcurrent": "Concurrencia de imágenes de galería", "taskSettings.galleryImageConcurrentDesc": "Solicitudes paralelas de imágenes durante descarga de galería", "taskSettings.unitTasks": "tareas", "taskSettings.unitSegments": "segs.", "taskSettings.unitFiles": "arch.", "taskSettings.note": "Los cambios surten efecto inmediatamente, no requiere reinicio", "taskSettings.refresh": "Actualizar", "taskSettings.save": "Guardar", "taskSettings.loadFailed": "Error al cargar ajustes", "taskSettings.saveFailed": "Error al guardar ajustes", "taskSettings.saved": "Ajustes guardados", "console.noTaskLogs": "Sin registros de tareas", "console.fetchFailed": "Error al obtener registros",
+  /* ─── Batch Search ─── */ "batchSearch.title": "Búsqueda por lotes", "batchSearch.titleLabel": "Título", "batchSearch.siteLabel": "Sitio", "batchSearch.startSearch": "Iniciar búsqueda", "batchSearch.searching": "Buscando...", "batchSearch.collapse": "Contraer", "batchSearch.expand": "Expandir", "batchSearch.downloaded": "Descargados", "batchSearch.notFound": "No encontrados", "batchSearch.failed": "Fallidos", "batchSearch.total": "Total", "batchSearch.all": "Todos", "batchSearch.candidates": "{count} candidatos", "batchSearch.progress": "Progreso: ", "batchSearch.copyNotFound": "Copiar no encontrados", "batchSearch.retryFailed": "Reintentar fallidos", "batchSearch.hideLogs": "Ocultar logs", "batchSearch.showLogs": "Mostrar logs", "batchSearch.colInputTitle": "Título de entrada", "batchSearch.colMatchResult": "Resultado", "batchSearch.colScore": "Puntuación", "batchSearch.colStatus": "Estado", "batchSearch.colTask": "Tarea", "batchSearch.complete": "Búsqueda por lotes completada: descargados {downloaded}, no encontrados {notFound}, fallidos {failed}", "batchSearch.started": "Búsqueda por lotes iniciada, {count} títulos", "batchSearch.copied": "Copiados {count} títulos al portapapeles", "batchSearch.placeholder": "Pega títulos de video, uno por línea, ej.:\nVida secreta de una criada hermosa\nTentación de un ángel\nDiario de entrenamiento", "batchSearch.pleaseInputTitle": "Introduce un título", "batchSearch.noValidTitle": "No se encontraron títulos válidos", "batchSearch.cancelled": "Búsqueda por lotes cancelada", "batchSearch.cancelFailed": "Error al cancelar", "batchSearch.noNotFound": "No hay títulos no encontrados", "batchSearch.noRetry": "No hay títulos para reintentar", "batchSearch.refilled": "Títulos fallidos rellenados en el campo de entrada", "batchSearch.inputHint": "Detectados {count} títulos · Búsqueda difusa automática y descarga de videos coincidentes · Intervalo de 3-5s entre títulos para evitar bloqueos",
+  /* ─── Task Settings ─── */ "taskSettings.title": "Ajustes de tareas", "taskSettings.maxConcurrentTasks": "Máx. tareas simultáneas", "taskSettings.maxConcurrentTasksDesc": "Límite de tareas simultáneas de descarga de video/galería", "taskSettings.maxScrapingTasks": "Máx. tareas de rastreo", "taskSettings.maxScrapingTasksDesc": "Límite de tareas simultáneas de rastreo (identificación)", "taskSettings.sniffMaxConcurrentTasks": "Máx. tareas simultáneas de sniffing", "taskSettings.maxSniffTasksDesc": "Límite de tareas simultáneas de sniffing", "taskSettings.tsSegmentConcurrent": "Concurrencia de segmentos TS", "taskSettings.tsSegmentConcurrentDesc": "Solicitudes paralelas de segmentos TS por descarga de video", "taskSettings.galleryImageConcurrent": "Concurrencia de imágenes de galería", "taskSettings.galleryImageConcurrentDesc": "Solicitudes paralelas de imágenes durante descarga de galería", "taskSettings.unitTasks": "tareas", "taskSettings.unitSegments": "segs.", "taskSettings.unitFiles": "arch.", "taskSettings.note": "Los cambios surten efecto inmediatamente, no requiere reinicio", "taskSettings.refresh": "Actualizar", "taskSettings.save": "Guardar", "taskSettings.loadFailed": "Error al cargar ajustes", "taskSettings.saveFailed": "Error al guardar ajustes", "taskSettings.saved": "Ajustes guardados", "console.noTaskLogs": "Sin registros de tareas", "console.fetchFailed": "Error al obtener registros",
 
   /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "Pendiente",
@@ -351,7 +351,7 @@ const esES: TranslationDict = {
   "modelstage.comingSoon": "Próximamente, estén atentos",
   "modelstage.title": "Escenario de modelos",
 
-  /* ─── Vídeo ─── */
+  /* ─── Videos ─── */
   "video.play": "Reproducir",
   "video.pause": "Pausa",
   "video.mute": "Silenciar",

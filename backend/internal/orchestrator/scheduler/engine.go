@@ -16,7 +16,7 @@ import (
 
 // Defaults for the starvation lottery and scheduling iteration params.
 // Tuned at runtime via the Set* methods below — loaded from app_configs
-// at startup and hot-updated through PUT /api/config (260817 工单 11).
+// at startup and hot-updated through PUT /api/config (260817 ticket 11).
 const (
 	defaultStarvationThreshold   = 30 * time.Minute
 	defaultStarvationLotteryRate = 0.1

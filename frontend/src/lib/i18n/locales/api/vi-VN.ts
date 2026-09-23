@@ -1,15 +1,15 @@
 import type { TranslationDict } from "../../types";
 
-// Thông báo lỗi API — Tiếng Việt
+// API error messages — vi-VN
 const viVN: TranslationDict = {
-  // Xác thực cài đặt tác vụ
+  // Task settings validation
   "api.validation.maxConcurrentTasks": "Số tác vụ đồng thời tối đa phải từ 1 đến 50",
   "api.validation.maxSniffConcurrent": "Số sniff tối đa phải từ 1 đến 10",
   "api.validation.maxScrapingSlots": "Số slot nhận dạng tối đa phải từ 1 đến 50",
   "api.validation.tsSegmentConcurrent": "Số TS segment đồng thời phải từ 1 đến 200",
   "api.validation.galleryImageConcurrent": "Số ảnh thư viện đồng thời phải từ 1 đến 50",
 
-  // Thao tác diễn đàn SJS
+  // SJS forum actions
   "api.sjs.missingAction": "Thiếu tham số action",
   "api.sjs.signMissingAccountId": "Điểm danh yêu cầu tham số accountId",
   "api.sjs.buyMissingAccountId": "Mua bài đăng yêu cầu tham số accountId",
@@ -26,7 +26,7 @@ const viVN: TranslationDict = {
   "api.sjsShelf.refreshFailed": "Làm mới metadata thất bại",
   "api.sjsShelf.unknownAction": "Hành động không xác định",
 
-  // Tìm kiếm
+  // Search
   "api.search.missingJobId": "Vui lòng cung cấp jobId",
   "api.search.batchScrapeStarted": "Cào hàng loạt đã bắt đầu",
   "api.search.missingPageUrl": "Vui lòng cung cấp pageUrl",
@@ -34,15 +34,15 @@ const viVN: TranslationDict = {
   "api.search.missingKeyword": "Vui lòng cung cấp từ khóa tìm kiếm",
   "api.search.missingVideoTitle": "Vui lòng cung cấp tiêu đề video",
 
-  // Nhân vật
+  // Protagonist
   "api.protagonist.galleryNotFound": "Không tìm thấy thư viện cho nhân vật này",
   "api.protagonist.fetchFailed": "Tải thông tin nhân vật thất bại",
 
-  // Điều phối OUO
+  // OUO orchestration
   "api.ouo.missingParams": "Thiếu tham số bắt buộc: galleryId, ouoUrl",
   "api.ouo.missingGalleryId": "Thiếu tham số bắt buộc: galleryId",
 
-  // Thư viện
+  // Gallery
   "api.gallery.notFound": "Không tìm thấy thư viện",
   "api.gallery.noProviderMatch": "Không tìm thấy nhà cung cấp trang web phù hợp, không thể cào lại",
   "api.gallery.rescrapeStarted": "Cào lại thư viện đã bắt đầu",
@@ -62,26 +62,26 @@ const viVN: TranslationDict = {
   "api.gallery.batchEmptyUrl": "URL trống",
   "api.gallery.noProviderForRescrape": "Không tìm thấy nhà cung cấp thư viện, không thể cào lại",
 
-  // Tác vụ
+  // Tasks
   "api.tasks.noM3u8Extracted": "Không thể trích xuất liên kết M3U8 từ trang",
 
-  // Danh sách chặn
+  // Blocklist
   "api.blocklist.addFailed": "Thêm thất bại",
 
-  // Nhật ký
+  // Logs
   "api.logs.systemReady": "Hệ thống sẵn sàng, đang chờ tác vụ...",
   "api.logs.taskNumber": "Tác vụ #{id}",
   "api.logs.fetchFailed": "Tải nhật ký thất bại",
 
-  // Thư viện (bổ sung)
+  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "Trang {site} không hỗ trợ cào thư viện",
   "api.gallery.allDomainsFailed": "Tất cả tên miền đều cào thất bại",
 
-  // Tác vụ (bổ sung)
+  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "Đã phát hiện {count} địa chỉ M3U8, vui lòng chọn",
   "api.tasks.unsupportedListScrape": "Provider không hỗ trợ cào trang danh sách",
 
-  // Chung
+  // Common
   "api.characterDb.syncRunning": "Tác vụ đồng bộ đang chạy",
   "api.common.internalError": "Lỗi máy chủ nội bộ",
   "api.common.missingParams": "Thiếu tham số bắt buộc: {params}",

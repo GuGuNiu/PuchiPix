@@ -54,9 +54,9 @@ type ManagerConfig struct {
 	GPUTranscode  bool
 	// ForceGPUType overrides auto-detection ("" = auto). Valid values: "nvenc", "qsv", "vaapi", "amf", "videotoolbox".
 	ForceGPUType string
-	// UseStreamingMerge 是否使用流式合并（IndexBuffer + StreamMerger），默认 false
+	// UseStreamingMerge enables streaming merge (IndexBuffer + StreamMerger); default false
 	UseStreamingMerge bool
-	// StreamingMergeThreshold 流式合并的内存阈值（字节），超过此值使用磁盘模式，默认 100MB
+	// StreamingMergeThreshold byte threshold above which streaming merge switches to disk mode; default 100MB
 	StreamingMergeThreshold int64
 }
 
@@ -69,7 +69,7 @@ func DefaultManagerConfig() ManagerConfig {
 		MaxConcurrent:           3,
 		GPUTranscode:            false,
 		ForceGPUType:            "",
-		UseStreamingMerge:       false, // 默认关闭，渐进式启用
+		UseStreamingMerge:       false, // off by default; enable progressively
 		StreamingMergeThreshold: 100 * 1024 * 1024, // 100MB
 	}
 }
@@ -91,7 +91,7 @@ type DownloadManager struct {
 	gpuTranscode bool
 	forceGPUType string
 	tracker       *taskprogress.VideoProgressTracker
-	// 流式合并配置
+	// streaming merge config
 	useStreamingMerge       bool
 	streamingMergeThreshold int64
 
@@ -127,7 +127,6 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 		activeDownloads: make(map[int]*ActiveDownload),
 		taskRetries:    make(map[int]int),
 		logger:         m3u8Logger,
-		// 流式合并配置
 		useStreamingMerge:       cfg.UseStreamingMerge,
 		streamingMergeThreshold: cfg.StreamingMergeThreshold,
 	}
@@ -311,8 +310,9 @@ func (m *DownloadManager) handleSegmentUpdate(taskID, segmentIdx int, completed 
 	m.tracker.UpdateSegment(taskID, segmentIdx, status, localPath, fileSize, errMsg)
 }
 
-// handleSegmentReady 是分片下载完成并准备进行流式合并时的回调
-// 当 UseStreamingMerge 启用时，将分片存储到对应任务的 StreamMerger 中
+// handleSegmentReady is invoked when a segment finishes downloading and is
+// ready for streaming merge. With UseStreamingMerge enabled, the segment is
+// stored to the task's StreamMerger.
 func (m *DownloadManager) handleSegmentReady(taskID, index int, filePath string, size int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -322,7 +322,7 @@ func (m *DownloadManager) handleSegmentReady(taskID, index int, filePath string,
 		return
 	}
 
-	// 如果启用了流式合并且该任务有 StreamMerger，则存储分片
+	// Store the segment if streaming merge is on and this task has a StreamMerger
 	if download.streamMerger != nil {
 		if err := download.streamMerger.StoreSegmentDisk(index, filePath, size); err != nil {
 			m.logger.Warn("Failed to store segment to stream merger",
@@ -525,11 +525,11 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		Referer:           referer,
 	}
 
-	// 初始化流式合并器（当配置启用时）。
-	// 根据 M3U8 分片总大小自动选择内存模式或磁盘模式：
-	//   - 预估总大小 < streamingMergeThreshold → MemoryMode（零磁盘 I/O）
-	//   - 预估总大小 ≥ streamingMergeThreshold → DiskMode（恒定内存占用）
-	// 预估大小基于分片数 × 平均分片大小（从 M3U8 元数据获取）。
+	// Initialize the streaming merger when configured. Picks memory or disk
+	// mode from the estimated total segment size:
+	//   - estimate < streamingMergeThreshold → MemoryMode (zero disk I/O)
+	//   - estimate ≥ streamingMergeThreshold → DiskMode (constant memory)
+	// Estimate = segment count × average segment size (from M3U8 metadata).
 	if m.useStreamingMerge {
 		avgSegSize := estimateAvgSegmentSize(segments)
 		bufMode := DetermineBufferMode(len(segments), avgSegSize)
@@ -679,12 +679,13 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"gpu":    m.gpuTranscode,
 		}})
 
-	// 使用可插拔 Pipeline 执行转码后处理。
-	// 默认管道：concat → transcode，与旧逻辑行为一致。
-	// 未来可通过 Pipeline.Use() 插入 WatermarkStep / MetadataStep
-	// 而无需修改此调用点。
-	// 如果启用了流式合并且 StreamMerger 仍有未消费的分片，
-	// 将其作为 Pipeline 的输入；否则从 segDir 读取已下载的分片。
+	// Run post-processing through the pluggable Pipeline.
+	// Default pipeline: concat → transcode, same behavior as the old logic.
+	// Future steps (WatermarkStep / MetadataStep) can be inserted via
+	// Pipeline.Use() without changing this call site.
+	// If streaming merge is on and StreamMerger still holds unconsumed
+	// segments, feed them to the pipeline; otherwise read downloaded
+	// segments from segDir.
 	transcodeCtx, transcodeCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer transcodeCancel()
 
@@ -1073,11 +1074,11 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 	return err
 }
 
-// estimateAvgSegmentSize 估算 M3U8 分片的平均字节大小。
-// M3U8 分片通常为 2–10 秒的流媒体内容，按典型 HLS 码率
-// 1–5 Mbps 估算，取中间值 ~2 Mbps (250 KB/s) 作为默认码率。
-// 此估算仅用于选择 IndexBuffer 的存储模式（内存 vs 磁盘），
-// 不影响实际下载或文件大小准确性。
+// estimateAvgSegmentSize estimates the average byte size of M3U8 segments.
+// Segments are typically 2–10 seconds of stream; at typical HLS bitrates
+// of 1–5 Mbps we use the midpoint ~2 Mbps (250 KB/s) as the default.
+// This estimate only selects the IndexBuffer storage mode (memory vs
+// disk) — it does not affect downloads or file-size accuracy.
 func estimateAvgSegmentSize(segments []M3U8Segment) int64 {
 	if len(segments) == 0 {
 		return 0

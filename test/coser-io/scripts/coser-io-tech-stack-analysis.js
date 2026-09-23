@@ -1,6 +1,6 @@
 /**
- * Coser.io 技术栈深度分析脚本
- * 目标: 识别站点使用的框架、CMS、技术架构
+ * Coser.io deep tech-stack analysis script.
+ * Target: identify the frameworks, CMS, and architecture used by the site.
  */
 
 const https = require('https');
@@ -10,7 +10,7 @@ const path = require('path');
 
 const OUTPUT_DIR = 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\data';
 
-// HTTP请求工具
+// HTTP request helper
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -62,7 +62,7 @@ function request(url, options = {}) {
   });
 }
 
-// 1. 分析HTTP响应头
+// 1. Analyze HTTP response headers
 async function analyzeHeaders() {
   console.log('=== 1. HTTP响应头分析 ===\n');
 
@@ -109,7 +109,7 @@ async function analyzeHeaders() {
   fs.writeFileSync(path.join(OUTPUT_DIR, 'http-headers-analysis.json'), JSON.stringify(results, null, 2));
 }
 
-// 2. 分析HTML特征
+// 2. Analyze HTML features
 async function analyzeHTMLFeatures() {
   console.log('=== 2. HTML特征分析 ===\n');
 
@@ -117,9 +117,9 @@ async function analyzeHTMLFeatures() {
     const res = await request('https://coser.io/latp/69218.html');
     const html = res.body;
 
-    // 检测框架特征
+    // Detect framework features
     const features = {
-      // 框架检测
+      // Framework detection
       alpinejs: html.includes('x-data') || html.includes('x-show') || html.includes('alpine'),
       vue: html.includes('vue') || html.includes('v-') || html.includes('data-v-'),
       react: html.includes('react') || html.includes('data-reactroot') || html.includes('__REACT__'),
@@ -128,34 +128,34 @@ async function analyzeHTMLFeatures() {
       nextjs: html.includes('__NEXT_DATA__'),
       nuxtjs: html.includes('__NUXT__'),
 
-      // 模板引擎检测
+      // Template engine detection
       twig: html.includes('{%') || html.includes('{{'),
       blade: html.includes('@php') || html.includes('@end') || html.includes('@section'),
       jinja2: html.includes('{% for') || html.includes('{% if'),
       ejs: html.includes('<%-') || html.includes('<%='),
       pug: html.includes('doctype html') && !html.includes('<!DOCTYPE'),
 
-      // CSS框架
+      // CSS frameworks
       tailwind: html.includes('tailwind') || html.includes('class="grid ') || html.includes('class="flex '),
       bootstrap: html.includes('bootstrap') || html.includes('class="container"') || html.includes('class="row"'),
       bulma: html.includes('bulma'),
 
-      // 其他特征
+      // Other features
       cdn: (html.match(/cdn\./g) || []).length,
       nonce: html.includes('nonce='),
       csrf: html.includes('csrf') || html.includes('_token'),
       gzip: res.headers['content-encoding'] === 'gzip',
 
-      // 服务端标识
+      // Server-side identifiers
       poweredBy: html.includes('Powered by') || html.includes('powered by'),
       generator: html.includes('<meta name="generator"'),
 
-      // 特定技术
+      // Specific technologies
       cloudflare: html.includes('cloudflare') || html.includes('__cf'),
       aws: html.includes('aws') || html.includes('amazonaws'),
       aliyun: html.includes('aliyun') || html.includes('alicdn'),
 
-      // 图片处理
+      // Image processing
       webp: (html.match(/\.webp/g) || []).length,
       lazyLoad: html.includes('loading="lazy"') || html.includes('data-src'),
     };
@@ -169,19 +169,19 @@ async function analyzeHTMLFeatures() {
       }
     });
 
-    // 提取script标签
+    // Extract script tags
     const scriptMatches = html.matchAll(/<script[^>]*src="([^"]+)"[^>]*>/g);
     const scripts = [...new Set([...scriptMatches].map(m => m[1]))];
     console.log(`\n外部脚本 (${scripts.length}个):`);
     scripts.slice(0, 10).forEach(s => console.log(`  - ${s}`));
 
-    // 提取link标签
+    // Extract link tags
     const linkMatches = html.matchAll(/<link[^>]*href="([^"]+)"[^>]*>/g);
     const links = [...new Set([...linkMatches].map(m => m[1]))];
     console.log(`\n外部链接 (${links.length}个):`);
     links.slice(0, 10).forEach(l => console.log(`  - ${l}`));
 
-    // 提取meta标签
+    // Extract meta tags
     const metaMatches = html.matchAll(/<meta[^>]*name="([^"]+)"[^>]*content="([^"]+)"[^>]*>/g);
     const metas = [...metaMatches].map(m => ({ name: m[1], content: m[2] }));
     console.log(`\nMeta标签:`);
@@ -199,12 +199,12 @@ async function analyzeHTMLFeatures() {
   }
 }
 
-// 3. 探测常见技术路径
+// 3. Probe common tech paths
 async function probeTechPaths() {
   console.log('\n=== 3. 技术路径探测 ===\n');
 
   const paths = [
-    // 框架标识文件
+    // Framework marker files
     '/.env',
     '/.git/HEAD',
     '/.git/config',
@@ -223,7 +223,7 @@ async function probeTechPaths() {
     '/sitemap.xml',
     '/sitemap_index.xml',
 
-    // 框架路由
+    // Framework routes
     '/_next/static/',
     '/_nuxt/',
     '/assets/',
@@ -232,7 +232,7 @@ async function probeTechPaths() {
     '/dist/',
     '/build/',
 
-    // 管理后台
+    // Admin backends
     '/admin',
     '/admin/',
     '/dashboard',
@@ -240,7 +240,7 @@ async function probeTechPaths() {
     '/cms',
     '/backend',
 
-    // API文档
+    // API docs
     '/api',
     '/api/',
     '/api/docs',
@@ -249,14 +249,14 @@ async function probeTechPaths() {
     '/openapi.json',
     '/graphql',
 
-    // 健康检查
+    // Health checks
     '/health',
     '/healthz',
     '/ready',
     '/alive',
     '/status',
 
-    // 常见CMS
+    // Common CMS
     '/wp-admin',
     '/wp-content',
     '/wp-includes',
@@ -297,7 +297,7 @@ async function probeTechPaths() {
   fs.writeFileSync(path.join(OUTPUT_DIR, 'tech-paths-probe.json'), JSON.stringify(results, null, 2));
 }
 
-// 4. 分析Cookie和Session
+// 4. Analyze cookies and sessions
 async function analyzeCookies() {
   console.log('\n=== 4. Cookie和Session分析 ===\n');
 
@@ -337,7 +337,7 @@ async function analyzeCookies() {
   }
 }
 
-// 5. 分析JS文件内容
+// 5. Analyze JS file content
 async function analyzeJSContent() {
   console.log('\n=== 5. JS文件内容分析 ===\n');
 
@@ -355,7 +355,7 @@ async function analyzeJSContent() {
       console.log(`${jsPath}:`);
       console.log(`  大小: ${content.length} 字节`);
 
-      // 检测JS中的线索
+      // Detect clues in JS
       const clues = {
         framework: content.match(/(react|vue|angular|svelte|next|nuxt)/i)?.[0],
         fetch: content.includes('fetch('),
@@ -384,7 +384,7 @@ async function analyzeJSContent() {
   }
 }
 
-// 6. 分析CSS特征
+// 6. Analyze CSS features
 async function analyzeCSS() {
   console.log('=== 6. CSS特征分析 ===\n');
 
@@ -394,7 +394,7 @@ async function analyzeCSS() {
 
     console.log(`CSS文件大小: ${css.length} 字节`);
 
-    // 检测CSS框架
+    // Detect CSS frameworks
     const features = {
       tailwind: css.includes('tailwind') || css.includes('--tw-'),
       bootstrap: css.includes('bootstrap') || css.includes('.container'),
@@ -413,7 +413,7 @@ async function analyzeCSS() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('Coser.io 技术栈深度分析\n');
   console.log('=======================\n');

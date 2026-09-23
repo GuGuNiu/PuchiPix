@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// ブロックリストページテキスト — 日本語
+// Blocklist page text — ja-JP
 const jaJP: TranslationDict = {
   "blocklist.title": "ブロックリスト",
   "blocklist.subtitle": "コンテンツブロックルールの管理 — タイトル/カテゴリ/キャラ/監督でフィルタリング",

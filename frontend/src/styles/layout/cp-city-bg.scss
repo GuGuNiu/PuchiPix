@@ -1,7 +1,4 @@
-// ============================================================
-// Cyberpunk City Background — 赛博朋克城市 SVG 背景动画
-// 全高度竖向连续城市
-// ============================================================
+// Cyberpunk city background — full-height vertical SVG city animation
 
 .cp-city-bg {
   position: absolute;
@@ -12,12 +9,12 @@
   opacity: 0.95;
   transition: opacity 0.6s ease;
 
-  // 折叠侧边栏时
+  // Sidebar collapsed
   .sidebar.collapsed:not(.hover-expand) & {
     opacity: 0.55;
   }
 
-  // 夜间主题增强
+  // Boosted in dark theme
   [data-theme="dark"] & {
     opacity: 1;
   }
@@ -37,7 +34,7 @@
   display: block;
 }
 
-// ===== 星空粒子 =====
+// ===== Starfield particles =====
 .cp-city-particles {
   opacity: 0.6;
 
@@ -62,13 +59,13 @@
   100% { opacity: 0.5; transform: scale(1); }
 }
 
-// ===== 建筑层 =====
+// ===== Building layers =====
 .cp-city-layer {
   fill: url(#cp-city-bgrad);
   transition: fill 0.5s ease;
 }
 
-// 远景
+// Far layer
 .cp-city-far {
   opacity: 0.55;
   animation: cp-city-drift-far 60s linear infinite alternate;
@@ -78,7 +75,7 @@
   }
 }
 
-// 中景
+// Mid layer
 .cp-city-mid {
   opacity: 0.8;
   animation: cp-city-drift-mid 45s linear infinite alternate;
@@ -88,7 +85,7 @@
   }
 }
 
-// 近景
+// Near layer
 .cp-city-near {
   opacity: 1;
   animation: cp-city-drift-near 30s linear infinite alternate;
@@ -113,7 +110,7 @@
   100% { transform: translateX(14px); }
 }
 
-// ===== 竖向电缆 =====
+// ===== Vertical cables =====
 .cp-city-wires {
   opacity: 0.4;
 
@@ -134,7 +131,7 @@
   100% { stroke-dashoffset: 48; }
 }
 
-// ===== 横向连接桥 =====
+// ===== Horizontal skybridges =====
 .cp-city-bridges {
   opacity: 0.45;
 
@@ -160,7 +157,7 @@
   100% { stroke-dashoffset: 54; }
 }
 
-// ===== 霓虹灯柱 =====
+// ===== Neon poles =====
 .cp-city-neon-poles {
   opacity: 0.6;
 
@@ -179,7 +176,7 @@
   100% { opacity: 0.9; }
 }
 
-// ===== 霓虹招牌文字 =====
+// ===== Neon sign text =====
 .cp-city-neon-signs {
   opacity: 0.5;
 
@@ -210,7 +207,7 @@
   90%      { opacity: 1; filter: drop-shadow(0 0 12px var(--cp-city-neon)); }
 }
 
-// ===== 窗户 =====
+// ===== Windows =====
 .cp-city-windows {
   opacity: 0.9;
 
@@ -229,7 +226,7 @@
     animation-duration: 3s;
   }
 
-  // 每扇窗户随机延迟
+  // Staggered per-window delays
   &:nth-child(3n+1) { animation-delay: 0.2s; }
   &:nth-child(3n+2) { animation-delay: 1.5s; }
   &:nth-child(5n+1) { animation-delay: 0.7s; }
@@ -250,7 +247,7 @@
   90%      { fill: var(--cp-city-win-off); }
 }
 
-// ===== 悬浮光点/无人机 =====
+// ===== Floating orbs / drones =====
 .cp-city-orbs {
   opacity: 0.8;
 
@@ -288,7 +285,7 @@
   100% { transform: translateY(-6px) translateX(-1px); opacity: 0.5; }
 }
 
-// ===== 全息网格地面 =====
+// ===== Holographic grid floor =====
 .cp-city-grid {
   opacity: 0.35;
 
@@ -308,7 +305,7 @@
   100% { opacity: 0.6; }
 }
 
-// ===== 竖向扫描线 =====
+// ===== Vertical scan line =====
 .cp-scan-line-v {
   stroke: var(--cp-city-scan);
   stroke-width: 1.5;

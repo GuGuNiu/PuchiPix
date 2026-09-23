@@ -1,7 +1,7 @@
 import type { TranslationDict } from "../../types";
 
 const zhTW: TranslationDict = {
-  /* ─── 通用 ─── */
+  /* ─── Common ─── */
   "common.refresh": "重新整理",
   "common.delete": "刪除",
   "common.cancel": "取消",
@@ -36,7 +36,7 @@ const zhTW: TranslationDict = {
   "common.adding": "新增中...",
   "common.pages": "頁",
 
-  /* ─── 導航 ─── */
+  /* ─── Navigation ─── */
   "nav.dashboard": "噗呲大厅",
   "nav.tasks": "任務管理",
   "nav.shelf": "資源架",
@@ -58,11 +58,11 @@ const zhTW: TranslationDict = {
   "nav.photos": "寫真包",
   "nav.sjs": "司機社",
 
-  /* ─── 司機社 ─── */
+  /* ─── SJS ─── */
   "sjs.comingSoon": "司機社即將上線",
   "sjs.underConstruction": "正在建設中，敬請期待",
 
-  /* ─── 司機社收藏架 ─── */
+  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "批量導入",
   "sjs.shelf.searchPlaceholder": "搜索標題、作者、URL...",
   "sjs.shelf.allForums": "全部分區",
@@ -100,7 +100,7 @@ const zhTW: TranslationDict = {
   "sjs.shelf.refreshed": "已刷新",
   "sjs.shelf.refreshNetworkError": "刷新請求失敗，請檢查網絡",
 
-  /* ─── 儀表板 ─── */
+  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "即時連線",
   "dashboard.offline": "離線",
   "dashboard.totalTasks": "總任務",
@@ -130,7 +130,7 @@ const zhTW: TranslationDict = {
   "dashboard.addLinkToStart": "新增連結開始下載",
   "dashboard.identifying": "識別中",
 
-  /* ─── 圖包管理 ─── */
+  /* ─── Gallery ─── */
   "gallery.statusScraping": "爬取中",
 "gallery.statusScrapePending": "等待識別",
 "gallery.statusDownloadPending": "等待下載",
@@ -200,7 +200,7 @@ const zhTW: TranslationDict = {
   "gallery.zipExtractLabel": "解壓",
   "gallery.clickToCopy": "點擊複製",
 
-  /* ─── 搜尋 ─── */
+  /* ─── Search ─── */
   "search.placeholderGallery": "輸入關鍵字或貼上完整 URL 連結如 /article/ /tag/ 頁面...",
   "search.placeholderVideo": "輸入搜尋關鍵字支援逗號、空格分隔...",
   "search.searching": "搜尋中...",
@@ -246,7 +246,7 @@ const zhTW: TranslationDict = {
   "search.statusCancelled": "已取消",
   "search.statusScraping": "爬取中",
 
-  /* ─── 設定 ─── */
+  /* ─── Settings ─── */
   "config.title": "系統設定",
   "config.pathSettings": "路徑設定",
   "config.chromeDriverPath": "ChromeDriver 路徑",
@@ -267,7 +267,7 @@ const zhTW: TranslationDict = {
   "config.downloadMaxSpeed": "限速 (MB/s, 0=不限速)",
   "config.downloadMinFileSize": "最小檔案大小 (MB)",
 
-  /* ─── 嗅探 ─── */
+  /* ─── Sniff ─── */
   "sniff.title": "嗅探 M3U8 連結",
   "sniff.control": "嗅探控制",
   "sniff.targetUrl": "目標連結",
@@ -286,7 +286,7 @@ const zhTW: TranslationDict = {
   "sniff.addedToDownload": "已新增到下載任務",
   "sniff.untitled": "未命名",
 
-  /* ─── 主角展示架 ─── */
+  /* ─── Characters ─── */
   "protagonists.title": "主角展示架",
   "protagonists.subtitle": "已歸一化的主角列表點擊可檢視該主角的所有圖庫",
   "protagonists.searchPlaceholder": "搜尋主角名字...",
@@ -302,7 +302,7 @@ const zhTW: TranslationDict = {
   "protagonists.statGalleries": "{count} 個圖庫",
   "protagonists.statAliases": "{count} 個別名",
 
-  /* ─── 運維面板 ─── */
+  /* ─── Ops Panel ─── */
   "ops.online": "上線",
   "ops.offline": "離線",
   "ops.todayTasks": "今日任務",
@@ -320,7 +320,7 @@ const zhTW: TranslationDict = {
   "ops.noLogs": "暫無日誌",
   "ops.pausedBuffer": "已暫停 — 緩衝區有 {count} 條新日誌",
 
-  /* ─── 建立任務 ─── */
+  /* ─── Create Task ─── */
   "createTask.title": "建立下載任務",
   "createTask.pleaseFillLink": "請填寫連結",
   "createTask.exactMatch": "精確匹配",
@@ -369,7 +369,7 @@ const zhTW: TranslationDict = {
   "search.estimatedSizeValue": "估算中",
   "search.bitrate": "位元率",
 
-  /* ─── 批次搜尋 ─── */
+  /* ─── Batch Search ─── */
   "batchSearch.title": "批次搜尋",
   "batchSearch.titleLabel": "標題",
   "batchSearch.siteLabel": "站點",
@@ -406,7 +406,7 @@ const zhTW: TranslationDict = {
   "batchSearch.refilled": "已將失敗標題填入輸入框",
   "batchSearch.inputHint": "偵測到 {count} 個標題 · 將自動模糊搜尋並下載匹配的影片 · 每個標題間隔 3~5 秒防爬蟲",
 
-  /* ─── 任務設定面板 ─── */
+  /* ─── Task Settings ─── */
   "taskSettings.title": "任務設定",
   "taskSettings.maxConcurrentTasks": "最大並行任務數",
   "taskSettings.maxConcurrentTasksDesc": "同時執行的影片/圖庫下載任務上限",
@@ -428,11 +428,11 @@ const zhTW: TranslationDict = {
   "taskSettings.saveFailed": "儲存設定失敗",
   "taskSettings.saved": "儲存成功",
 
-  /* ─── 控制台日誌 ─── */
+  /* ─── Console Log ─── */
   "console.noTaskLogs": "暫無任務日誌",
   "console.fetchFailed": "日誌取得失敗",
 
-  /* ─── DAG 節點狀態 ─── */
+  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "待就緒",
   "dag.nodeState.ready": "就緒",
   "dag.nodeState.queued": "排隊中",
@@ -454,7 +454,7 @@ const zhTW: TranslationDict = {
   "modelstage.comingSoon": "即將上線，敬請期待",
   "modelstage.title": "模特台",
 
-  /* ─── 影片 ─── */
+  /* ─── Videos ─── */
   "video.play": "播放",
   "video.pause": "暫停",
   "video.mute": "靜音",

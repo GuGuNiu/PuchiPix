@@ -1,10 +1,8 @@
 import type { TranslationDict } from "../../types";
 
-/**
- * 프론트엔드 UI 텍스트 — 한국어
- */
+/** Frontend UI text — ko-KR */
 const koKR: TranslationDict = {
-  /* ─── 공통 ─── */
+  /* ─── Common ─── */
   "common.refresh": "새로고침",
   "common.delete": "삭제",
   "common.cancel": "취소",
@@ -39,7 +37,7 @@ const koKR: TranslationDict = {
   "common.adding": "추가 중...",
   "common.pages": "페이지",
 
-  /* ─── 내비게이션 ─── */
+  /* ─── Navigation ─── */
   "nav.dashboard": "푸치 홀",
   "nav.tasks": "작업 관리",
   "nav.shelf": "리소스 선반",
@@ -103,7 +101,7 @@ const koKR: TranslationDict = {
   "sjs.shelf.refreshed": "Refreshed",
   "sjs.shelf.refreshNetworkError": "Refresh request failed, please check network",
 
-  /* ─── 대시보드 ─── */
+  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "실시간 연결",
   "dashboard.offline": "오프라인",
   "dashboard.totalTasks": "전체 작업",
@@ -133,7 +131,7 @@ const koKR: TranslationDict = {
   "dashboard.addLinkToStart": "링크를 추가하여 다운로드 시작",
   "dashboard.identifying": "식별 중",
 
-  /* ─── 갤러리 관리 ─── */
+  /* ─── Gallery ─── */
   "gallery.statusScraping": "크롤링 중",
   "gallery.statusScrapePending": "식별 대기",
   "gallery.statusDownloadPending": "다운로드 대기",
@@ -203,7 +201,7 @@ const koKR: TranslationDict = {
   "gallery.zipExtractLabel": "압축 해제: ",
   "gallery.clickToCopy": "클릭하여 복사",
 
-  /* ─── 검색 ─── */
+  /* ─── Search ─── */
   "search.placeholderGallery": "키워드 입력 또는 전체 URL 붙여넣기 (예: /article/ /tag/ 페이지)...",
   "search.placeholderVideo": "검색 키워드 입력, 쉼표/공백으로 구분...",
   "search.searching": "검색 중...",
@@ -249,7 +247,7 @@ const koKR: TranslationDict = {
   "search.statusCancelled": "취소됨",
   "search.statusScraping": "크롤링 중",
 
-  /* ─── 설정 ─── */
+  /* ─── Settings ─── */
   "config.title": "시스템 설정",
   "config.pathSettings": "경로 설정",
   "config.chromeDriverPath": "ChromeDriver 경로",
@@ -270,7 +268,7 @@ const koKR: TranslationDict = {
   "config.downloadMaxSpeed": "속도 제한 (MB/s, 0=무제한)",
   "config.downloadMinFileSize": "최소 파일 크기 (MB)",
 
-  /* ─── 탐색 ─── */
+  /* ─── Sniff ─── */
   "sniff.title": "M3U8 링크 탐색",
   "sniff.control": "탐색 제어",
   "sniff.targetUrl": "대상 링크",
@@ -289,7 +287,7 @@ const koKR: TranslationDict = {
   "sniff.addedToDownload": "다운로드 작업에 추가됨",
   "sniff.untitled": "제목 없음",
 
-  /* ─── 주인공 전시장 ─── */
+  /* ─── Characters ─── */
   "protagonists.title": "주인공 전시장",
   "protagonists.subtitle": "정규화된 주인공 목록 — 클릭하여 해당 주인공의 모든 갤러리 보기",
   "protagonists.searchPlaceholder": "주인공 이름 검색...",
@@ -305,7 +303,7 @@ const koKR: TranslationDict = {
   "protagonists.statGalleries": "갤러리 {count}개",
   "protagonists.statAliases": "별명 {count}개",
 
-  /* ─── 운영 패널 ─── */
+  /* ─── Ops Panel ─── */
   "ops.online": "온라인",
   "ops.offline": "오프라인",
   "ops.todayTasks": "오늘의 작업",
@@ -323,7 +321,7 @@ const koKR: TranslationDict = {
   "ops.noLogs": "로그 없음",
   "ops.pausedBuffer": "일시정지 — 버퍼에 {count}개 새 로그",
 
-  /* ─── 작업 생성 ─── */
+  /* ─── Create Task ─── */
   "createTask.title": "다운로드 작업 생성",
   "createTask.pleaseFillLink": "링크를 입력하세요",
   "createTask.exactMatch": "정확히 일치",
@@ -346,7 +344,7 @@ const koKR: TranslationDict = {
   "createTask.creating": "생성 중...",
   "createTask.createTask": "작업 생성",
 
-  /* ─── 검색 (추가) ─── */
+  /* ─── Search (Supplements) ─── */
   "search.scrape": "크롤링",
   "search.scrapeThisVideo": "이 동영상 크롤링",
   "search.loadingData": "데이터 로딩 중...",
@@ -373,7 +371,7 @@ const koKR: TranslationDict = {
   "search.estimatedSizeValue": "추정 중",
   "search.bitrate": "비트레이트",
 
-  /* ─── 배치 검색 ─── */
+  /* ─── Batch Search ─── */
   "batchSearch.title": "배치 검색",
   "batchSearch.titleLabel": "제목",
   "batchSearch.siteLabel": "사이트",
@@ -410,7 +408,7 @@ const koKR: TranslationDict = {
   "batchSearch.refilled": "실패한 제목이 입력란에 채워짐",
   "batchSearch.inputHint": "{count}개 제목 감지 · 자동 퍼지 검색 및 일치하는 동영상 다운로드 · 크롤링 방지를 위해 제목마다 3~5초 간격",
 
-  /* ─── 작업 설정 패널 ─── */
+  /* ─── Task Settings ─── */
   "taskSettings.title": "작업 설정",
   "taskSettings.maxConcurrentTasks": "최대 동시 작업 수",
   "taskSettings.maxConcurrentTasksDesc": "동시 실행되는 동영상/갤러리 다운로드 작업 상한",
@@ -432,11 +430,11 @@ const koKR: TranslationDict = {
   "taskSettings.saveFailed": "설정 저장 실패",
   "taskSettings.saved": "설정이 저장되었습니다",
 
-  /* ─── 콘솔 로그 ─── */
+  /* ─── Console Log ─── */
   "console.noTaskLogs": "작업 로그 없음",
   "console.fetchFailed": "로그 가져오기 실패",
 
-  /* ─── DAG 노드 상태 ─── */
+  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "대기 중",
   "dag.nodeState.ready": "준비됨",
   "dag.nodeState.queued": "대기열",
@@ -458,7 +456,7 @@ const koKR: TranslationDict = {
   "modelstage.comingSoon": "곧 출시됩니다",
   "modelstage.title": "모델 스테이지",
 
-  /* ─── 동영상 ─── */
+  /* ─── Videos ─── */
   "video.play": "재생",
   "video.pause": "일시정지",
   "video.mute": "음소거",

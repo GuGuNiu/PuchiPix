@@ -38,7 +38,7 @@ type ActiveDownload struct {
 	StartTime         time.Time
 	LastProgressTime  time.Time
 	Referer           string
-	// streamMerger 是流式合并器，当 UseStreamingMerge 启用时使用
+	// streamMerger is the streaming merger, used when UseStreamingMerge is enabled
 	streamMerger *StreamMerger
 }
 
@@ -79,8 +79,9 @@ type QueueItem struct {
 // ProgressFunc is the callback signature for progress reporting.
 type ProgressFunc func(taskID int, progress float64, segment, total int, status, speed string)
 
-// SegmentReadyFunc 是当分片下载完成并存储到 IndexBuffer 时的回调
-// index: 分片索引, filePath: 分片文件路径, size: 分片大小
+// SegmentReadyFunc is invoked when a segment finishes downloading and is
+// stored to the IndexBuffer.
+// index: segment index, filePath: segment file path, size: segment size.
 type SegmentReadyFunc func(taskID, index int, filePath string, size int64)
 
 // SegmentQueueConfig holds the dependencies the queue needs from its
@@ -334,7 +335,7 @@ func (q *SegmentQueue) downloadOneSegment(item QueueItem) {
 		if q.cfg.OnSegmentUpdate != nil {
 			q.cfg.OnSegmentUpdate(item.TaskID, item.Segment.Index, true, result.FilePath, 0, "")
 		}
-		// 通知流式合并器分片已就绪
+		// Notify the streaming merger that the segment is ready
 		if q.cfg.OnSegmentReady != nil {
 			q.cfg.OnSegmentReady(item.TaskID, item.Segment.Index, readyFile, readySize)
 		}

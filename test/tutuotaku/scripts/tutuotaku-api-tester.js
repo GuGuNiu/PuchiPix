@@ -1,6 +1,6 @@
 /**
- * tutuotaku.com API 测试脚本
- * 用于测试各种AJAX端点和会员功能
+ * tutuotaku.com API test script.
+ * Tests various AJAX endpoints and membership features.
  */
 
 const axios = require('axios');
@@ -9,11 +9,11 @@ const cheerio = require('cheerio');
 const BASE_URL = 'https://tutuotaku.com';
 const AJAX_URL = 'https://tutuotaku.com/wp-admin/admin-ajax.php';
 
-// 需要登录后获取的cookie
+// Cookie obtained after login
 let cookies = '';
 
 /**
- * 获取页面nonce和基本配置
+ * Fetch page nonce and basic config
  */
 async function getPageConfig() {
   try {
@@ -25,7 +25,7 @@ async function getPageConfig() {
     
     const html = response.data;
     
-    // 提取zb对象
+    // Extract the zb object
     const zbMatch = html.match(/var zb = ({.+?});/s);
     if (zbMatch) {
       const zb = JSON.parse(zbMatch[1]);
@@ -43,7 +43,7 @@ async function getPageConfig() {
 }
 
 /**
- * 测试签到功能
+ * Test check-in
  */
 async function testQiandao(nonce) {
   try {
@@ -71,7 +71,7 @@ async function testQiandao(nonce) {
 }
 
 /**
- * 测试获取站点通知
+ * Test site notifications
  */
 async function testGetNotify(nonce) {
   try {
@@ -99,7 +99,7 @@ async function testGetNotify(nonce) {
 }
 
 /**
- * 测试点赞功能
+ * Test liking
  */
 async function testLikePost(postId, nonce) {
   try {
@@ -128,7 +128,7 @@ async function testLikePost(postId, nonce) {
 }
 
 /**
- * 测试收藏功能
+ * Test favoriting
  */
 async function testFavPost(postId, nonce, isAdd = 1) {
   try {
@@ -158,7 +158,7 @@ async function testFavPost(postId, nonce, isAdd = 1) {
 }
 
 /**
- * 获取文章下载信息
+ * Fetch post download info
  */
 async function getPostDownloadInfo(postId) {
   try {
@@ -172,7 +172,7 @@ async function getPostDownloadInfo(postId) {
     const html = response.data;
     const $ = cheerio.load(html);
     
-    // 提取下载信息
+    // Extract download info
     const downloadInfo = {
       postId: postId,
       title: $('h1.entry-title').text().trim(),
@@ -194,7 +194,7 @@ async function getPostDownloadInfo(postId) {
 }
 
 /**
- * 解析下载跳转链接
+ * Parse download redirect links
  */
 async function resolveDownloadLink(gotoUrl) {
   try {
@@ -214,7 +214,7 @@ async function resolveDownloadLink(gotoUrl) {
     
     return response.request.res.responseUrl;
   } catch (error) {
-    // 302重定向会被视为错误，但我们可以获取到重定向URL
+    // 302 redirects count as errors, but we can capture the redirect URL
     if (error.response && error.response.headers.location) {
       console.log('重定向到:', error.response.headers.location);
       return error.response.headers.location;
@@ -225,12 +225,12 @@ async function resolveDownloadLink(gotoUrl) {
 }
 
 /**
- * 主测试函数
+ * Main test function
  */
 async function runTests() {
   console.log('🚀 开始 tutuotaku.com API 测试\n');
   
-  // 1. 获取页面配置
+  // 1. Fetch page config
   console.log('=== 1. 获取页面配置 ===');
   const config = await getPageConfig();
   
@@ -239,7 +239,7 @@ async function runTests() {
     return;
   }
   
-  // 2. 测试未登录状态的API
+  // 2. Test APIs while logged out
   console.log('\n=== 2. 测试未登录API ===');
   await testGetNotify(config.ajax_nonce);
   
@@ -250,7 +250,7 @@ async function runTests() {
   console.log('- 获取下载链接');
 }
 
-// 运行测试
+// Run tests
 runTests().catch(console.error);
 
 module.exports = {

@@ -1,21 +1,21 @@
 import type { TranslationDict } from "../../types";
 
 const zhCN: TranslationDict = {
-  // 任务设置校验
+  // Task settings validation
   "api.validation.maxConcurrentTasks": "同时运行任务数必须在 1~50 之间",
   "api.validation.maxSniffConcurrent": "嗅探最大并发数必须在 1~10 之间",
   "api.validation.maxScrapingSlots": "识别中最大数量必须在 1~50 之间",
   "api.validation.tsSegmentConcurrent": "TS 分片并发数必须在 1~200 之间",
   "api.validation.galleryImageConcurrent": "图库图片并发数必须在 1~50 之间",
 
-  // SJS 论坛操作
+  // SJS forum actions
   "api.sjs.missingAction": "缺少 action 参数",
   "api.sjs.signMissingAccountId": "签到需要 accountId 参数",
   "api.sjs.buyMissingAccountId": "购买帖子需要 accountId 参数",
   "api.sjs.buyMissingTid": "购买帖子需要 tid 参数帖子 ID",
   "api.sjs.loginMissingAccountId": "登录需要 accountId 参数",
 
-  // SJS 收藏架
+  // SJS Shelf
   "api.sjsShelf.noUrls": "请提供 URL 列表",
   "api.sjsShelf.emptyUrl": "空 URL",
   "api.sjsShelf.invalidSjsUrl": "不是有效的司机社 URL",
@@ -25,7 +25,7 @@ const zhCN: TranslationDict = {
   "api.sjsShelf.refreshFailed": "刷新元数据失败",
   "api.sjsShelf.unknownAction": "未知操作",
 
-  // 搜索
+  // Search
   "api.search.missingJobId": "请提供 jobId",
   "api.search.batchScrapeStarted": "批量爬取已启动",
   "api.search.missingPageUrl": "请提供 pageUrl",
@@ -33,15 +33,15 @@ const zhCN: TranslationDict = {
   "api.search.missingKeyword": "请提供搜索关键词",
   "api.search.missingVideoTitle": "请提供视频标题",
 
-  // 主角
+  // Protagonist
   "api.protagonist.galleryNotFound": "未找到该主角的图库",
   "api.protagonist.fetchFailed": "获取主角信息失败",
 
-  // OUO 编排
+  // OUO orchestration
   "api.ouo.missingParams": "缺少必需参数: galleryId, ouoUrl",
   "api.ouo.missingGalleryId": "缺少必需参数: galleryId",
 
-  // 图库
+  // Gallery
   "api.gallery.notFound": "图库不存在",
   "api.gallery.noProviderMatch": "无法找到匹配的站点提供者无法重新爬取",
   "api.gallery.rescrapeStarted": "图库重新爬取已启动",
@@ -61,26 +61,26 @@ const zhCN: TranslationDict = {
   "api.gallery.batchEmptyUrl": "空 URL",
   "api.gallery.noProviderForRescrape": "无法匹配图库提供商无法重新爬取",
 
-  // 任务
+  // Tasks
   "api.tasks.noM3u8Extracted": "无法从页面提取 M3U8 链接",
 
-  // 屏蔽词库
+  // Blocklist
   "api.blocklist.addFailed": "添加失败",
 
-  // 日志
+  // Logs
   "api.logs.systemReady": "系统就绪，等待任务...",
   "api.logs.taskNumber": "任务 #{id}",
   "api.logs.fetchFailed": "日志获取失败",
 
-  // 图库（补充）
+  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "站点 {site} 不支持图库爬取",
   "api.gallery.allDomainsFailed": "所有域名均爬取失败",
 
-  // 任务（补充）
+  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "检测到 {count} 个 M3U8 地址，请选择",
   "api.tasks.unsupportedListScrape": "Provider 不支持列表页爬取",
 
-  // 通用
+  // Common
   "api.characterDb.syncRunning": "同步任务正在运行中",
   "api.common.internalError": "服务器内部错误",
   "api.common.missingParams": "缺少必需参数: {params}",
@@ -90,7 +90,7 @@ const zhCN: TranslationDict = {
   "api.dag.invalidAction": "无效操作: {action}",
   "api.dag.schedulerRequired": "DAG 控制需要调度器（Phase 3）",
 
-  // Go 后端通用错误
+  // Go backend — common
   "api.common.databaseUnavailable": "数据库不可用",
   "api.common.missingBody": "请求体不能为空",
   "api.common.invalidJson": "无效的 JSON 请求体",
@@ -100,36 +100,36 @@ const zhCN: TranslationDict = {
   "api.common.invalidId": "无效的 ID",
   "api.common.keyRequired": "key 为必填项",
 
-  // Go 后端 — 账户管理
+  // Go backend — accounts
   "api.accounts.queryFailed": "查询账户失败",
   "api.accounts.missingFields": "siteId、username 和 password 为必填项",
   "api.accounts.createFailed": "创建账户失败",
   "api.accounts.updateFailed": "更新账户失败",
   "api.accounts.deleteFailed": "删除账户失败",
 
-  // Go 后端 — 主角管理
+  // Go backend — persons
   "api.persons.queryFailed": "查询主角失败",
   "api.persons.missingName": "name 为必填项",
   "api.persons.createFailed": "创建主角失败",
   "api.persons.updateFailed": "更新主角失败",
   "api.persons.deleteFailed": "删除主角失败",
 
-  // Go 后端 — 屏蔽词库
+  // Go backend — blocklist
   "api.blocklist.queryFailed": "查询屏蔽规则失败",
   "api.blocklist.missingFields": "fieldType 和 keyword 为必填项",
   "api.blocklist.createFailed": "创建屏蔽规则失败",
   "api.blocklist.updateFailed": "更新屏蔽规则失败",
   "api.blocklist.deleteFailed": "删除屏蔽规则失败",
 
-  // Go 后端 — 配置
+  // Go backend — config
   "api.config.queryFailed": "查询配置失败",
   "api.config.updateFailed": "更新配置失败",
 
-  // Go 后端 — 用户偏好
+  // Go backend — preferences
   "api.preferences.queryFailed": "查询用户偏好失败",
   "api.preferences.updateFailed": "更新用户偏好失败",
 
-  // Go 后端 — 任务
+  // Go backend — tasks
   "api.tasks.queryFailed": "查询任务失败",
   "api.tasks.missingUrl": "URL 为必填项",
   "api.tasks.createFailed": "创建任务失败",
@@ -137,15 +137,15 @@ const zhCN: TranslationDict = {
   "api.tasks.notFound": "任务不存在",
   "api.tasks.schedulerRequired": "任务操作需要调度器（Phase 3）",
 
-  // Go 后端 — 图库
+  // Go backend — gallery
   "api.gallery.queryFailed": "查询图库失败",
   "api.gallery.invalidId": "无效的图库 ID",
   "api.gallery.queryImagesFailed": "查询图片失败",
 
-  // Go 后端 — 下载历史
+  // Go backend — history
   "api.history.queryFailed": "查询下载历史失败",
 
-  // Go 后端 — SJS 收藏架（补充）
+  // Go backend — SJS shelf (supplement)
   "api.sjsShelf.queryFailed": "查询司机社收藏失败",
   "api.sjsShelf.missingUrlAndThreadId": "URL 和 threadId 为必填项",
   "api.sjsShelf.createFailed": "创建收藏失败",
@@ -189,7 +189,7 @@ const zhCN: TranslationDict = {
   "api.tasks.unknownAction": "未知操作",
 } satisfies TranslationDict;
 
-/** Api 模块的翻译键联合类型 */
+/** Union of Api translation keys */
 export type ApiTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

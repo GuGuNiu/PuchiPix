@@ -1,25 +1,25 @@
 /**
- * Coser.io 站点逆向分析脚本
- * 目标: https://coser.io/latp/69218.html
- * 任务: 分析VIP付费屏障机制，尝试获取全部85张图片
+ * Coser.io site reverse analysis script.
+ * Target: https://coser.io/latp/69218.html
+ * Task: analyze the VIP paywall mechanism and try to fetch all 85 images.
  */
 
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-// 配置
+// Config
 const TARGET_URL = 'https://coser.io/latp/69218.html';
 const GALLERY_ID = '69218';
 const CDN_DOMAIN = 'https://coserbox.static.iloli.io';
 const OUTPUT_DIR = 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\data';
 
-// 确保输出目录存在
+// Ensure output directory exists
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
 
-// 日志记录
+// Logger
 const logFile = path.join(OUTPUT_DIR, 'analysis-log.json');
 const logs = [];
 
@@ -35,7 +35,7 @@ function log(type, message, data = null) {
   if (data) console.log(JSON.stringify(data, null, 2));
 }
 
-// HTTP请求工具
+// HTTP request helper
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -69,14 +69,14 @@ function request(url, options = {}) {
   });
 }
 
-// API端点探测列表
+// API endpoint probe list
 const API_ENDPOINTS = [
-  // 用户相关
+  // User related
   '/web-api/v1/user/info',
   '/web-api/v1/user/profile',
   '/web-api/v1/user/points',
 
-  // 图集相关
+  // Gallery related
   `/web-api/v1/gallery/${GALLERY_ID}`,
   `/web-api/v1/gallery/${GALLERY_ID}/info`,
   `/web-api/v1/gallery/${GALLERY_ID}/detail`,
@@ -84,33 +84,33 @@ const API_ENDPOINTS = [
   `/web-api/v1/gallery/${GALLERY_ID}/media`,
   `/web-api/v1/gallery/${GALLERY_ID}/content`,
 
-  // 通用图集API
+  // Generic gallery APIs
   '/web-api/v1/galleries',
   '/web-api/v1/gallery/list',
   '/web-api/v1/images',
   '/web-api/v1/media',
 
-  // 可能的其他端点
+  // Possible other endpoints
   `/api/gallery/${GALLERY_ID}`,
   `/api/v1/gallery/${GALLERY_ID}`,
   `/api/gallery/${GALLERY_ID}/images`,
 
-  // 文件夹/合集相关
+  // Folder/collection related
   '/web-api/v1/folder/586',
   '/web-api/v1/folder/586/galleries',
 ];
 
-// 主分析流程
+// Main analysis flow
 async function runAnalysis() {
   log('INFO', '开始Coser.io站点逆向分析', { target: TARGET_URL, galleryId: GALLERY_ID });
 
-  // 1. 获取页面基础信息
+  // 1. Fetch basic page info
   log('INFO', '步骤1: 获取页面基础信息');
   try {
     const pageRes = await request(TARGET_URL);
     log('INFO', `页面状态: ${pageRes.statusCode}`, { contentLength: pageRes.body.length });
 
-    // 提取关键信息
+    // Extract key info
     const titleMatch = pageRes.body.match(/<title>(.*?)<\/title>/);
     const configMatch = pageRes.body.match(/window\.__latpConfig = ({.*?});/s);
 
@@ -128,7 +128,7 @@ async function runAnalysis() {
       }
     }
 
-    // 提取图片URL
+    // Extract image URLs
     const imgMatches = pageRes.body.matchAll(/https:\/\/coserbox\.static\.iloli\.io\/gallery\/[^"'\s]+/g);
     const uniqueImages = [...new Set([...imgMatches].map(m => m[0]))];
     log('INFO', `页面中找到 ${uniqueImages.length} 个图片URL`, uniqueImages.slice(0, 5));
@@ -138,7 +138,7 @@ async function runAnalysis() {
     log('ERROR', '获取页面失败', err.message);
   }
 
-  // 2. API端点探测
+  // 2. API endpoint probing
   log('INFO', '步骤2: 开始API端点探测');
   const apiResults = [];
 
@@ -157,7 +157,7 @@ async function runAnalysis() {
 
       if (res.statusCode === 200) {
         log('SUCCESS', `API端点 ${endpoint} 返回 200`, result);
-        // 保存响应内容
+        // Save response content
         const safeName = endpoint.replace(/\//g, '_').replace(/^_/, '');
         fs.writeFileSync(path.join(OUTPUT_DIR, `api-${safeName}-response.json`), res.body);
       } else {
@@ -168,13 +168,13 @@ async function runAnalysis() {
       log('WARN', `API端点 ${endpoint} 请求失败`, err.message);
     }
 
-    // 延迟避免触发频率限制
+    // Delay to avoid triggering rate limits
     await new Promise(r => setTimeout(r, 500));
   }
 
   fs.writeFileSync(path.join(OUTPUT_DIR, 'api-probe-results.json'), JSON.stringify(apiResults, null, 2));
 
-  // 3. 分析图片URL规律
+  // 3. Analyze image URL patterns
   log('INFO', '步骤3: 分析图片URL规律');
   const imagePattern = {
     cdnDomain: 'coserbox.static.iloli.io',
@@ -190,19 +190,19 @@ async function runAnalysis() {
   log('INFO', '图片URL结构分析', imagePattern);
   fs.writeFileSync(path.join(OUTPUT_DIR, 'image-pattern-analysis.json'), JSON.stringify(imagePattern, null, 2));
 
-  // 4. 尝试获取JS文件分析
+  // 4. Try fetching JS files for analysis
   log('INFO', '步骤4: 获取并分析JS文件');
   try {
     const jsRes = await request('https://coser.io/js/latp.js?v=4.4.4');
     log('INFO', `JS文件大小: ${jsRes.body.length} 字节`);
 
-    // 搜索API端点
+    // Search for API endpoints
     const apiMatches = jsRes.body.matchAll(/['"`]\/(web-api|api)\/[^'"`]+['"`]/g);
     const foundApis = [...new Set([...apiMatches].map(m => m[0].replace(/['"`]/g, '')))];
     log('INFO', `JS中发现 ${foundApis.length} 个API端点`, foundApis.slice(0, 20));
     fs.writeFileSync(path.join(OUTPUT_DIR, 'js-api-endpoints.json'), JSON.stringify(foundApis, null, 2));
 
-    // 搜索图片加载相关代码
+    // Search for image loading related code
     const imageCodeMatches = jsRes.body.match(/(loadImages|getImages|fetchGallery|imageList|galleryData)[^{]*{[^}]*}/g);
     if (imageCodeMatches) {
       log('INFO', '发现图片加载相关代码', imageCodeMatches.slice(0, 3));
@@ -212,12 +212,12 @@ async function runAnalysis() {
     log('ERROR', '获取JS文件失败', err.message);
   }
 
-  // 5. 保存完整日志
+  // 5. Save full log
   fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
   log('INFO', `分析完成，日志保存至: ${logFile}`);
 }
 
-// 运行分析
+// Run analysis
 runAnalysis().catch(err => {
   console.error('分析脚本出错:', err);
   process.exit(1);

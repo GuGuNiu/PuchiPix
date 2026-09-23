@@ -1,14 +1,14 @@
 /**
- * Coser.io 已认证逆向脚本
- * 
- * 使用 Playwright 进行已登录会话的 CDP 网络拦截，
- * 调用解锁 API 获取完整图片列表。
- * 
- * 基于前期 JS 源码分析的发现：
- * - 解锁 API: POST /purchase/gallery { id, type: 'gallery_view' }
- * - CSRF: window.__csrfToken 注入到 csrf-token header
- * - 解锁后 location.reload()，服务端重新渲染含全部图片的 HTML
- * - 图片 CDN: coserbox.static.iloli.io
+ * Coser.io authenticated reverse script.
+ *
+ * Uses Playwright CDP network interception on a logged-in session and calls
+ * the unlock API to fetch the full image list.
+ *
+ * Findings from earlier JS source analysis:
+ * - Unlock API: POST /purchase/gallery { id, type: 'gallery_view' }
+ * - CSRF: window.__csrfToken sent in csrf-token header
+ * - After unlock, location.reload() re-renders HTML containing all images
+ * - Image CDN: coserbox.static.iloli.io
  */
 
 const { chromium } = require('playwright');
@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-// ===== 配置 =====
+// ===== Configuration =====
 const CONFIG = {
   email: 'atlascrfat@outlook.com',
   password: 'YH86JzhrSBd4nP3',
@@ -25,15 +25,15 @@ const CONFIG = {
   loginUrl: 'https://coser.io/login.html',
   outputDir: 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\data',
   imagesDir: 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\downloads\\auth-downloaded-images',
-  headless: false, // 可视化模式，便于观察
+  headless: false, // Visible mode for easier observation
   timeout: 30000,
 };
 
-// ===== 网络请求日志 =====
+// ===== Network request log =====
 const networkLog = [];
 const apiCalls = [];
 
-// ===== 工具函数 =====
+// ===== Utility functions =====
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -55,7 +55,7 @@ function downloadImage(url, filepath) {
           resolve(true);
         });
       } else if (response.statusCode === 302 || response.statusCode === 301) {
-        // 跟随重定向
+        // Follow redirects
         downloadImage(response.headers.location, filepath).then(resolve).catch(reject);
       } else {
         file.close();
@@ -70,13 +70,13 @@ function downloadImage(url, filepath) {
   });
 }
 
-// ===== 主流程 =====
+// ===== Main flow =====
 async function main() {
   console.log('=== Coser.io 已认证逆向脚本启动 ===\n');
   ensureDir(CONFIG.outputDir);
   ensureDir(CONFIG.imagesDir);
 
-  // 1. 启动浏览器
+  // 1. Launch browser
   console.log('[1] 启动 Playwright 浏览器...');
   const browser = await chromium.launch({
     headless: CONFIG.headless,
@@ -89,10 +89,10 @@ async function main() {
     locale: 'zh-CN',
   });
 
-  // 2. 设置网络请求拦截 - 记录所有 API 调用
+  // 2. Set up network interception - log all API calls
   const page = await context.newPage();
 
-  // 记录所有请求
+  // Log all requests
   page.on('request', (request) => {
     const url = request.url();
     const method = request.method();
@@ -109,7 +109,7 @@ async function main() {
 
     networkLog.push(logEntry);
 
-    // 只记录 API 调用（非静态资源）
+    // Only log API calls (not static assets)
     if (resourceType === 'fetch' || resourceType === 'xhr' || url.includes('/web-api/') || url.includes('/purchase/') || url.includes('/login')) {
       console.log(`  → ${method} ${url}`);
       if (logEntry.postData) {
@@ -119,7 +119,7 @@ async function main() {
     }
   });
 
-  // 记录所有响应
+  // Log all responses
   page.on('response', async (response) => {
     const url = response.url();
     const status = response.status();
@@ -134,7 +134,7 @@ async function main() {
           const body = await response.json();
           console.log(`    Response: ${JSON.stringify(body).substring(0, 300)}`);
 
-          // 保存重要 API 响应
+          // Save important API responses
           const safeName = url.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 80);
           fs.writeFileSync(
             path.join(CONFIG.outputDir, `auth-response-${safeName}.json`),
@@ -142,24 +142,24 @@ async function main() {
           );
         }
       } catch (e) {
-        // 响应体可能已被读取
+        // Response body may already have been read
       }
     }
   });
 
   try {
-    // 3. 登录流程
+    // 3. Login flow
     console.log('\n[2] 导航到登录页面...');
     await page.goto(CONFIG.loginUrl, { waitUntil: 'domcontentloaded', timeout: CONFIG.timeout });
-    // 等待登录表单出现
+    // Wait for the login form to appear
     await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="邮箱"]', { timeout: 15000 });
     await page.waitForSelector('input[type="password"]', { timeout: 15000 });
     console.log(`  登录页面已加载: ${page.url()}`);
 
-    // 截图登录页
+    // Screenshot the login page
     await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-login-page.png'), fullPage: false });
 
-    // 分析登录表单结构
+    // Analyze login form structure
     console.log('\n[3] 分析登录表单...');
     const formData = await page.evaluate(() => {
       const inputs = document.querySelectorAll('input');
@@ -182,7 +182,7 @@ async function main() {
           text: b.textContent.trim().substring(0, 50),
           class: b.className.substring(0, 80),
         })),
-        // 检查页面中的 JS 变量
+        // Check JS variables on the page
         csrfToken: window.__csrfToken || null,
         isLoggedIn: window.isLoggedIn || false,
       };
@@ -193,10 +193,10 @@ async function main() {
       JSON.stringify(formData, null, 2)
     );
 
-    // 填写登录表单
+    // Fill in the login form
     console.log('\n[4] 填写登录凭据...');
 
-    // 尝试多种选择器来找到输入框
+    // Try multiple selectors to find the inputs
     const emailSelector = 'input[type="email"], input[name="email"], input[placeholder*="邮箱"], input[placeholder*="邮"], input[name="account"], #email';
     const passwordSelector = 'input[type="password"], input[name="password"], #password';
 
@@ -208,13 +208,13 @@ async function main() {
     console.log(`  邮箱已填写: ${CONFIG.email}`);
     console.log('  密码已填写: ***');
 
-    // 截图填写后
+    // Screenshot after filling
     await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-login-filled.png'), fullPage: false });
 
-    // 提交登录 - 直接调用正确的登录 API
+    // Submit login - call the correct login API directly
     console.log('\n[5] 提交登录...');
 
-    // 登录 API 端点从表单分析中得知: /web-api/v1/user/login
+    // Login API endpoint from form analysis: /web-api/v1/user/login
     const loginResult = await page.evaluate(async (credentials) => {
       try {
         const csrfToken = window.__csrfToken || '';
@@ -251,23 +251,23 @@ async function main() {
 
     if (loginResult.data && loginResult.data.success) {
       console.log('  ✅ 登录成功！');
-      // 等待一下让 Cookie 设置好
+      // Wait a moment for cookies to be set
       await page.waitForTimeout(1000);
-      // 导航到首页确认登录状态
+      // Navigate home to confirm login state
       await page.goto('https://coser.io/', { waitUntil: 'domcontentloaded', timeout: CONFIG.timeout });
     } else {
       console.log(`  ❌ 登录失败: ${loginResult.data ? loginResult.data.message : '未知错误'}`);
       console.log('  尝试继续操作...');
     }
 
-    // 检查登录状态
+    // Check login state
     console.log('\n[6] 检查登录状态...');
     const loginStatus = await page.evaluate(() => {
       return {
         url: window.location.href,
         isLoggedIn: window.isLoggedIn || false,
         csrfToken: window.__csrfToken || null,
-        // 检查页面上是否有用户头像/用户名等登录标志
+        // Look for avatar/username or other login indicators on the page
         hasUserMenu: !!document.querySelector('[class*="user-avatar"], [class*="avatar"], .user-info, #userMenu'),
         hasLoginLink: !!document.querySelector('a[href*="login"]'),
         bodyText: document.body.innerText.substring(0, 500),
@@ -284,16 +284,16 @@ async function main() {
       JSON.stringify(loginStatus, null, 2)
     );
 
-    // 截图登录后
+    // Screenshot after login
     await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-after-login.png'), fullPage: false });
 
     if (!loginStatus.isLoggedIn && loginStatus.hasLoginLink) {
       console.log('\n  ⚠️ 登录可能失败，检查响应...');
-      // 即使 window.isLoggedIn 未设置，也可能已经登录（Cookie 方式）
-      // 继续尝试访问需要登录的页面
+      // Even if window.isLoggedIn isn't set, login may already exist (cookie-based)
+      // Keep trying pages that require login
     }
 
-    // 获取 cookies
+    // Get cookies
     const cookies = await context.cookies();
     console.log(`\n  Cookies: ${cookies.length}个`);
     const importantCookies = cookies.filter(c =>
@@ -307,17 +307,17 @@ async function main() {
       JSON.stringify(cookies.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, httpOnly: c.httpOnly, secure: c.secure })), null, 2)
     );
 
-    // 4. 访问图集页面
+    // 4. Visit the gallery page
     console.log('\n[7] 导航到图集页面...');
     await page.goto(CONFIG.galleryUrl, { waitUntil: 'domcontentloaded', timeout: CONFIG.timeout });
-    // 等待页面配置对象加载
+    // Wait for the page config object to load
     await page.waitForFunction(() => window.__latpConfig !== undefined, { timeout: 15000 });
     console.log(`  图集页面已加载: ${page.url()}`);
 
-    // 截图图集页（登录后）
+    // Screenshot the gallery page (after login)
     await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-gallery-before-unlock.png'), fullPage: false });
 
-    // 提取页面配置
+    // Extract page config
     const pageConfig = await page.evaluate(() => {
       const cfg = window.__latpConfig || {};
       return {
@@ -348,7 +348,7 @@ async function main() {
       JSON.stringify(pageConfig, null, 2)
     );
 
-    // 提取当前可见的图片
+    // Extract currently visible images
     const beforeImages = await page.evaluate(() => {
       const imgs = document.querySelectorAll('img[data-fancybox="gallery"], img[src*="coserbox"], img[src*="gallery/"]');
       return [...imgs].map(img => ({
@@ -366,7 +366,7 @@ async function main() {
       JSON.stringify(beforeImages, null, 2)
     );
 
-    // 5. 调用解锁 API
+    // 5. Call the unlock API
     if (!pageConfig.isPurchase) {
       console.log('\n[9] 图集未解锁，调用解锁 API...');
       console.log(`  用户积分: ${pageConfig.userPoints}`);
@@ -376,7 +376,7 @@ async function main() {
         console.log(`  ⚠️ 积分不足！需要 ${pageConfig.viewPrice}，当前 ${pageConfig.userPoints}`);
       }
 
-      // 通过页面上下文调用解锁 API（自动携带 Cookie + CSRF）
+      // Call unlock API via page context (carries Cookie + CSRF automatically)
       const unlockResult = await page.evaluate(async (galleryId) => {
         try {
           const response = await fetch('/purchase/gallery', {
@@ -411,16 +411,16 @@ async function main() {
       if (unlockResult.result && unlockResult.result.success) {
         console.log('\n  ✅ 解锁成功！等待页面刷新...');
 
-        // 解锁成功后，页面会 location.reload()
-        // 我们直接重新导航到图集页面
-        await page.waitForTimeout(1500); // 等待服务端处理
+        // After unlock the page does location.reload()
+        // We navigate back to the gallery page directly
+        await page.waitForTimeout(1500); // Wait for server-side processing
         await page.goto(CONFIG.galleryUrl, { waitUntil: 'domcontentloaded', timeout: CONFIG.timeout });
         await page.waitForFunction(() => window.__latpConfig !== undefined, { timeout: 15000 });
         console.log('  页面已刷新');
       } else {
         console.log('\n  ❌ 解锁失败，尝试其他方式...');
 
-        // 尝试直接在页面上点击解锁按钮
+        // Try clicking the unlock button on the page directly
         console.log('  尝试点击页面上的解锁按钮...');
         try {
           const unlockBtn = await page.$('button:has-text("解锁"), button:has-text("立即解锁"), [x-show*="!isPurchased"] button, .latp-gallery-lock-panel button, a:has-text("解锁")');
@@ -429,7 +429,7 @@ async function main() {
             console.log('  点击了解锁按钮');
             await page.waitForTimeout(3000);
 
-            // 检查是否有确认弹窗
+            // Check for a confirmation dialog
             const confirmBtn = await page.$('button:has-text("立即解锁"), button:has-text("确认"), button:has-text("确定")');
             if (confirmBtn) {
               await confirmBtn.click();
@@ -446,13 +446,13 @@ async function main() {
       console.log('\n[9] 图集已解锁，直接提取图片');
     }
 
-    // 6. 提取解锁后的完整图片列表
+    // 6. Extract the full image list after unlock
     console.log('\n[10] 提取完整图片列表...');
 
-    // 截图解锁后
+    // Screenshot after unlock
     await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-gallery-after-unlock.png'), fullPage: false });
 
-    // 重新提取页面配置
+    // Re-extract page config
     const afterConfig = await page.evaluate(() => {
       const cfg = window.__latpConfig || {};
       return {
@@ -464,34 +464,34 @@ async function main() {
     });
     console.log('  解锁后配置:', JSON.stringify(afterConfig, null, 2));
 
-    // 提取所有图片 URL
+    // Extract all image URLs
     const allImages = await page.evaluate(() => {
-      // 方法1: 查找所有带 data-fancybox 的图片
+      // Method 1: find all images with data-fancybox
       const fancyboxImgs = document.querySelectorAll('img[data-fancybox="gallery"]');
-      // 方法2: 查找所有 CDN 图片
+      // Method 2: find all CDN images
       const cdnImgs = document.querySelectorAll('img[src*="coserbox"], img[src*="iloli"]');
-      // 方法3: 查找所有 gallery 路径图片
+      // Method 3: find all gallery-path images
       const galleryImgs = document.querySelectorAll('img[src*="gallery/"]');
-      // 方法4: 查找 data-src 属性
+      // Method 4: find data-src attributes
       const lazyImgs = document.querySelectorAll('img[data-src]');
-      // 方法5: 查找 Fancybox 数据源
+      // Method 5: find Fancybox data sources
       const fancyboxAnchors = document.querySelectorAll('a[data-fancybox="gallery"]');
-      // 方法6: 查找所有图片元素
+      // Method 6: find all image elements
       const allImgs = document.querySelectorAll('img');
 
-      // 从 HTML 中提取所有图片 URL（包括在 script 标签中的）
+      // Extract all image URLs from HTML (including inside script tags)
       const html = document.documentElement.outerHTML;
       const urlPattern = /https?:\/\/[^"'\s]+coserbox[^"'\s]+\.webp[^"'\s]*/g;
       const htmlUrls = html.match(urlPattern) || [];
 
-      // 从内联脚本中查找
+      // Search inside inline scripts
       const scriptUrls = [];
       document.querySelectorAll('script').forEach(script => {
         const matches = script.textContent.match(/https?:\/\/[^"'\s]+coserbox[^"'\s]+\.webp[^"'\s]*/g);
         if (matches) scriptUrls.push(...matches);
       });
 
-      // 从 data-href 或 data-src 属性中查找
+      // Search data-href or data-src attributes
       const dataHrefImgs = document.querySelectorAll('[data-href*="gallery/"], [data-src*="gallery/"], [data-full*="gallery/"]');
 
       return {
@@ -529,7 +529,7 @@ async function main() {
     console.log(`    HTML 中的 URL: ${allImages.htmlUrls.length}`);
     console.log(`    Script 中的 URL: ${allImages.scriptUrls.length}`);
 
-    // 合并所有唯一图片 URL
+    // Merge all unique image URLs
     const allImageUrls = new Set();
     allImages.htmlUrls.forEach(u => allImageUrls.add(u));
     allImages.scriptUrls.forEach(u => allImageUrls.add(u));
@@ -574,15 +574,15 @@ async function main() {
       }, null, 2)
     );
 
-    // 7. 如果图片数量不够，尝试从页面 HTML 源码中提取
+    // 7. If too few images, try extracting from the raw page HTML
     if (uniqueUrls.length < 85) {
       console.log(`\n[11] 图片数量不足 (${uniqueUrls.length}/85)，从 HTML 源码深度提取...`);
 
-      // 获取完整页面源码
+      // Fetch the full page source
       const htmlContent = await page.content();
       fs.writeFileSync(path.join(CONFIG.outputDir, 'auth-gallery-after-unlock.html'), htmlContent);
 
-      // 用正则提取所有图片 URL 模式
+      // Regex-extract all image URL patterns
       const patterns = [
         /https?:\/\/[^"'\s)]+coserbox[^"'\s)]+\.webp[^"'\s)]*/g,
         /https?:\/\/[^"'\s)]+iloli\.io[^"'\s)]+\.webp[^"'\s)]*/g,
@@ -600,7 +600,7 @@ async function main() {
 
       console.log(`  HTML 源码中发现 ${allMatches.size} 个图片 URL 模式`);
 
-      // 如果找到了更多 URL，补全到 uniqueUrls
+      // If more URLs were found, merge them into uniqueUrls
       const cdnDomain = pageConfig.cdnDomain || 'https://coserbox.static.iloli.io';
       allMatches.forEach(match => {
         if (match.startsWith('http')) {
@@ -619,7 +619,7 @@ async function main() {
       }
     }
 
-    // 8. 下载所有图片
+    // 8. Download all images
     console.log(`\n[12] 下载 ${uniqueUrls.length} 张图片...`);
 
     const downloadResults = [];
@@ -650,7 +650,7 @@ async function main() {
         console.log(`  [${i + 1}/${uniqueUrls.length}] ❌ ${filename} - ${error.message}`);
       }
 
-      // 间隔 200ms 避免频率限制
+      // 200ms interval to avoid rate limiting
       await new Promise(r => setTimeout(r, 200));
     }
 
@@ -663,7 +663,7 @@ async function main() {
     const failCount = downloadResults.filter(r => r.status === 'failed').length;
     console.log(`\n  下载完成: ✅ ${successCount} 成功, ❌ ${failCount} 失败`);
 
-    // 9. 保存完整网络日志
+    // 9. Save the full network log
     console.log('\n[13] 保存网络请求日志...');
     fs.writeFileSync(
       path.join(CONFIG.outputDir, 'auth-network-log.json'),
@@ -675,7 +675,7 @@ async function main() {
     );
     console.log(`  总请求: ${networkLog.length}, API 调用: ${apiCalls.length}`);
 
-    // 10. 生成最终报告
+    // 10. Generate the final report
     console.log('\n[14] 生成最终报告...');
     const report = {
       testTime: new Date().toISOString(),
@@ -739,18 +739,18 @@ async function main() {
     console.error('\n❌ 脚本执行错误:', error.message);
     console.error(error.stack);
 
-    // 错误时截图
+    // Screenshot on error
     try {
       await page.screenshot({ path: path.join(CONFIG.outputDir, 'auth-error-screenshot.png'), fullPage: false });
     } catch (e) {}
 
-    // 保存错误日志
+    // Save error log
     fs.writeFileSync(
       path.join(CONFIG.outputDir, 'auth-error-log.json'),
       JSON.stringify({ error: error.message, stack: error.stack, timestamp: new Date().toISOString() }, null, 2)
     );
   } finally {
-    // 保存浏览器状态
+    // Save browser state
     try {
       const storageState = await context.storageState();
       fs.writeFileSync(

@@ -1,5 +1,5 @@
 /**
- * Coser.io 最终验证 - 尝试所有可能的绕过路径
+ * Coser.io final verification — try all possible bypass paths.
  */
 
 const https = require('https');
@@ -47,7 +47,7 @@ function request(url, options = {}) {
   });
 }
 
-// 1. 分析random-models返回的数据
+// 1. Analyze data returned by random-models
 async function analyzeRandomModels() {
   console.log('=== 1. 分析random-models端点 ===\n');
 
@@ -67,7 +67,7 @@ async function analyzeRandomModels() {
         console.log('\n  第一条记录结构:');
         console.log('  ', JSON.stringify(data.data[0], null, 2).substring(0, 500));
 
-        // 检查是否有galleryId关联
+        // Check for galleryId association
         const hasGalleryId = data.data.some(item => item.galleryId || item.id);
         console.log(`\n  是否包含ID字段: ${hasGalleryId}`);
       }
@@ -79,24 +79,24 @@ async function analyzeRandomModels() {
   }
 }
 
-// 2. 尝试通过不同方式获取图集数据
+// 2. Try fetching gallery data in different ways
 async function tryAlternativeApproaches() {
   console.log('\n=== 2. 尝试替代获取方式 ===\n');
 
   const approaches = [
-    // 通过搜索
+    // Via search
     { name: '搜索API', url: `/web-api/v1/search?q=Candy糖糖&type=gallery` },
     { name: '标签搜索', url: `/web-api/v1/galleries?tag=糖果果candy` },
     { name: '文件夹内图集', url: `/web-api/v1/galleries?folder=586` },
     { name: '分类图集', url: `/web-api/v1/galleries?category=586` },
 
-    // 其他可能的端点
+    // Other possible endpoints
     { name: '公共图集', url: `/web-api/v1/galleries/public` },
     { name: '热门图集', url: `/web-api/v1/galleries/popular` },
     { name: '最新图集', url: `/web-api/v1/galleries/latest` },
     { name: '推荐图集', url: `/web-api/v1/galleries/recommended` },
 
-    // 带特殊参数
+    // With special params
     { name: '带fields参数', url: `/web-api/v1/galleries?id=${GALLERY_ID}&fields=images,files` },
     { name: '带scope参数', url: `/web-api/v1/galleries?id=${GALLERY_ID}&scope=full` },
     { name: '带detail参数', url: `/web-api/v1/galleries?id=${GALLERY_ID}&detail=true` },
@@ -120,13 +120,13 @@ async function tryAlternativeApproaches() {
           }
         }
 
-        // 检查是否包含图片数据
+        // Check whether image data is included
         if (res.body.includes('.webp') && res.body.includes('gallery')) {
           const webpMatches = res.body.match(/gallery[^"']*\.webp/g);
           console.log(`  ⚠️ 发现 ${webpMatches?.length || 0} 个webp引用`);
         }
 
-        // 保存
+        // Save
         const safeName = approach.name.replace(/\s+/g, '_');
         fs.writeFileSync(path.join(OUTPUT_DIR, `verify-alt-${safeName}.json`), res.body);
       }
@@ -138,7 +138,7 @@ async function tryAlternativeApproaches() {
   }
 }
 
-// 3. 检查页面源码中的隐藏数据
+// 3. Check for hidden data in page source
 async function checkPageSource() {
   console.log('\n=== 3. 深度检查页面源码 ===\n');
 
@@ -146,26 +146,26 @@ async function checkPageSource() {
     const res = await request(`https://coser.io/latp/${GALLERY_ID}.html`);
     const html = res.body;
 
-    // 查找所有可能的图片数据
+    // Find all possible image data
     const checks = {
-      // JSON数据
+      // JSON data
       jsonLd: (html.match(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g) || []).length,
 
-      // 数据属性
+      // Data attributes
       dataImages: (html.match(/data-images=/g) || []).length,
       dataGallery: (html.match(/data-gallery=/g) || []).length,
 
-      // JavaScript数据
+      // JavaScript data
       windowData: (html.match(/window\.__\w+\s*=/g) || []).length,
 
-      // 图片引用
+      // Image references
       webpInScript: (html.match(/\.webp['"]/g) || []).length,
       galleryInScript: (html.match(/gallery\/[^'"\s]+/g) || []).length,
 
-      // 可能的base64编码图片
+      // Possibly base64-encoded images
       base64Images: (html.match(/data:image\/webp;base64,/g) || []).length,
 
-      // 懒加载标记
+      // Lazy-loading markers
       lazyLoad: (html.match(/loading="lazy"/g) || []).length,
     };
 
@@ -174,7 +174,7 @@ async function checkPageSource() {
       console.log(`  ${key}: ${value}`);
     });
 
-    // 查找script标签中的数据
+    // Find data in script tags
     const scriptMatches = html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g);
     let scriptIndex = 0;
     let foundData = false;
@@ -182,7 +182,7 @@ async function checkPageSource() {
     for (const match of scriptMatches) {
       const scriptContent = match[1];
 
-      // 检查是否包含图片数组
+      // Check for image arrays
       if (scriptContent.includes('images') && scriptContent.includes('.webp')) {
         const imageArrayMatch = scriptContent.match(/images\s*:\s*(\[[^\]]+\])/);
         if (imageArrayMatch) {
@@ -196,7 +196,7 @@ async function checkPageSource() {
         }
       }
 
-      // 检查是否有galleryData
+      // Check for galleryData
       if (scriptContent.includes('galleryData') || scriptContent.includes('galleryImages')) {
         console.log(`\n⚠️ Script #${scriptIndex} 中发现galleryData引用!`);
         console.log(`  内容片段: ${scriptContent.substring(0, 200)}...`);
@@ -210,7 +210,7 @@ async function checkPageSource() {
       console.log('\n❌ 未在页面Script中发现图片数组数据');
     }
 
-    // 保存分析结果
+    // Save analysis results
     fs.writeFileSync(path.join(OUTPUT_DIR, 'verify-page-source-check.json'), JSON.stringify(checks, null, 2));
 
   } catch (err) {
@@ -218,7 +218,7 @@ async function checkPageSource() {
   }
 }
 
-// 4. 尝试获取压缩包信息
+// 4. Try fetching archive/zip info
 async function checkArchiveInfo() {
   console.log('\n=== 4. 检查压缩包/下载信息 ===\n');
 
@@ -248,7 +248,7 @@ async function checkArchiveInfo() {
   }
 }
 
-// 5. 生成最终验证报告
+// 5. Generate final verification report
 async function generateFinalReport() {
   console.log('\n=== 5. 生成最终验证报告 ===\n');
 
@@ -257,22 +257,22 @@ async function generateFinalReport() {
     target: `https://coser.io/latp/${GALLERY_ID}.html`,
     galleryId: GALLERY_ID,
     conclusions: {
-      // API端点
+      // API endpoints
       exposedAPI: false,
       imageListAPI: false,
       detailAPI: false,
 
-      // 数据获取
+      // Data fetching
       canGetImageList: false,
       canPredictURLs: false,
       canAccessWithoutLogin: false,
 
-      // 绕过可能性
+      // Bypass possibility
       jsBypassPossible: false,
       apiBypassPossible: false,
       sitemapBypassPossible: false,
 
-      // 登录要求
+      // Login requirement
       loginRequired: true,
       pointsRequired: true,
     },
@@ -326,7 +326,7 @@ async function generateFinalReport() {
   console.log('报告已保存到: final-verification-report.json');
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('Coser.io 最终验证报告\n');
   console.log('====================\n');

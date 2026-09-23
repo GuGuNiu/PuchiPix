@@ -1,35 +1,35 @@
 /**
- * COS团 (costuan.com) WordPress 逆向分析脚本
- * 
- * 目标: https://www.costuan.com/1042.html
- * 主题: B2 Theme
- * 
- * 分析结果:
- * - 站点使用 WordPress + B2 主题
- * - 下载链接通过 REST API: /wp-json/b2/v1/getDownloadPageData 获取
- * - 百度网盘链接隐藏在 API 响应的 button[0].url 字段中
- * - 需要登录并有权限才能获取实际下载链接
- * - 提取码通过正则匹配获取: code:hove
- * 
- * 使用说明:
- * 1. 无登录: 只能获取帖子元数据，无法获取百度网盘链接
- * 2. 有登录: 需要提供 JWT Token 或 Cookie
+ * COS Tuan (costuan.com) WordPress reverse analysis script.
+ *
+ * Target: https://www.costuan.com/1042.html
+ * Theme: B2 Theme
+ *
+ * Findings:
+ * - Site runs WordPress + B2 theme
+ * - Download link comes from REST API: /wp-json/b2/v1/getDownloadPageData
+ * - Baidu pan link is hidden in API response field button[0].url
+ * - Login + permission required to get the actual download link
+ * - Extraction code matched via regex: code:hove
+ *
+ * Usage:
+ * 1. No login: post metadata only; Baidu pan link unavailable
+ * 2. With login: provide JWT Token or Cookie
  */
 
 const https = require('https');
 const http = require('http');
 
-// 配置
+// Config
 const CONFIG = {
   baseUrl: 'https://www.costuan.com',
   postId: 1042,
-  // 如果需要登录，请提供以下信息
+  // Provide the following if login is required
   authToken: process.env.COSTUAN_TOKEN || null,
   cookies: process.env.COSTUAN_COOKIES || null,
 };
 
 /**
- * Phase 1: 站点指纹识别
+ * Phase 1: Site fingerprinting
  */
 async function fingerprint() {
   console.log('=== Phase 1: 站点指纹识别 ===\n');
@@ -43,7 +43,7 @@ async function fingerprint() {
   };
   
   try {
-    // 获取 API 根目录
+    // Fetch API root
     const apiRoot = await makeRequest('/wp-json/', 'GET');
     
     if (apiRoot && apiRoot.namespaces) {
@@ -53,7 +53,7 @@ async function fingerprint() {
       console.log(`✅ WordPress 确认`);
       console.log(`   API 命名空间: ${apiRoot.namespaces.join(', ')}`);
       
-      // 检测 B2 主题
+      // Detect B2 theme
       if (apiRoot.namespaces.includes('b2/v1')) {
         result.theme = 'B2';
         console.log(`✅ 主题识别: B2 Theme`);
@@ -67,7 +67,7 @@ async function fingerprint() {
 }
 
 /**
- * Phase 2: 获取帖子元数据
+ * Phase 2: Fetch post metadata
  */
 async function getPostMeta(postId) {
   console.log(`\n=== Phase 2: 获取帖子 ${postId} 元数据 ===\n`);
@@ -82,7 +82,7 @@ async function getPostMeta(postId) {
       console.log(`   作者: ${post.author || 'N/A'}`);
       console.log(`   分类: ${post.categories?.join(', ') || 'N/A'}`);
       
-      // 检查元数据
+      // Check metadata
       if (post.meta) {
         console.log(`   元数据:`, JSON.stringify(post.meta, null, 2));
       }
@@ -103,7 +103,7 @@ async function getPostMeta(postId) {
 }
 
 /**
- * Phase 3: 调用 B2 主题下载 API
+ * Phase 3: Call B2 theme download API
  */
 async function getDownloadData(postId, index = 0, i = 0) {
   console.log('\n=== Phase 3: 调用 B2 下载 API ===\n');
@@ -137,7 +137,7 @@ async function getDownloadData(postId, index = 0, i = 0) {
         }
       }
       
-      // 关键: 检查是否有直接的百度网盘链接
+      // Key: check for a direct Baidu pan link
       const baiduLink = extractBaiduLink(data);
       if (baiduLink) {
         console.log(`\n🎉 发现百度网盘链接: ${baiduLink}`);
@@ -155,12 +155,12 @@ async function getDownloadData(postId, index = 0, i = 0) {
 }
 
 /**
- * 提取百度网盘链接
+ * Extract Baidu pan link
  */
 function extractBaiduLink(data) {
   const baiduPattern = /https?:\/\/pan\.baidu\.com\/s\/[a-zA-Z0-9_\-]+/;
   
-  // 检查按钮 URL
+  // Check button URLs
   if (data.button) {
     for (const btn of data.button) {
       if (btn.url && baiduPattern.test(btn.url)) {
@@ -172,14 +172,14 @@ function extractBaiduLink(data) {
     }
   }
   
-  // 检查整个响应
+  // Check the whole response
   const jsonStr = JSON.stringify(data);
   const match = jsonStr.match(baiduPattern);
   return match ? match[0] : null;
 }
 
 /**
- * Phase 4: 分析 REST API 端点
+ * Phase 4: Analyze REST API endpoints
  */
 async function enumerateEndpoints() {
   console.log(`\n=== Phase 4: REST API 端点枚举 ===\n`);
@@ -212,7 +212,7 @@ async function enumerateEndpoints() {
 }
 
 /**
- * Phase 5: 尝试获取帖子图片
+ * Phase 5: Try fetching post images
  */
 async function getPostImages(postId) {
   console.log(`\n=== Phase 5: 获取帖子图片 ===\n`);
@@ -235,7 +235,7 @@ async function getPostImages(postId) {
 }
 
 /**
- * HTTP 请求辅助函数
+ * HTTP request helper
  */
 function makeRequest(path, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
@@ -273,7 +273,7 @@ function makeRequest(path, method = 'GET', body = null) {
     const req = client.request(options, (res) => {
       let data = '';
       
-      // 处理重定向
+      // Handle redirects
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         const redirectUrl = new URL(res.headers.location, CONFIG.baseUrl).toString();
         console.log(`   重定向: ${redirectUrl}`);
@@ -308,7 +308,7 @@ function makeRequest(path, method = 'GET', body = null) {
 }
 
 /**
- * 主分析流程
+ * Main analysis flow
  */
 async function main() {
   console.log('╔══════════════════════════════════════════════════════════╗');
@@ -322,22 +322,22 @@ async function main() {
     phases: {},
   };
   
-  // Phase 1: 指纹识别
+  // Phase 1: Fingerprinting
   results.phases.fingerprint = await fingerprint();
   
-  // Phase 2: 获取帖子元数据
+  // Phase 2: Fetch post metadata
   results.phases.postMeta = await getPostMeta(CONFIG.postId);
   
-  // Phase 3: 调用下载 API
+  // Phase 3: Call download API
   results.phases.downloadData = await getDownloadData(CONFIG.postId);
   
-  // Phase 4: 枚举 API 端点
+  // Phase 4: Enumerate API endpoints
   results.phases.endpoints = await enumerateEndpoints();
   
-  // Phase 5: 获取帖子图片
+  // Phase 5: Fetch post images
   results.phases.images = await getPostImages(CONFIG.postId);
   
-  // 最终报告
+  // Final report
   console.log('\n╔══════════════════════════════════════════════════════════╗');
   console.log('║   分析总结                                              ║');
   console.log('╚══════════════════════════════════════════════════════════╝\n');
@@ -369,7 +369,7 @@ async function main() {
   console.log(`   2. 设置环境变量 COSTUAN_TOKEN 后重新运行脚本`);
   console.log(`   3. 积分/付费下载需要用户有足够的积分或余额`);
   
-  // 保存结果到文件
+  // Save results to file
   const fs = require('fs');
   const resultFile = `${__dirname}/costuan-analysis-result.json`;
   fs.writeFileSync(resultFile, JSON.stringify(results, null, 2));
@@ -378,7 +378,7 @@ async function main() {
   return results;
 }
 
-// 运行分析
+// Run analysis
 if (require.main === module) {
   main().catch(console.error);
 }

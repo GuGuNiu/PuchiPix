@@ -1,14 +1,12 @@
 /**
- * KanAV 站点数据获取脚本
- * 目标: 获取全站按"最新发布"排序的视频流数据
- * 作者: PuchiPix 逆向分析
- * 日期: 2026-08-03
+ * KanAV site data fetching script.
+ * Target: fetch the site-wide video feed sorted by "latest published".
  */
 
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// 站点配置
+// Site config
 const CONFIG = {
   baseUrl: 'https://v1.kanav.work',
   categories: [
@@ -24,11 +22,11 @@ const CONFIG = {
     hits: '最多观看',
     hits_week: '本周热榜'
   },
-  requestDelay: 1000, // 请求间隔(ms)
-  maxPagesPerCategory: 5 // 每个分类最大页数
+  requestDelay: 1000, // Request delay (ms)
+  maxPagesPerCategory: 5 // Max pages per category
 };
 
-// 请求头配置
+// Request headers config
 const headers = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -37,9 +35,9 @@ const headers = {
 };
 
 /**
- * 解析视频列表页
- * @param {string} url - 页面URL
- * @returns {Promise<Array>} 视频列表
+ * Parse a video list page
+ * @param {string} url - page URL
+ * @returns {Promise<Array>} video list
  */
 async function parseVideoList(url) {
   try {
@@ -58,19 +56,19 @@ async function parseVideoList(url) {
         const $views = $videoItem.find('.model-view-left');
         const $duration = $videoItem.find('.model-view');
         
-        // 提取视频ID
+        // Extract video ID
         const href = $link.attr('href') || '';
         const idMatch = href.match(/\/id\/(\d+)\//);
         const videoId = idMatch ? idMatch[1] : null;
         
-        // 提取日期
+        // Extract date
         const titleText = $entryTitle.text() || '';
         const dateMatch = titleText.match(/(\d{4})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})/);
         const publishDate = dateMatch ? 
           `${dateMatch[1]}-${dateMatch[2].padStart(2,'0')}-${dateMatch[3].padStart(2,'0')}` : 
           null;
         
-        // 解析播放量
+        // Parse view count
         const viewsText = $views.text().trim();
         const viewsMatch = viewsText.match(/([\d,]+)\s*Views/i);
         const views = viewsMatch ? parseInt(viewsMatch[1].replace(/,/g, '')) : 0;
@@ -99,11 +97,11 @@ async function parseVideoList(url) {
 }
 
 /**
- * 获取单个分类的视频数据
- * @param {number} categoryId - 分类ID
- * @param {string} sortBy - 排序方式
- * @param {number} maxPages - 最大页数
- * @returns {Promise<Array>} 视频列表
+ * Fetch video data for one category
+ * @param {number} categoryId - category ID
+ * @param {string} sortBy - sort order
+ * @param {number} maxPages - max pages
+ * @returns {Promise<Array>} video list
  */
 async function fetchCategoryVideos(categoryId, sortBy = 'time', maxPages = 5) {
   const allVideos = [];
@@ -120,7 +118,7 @@ async function fetchCategoryVideos(categoryId, sortBy = 'time', maxPages = 5) {
     
     allVideos.push(...videos);
     
-    // 请求间隔，避免触发反爬
+    // Request delay to avoid anti-bot triggers
     if (page < maxPages) {
       await new Promise(resolve => setTimeout(resolve, CONFIG.requestDelay));
     }
@@ -130,9 +128,9 @@ async function fetchCategoryVideos(categoryId, sortBy = 'time', maxPages = 5) {
 }
 
 /**
- * 获取全站最新视频（聚合所有分类）
- * @param {number} maxPagesPerCategory - 每个分类最大页数
- * @returns {Promise<Array>} 按时间排序的全站视频
+ * Fetch site-wide latest videos (all categories)
+ * @param {number} maxPagesPerCategory - max pages per category
+ * @returns {Promise<Array>} site-wide videos sorted by time
  */
 async function fetchAllSiteLatestVideos(maxPagesPerCategory = 3) {
   const allVideos = [];
@@ -146,7 +144,7 @@ async function fetchAllSiteLatestVideos(maxPagesPerCategory = 3) {
       maxPagesPerCategory
     );
     
-    // 添加分类信息
+    // Add category info
     videos.forEach(video => {
       video.categoryId = category.id;
       video.categoryName = category.name;
@@ -154,25 +152,25 @@ async function fetchAllSiteLatestVideos(maxPagesPerCategory = 3) {
     
     allVideos.push(...videos);
     
-    // 分类间请求间隔
+    // Delay between categories
     await new Promise(resolve => setTimeout(resolve, CONFIG.requestDelay * 2));
   }
   
-  // 去重（按视频ID）
+  // Deduplicate (by video ID)
   const uniqueVideos = Array.from(
     new Map(allVideos.map(v => [v.id, v])).values()
   );
   
-  // 按发布日期降序排序
+  // Sort by publish date descending
   uniqueVideos.sort((a, b) => b.publishTimestamp - a.publishTimestamp);
   
   return uniqueVideos;
 }
 
 /**
- * 保存数据到JSON文件
- * @param {Array} videos - 视频列表
- * @param {string} filename - 文件名
+ * Save data to a JSON file
+ * @param {Array} videos - video list
+ * @param {string} filename - filename
  */
 function saveToJson(videos, filename) {
   const fs = require('fs');
@@ -185,12 +183,12 @@ function saveToJson(videos, filename) {
   console.log(`\n数据已保存到: ${filename}`);
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('=== KanAV 全站视频数据获取脚本 ===\n');
   
   try {
-    // 获取全站最新视频
+    // Fetch site-wide latest videos
     const videos = await fetchAllSiteLatestVideos(3);
     
     console.log(`\n=== 获取完成 ===`);
@@ -201,7 +199,7 @@ async function main() {
       console.log(`   播放量: ${v.viewsText}, 分类: ${v.categoryName}`);
     });
     
-    // 保存数据
+    // Save data
     saveToJson(videos, 'kanav-latest-videos.json');
     
   } catch (error) {
@@ -209,7 +207,7 @@ async function main() {
   }
 }
 
-// 导出模块
+// Export module
 module.exports = {
   CONFIG,
   parseVideoList,
@@ -218,7 +216,7 @@ module.exports = {
   saveToJson
 };
 
-// 直接运行
+// Run directly
 if (require.main === module) {
   main();
 }

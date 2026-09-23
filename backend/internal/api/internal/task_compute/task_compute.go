@@ -268,8 +268,8 @@ func normalizeDualPerson(s string) string {
 	return dualPersonSepRE.ReplaceAllString(s, "与")
 }
 
-// TaskIDKey 返回任务的唯一标识符（用于节流、聚合等场景）
-// 格式: "taskType:taskId"，例如 "gallery:123"
+// TaskIDKey returns a unique task identifier (used for throttling, aggregation).
+// Format: "taskType:taskId", e.g. "gallery:123"
 func TaskIDKey(m map[string]any) string {
 	taskType, _ := m["TaskType"].(string)
 	if taskType == "" {

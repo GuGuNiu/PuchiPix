@@ -9,9 +9,10 @@ import (
 	"backend/internal/infra"
 )
 
-// newGuardTestDB 每个场景使用独立的临时文件数据库。
-// 不能用 :memory:——MaxOpenConns(4) 会为池中每个连接创建独立的内存库，
-// applySchema 只建在其中一个连接上，其余连接查询必然失败。
+// newGuardTestDB gives each scenario its own temp-file database.
+// :memory: cannot be used — MaxOpenConns(4) creates a separate in-memory
+// database per pooled connection, so applySchema would only build the schema
+// on one connection and queries on the others would necessarily fail.
 func newGuardTestDB(t *testing.T) *db.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "guard_test.db")
@@ -23,8 +24,8 @@ func newGuardTestDB(t *testing.T) *db.Database {
 	return database
 }
 
-// insertGalleryRow 建立满足外键约束的 galleries 记录
-// （gallery_images/gallery_videos/gallery_download_infos 均引用 galleries.id）。
+// insertGalleryRow creates a galleries row satisfying foreign-key constraints
+// (gallery_images/gallery_videos/gallery_download_infos all reference galleries.id).
 func insertGalleryRow(t *testing.T, d *db.Database, galleryID int) {
 	t.Helper()
 	_, err := d.Exec(context.Background(),
@@ -55,9 +56,10 @@ func insertGalleryVideo(t *testing.T, d *db.Database, galleryID int, status stri
 	}
 }
 
-// TestComputeGalleryTerminalStatus 覆盖 DAG 终态守卫的内容感知判定：
-// 必须与下载执行器的 completed/partial/failed 语义一致，
-// 否则守卫本身会把部分下载伪装成 completed（260820 卡死问题的镜像风险）。
+// TestComputeGalleryTerminalStatus covers the content-aware verdict of the
+// DAG terminal-state guard: it must agree with the download executors'
+// completed/partial/failed semantics, otherwise the guard itself could
+// disguise a partial download as completed (the mirror risk of the 260820 hang bug).
 func TestComputeGalleryTerminalStatus(t *testing.T) {
 	t.Run("全部图片下载完成→completed", func(t *testing.T) {
 		d := newGuardTestDB(t)
@@ -116,7 +118,7 @@ func TestComputeGalleryTerminalStatus(t *testing.T) {
 	t.Run("ZIP 下载路径无文件级记录→completed", func(t *testing.T) {
 		d := newGuardTestDB(t)
 		insertGalleryRow(t, d, 1)
-		// ZIP 管道不写 gallery_images/gallery_videos，只写 gallery_download_infos
+		// The ZIP pipeline writes only gallery_download_infos, not gallery_images/gallery_videos
 		_, err := d.Exec(context.Background(),
 			`INSERT INTO gallery_download_infos (gallery_id, actual_size) VALUES (1, 261000000)`)
 		if err != nil {
@@ -138,7 +140,8 @@ func TestComputeGalleryTerminalStatus(t *testing.T) {
 
 	t.Run("查询失败时降级为completed（DAG聚合已确认成功）", func(t *testing.T) {
 		d := newGuardTestDB(t)
-		// 删除表模拟 schema 异常，验证降级路径不 panic 且返回保守值
+		// Drop a table to simulate a schema anomaly; the fallback must not panic
+		// and must return the conservative value
 		if _, err := d.Exec(context.Background(), `DROP TABLE gallery_images`); err != nil {
 			t.Fatalf("drop table: %v", err)
 		}
@@ -149,12 +152,12 @@ func TestComputeGalleryTerminalStatus(t *testing.T) {
 	})
 }
 
-// TestValidateDatabaseSchema 验证启动期 schema 校验能识别核心表缺失
-// （260821 空库静默创建事故的防护闸门）。
+// TestValidateDatabaseSchema verifies startup schema validation detects
+// missing core tables (the guard gate after the 260821 silently-created empty DB incident).
 func TestValidateDatabaseSchema(t *testing.T) {
 	t.Run("健康库校验通过", func(t *testing.T) {
 		d := newGuardTestDB(t)
-		// 不应 panic；通过即视为正常（错误分支才需要断言）
+		// Should not panic; passing counts as normal (only the error branch needs assertions)
 		validateDatabaseSchema(infra.NewLogger("GuardTest"), d)
 	})
 
@@ -165,8 +168,8 @@ func TestValidateDatabaseSchema(t *testing.T) {
 				t.Fatalf("drop %s: %v", table, err)
 			}
 		}
-		// validateDatabaseSchema 只记日志不返回错误，这里验证它不 panic
-		// 且能走完缺失分支（错误日志输出到全局 sink，不在断言范围内）。
+		// validateDatabaseSchema only logs and returns no error; here we verify it does not panic
+		// and completes the missing-table branch (error logs go to the global sink, out of assertion scope).
 		validateDatabaseSchema(infra.NewLogger("GuardTest"), d)
 	})
 }

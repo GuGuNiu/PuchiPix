@@ -1,6 +1,4 @@
-// ============================================================
-// Nav Group — 导航分组（下拉展开）
-// ============================================================
+// Nav group — collapsible dropdown section
 
 .nav-group {
   margin-bottom: var(--space-1);
@@ -69,7 +67,7 @@
   }
 }
 
-// 分组激活状态
+// Active group state
 .nav-group.active > .nav-group-trigger {
   background: var(--accent);
   color: var(--text-inverse);
@@ -87,7 +85,7 @@
   }
 }
 
-// ─── 折叠状态 ───
+// ─── Collapsed state ───
 .sidebar.collapsed:not(.hover-expand) {
   .nav-group-items {
     display: none;

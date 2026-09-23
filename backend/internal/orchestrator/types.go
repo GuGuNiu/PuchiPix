@@ -33,7 +33,7 @@ const (
 // states and READY/RUNNING. It signals that the system is actively preparing
 // resources (e.g., re-establishing connections, validating slots, restoring
 // state after restart) before the node can actually run. This gives the UI
-// an immediate optimistic feedback ("准备中") instead of an opaque gap.
+// an immediate optimistic feedback ("preparing", UI label 准备中) instead of an opaque gap.
 var validTransitions = map[NodeState][]NodeState{
 	NodeStatePending:      {NodeStatePreparing, NodeStateReady, NodeStateCancelled, NodeStateFailed},
 	NodeStatePreparing:    {NodeStateReady, NodeStateRunning, NodeStateFailed, NodeStateCancelled},

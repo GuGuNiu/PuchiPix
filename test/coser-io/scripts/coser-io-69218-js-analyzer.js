@@ -1,5 +1,5 @@
 /**
- * Coser.io JS文件分析与API端点提取
+ * Coser.io JS file analysis and API endpoint extraction.
  */
 
 const https = require('https');
@@ -9,7 +9,7 @@ const path = require('path');
 
 const OUTPUT_DIR = 'E:\\data\\Github\\PuchiPix\\test\\coser-io\\data';
 
-// 请求并解压JS文件
+// Fetch and decompress JS file
 function fetchAndDecompress(url) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -52,14 +52,14 @@ function fetchAndDecompress(url) {
   });
 }
 
-// 分析JS内容
+// Analyze JS content
 function analyzeJS(content) {
   console.log(`JS文件大小: ${content.length} 字节\n`);
 
-  // 保存完整JS
+  // Save full JS
   fs.writeFileSync(path.join(OUTPUT_DIR, 'latp-decompressed.js'), content);
 
-  // 1. 提取所有API端点
+  // 1. Extract all API endpoints
   const apiPatterns = [
     /['"`](\/web-api\/[^'"`]+)['"`]/g,
     /['"`](\/api\/[^'"`]+)['"`]/g,
@@ -83,7 +83,7 @@ function analyzeJS(content) {
   const endpoints = [...allEndpoints].sort();
   endpoints.forEach(e => console.log(`  - ${e}`));
 
-  // 2. 提取图片相关函数
+  // 2. Extract image-related functions
   const imageFunctionPatterns = [
     /function\s+(\w*[Ii]mage\w*)\s*\(/g,
     /function\s+(\w*[Gg]allery\w*)\s*\(/g,
@@ -108,31 +108,31 @@ function analyzeJS(content) {
   console.log(`\n发现 ${imageFunctions.size} 个图片/图集相关函数:`);
   [...imageFunctions].sort().slice(0, 30).forEach(f => console.log(`  - ${f}`));
 
-  // 3. 提取关键代码片段
+  // 3. Extract key code snippets
   console.log('\n=== 关键代码片段 ===\n');
 
-  // 查找图片加载相关代码
+  // Find image loading related code
   const loadImageMatches = content.match(/[\w$]+\.loadImages[\s\S]{0,500}/g);
   if (loadImageMatches) {
     console.log('loadImages 相关代码:');
     loadImageMatches.slice(0, 2).forEach(m => console.log(m.substring(0, 300)));
   }
 
-  // 查找解锁相关代码
+  // Find unlock related code
   const unlockMatches = content.match(/[\w$]+\.unlock[\s\S]{0,500}/g);
   if (unlockMatches) {
     console.log('\nunlock 相关代码:');
     unlockMatches.slice(0, 2).forEach(m => console.log(m.substring(0, 300)));
   }
 
-  // 查找API调用相关代码
+  // Find API call related code
   const apiCallMatches = content.match(/fetch\([\s\S]{0,300}/g);
   if (apiCallMatches) {
     console.log('\nFetch API调用:');
     apiCallMatches.slice(0, 5).forEach(m => console.log(m.substring(0, 200)));
   }
 
-  // 4. 提取URL构建模式
+  // 4. Extract URL building patterns
   const urlPatterns = content.match(/https?:\/\/[^\s"'`]+/g);
   if (urlPatterns) {
     const uniqueUrls = [...new Set(urlPatterns)].filter(u =>
@@ -142,7 +142,7 @@ function analyzeJS(content) {
     uniqueUrls.slice(0, 20).forEach(u => console.log(`  - ${u}`));
   }
 
-  // 保存分析结果
+  // Save analysis results
   const analysis = {
     endpoints: endpoints,
     functions: [...imageFunctions],
@@ -153,7 +153,7 @@ function analyzeJS(content) {
   return analysis;
 }
 
-// 尝试获取更多JS文件
+// Try fetching more JS files
 async function fetchAdditionalJS() {
   console.log('\n=== 获取其他JS文件 ===\n');
 
@@ -169,7 +169,7 @@ async function fetchAdditionalJS() {
       const content = await fetchAndDecompress(url);
       console.log(`${url}: ${content.length} 字节`);
 
-      // 查找API端点
+      // Find API endpoints
       const apiMatches = content.matchAll(/['"`](\/web-api\/[^'"`]+)['"`]/g);
       const apis = [...new Set([...apiMatches].map(m => m[1]))];
       if (apis.length > 0) {
@@ -181,7 +181,7 @@ async function fetchAdditionalJS() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('Coser.io JS分析器\n');
 

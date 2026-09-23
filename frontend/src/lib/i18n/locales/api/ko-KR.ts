@@ -1,21 +1,21 @@
 import type { TranslationDict } from "../../types";
 
 const koKR: TranslationDict = {
-  // 작업 설정 검증
+  // Task settings validation
   "api.validation.maxConcurrentTasks": "동시 실행 작업 수는 1~50 사이여야 합니다",
   "api.validation.maxSniffConcurrent": "최대 탐색 동시 수는 1~10 사이여야 합니다",
   "api.validation.maxScrapingSlots": "최대 식별 수는 1~50 사이여야 합니다",
   "api.validation.tsSegmentConcurrent": "TS 세그먼트 동시 수는 1~200 사이여야 합니다",
   "api.validation.galleryImageConcurrent": "갤러리 이미지 동시 수는 1~50 사이여야 합니다",
 
-  // SJS 포럼 작업
+  // SJS forum actions
   "api.sjs.missingAction": "action 파라미터 누락",
   "api.sjs.signMissingAccountId": "출석 체크에는 accountId 파라미터가 필요합니다",
   "api.sjs.buyMissingAccountId": "게시글 구매에는 accountId 파라미터가 필요합니다",
   "api.sjs.buyMissingTid": "게시글 구매에는 tid 파라미터(게시글 ID)가 필요합니다",
   "api.sjs.loginMissingAccountId": "로그인에는 accountId 파라미터가 필요합니다",
 
-  // SJS 셸프
+  // SJS Shelf
   "api.sjsShelf.noUrls": "URL 목록을 제공하세요",
   "api.sjsShelf.emptyUrl": "빈 URL",
   "api.sjsShelf.invalidSjsUrl": "유효한 SJS URL이 아닙니다",
@@ -25,7 +25,7 @@ const koKR: TranslationDict = {
   "api.sjsShelf.refreshFailed": "메타데이터 새로고침 실패",
   "api.sjsShelf.unknownAction": "알 수 없는 작업",
 
-  // 검색
+  // Search
   "api.search.missingJobId": "jobId를 제공하세요",
   "api.search.batchScrapeStarted": "배치 크롤링이 시작되었습니다",
   "api.search.missingPageUrl": "pageUrl을 제공하세요",
@@ -33,15 +33,15 @@ const koKR: TranslationDict = {
   "api.search.missingKeyword": "검색 키워드를 제공하세요",
   "api.search.missingVideoTitle": "동영상 제목을 제공하세요",
 
-  // 주인공
+  // Protagonist
   "api.protagonist.galleryNotFound": "이 주인공의 갤러리를 찾을 수 없습니다",
   "api.protagonist.fetchFailed": "주인공 정보 가져오기 실패",
 
-  // OUO 오케스트레이션
+  // OUO orchestration
   "api.ouo.missingParams": "필수 파라미터 누락: galleryId, ouoUrl",
   "api.ouo.missingGalleryId": "필수 파라미터 누락: galleryId",
 
-  // 갤러리
+  // Gallery
   "api.gallery.notFound": "갤러리가 존재하지 않습니다",
   "api.gallery.noProviderMatch": "일치하는 사이트 제공자를 찾을 수 없어 재크롤링할 수 없습니다",
   "api.gallery.rescrapeStarted": "갤러리 재크롤링이 시작되었습니다",
@@ -61,26 +61,26 @@ const koKR: TranslationDict = {
   "api.gallery.batchEmptyUrl": "빈 URL",
   "api.gallery.noProviderForRescrape": "갤러리 제공자를 매칭할 수 없어 재크롤링할 수 없습니다",
 
-  // 작업
+  // Tasks
   "api.tasks.noM3u8Extracted": "페이지에서 M3U8 링크를 추출할 수 없습니다",
 
-  // 차단 단어
+  // Blocklist
   "api.blocklist.addFailed": "추가 실패",
 
-  // 로그
+  // Logs
   "api.logs.systemReady": "시스템 준비 완료, 작업 대기 중...",
   "api.logs.taskNumber": "작업 #{id}",
   "api.logs.fetchFailed": "로그 가져오기 실패",
 
-  // 갤러리 (보충)
+  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "사이트 {site}는 갤러리 스크래핑을 지원하지 않습니다",
   "api.gallery.allDomainsFailed": "모든 도메인 스크래핑 실패",
 
-  // 작업 (보충)
+  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "{count}개의 M3U8 주소가 감지되었습니다, 선택하세요",
   "api.tasks.unsupportedListScrape": "제공자가 목록 페이지 스크래핑을 지원하지 않습니다",
 
-  // 공통
+  // Common
   "api.characterDb.syncRunning": "동기화 작업이 실행 중입니다",
   "api.common.internalError": "서버 내부 오류",
   "api.common.missingParams": "필수 파라미터 누락: {params}",

@@ -169,7 +169,7 @@ const zhCN: TranslationDict = {
   "tasks.jumpToPagePlaceholder": "页码",
 } satisfies TranslationDict;
 
-/** Tasks 模块的翻译键联合类型 */
+/** Union of Tasks translation keys */
 export type TasksTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

@@ -13,26 +13,26 @@ import (
 
 var streamMergerLogger = infra.NewLogger("StreamMerger")
 
-// StreamMergerConfig 配置流式合并器的行为
+// StreamMergerConfig configures a streaming merger.
 type StreamMergerConfig struct {
-	// Mode 定义存储模式
+	// Mode storage mode
 	Mode BufferMode
-	// TempDir 磁盘模式下的临时文件目录
+	// TempDir temp directory for disk mode
 	TempDir string
-	// ProgressCallback 进度回调
+	// ProgressCallback progress callback
 	ProgressCallback func(segmentIndex int, segmentSize int64)
-	// Logger 日志记录器
+	// Logger logger
 	Logger *infra.Logger
 }
 
-// StreamMerger 实现边下边合并的流式合并器
-// 借鉴 cat-catch 的 sequentialPush 设计（研学文档 §2.5.1）
+// StreamMerger merges segments while they download (stream-as-you-go).
+// Follows cat-catch's sequentialPush design (see design doc §2.5.1).
 type StreamMerger struct {
 	buffer *IndexBuffer
 	config StreamMergerConfig
 }
 
-// NewStreamMerger 创建一个新的流式合并器
+// NewStreamMerger creates a new streaming merger.
 func NewStreamMerger(segmentCount int, config StreamMergerConfig) *StreamMerger {
 	if config.Logger == nil {
 		config.Logger = streamMergerLogger
@@ -43,18 +43,18 @@ func NewStreamMerger(segmentCount int, config StreamMergerConfig) *StreamMerger 
 	}
 }
 
-// StoreSegment 存储一个下载完成的分片
+// StoreSegment stores a downloaded segment (memory mode).
 func (m *StreamMerger) StoreSegment(index int, data []byte) error {
 	return m.buffer.Store(index, data)
 }
 
-// StoreSegmentDisk 存储一个下载完成的分片（磁盘模式）
+// StoreSegmentDisk stores a downloaded segment (disk mode).
 func (m *StreamMerger) StoreSegmentDisk(index int, filePath string, size int64) error {
 	return m.buffer.StoreDisk(index, filePath, size)
 }
 
-// MergeToWriter 将分片按顺序合并到指定的 writer
-// 此方法会阻塞直到所有分片就绪并写入完成
+// MergeToWriter merges segments in order into w, blocking until all
+// segments are ready and written.
 func (m *StreamMerger) MergeToWriter(w io.Writer) (int64, error) {
 	var callback func(int, int64)
 	if m.config.ProgressCallback != nil {
@@ -63,7 +63,7 @@ func (m *StreamMerger) MergeToWriter(w io.Writer) (int64, error) {
 	return m.buffer.SequentialPushWithCallback(w, callback)
 }
 
-// MergeToFile 将分片按顺序合并到指定文件
+// MergeToFile merges segments in order into the file at outputPath.
 func (m *StreamMerger) MergeToFile(outputPath string) (int64, error) {
 	if err := os.MkdirAll(m.config.TempDir, 0755); err != nil {
 		return 0, fmt.Errorf("create temp directory: %w", err)
@@ -78,8 +78,9 @@ func (m *StreamMerger) MergeToFile(outputPath string) (int64, error) {
 	return m.MergeToWriter(f)
 }
 
-// MergeToPipe 将分片通过 io.Pipe 输出，适用于流式转码场景
-// 返回一个 ReadCloser，调用者可以读取合并后的数据流
+// MergeToPipe streams merged segments through an io.Pipe, for
+// stream-transcode scenarios. Returns a ReadCloser the caller can read
+// the merged stream from.
 func (m *StreamMerger) MergeToPipe() (io.ReadCloser, *sync.WaitGroup, error) {
 	pr, pw := io.Pipe()
 	var wg sync.WaitGroup
@@ -98,13 +99,13 @@ func (m *StreamMerger) MergeToPipe() (io.ReadCloser, *sync.WaitGroup, error) {
 	return pr, &wg, nil
 }
 
-// GetBuffer 返回内部的 IndexBuffer，用于直接访问
+// GetBuffer returns the underlying IndexBuffer for direct access.
 func (m *StreamMerger) GetBuffer() *IndexBuffer {
 	return m.buffer
 }
 
-// StreamingMergePipeline 实现完整的流式合并管道
-// 下载 goroutine 和合并 goroutine 并行执行
+// StreamingMergePipeline runs the full streaming merge pipeline;
+// download and merge goroutines run in parallel.
 type StreamingMergePipeline struct {
 	merger    *StreamMerger
 	output    io.WriteCloser
@@ -115,7 +116,7 @@ type StreamingMergePipeline struct {
 	started   bool
 }
 
-// NewStreamingMergePipeline 创建一个新的流式合并管道
+// NewStreamingMergePipeline creates a new streaming merge pipeline.
 func NewStreamingMergePipeline(segmentCount int, config StreamMergerConfig, output io.WriteCloser) *StreamingMergePipeline {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &StreamingMergePipeline{
@@ -127,18 +128,18 @@ func NewStreamingMergePipeline(segmentCount int, config StreamMergerConfig, outp
 	}
 }
 
-// StoreSegment 存储一个下载完成的分片（并发安全）
+// StoreSegment stores a downloaded segment (concurrency-safe).
 func (p *StreamingMergePipeline) StoreSegment(index int, data []byte) error {
 	return p.merger.StoreSegment(index, data)
 }
 
-// StoreSegmentDisk 存储一个下载完成的分片（磁盘模式）
+// StoreSegmentDisk stores a downloaded segment (disk mode).
 func (p *StreamingMergePipeline) StoreSegmentDisk(index int, filePath string, size int64) error {
 	return p.merger.StoreSegmentDisk(index, filePath, size)
 }
 
-// Start 启动合并 goroutine
-// 调用此方法后，StoreSegment 将被顺序消费并写入 output
+// Start launches the merge goroutine. After this call, StoreSegment
+// results are consumed in order and written to output.
 func (p *StreamingMergePipeline) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -157,32 +158,32 @@ func (p *StreamingMergePipeline) Start() error {
 	return nil
 }
 
-// Wait 等待合并完成
+// Wait blocks until the merge completes.
 func (p *StreamingMergePipeline) Wait() error {
 	err := <-p.doneChan
 	return err
 }
 
-// Cancel 取消合并操作
+// Cancel aborts the merge.
 func (p *StreamingMergePipeline) Cancel() {
 	p.cancel()
 }
 
-// GetProgress 返回当前进度
+// GetProgress returns current progress (ready, total).
 func (p *StreamingMergePipeline) GetProgress() (ready, total int) {
 	return p.merger.buffer.GetProgress()
 }
 
-// GetPushProgress 返回推送进度
+// GetPushProgress returns push progress (pushed, total).
 func (p *StreamingMergePipeline) GetPushProgress() (pushed, total int) {
 	return p.merger.buffer.GetPushProgress()
 }
 
 // ============================================================
-// 适配现有 SegmentQueue 的辅助函数
+// Helpers adapting to the existing SegmentQueue
 // ============================================================
 
-// CreateStreamMergerForTask 为下载任务创建流式合并器
+// CreateStreamMergerForTask creates a streaming merger for a download task.
 func CreateStreamMergerForTask(taskID int, segmentCount int, segDir string, mode BufferMode) *StreamMerger {
 	config := StreamMergerConfig{
 		Mode:    mode,
@@ -211,8 +212,8 @@ func CreateStreamMergerForTask(taskID int, segmentCount int, segDir string, mode
 	return merger
 }
 
-// DetermineBufferMode 根据分片总数和预估大小决定存储模式
-// 预估总大小 < 100MB 使用内存模式，否则使用磁盘模式
+// DetermineBufferMode picks the storage mode from segment count and
+// estimated size: < 100MB uses memory mode, otherwise disk mode.
 func DetermineBufferMode(segmentCount int, avgSegmentSize int64) BufferMode {
 	estimatedTotal := int64(segmentCount) * avgSegmentSize
 	const memoryThreshold = 100 * 1024 * 1024 // 100MB
@@ -222,14 +223,14 @@ func DetermineBufferMode(segmentCount int, avgSegmentSize int64) BufferMode {
 	return DiskMode
 }
 
-// CleanupSegmentFile 清理分片临时文件
+// CleanupSegmentFile removes a segment temp file.
 func CleanupSegmentFile(filePath string) {
 	if filePath != "" {
 		_ = os.Remove(filePath)
 	}
 }
 
-// SegmentDownloadInfo 传递给流式合并器的分片下载信息
+// SegmentDownloadInfo is segment download info passed to the streaming merger.
 type SegmentDownloadInfo struct {
 	Index    int
 	FilePath string
@@ -237,7 +238,7 @@ type SegmentDownloadInfo struct {
 	IsDisk   bool
 }
 
-// BatchStoreSegments 批量存储分片（用于磁盘模式批量下载后存储）
+// BatchStoreSegments stores segments in bulk (after a disk-mode batch download).
 func (m *StreamMerger) BatchStoreSegments(segments []SegmentDownloadInfo) error {
 	for _, seg := range segments {
 		if seg.IsDisk {
@@ -245,7 +246,7 @@ func (m *StreamMerger) BatchStoreSegments(segments []SegmentDownloadInfo) error 
 				return fmt.Errorf("store segment %d: %w", seg.Index, err)
 			}
 		} else {
-			// 内存模式需要读取文件到内存
+			// Memory mode: read the file into memory
 			data, err := os.ReadFile(seg.FilePath)
 			if err != nil {
 				return fmt.Errorf("read segment %d file: %w", seg.Index, err)
@@ -253,14 +254,13 @@ func (m *StreamMerger) BatchStoreSegments(segments []SegmentDownloadInfo) error 
 			if err := m.StoreSegment(seg.Index, data); err != nil {
 				return fmt.Errorf("store segment %d: %w", seg.Index, err)
 			}
-			// 清理临时文件
-			_ = os.Remove(seg.FilePath)
+			_ = os.Remove(seg.FilePath) // clean up temp file
 		}
 	}
 	return nil
 }
 
-// SegmentTimeInfo 用于计算下载速度的分片时间信息
+// SegmentTimeInfo holds per-segment timing used for download speed calculation.
 type SegmentTimeInfo struct {
 	Index      int
 	StartTime  time.Time
@@ -268,7 +268,7 @@ type SegmentTimeInfo struct {
 	Size       int64
 }
 
-// CalculateDownloadSpeed 计算平均下载速度
+// CalculateDownloadSpeed returns the average download speed in bytes/sec.
 func CalculateDownloadSpeed(stats []SegmentTimeInfo) float64 {
 	if len(stats) == 0 {
 		return 0

@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// Textos de la página de lista negra — Español
+// Blocklist page text — es-ES
 const esES: TranslationDict = {
   "blocklist.title": "Lista negra",
   "blocklist.subtitle": "Gestionar reglas de bloqueo de contenido — filtrar por título/categoría/personaje/director",

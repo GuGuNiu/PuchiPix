@@ -1165,7 +1165,7 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 // transitionDagNodesToPreparing transitions all non-terminal nodes in a DAG
 // to PREPARING state, providing immediate optimistic feedback to the UI that
 // the task is being prepared. This is called after start/resume/retry operations
-// so the user sees "准备中" instantly instead of waiting for the actual state.
+// so the user sees "preparing" (准备中) instantly instead of waiting for the actual state.
 func (h *Handlers) transitionDagNodesToPreparing(ctx context.Context, dagID string) {
 	if h.DagOrch == nil || dagID == "" {
 		return

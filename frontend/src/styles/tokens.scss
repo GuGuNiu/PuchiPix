@@ -1,21 +1,16 @@
-// ============================================================
-// PuchiPix — Design Tokens (设计令牌)
-//
-// 存放全局 CSS 自定义属性（颜色、间距、阴影、动画等）。
-// 日间浅色主题变量在 :root，夜间璀璨黑主题在 [data-theme="dark"]。
-// ============================================================
+// PuchiPix — design tokens (CSS vars + keyframes); light in :root, dark in [data-theme="dark"]
 
-// ===== 本地字体（Dancing Script 700，自托管避免 Google Fonts 慢/不可达） =====
+// ===== Local font (Dancing Script 700, self-hosted to avoid slow/unreachable Google Fonts) =====
 @font-face {
   font-family: "Dancing Script";
   font-style: normal;
   font-weight: 700;
-  font-display: swap; // 字体未就绪时先用回退字体渲染，不阻塞文本
+  font-display: swap; // render fallback while loading; don't block text
   src: url("/fonts/dancing-script-700.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-// ===== 动画关键帧 =====
+// ===== Animation keyframes =====
 @keyframes pulse-glow {
   0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
   50% { opacity: 0.5; box-shadow: 0 0 12px currentColor; }
@@ -92,7 +87,7 @@
   100% { background-color: transparent; }
 }
 
-// ===== Surfaces (日间浅色主题) =====
+// ===== Surfaces (light theme) =====
 :root {
   color-scheme: light;
 
@@ -124,7 +119,7 @@
   // ─── Inverse Background (tooltip / floating label) ───
   --bg-inverse: #1e293b;
 
-  // ─── Accent (璀璨黑) ───
+  // ─── Accent (near-black) ───
   --accent: #0f0f1a;
   --accent-hover: #050508;
   --accent-light: #2a2a3e;
@@ -180,7 +175,7 @@
   --nav-active-shadow: 0 4px 12px rgba(15, 15, 26, 0.18), 0 1px 3px rgba(15, 15, 26, 0.12);
   --nav-icon-glow: rgba(255, 255, 255, 0.3);
 
-  // ─── Neon Highlights (Ops 面板专用) ───
+  // ─── Neon Highlights (Ops panels only) ───
   --neon-cyan: #0891b2;
   --neon-cyan-glow: rgba(8, 145, 178, 0.35);
   --neon-violet: #7c3aed;
@@ -229,12 +224,12 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  // ─── 内嵌高光（浅色主题下白色 inset） ───
+  // ─── Inset highlight (white inset on light theme) ───
   --inset-highlight: rgba(255, 255, 255, 0.4);
   --inset-highlight-soft: rgba(255, 255, 255, 0.3);
   --sidebar-glow: rgba(255, 255, 255, 0.5);
 
-  // ─── 赛博朋克城市背景（日间：淡蓝银灰，可见但不突兀） ───
+  // ─── Cyberpunk city bg (day: pale blue-silver, visible but subtle) ───
   --cp-city-building-top: rgba(148, 163, 184, 0.55);
   --cp-city-building-btm: rgba(148, 163, 184, 0.18);
   --cp-city-win-on: rgba(148, 163, 184, 0.7);
@@ -246,7 +241,7 @@
   --cp-city-neon: rgba(148, 163, 184, 0.25);
 }
 
-// ===== Surfaces (夜间璀璨黑主题) =====
+// ===== Surfaces (dark theme) =====
 [data-theme="dark"] {
   color-scheme: dark;
 
@@ -349,7 +344,7 @@
   --inset-highlight-soft: rgba(129, 140, 248, 0.03);
   --sidebar-glow: rgba(139, 148, 255, 0.04);
 
-  // ─── 赛博朋克城市背景（夜间：霓虹紫/靛蓝，明显可见） ───
+  // ─── Cyberpunk city bg (night: neon purple/indigo, clearly visible) ───
   --cp-city-building-top: rgba(99, 102, 241, 0.55);
   --cp-city-building-btm: rgba(139, 92, 246, 0.18);
   --cp-city-win-on: rgba(129, 140, 248, 0.75);

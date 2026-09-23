@@ -7,7 +7,7 @@ import (
 	"backend/internal/orchestrator/slot"
 )
 
-// Regression lock for the runtime-tunable scheduling params (260817 工单 11,
+// Regression lock for the runtime-tunable scheduling params (260817 ticket 11,
 // re-implemented after the original was lost in the 260820 refactor):
 // defaults must match the pre-extraction hardcoded values, setters must
 // validate ranges, and updates must be visible through GetSchedulerConfig

@@ -1,7 +1,4 @@
-// ============================================================
-// Task Detail — 任务详情面板
-// task-detail-popover / task-detail-grid / failure-reason
-// ============================================================
+// Task detail panel — task-detail-popover / task-detail-grid / failure-reason
 
 .task-detail-overlay {
   position: fixed;
@@ -83,7 +80,7 @@
     grid-column: 1 / -1;
   }
 
-  // 当内含 failure-reason-card 时，让卡片撑满容器
+  // When wrapping a failure-reason-card, let the card fill the container
   &:has(> .failure-reason-card) {
     padding: 0;
     border: none;

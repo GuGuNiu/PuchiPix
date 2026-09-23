@@ -16,20 +16,21 @@ import (
 	"backend/internal/infra"
 )
 
-// taskStreamLogger 输出初始快照构建过程中的静默失败。
-// 此前 scan 错误被 continue 直接吞掉，导致 SSE initial 快照
-// 悄悄变空且日志无痕（260803 "SSE initial 恒空数日" 的同款放大器）。
+// taskStreamLogger surfaces silent failures while building the initial
+// snapshot. Scan errors were previously swallowed by continue, leaving the
+// SSE initial snapshot empty with no log trace (same amplifier as the
+// 260803 "SSE initial always empty for days" incident).
 var taskStreamLogger = infra.NewLogger("TaskStream")
 
-// 初始快照分页参数
-// 当任务数量超过阈值时，分页加载，避免一次性返回大量数据导致 SSE 拥塞
+// Initial-snapshot pagination: page large task lists instead of returning
+// everything at once, which would congest the SSE queue.
 const (
-	taskStreamInitialPageSize = 500  // 每页任务数
-	taskStreamMaxInitialTasks = 2000 // 初始快照最大任务数（超过此值触发分页）
+	taskStreamInitialPageSize = 500  // tasks per page
+	taskStreamMaxInitialTasks = 2000 // max tasks in the initial snapshot (triggers paging beyond this)
 )
 
-// progressThrottle 按任务 ID 节流 progress 事件
-// 防止高频 progress 更新导致 SSE 队列溢出
+// progressThrottle rate-limits progress events per task ID to prevent
+// SSE queue overflow from high-frequency progress updates.
 type progressThrottle struct {
 	mu     sync.RWMutex
 	lastAt map[string]time.Time
@@ -113,7 +114,7 @@ func (r unifiedTaskRow) toMap() map[string]any {
 		"GalleryTitle":     r.Title,
 		"Person":           parsePersonForDisplay(r.Protagonist),
 		// Actors as a parsed array mirrors Person (joined string) so the
-		// detail popover and copy-summary can render 演员 without the
+		// detail popover and copy-summary can render actors without the
 		// VideoInfo attachment (list/SSE payloads never include it).
 		"Actors":           task_compute.ParseTagsColumn(r.Protagonist),
 		"ImageCount":       r.ImageCount,
@@ -150,7 +151,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 初始化 progress 节流器：同一任务 progress 事件最小间隔 500ms
+	// Throttle progress events: at most one per task per 500ms, to prevent
+	// SSE queue overflow from high-frequency progress updates.
 	progressThrottle := newProgressThrottle(500 * time.Millisecond)
 	cleanupTicker := time.NewTicker(5 * time.Minute)
 	defer cleanupTicker.Stop()
@@ -199,7 +201,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.DownloadedSize, &r.ContentVerified,
 					&r.TotalSegments, &r.CompletedSegments,
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
-					// 记录而非吞掉：scan 失败曾让 initial 快照静默缺行
+					// Log rather than swallow: a scan failure once left the
+					// initial snapshot silently missing rows.
 					taskStreamLogger.Error("SSE initial snapshot: video row scan failed", err)
 					continue
 				}
@@ -247,7 +250,8 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 					&r.DownloadedSize, &r.ContentVerified,
 					&r.TotalSegments, &r.CompletedSegments,
 					&r.CreatedAt, &r.UpdatedAt); err != nil {
-					// 记录而非吞掉：scan 失败曾让 initial 快照静默缺行
+					// Log rather than swallow: a scan failure once left the
+					// initial snapshot silently missing rows.
 					taskStreamLogger.Error("SSE initial snapshot: gallery row scan failed", err)
 					continue
 				}
@@ -364,12 +368,12 @@ func (h *Handlers) TaskStreamSSE(w http.ResponseWriter, r *http.Request) {
 		})
 
 		unsubProgress := h.EventBus.On("task:progress", func(payload any) {
-			// Progress 事件节流：同一任务 500ms 内只推送一次
-			// 防止高频 progress 更新导致 SSE 队列溢出
+			// Throttle: at most one progress event per task per 500ms,
+			// preventing SSE queue overflow from high-frequency updates.
 			if m, ok := payload.(map[string]any); ok {
 				taskID := task_compute.TaskIDKey(m)
 				if !progressThrottle.Allow(taskID) {
-					return // 节流：跳过本次 progress 事件
+					return // throttled: skip this progress event
 				}
 			}
 			stream.TrySendEvent("task:progress", payload)

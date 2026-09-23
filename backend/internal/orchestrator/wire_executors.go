@@ -561,7 +561,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 		for rows.Next() {
 			var t imgTask
 			if err := rows.Scan(&t.id, &t.url, &t.fileName, &t.orderIndex); err != nil {
-				// 记录而非吞掉：scan 失败会让待下载图片静默缺失
+				// Log rather than swallow: a scan failure silently drops pending images
 				logger.Warn("Gallery batch download: image row scan failed",
 					map[string]any{"galleryId": galleryID, "error": err.Error()})
 				continue
@@ -643,7 +643,7 @@ func newDownloadExecutor(siteReg *sites.SiteRegistry, database *db.Database, eve
 			for videoRows.Next() {
 				var v vidTask
 				if err := videoRows.Scan(&v.id, &v.url, &v.fileName); err != nil {
-					// 记录而非吞掉：scan 失败会让待下载视频静默缺失
+					// Log rather than swallow: a scan failure silently drops pending videos
 					logger.Warn("Gallery batch download: video row scan failed",
 						map[string]any{"galleryId": galleryID, "error": err.Error()})
 					continue

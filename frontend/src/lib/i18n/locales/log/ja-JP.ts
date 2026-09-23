@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// ログメッセージテンプレート — 日本語
+// Log message templates — ja-JP
 const jaJP: TranslationDict = {
   "log.safeDelete.fileFailed": "ファイル削除失敗 ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "ファイル削除の最終失敗: {path} — {msg}",
@@ -67,18 +67,18 @@ const jaJP: TranslationDict = {
   "log.search.terminated": "検索タスクが異常終了しました: {msg}",
   "log.search.batchTerminated": "一括検索タスクが異常終了しました: {msg}",
 
-  // タスクキューマネージャー
+  // Task queue manager
   "log.taskCreator.downloadStartFailed": "ダウンロードタスク #{taskId} の開始に失敗: {msg}",
 
-  // 並行ダウンローダー
+  // Parallel downloader
   "log.parallelDL.writeFailed": "[ParallelDL] 書き込み失敗: {msg}",
   "log.parallelDL.requestFailed": "[ParallelDL] リクエスト失敗: {msg}",
 
-  // ダウンロードマネージャー
+  // Download manager
   "log.downloadManager.segmentFailed": "  セグメント #{idx}: {msg}",
   "log.downloadManager.incomplete": "ダウンロード不完全: {failedCount} 個のセグメントが失敗全 {totalSegments} 個中\n{details}",
 
-  // タスクキューマネージャー
+  // Task queue manager
   "log.taskQueue.slotAllocated": "スロット割り当て: {key} (実行中: 通常={normal}/{maxNormal}, スニッフ={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "スロット解放: {key} (実行中: 通常={normal}/{maxNormal}, スニッフ={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "識別スロット割り当て: {key} (識別中: {scraping}/{maxScraping})",
@@ -97,20 +97,20 @@ const jaJP: TranslationDict = {
 "log.taskQueue.startupRecovery": "起動リカバリ: {count} タスクを再キュー",
   "log.taskQueue.configLoadFailed": "設定の読み込みに失敗、デフォルトを使用: {error}",
 
-  // サーバーライフサイクル
+  // Server lifecycle
   "log.server.taskStateReset": "起動時タスク状態リセット完了",
   "log.server.downloadManagerInit": "ダウンローダー初期化済み",
   "log.server.eventBusBridgeInit": "EventBus ブリッジ初期化済み",
   "log.server.ouoOrchestratorStart": "OUO オーケストレーター起動済み",
 
-  // タスク状態リセット
+  // Task state reset
   "log.taskStateReset.started": "実行中タスク状態リセットを開始...",
   "log.taskStateReset.cleanupSlots": "残留スロットクリーンアップ: 通常={normal}, スニッフ={sniff}, 識別={scraping}",
   "log.taskStateReset.completed": "リセット完了: 動画 {videoTasks}, ギャラリー {galleries}, 画像 {galleryImages}, 動画 {galleryVideos}, スニッフ {sniffTasks}, ZIP情報 {galleryDownloadInfos}, 計 {total} タスクを保留中にリセット",
   "log.taskStateReset.noop": "実行中タスクなし、リセット不要",
   "log.taskStateReset.suspended": "サーバー再起動、タスクは一時停止しました",
 
-  // プリセットデータシード
+  // Preset data seed
   "log.seed.presetDataSeeded": "プリセットデータをデータベースに書き込みました: ユーザー設定 {prefs} 件, ブロックリスト {blocklists} 件",
   "log.dagOrchestrator.initComplete": "[DagOrchestrator] 初期化完了",
   "log.dagOrchestrator.dagCompleted": "[DagOrchestrator] DAG {dagId} 全完了",

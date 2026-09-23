@@ -48,10 +48,10 @@ type VideoDetailResult struct {
 type SortType string
 
 const (
-	SortTypeNewest    SortType = "newest"   // 最新
-	SortTypeMostViewed SortType = "mostviewed" // 观看最多
-	SortTypeTopRated  SortType = "toprated"  // 评分最高
-	SortTypeLongest   SortType = "longest"   // 时长最长
+	SortTypeNewest    SortType = "newest"   // newest
+	SortTypeMostViewed SortType = "mostviewed" // most viewed
+	SortTypeTopRated  SortType = "toprated"  // top rated
+	SortTypeLongest   SortType = "longest"   // longest duration
 )
 
 // URL patterns for the PORNHUB site.

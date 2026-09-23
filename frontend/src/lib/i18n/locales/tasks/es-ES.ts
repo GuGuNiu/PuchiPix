@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// Textos de la página de gestión de tareas — Español
+// Task management page text — es-ES
 const esES: TranslationDict = {
   "tasks.typeAll": "Todos",
   "tasks.typeVideo": "Video",

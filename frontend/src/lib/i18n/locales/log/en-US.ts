@@ -1,6 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-// Log message templates — American English
+// Log message templates — en-US
 const enUS: TranslationDict = {
   "log.safeDelete.fileFailed": "File deletion failed ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "File deletion ultimately failed: {path} — {msg}",

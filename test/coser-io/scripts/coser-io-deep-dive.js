@@ -1,6 +1,6 @@
 /**
- * Coser.io 深度探测脚本
- * 分析robots.txt、sitemap、新发现的JS文件
+ * Coser.io deep probing script.
+ * Analyzes robots.txt, sitemap, and newly found JS files.
  */
 
 const https = require('https');
@@ -52,7 +52,7 @@ function request(url, options = {}) {
   });
 }
 
-// 1. 分析robots.txt
+// 1. Analyze robots.txt
 async function analyzeRobots() {
   console.log('=== 1. Robots.txt 分析 ===\n');
 
@@ -62,7 +62,7 @@ async function analyzeRobots() {
     console.log(res.body);
     console.log();
 
-    // 解析Disallow路径
+    // Parse Disallow paths
     const disallowMatches = res.body.matchAll(/Disallow:\s*(.+)/g);
     const disallowed = [...disallowMatches].map(m => m[1].trim());
 
@@ -79,7 +79,7 @@ async function analyzeRobots() {
   }
 }
 
-// 2. 分析Sitemap
+// 2. Analyze sitemap
 async function analyzeSitemap() {
   console.log('=== 2. Sitemap 分析 ===\n');
 
@@ -89,7 +89,7 @@ async function analyzeSitemap() {
     console.log(res.body.substring(0, 1000));
     console.log('...\n');
 
-    // 提取所有sitemap链接
+    // Extract all sitemap links
     const sitemapMatches = res.body.matchAll(/<loc>([^<]+)<\/loc>/g);
     const sitemaps = [...sitemapMatches].map(m => m[1]);
 
@@ -99,17 +99,17 @@ async function analyzeSitemap() {
 
     fs.writeFileSync(path.join(OUTPUT_DIR, 'sitemap-index.xml'), res.body);
 
-    // 获取第一个sitemap内容
+    // Fetch the first sitemap content
     if (sitemaps.length > 0) {
       const mainSitemap = await request(sitemaps[0]);
       console.log(`主sitemap (${sitemaps[0]}) 大小: ${mainSitemap.body.length} 字节`);
 
-      // 统计URL数量
+      // Count URLs
       const urlMatches = mainSitemap.body.matchAll(/<url>/g);
       const urlCount = [...urlMatches].length;
       console.log(`包含约 ${urlCount} 个URL`);
 
-      // 提取图集URL样本
+      // Sample gallery URLs
       const galleryMatches = mainSitemap.body.matchAll(/<loc>([^<]*\/latp\/[^<]+)<\/loc>/g);
       const galleries = [...galleryMatches].map(m => m[1]).slice(0, 10);
       console.log('\n图集URL样本:');
@@ -122,7 +122,7 @@ async function analyzeSitemap() {
   }
 }
 
-// 3. 分析新发现的JS文件
+// 3. Analyze newly found JS files
 async function analyzeNewJSFiles() {
   console.log('\n=== 3. 新发现JS文件分析 ===\n');
 
@@ -142,11 +142,11 @@ async function analyzeNewJSFiles() {
       console.log(`${jsPath}:`);
       console.log(`  大小: ${content.length} 字节`);
 
-      // 保存JS文件
+      // Save JS file
       const filename = jsPath.replace(/\//g, '_').replace('?v=', '-');
       fs.writeFileSync(path.join(OUTPUT_DIR, `js-${filename}`), content);
 
-      // 分析内容
+      // Analyze content
       const analysis = {
         hasFetch: content.includes('fetch('),
         hasAxios: content.includes('axios'),
@@ -166,7 +166,7 @@ async function analyzeNewJSFiles() {
         }
       });
 
-      // 查找关键代码片段
+      // Find key code snippets
       if (content.includes('fetch')) {
         const fetchMatches = content.match(/fetch\([^)]+\)[^;]*/g);
         if (fetchMatches) {
@@ -184,49 +184,49 @@ async function analyzeNewJSFiles() {
   }
 }
 
-// 4. 探测更多API端点
+// 4. Probe more API endpoints
 async function probeMoreAPIs() {
   console.log('=== 4. 扩展API端点探测 ===\n');
 
   const endpoints = [
-    // 基于robots.txt发现的
+    // Found via robots.txt
     '/admin',
     '/pay',
     '/pay/',
 
-    // 可能的图集详情API
+    // Possible gallery detail APIs
     '/web-api/v1/gallery/detail',
     '/web-api/v1/gallery/view',
     '/web-api/v1/gallery/content',
     '/web-api/v1/gallery/media',
     '/web-api/v1/gallery/files',
 
-    // 带不同参数
+    // With different params
     '/web-api/v1/galleries?include=images',
     '/web-api/v1/galleries?with=media',
     '/web-api/v1/galleries?expand=files',
 
-    // 其他可能
+    // Others
     '/web-api/v2/galleries',
     '/api/v2/galleries',
     '/api/v1/galleries',
 
-    // 用户相关
+    // User related
     '/web-api/v1/auth/login',
     '/web-api/v1/auth/register',
     '/web-api/v1/user/me',
     '/web-api/v1/user/profile',
 
-    // 搜索
+    // Search
     '/web-api/v1/search',
     '/web-api/v1/search/galleries',
 
-    // 分类
+    // Categories
     '/web-api/v1/categories',
     '/web-api/v1/folders',
     '/web-api/v1/tags',
 
-    // 评论
+    // Comments
     '/web-api/v1/comments',
     '/web-api/v1/comments?gallery_id=69218',
   ];
@@ -249,7 +249,7 @@ async function probeMoreAPIs() {
           console.log(`  Content-Type: ${res.headers['content-type']}`);
           console.log(`  Body: ${res.body.substring(0, 300)}...\n`);
 
-          // 保存响应
+          // Save response
           const safeName = endpoint.replace(/[\/=?&]/g, '_');
           fs.writeFileSync(path.join(OUTPUT_DIR, `api-more-${safeName}.json`), res.body);
         }
@@ -264,7 +264,7 @@ async function probeMoreAPIs() {
   fs.writeFileSync(path.join(OUTPUT_DIR, 'extended-api-probe-v2.json'), JSON.stringify(results, null, 2));
 }
 
-// 5. 分析HTML中的数据注入
+// 5. Analyze data injection in HTML
 async function analyzeDataInjection() {
   console.log('\n=== 5. HTML数据注入分析 ===\n');
 
@@ -272,7 +272,7 @@ async function analyzeDataInjection() {
     const res = await request('https://coser.io/latp/69218.html');
     const html = res.body;
 
-    // 查找所有window.__ 数据
+    // Find all window.__ data
     const windowDataMatches = html.matchAll(/window\.__(\w+)\s*=\s*({[^;]+});/g);
     const windowData = {};
 
@@ -292,7 +292,7 @@ async function analyzeDataInjection() {
 
     fs.writeFileSync(path.join(OUTPUT_DIR, 'window-data-injection.json'), JSON.stringify(windowData, null, 2));
 
-    // 查找script标签中的JSON数据
+    // Find JSON data in script tags
     const jsonScriptMatches = html.matchAll(/<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/g);
     let jsonIndex = 0;
     for (const match of jsonScriptMatches) {
@@ -308,7 +308,7 @@ async function analyzeDataInjection() {
   }
 }
 
-// 主函数
+// Main function
 async function main() {
   console.log('Coser.io 深度探测分析\n');
   console.log('=====================\n');

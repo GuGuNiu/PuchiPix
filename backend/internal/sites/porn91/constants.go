@@ -40,9 +40,9 @@ type VideoDetailResult struct {
 type SortType string
 
 const (
-	SortTypeLatest   SortType = "latest"    // 最新
-	SortTypeHottest  SortType = "hottest"   // 最热
-	SortTypeTopRated SortType = "toprated"  // 评分最高
+	SortTypeLatest   SortType = "latest"    // newest
+	SortTypeHottest  SortType = "hottest"   // hottest
+	SortTypeTopRated SortType = "toprated"  // top rated
 )
 
 // URL patterns for 91porn.plus site.

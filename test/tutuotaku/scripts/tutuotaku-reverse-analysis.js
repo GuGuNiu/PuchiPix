@@ -1,67 +1,67 @@
 /**
- * tutuotaku.com (兔兔图屋) 逆向工程分析脚本
- * 主题: RiPro-V5 v10.0
- * 分析时间: 2026-08-01
- * 
- * 发现的关键信息:
+ * tutuotaku.com reverse-engineering analysis script.
+ * Theme: RiPro-V5 v10.0
+ * Analyzed: 2026-08-01
+ *
+ * Key findings:
  * =================
- * 
- * 1. 站点基本信息
- *    - 域名: https://tutuotaku.com
- *    - 主题: RiPro-V5 v10.0 (付费WordPress资源主题)
- *    - 图片CDN: pic.pipicos.xyz
- *    - 统计: 51.la
- * 
- * 2. 全局配置对象 (zb)
+ *
+ * 1. Site basics
+ *    - Domain: https://tutuotaku.com
+ *    - Theme: RiPro-V5 v10.0 (paid WordPress resource theme)
+ *    - Image CDN: pic.pipicos.xyz
+ *    - Analytics: 51.la
+ *
+ * 2. Global config object (zb)
  *    - ajax_url: /wp-admin/admin-ajax.php
- *    - ajax_nonce: 444888d6bc (动态)
+ *    - ajax_nonce: 444888d6bc (dynamic)
  *    - current_user_id: 22
  *    - site_popup_login: 1
- * 
- * 3. AJAX Actions (发现15个)
- *    - zb_get_site_notify: 获取站点通知
- *    - zb_get_site_login: 获取登录弹窗
- *    - zb_user_qiandao: 用户签到
- *    - zb_add_post_views: 增加文章浏览量
- *    - zb_add_like_post: 点赞文章
- *    - zb_add_fav_post: 收藏文章
- *    - zb_add_share_post: 分享文章
- *    - zb_ajax_comment: 提交评论
- *    - zb_mpweixin_ajax_login: 微信登录
- *    - zb_mpweixin_ajax_check_login: 检查微信登录状态
- *    - zb_get_captcha_img: 获取验证码图片
- *    - zb_send_mail_captcha_code: 发送邮箱验证码
- *    - zb_get_pay_select_html: 获取支付选项HTML
- *    - zb_get_pay_action: 执行支付
- *    - zb_check_pay_status: 检查支付状态
- * 
- * 4. 会员/积分系统
- *    - 普通用户每日下载限制: 5次
- *    - VIP会员每日下载限制: 10次 (包月/体验) / 99次 (永久)
- *    - 金币充值比例: 1金币 = ¥0.1
- *    - VIP价格:
- *      * 体验会员: 10金币 (1天, 每日10次)
- *      * 包月会员: 300金币 (30天, 每日10次)
- *      * 永久会员: 3000金币 (永久, 每日99次)
- * 
- * 5. 下载机制
- *    - 下载链接: /goto?down={encrypted_token}
- *    - 跳转目标: 百度网盘
- *    - 提取码: 页面内明文显示 (如 "6666")
- *    - 当前测试账户状态: 普通用户, 今日已用2次, 剩余3次
- * 
- * 6. 安全评估
- *    - 使用WordPress nonce验证 (zb.ajax_nonce)
- *    - 下载次数服务器端限制
- *    - 支付流程需要登录状态
- *    - 未发现明显SQL注入漏洞
- *    - 下载token加密存储
- * 
- * 7. 数据提取策略
- *    - 文章列表: 标准WordPress REST API 或 HTML解析
- *    - 图片: 直接从 pic.pipicos.xyz 获取
- *    - 下载链接: 需要登录后访问 /goto?down= 端点
- *    - 提取码: 页面内 data-pwd 属性
+ *
+ * 3. AJAX Actions (15 found)
+ *    - zb_get_site_notify: fetch site notifications
+ *    - zb_get_site_login: fetch login modal
+ *    - zb_user_qiandao: user check-in
+ *    - zb_add_post_views: increment post views
+ *    - zb_add_like_post: like a post
+ *    - zb_add_fav_post: favorite a post
+ *    - zb_add_share_post: share a post
+ *    - zb_ajax_comment: submit comment
+ *    - zb_mpweixin_ajax_login: WeChat login
+ *    - zb_mpweixin_ajax_check_login: check WeChat login state
+ *    - zb_get_captcha_img: fetch captcha image
+ *    - zb_send_mail_captcha_code: send email captcha code
+ *    - zb_get_pay_select_html: fetch payment option HTML
+ *    - zb_get_pay_action: execute payment
+ *    - zb_check_pay_status: check payment status
+ *
+ * 4. Membership/points system
+ *    - Normal user daily download limit: 5
+ *    - VIP daily download limit: 10 (monthly/trial) / 99 (lifetime)
+ *    - Coin recharge rate: 1 coin = ¥0.1
+ *    - VIP prices:
+ *      * Trial: 10 coins (1 day, 10/day)
+ *      * Monthly: 300 coins (30 days, 10/day)
+ *      * Lifetime: 3000 coins (forever, 99/day)
+ *
+ * 5. Download mechanism
+ *    - Download link: /goto?down={encrypted_token}
+ *    - Redirect target: Baidu pan
+ *    - Extraction code: shown in plaintext on the page (e.g. "6666")
+ *    - Test account state: normal user, 2 used today, 3 remaining
+ *
+ * 6. Security assessment
+ *    - WordPress nonce validation (zb.ajax_nonce)
+ *    - Download count enforced server-side
+ *    - Payment flow requires login
+ *    - No obvious SQL injection found
+ *    - Download tokens stored encrypted
+ *
+ * 7. Data extraction strategy
+ *    - Post list: standard WordPress REST API or HTML parsing
+ *    - Images: fetch directly from pic.pipicos.xyz
+ *    - Download links: visit /goto?down= after login
+ *    - Extraction code: data-pwd attribute on the page
  */
 
 const TUTUOTAKU_CONFIG = {
@@ -90,25 +90,25 @@ const TUTUOTAKU_CONFIG = {
     checkPay: 'zb_check_pay_status'
   },
   
-  // 会员限制
+  // Membership limits
   limits: {
     normal: { daily: 5 },
     vip: { daily: 10 },
     permanent: { daily: 99 }
   },
   
-  // VIP价格 (金币)
+  // VIP prices (coins)
   vipPrices: {
     trial: { coins: 10, days: 1, dailyLimit: 10 },
     monthly: { coins: 300, days: 30, dailyLimit: 10 },
     permanent: { coins: 3000, days: -1, dailyLimit: 99 }
   },
   
-  // 充值比例
-  rechargeRate: 0.1, // 1金币 = ¥0.1
+  // Recharge rate
+  rechargeRate: 0.1, // 1 coin = ¥0.1
 };
 
-// 测试账户信息
+// Test account info
 const TEST_ACCOUNT = {
   email: 'TLpA9fLLzy@duckmail.sbs',
   password: '123weaxzcefwe2A',
@@ -121,7 +121,7 @@ const TEST_ACCOUNT = {
   coins: 0
 };
 
-// 下载链接示例
+// Download link example
 const DOWNLOAD_EXAMPLE = {
   postId: '2570',
   title: 'yuuhui玉汇 cosplay写真_蒸汽维修工合集',

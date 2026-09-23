@@ -46,10 +46,10 @@ type VideoDetailResult struct {
 type SortType string
 
 const (
-	SortTypeLatest  SortType = "latest"   // 最新
-	SortTypeHottest SortType = "hottest"  // 最热
-	SortTypeRated   SortType = "rated"    // 评分最高
-	SortTypeLongest SortType = "longest"  // 时长最长
+	SortTypeLatest  SortType = "latest"   // newest
+	SortTypeHottest SortType = "hottest"  // hottest
+	SortTypeRated   SortType = "rated"    // top rated
+	SortTypeLongest SortType = "longest"  // longest duration
 )
 
 // URL patterns for XVIDEOS site.

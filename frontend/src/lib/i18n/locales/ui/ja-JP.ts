@@ -1,7 +1,7 @@
 import type { TranslationDict } from "../../types";
 
 const jaJP: TranslationDict = {
-  /* ─── 共通 ─── */
+  /* ─── Common ─── */
   "common.refresh": "更新",
   "common.delete": "削除",
   "common.cancel": "キャンセル",
@@ -36,7 +36,7 @@ const jaJP: TranslationDict = {
   "common.adding": "追加中...",
   "common.pages": "ページ",
 
-  /* ─── ナビゲーション ─── */
+  /* ─── Navigation ─── */
   "nav.dashboard": "ぷちホール",
   "nav.tasks": "タスク管理",
   "nav.shelf": "リソース棚",
@@ -62,7 +62,7 @@ const jaJP: TranslationDict = {
   "sjs.comingSoon": "SJS 近日公開",
   "sjs.underConstruction": "建設中です。お楽しみに",
 
-  /* ─── SJS シェルフ ─── */
+  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "一括インポート",
   "sjs.shelf.searchPlaceholder": "タイトル、作成者、URLで検索...",
   "sjs.shelf.allForums": "全セクション",
@@ -100,7 +100,7 @@ const jaJP: TranslationDict = {
   "sjs.shelf.refreshed": "更新済み",
   "sjs.shelf.refreshNetworkError": "更新要求失敗、ネットワークを確認",
 
-  /* ─── ダッシュボード ─── */
+  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "リアルタイム接続",
   "dashboard.offline": "オフライン",
   "dashboard.totalTasks": "総タスク",
@@ -130,7 +130,7 @@ const jaJP: TranslationDict = {
   "dashboard.addLinkToStart": "リンクを追加してダウンロードを開始",
   "dashboard.identifying": "識別中",
 
-  /* ─── ギャラリー管理 ─── */
+  /* ─── Gallery ─── */
   "gallery.statusScraping": "スクレイプ中",
   "gallery.statusScrapePending": "識別待ち",
   "gallery.statusDownloadPending": "ダウンロード待ち",
@@ -200,7 +200,7 @@ const jaJP: TranslationDict = {
   "gallery.zipExtractLabel": "解凍",
   "gallery.clickToCopy": "クリックでコピー",
 
-  /* ─── 検索 ─── */
+  /* ─── Search ─── */
   "search.placeholderGallery": "キーワードまたは完全な URL を貼り付け/article/ /tag/ ページなど...",
   "search.placeholderVideo": "検索キーワードを入力カンマ・スペース区切り対応...",
   "search.searching": "検索中...",
@@ -246,7 +246,7 @@ const jaJP: TranslationDict = {
   "search.statusCancelled": "キャンセル済",
   "search.statusScraping": "スクレイプ中",
 
-  /* ─── 設定 ─── */
+  /* ─── Settings ─── */
   "config.title": "システム設定",
   "config.pathSettings": "パス設定",
   "config.chromeDriverPath": "ChromeDriver パス",
@@ -267,7 +267,7 @@ const jaJP: TranslationDict = {
   "config.downloadMaxSpeed": "速度制限 (MB/s, 0=無制限)",
   "config.downloadMinFileSize": "最小ファイルサイズ (MB)",
 
-  /* ─── スニッフ ─── */
+  /* ─── Sniff ─── */
   "sniff.title": "M3U8 リンクスニッフ",
   "sniff.control": "スニッフコントロール",
   "sniff.targetUrl": "ターゲット URL",
@@ -286,7 +286,7 @@ const jaJP: TranslationDict = {
   "sniff.addedToDownload": "ダウンロードタスクに追加しました",
   "sniff.untitled": "無題",
 
-  /* ─── キャラ一覧 ─── */
+  /* ─── Characters ─── */
   "protagonists.title": "キャラギャラリー",
   "protagonists.subtitle": "正規化されたキャラクターリスト — クリックでそのキャラの全ギャラリーを表示",
   "protagonists.searchPlaceholder": "キャラ名を検索...",
@@ -302,7 +302,7 @@ const jaJP: TranslationDict = {
   "protagonists.statGalleries": "{count} ギャラリー",
   "protagonists.statAliases": "{count} 個の別名",
 
-  /* ─── 運用パネル ─── */
+  /* ─── Ops Panel ─── */
   "ops.online": "オンライン",
   "ops.offline": "オフライン",
   "ops.todayTasks": "今日のタスク",
@@ -320,7 +320,7 @@ const jaJP: TranslationDict = {
   "ops.noLogs": "ログなし",
   "ops.pausedBuffer": "一時停止中 — バッファーに {count} 件の新着ログ",
 
-  /* ─── タスク作成 ─── */
+  /* ─── Create Task ─── */
   "createTask.title": "ダウンロードタスク作成",
   "createTask.pleaseFillLink": "リンクを入力してください",
   "createTask.exactMatch": "完全一致",
@@ -369,7 +369,7 @@ const jaJP: TranslationDict = {
   "search.estimatedSizeValue": "推定中",
   "search.bitrate": "ビットレート",
 
-  /* ─── 一括検索 ─── */
+  /* ─── Batch Search ─── */
   "batchSearch.title": "一括検索",
   "batchSearch.titleLabel": "タイトル",
   "batchSearch.siteLabel": "サイト",
@@ -406,7 +406,7 @@ const jaJP: TranslationDict = {
   "batchSearch.refilled": "失敗したタイトルを入力欄に反映しました",
   "batchSearch.inputHint": "{count} 件のタイトルを検出 · 自動ファジー検索で一致する動画をダウンロード · タイトルごとに3〜5秒の間隔でブロック防止",
 
-  /* ─── タスク設定 ─── */
+  /* ─── Task Settings ─── */
   "taskSettings.title": "タスク設定",
   "taskSettings.maxConcurrentTasks": "最大同時タスク数",
   "taskSettings.maxConcurrentTasksDesc": "同時実行する動画/ギャラリーダウンロードタスクの上限",
@@ -428,11 +428,11 @@ const jaJP: TranslationDict = {
   "taskSettings.saveFailed": "設定の保存に失敗しました",
   "taskSettings.saved": "設定を保存しました",
 
-  /* ─── コンソールログ ─── */
+  /* ─── Console Log ─── */
   "console.noTaskLogs": "タスクログはありません",
   "console.fetchFailed": "ログの取得に失敗しました",
 
-  /* ─── DAG ノード状態 ─── */
+  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "待機中",
   "dag.nodeState.ready": "準備完了",
   "dag.nodeState.queued": "キュー待ち",
@@ -454,7 +454,7 @@ const jaJP: TranslationDict = {
   "modelstage.comingSoon": "近日公開予定です",
   "modelstage.title": "モデルステージ",
 
-  /* ─── 動画 ─── */
+  /* ─── Videos ─── */
   "video.play": "再生",
   "video.pause": "一時停止",
   "video.mute": "ミュート",

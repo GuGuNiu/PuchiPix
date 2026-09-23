@@ -1,35 +1,32 @@
-// ============================================================
-// PuchiPix — SCSS Mixins
-// 可复用的样式模式提取
-// ============================================================
+// PuchiPix — SCSS mixins (reusable style patterns)
 
-/// Flex 居中布局
+/// Flex centering
 @mixin flex-center {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/// Flex 列布局
+/// Flex column
 @mixin flex-col {
   display: flex;
   flex-direction: column;
 }
 
-/// 文本省略（单行）
+/// Single-line text ellipsis
 @mixin text-ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/// 玻璃模糊效果
+/// Glass blur
 @mixin glass-blur($blur: var(--glass-blur)) {
   backdrop-filter: $blur;
   -webkit-backdrop-filter: $blur;
 }
 
-/// 玻璃卡片效果（半透明背景 + 模糊 + 玻璃边框）
+/// Glass card (translucent bg + blur + glass border)
 @mixin glass-card {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
@@ -37,35 +34,35 @@
   border: 1px solid var(--glass-border);
 }
 
-/// 内嵌高光阴影
+/// Inset highlight shadow
 @mixin inset-highlight($shadow: var(--shadow-sm), $highlight: var(--inset-highlight)) {
   box-shadow: $shadow, 0 0 0 1px $highlight inset;
 }
 
-/// 玻璃卡片悬停效果
+/// Glass card hover
 @mixin glass-card-hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-md), 0 0 0 1px var(--inset-highlight) inset;
 }
 
-/// 弹性过渡动画
+/// Bouncy transition
 @mixin transition-bounce {
   transition: all var(--transition-bounce);
 }
 
-/// 等宽字体
+/// Monospace font
 @mixin font-mono {
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
-/// 无序列表样式
+/// Unordered list reset
 @mixin list-reset {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-/// 响应式断点
+/// Responsive breakpoints
 @mixin breakpoint($size) {
   @if $size == 'sm' {
     @media (max-width: 480px) { @content; }

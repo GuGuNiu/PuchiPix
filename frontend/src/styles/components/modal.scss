@@ -1,7 +1,4 @@
-// ============================================================
-// Modal — 模态框组件
-// modal / modal-split / modal-card / modal-section / modal-tab
-// ============================================================
+// Modal — modal / modal-split / modal-card / modal-section / modal-tab
 
 .modal-overlay {
   position: fixed;
@@ -46,7 +43,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-// ===== 左右分栏模态框 =====
+// ===== Split modal (left/right) =====
 .modal-split {
   display: grid;
   grid-template-columns: 1fr 320px;
@@ -91,7 +88,7 @@
   padding: var(--space-6) 0;
 }
 
-// ===== URL 预览列表 =====
+// ===== URL preview list =====
 .url-preview-list {
   display: flex;
   flex-direction: column;

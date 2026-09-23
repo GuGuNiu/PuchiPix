@@ -272,7 +272,7 @@ func cleanTitle(rawTitle string) string {
 }
 
 // extractProtagonist extracts the model/cosplayer name from a gallery title.
-// 4KHD format: "主角 描述[大小-数量]"
+// 4KHD format: "protagonist description[size-count]"
 // The protagonist is the first segment before double-space or separator.
 func extractProtagonist(title string) string {
 	cleaned := cleanTitle(title)

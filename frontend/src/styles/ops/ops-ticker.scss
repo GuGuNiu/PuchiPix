@@ -1,14 +1,12 @@
-// ============================================================
-// Ops Dashboard — 仪表盘容器 + 顶部实时数据条
-// ============================================================
+// Ops dashboard — container + top live ticker
 
-// ─── 仪表盘容器（全宽浅色主题） ───
+// ─── Dashboard container (full-width light theme) ───
 .dashboard-page {
-  // 此选择器在 pages/dashboard.scss 中也有定义，
-  // 但 ops.css 中的定义先于此模块加载，此处保留以确保顺序正确。
+  // Also defined in pages/dashboard.scss, but ops.css loads before that
+  // module; kept here so load order stays correct.
 }
 
-// ─── 顶部实时数据条 ───
+// ─── Top live data ticker ───
 .ops-ticker {
   display: flex;
   align-items: center;
@@ -91,7 +89,7 @@
   animation: none;
 }
 
-// ─── 数据流指示器 ───
+// ─── Data stream indicator ───
 .ops-data-stream {
   display: flex;
   align-items: center;
@@ -117,7 +115,7 @@
   50% { transform: scaleY(1.6); opacity: 1; }
 }
 
-// ─── 硬盘活动指示器 ───
+// ─── Disk activity indicator ───
 .ops-disk-activity {
   display: flex;
   align-items: center;
@@ -142,7 +140,7 @@
   50% { transform: scale(1.8); opacity: 1; }
 }
 
-// ─── 两栏布局 ───
+// ─── Two-column layout ───
 .ops-two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -156,7 +154,7 @@
   }
 }
 
-// ─── 实时统计脉冲 ───
+// ─── Live stats pulse ───
 .ops-pulse {
   display: inline-flex;
   align-items: center;
@@ -176,7 +174,7 @@
   animation: pulse-glow 1.5s ease-in-out infinite;
 }
 
-// ─── 扫描线效果 ───
+// ─── Scan-line effect ───
 .ops-scan {
   position: relative;
   overflow: hidden;

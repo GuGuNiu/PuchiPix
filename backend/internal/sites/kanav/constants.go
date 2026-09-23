@@ -41,9 +41,9 @@ type CategoryConfig struct {
 type SortType string
 
 const (
-	SortTypeTime      SortType = "time"       // 最新发布
-	SortTypeHits      SortType = "hits"       // 最多观看
-	SortTypeHitsWeek  SortType = "hits_week"  // 本周热榜
+	SortTypeTime      SortType = "time"       // newest
+	SortTypeHits      SortType = "hits"       // most viewed
+	SortTypeHitsWeek  SortType = "hits_week"  // weekly hot
 )
 
 // URL patterns for KanAV site
