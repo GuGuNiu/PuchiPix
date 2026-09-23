@@ -3,8 +3,10 @@ import { toast } from "@/lib/i18n/toast";
 import { useI18n } from "@/lib/i18n";
 import { Save, RefreshCw, Cpu, Settings } from "lucide-react";
 
-// Mirrors the backend GET /api/gpu-info contract (crud.go GPUInfo):
-// snake_case keys, gpu_enabled only present when DownloadManager is wired.
+/*
+ * Mirrors the backend GET /api/gpu-info contract (crud.go GPUInfo):
+ * snake_case keys, gpu_enabled only present when DownloadManager is wired.
+ */
 interface GpuInfo {
   gpu_enabled: boolean;
   gpu_name?: string;
@@ -48,8 +50,9 @@ export default function ConfigPage(): React.JSX.Element {
           setGpuInfo(data);
         }
       }
-    } catch {
-      // GPU card stays hidden — no hardware transcoding backend.
+    }
+    // GPU card stays hidden when there is no hardware transcoding backend.
+    catch {
     }
   }, []);
 
@@ -58,9 +61,11 @@ export default function ConfigPage(): React.JSX.Element {
     fetchGPUInfo();
   }, [fetchConfig, fetchGPUInfo]);
 
-  // PUT /api/config accepts the flat {key: value} object (crud.go
-  // ConfigUpdate); the old {config: [...]} wrapper was stored as a
-  // literal "config" key and the real entries never saved.
+  /*
+   * PUT /api/config accepts the flat {key: value} object (crud.go
+   * ConfigUpdate); the old {config: [...]} wrapper was stored as a
+   * literal "config" key and the real entries never saved.
+   */
   const handleSaveConfig = async (): Promise<void> => {
     setSaving(true);
     try {
@@ -82,9 +87,11 @@ export default function ConfigPage(): React.JSX.Element {
     }
   };
 
-  // PUT /api/gpu-setting expects {enabled, force_gpu_type} (crud.go
-  // GPUSettingUpdate) — the old {gpu_enabled} field decoded to the Go
-  // zero value, silently disabling the toggle.
+  /*
+   * PUT /api/gpu-setting expects {enabled, force_gpu_type} (crud.go
+   * GPUSettingUpdate) — the old {gpu_enabled} field decoded to the Go
+   * zero value, silently disabling the toggle.
+   */
   const handleSaveGpu = async (): Promise<void> => {
     if (!gpuInfo) return;
     try {
@@ -100,7 +107,7 @@ export default function ConfigPage(): React.JSX.Element {
     }
   };
 
-  const updateConfigValue = (key: string, value: string) => {
+  const updateConfigValue = (key: string, value: string): void => {
     setConfig((prev) => ({ ...prev, [key]: value }));
   };
 

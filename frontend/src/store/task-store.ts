@@ -51,21 +51,27 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       // Handle both old format (array) and new format (paginated object)
       const rawTasks: DownloadTask[] = Array.isArray(data) ? data : (data.tasks || []);
       const totalCount = Array.isArray(data) ? rawTasks.length : (data.totalCount || rawTasks.length);
-      // If response is bare array (legacy format) but SSE has already delivered
-      // paginated metadata, do NOT downgrade hasMore to false.
+      /*
+       * If response is bare array (legacy format) but SSE has already delivered
+       * paginated metadata, do NOT downgrade hasMore to false.
+       */
       const incomingHasMore = Array.isArray(data) ? false : (data.hasMore || false);
       const filtered = rawTasks.filter((t: DownloadTask) => !deletedKeys.has(taskKey(t)));
-      // Full fetch = DB is the single source of truth. Clear stale deletion
-      // marks so permanently-resident keys cannot block future SSE events.
-      // (Regression restore of the 260715 fix, lost in the Go-era rewrite:
-      // batch delete left keys in deletedKeys forever.)
+      /*
+       * Full fetch = DB is the single source of truth. Clear stale deletion
+       * marks so permanently-resident keys cannot block future SSE events.
+       * (Regression restore of the 260715 fix, lost in the Go-era rewrite:
+       * batch delete left keys in deletedKeys forever.)
+       */
       deletedKeys.clear();
       set((s) => {
         if (filtered.length === 0 && s.tasks.length > 0) {
           return { loading: false, totalCount, hasMore: s.hasMore || incomingHasMore };
         }
-        // Race-condition guard: if SSE initial already set hasMore=true,
-        // an array-format fetchTasks response must NOT reset it to false.
+        /*
+         * Race-condition guard: if SSE initial already set hasMore=true,
+         * an array-format fetchTasks response must NOT reset it to false.
+         */
         return {
           tasks: filtered,
           loading: false,
@@ -265,35 +271,41 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           };
           const taskType = payload.taskType || 'video';
           const key = `${taskType}-${payload.taskId}`;
-          // Terminal states that should not be overwritten by
-          // non-terminal SSE events (prevents stale task:progress
-          // events from reverting a completed/partial/failed task
-          // back to "downloading").
+          /*
+           * Terminal states that should not be overwritten by
+           * non-terminal SSE events (prevents stale task:progress
+           * events from reverting a completed/partial/failed task
+           * back to "downloading").
+           */
           const TERMINAL_STATES: TaskStatus[] = ['completed', 'partial', 'failed', 'cancelled'];
           set((s) => ({
             tasks: s.tasks.map((t) => {
               if (taskKey(t) !== key) return t;
-              // Terminal state guard: if the task is already in a
-              // terminal state and this event does not carry a
-              // terminal status, skip the update entirely.
+              /*
+               * Terminal state guard: if the task is already in a
+               * terminal state and this event does not carry a
+               * terminal status, skip the update entirely.
+               */
               const incomingStatus = payload.status === 'scraped' ? 'download_pending' : payload.status as TaskStatus;
               if (TERMINAL_STATES.includes(t.Status) && incomingStatus && !TERMINAL_STATES.includes(incomingStatus)) {
                 return t;
               }
               const next = {
                 ...t,
-                // Progress non-regression: use Math.max so a stale
-                // event with a lower progress value cannot overwrite
-                // a higher value already displayed.
-                // EXCEPTION 1 — new download round (retry): when the
-                // segment index moves BACKWARDS (e.g. 458 → 1), the
-                // task has been re-submitted and progress legitimately
-                // restarts from ~0; Math.max would pin the display at
-                // the previous round's 100% forever.
-                // EXCEPTION 2 — transcoding phase progress: while
-                // status is "transcoding", the progress field carries
-                // the transcode percentage (0→100), which legitimately
-                // restarts from 0 after the download's 100%.
+                /*
+                 * Progress non-regression: use Math.max so a stale
+                 * event with a lower progress value cannot overwrite
+                 * a higher value already displayed.
+                 * EXCEPTION 1 — new download round (retry): when the
+                 * segment index moves BACKWARDS (e.g. 458 → 1), the
+                 * task has been re-submitted and progress legitimately
+                 * restarts from ~0; Math.max would pin the display at
+                 * the previous round's 100% forever.
+                 * EXCEPTION 2 — transcoding phase progress: while
+                 * status is "transcoding", the progress field carries
+                 * the transcode percentage (0→100), which legitimately
+                 * restarts from 0 after the download's 100%.
+                 */
                 Progress: payload.progress !== undefined
                   ? (payload.status === 'transcoding'
                       ? payload.progress
@@ -349,10 +361,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
                 ? {
                     ...t,
                     Status: status,
-                    // Use the progress value from the completed event
-                    // if present (backend now includes it), otherwise
-                    // default to 100 for completed, or keep current
-                    // for partial/other terminal states.
+                    /*
+                     * Use the progress value from the completed event
+                     * if present (backend now includes it), otherwise
+                     * default to 100 for completed, or keep current
+                     * for partial/other terminal states.
+                     */
                     Progress: payload.progress !== undefined
                       ? Math.max(t.Progress, payload.progress)
                       : status === 'completed' ? 100 : t.Progress,
@@ -370,9 +384,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       subscribeSseEvent('task:failed', (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data) as { taskId: number; taskType?: string; error?: string };
-          // taskType comes from the event itself (gallery/sniff executors
-          // emit it); a hardcoded `video-` prefix left gallery DAG
-          // submission failures unmatched in the unified task list.
+          /*
+           * TaskType comes from the event itself (gallery/sniff executors
+           * emit it); a hardcoded `video-` prefix left gallery DAG
+           * submission failures unmatched in the unified task list.
+           */
           const taskType = payload.taskType || 'video';
           const key = `${taskType}-${payload.taskId}`;
           set((s) => ({
@@ -430,15 +446,19 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           set((s) => ({
             tasks: s.tasks.map((t) => {
               if (taskKey(t) !== key) return t;
-              // Terminal state guard: don't update progress for
-              // tasks already in a terminal state.
+              /*
+               * Terminal state guard: don't update progress for
+               * tasks already in a terminal state.
+               */
               const TERMINAL_STATES: TaskStatus[] = ['completed', 'partial', 'failed', 'cancelled'];
               if (TERMINAL_STATES.includes(t.Status)) return t;
               return {
                 ...t,
-                // Progress non-regression: use Math.max to prevent
-                // a stale dag:nodeProgress event from lowering the
-                // displayed progress.
+                /*
+                 * Progress non-regression: use Math.max to prevent
+                 * a stale dag:nodeProgress event from lowering the
+                 * displayed progress.
+                 */
                 Progress: Math.max(t.Progress, progress),
                 GalleryProgressInfo: {
                   completed: current,
@@ -471,10 +491,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           const key = `${taskType}-${payload.taskId}`;
           set((s) => ({
             tasks: s.tasks.map((t) => {
-              // Match by numeric key first; fall back to DisplayID — some
-              // backend emitters historically sent the string seq (e.g.
-              // "HSYZH3") as taskId, which never matched the numeric key
-              // and silently dropped metadata updates until F5.
+              /*
+               * Match by numeric key first; fall back to DisplayID — some
+               * backend emitters historically sent the string seq (e.g.
+               * "HSYZH3") as taskId, which never matched the numeric key
+               * and silently dropped metadata updates until F5.
+               */
               if (taskKey(t) !== key && t.DisplayID !== payload.taskId) return t;
               const next = { ...t };
               if (payload.GalleryTitle !== undefined) {
@@ -483,9 +505,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
               if (payload.Person !== undefined) {
                 next.Person = payload.Person !== 'null' ? payload.Person : '';
               }
-              // Live tags/actors from the scrape (normalizeStringArray
-              // decodes JSON-string payloads defensively). Only set when
-              // non-empty so a tagless re-scrape cannot erase list data.
+              /*
+               * Live tags/actors from the scrape (normalizeStringArray
+               * decodes JSON-string payloads defensively). Only set when
+               * non-empty so a tagless re-scrape cannot erase list data.
+               */
               if (payload.Tags !== undefined) {
                 const tags = normalizeStringArray(payload.Tags);
                 if (tags.length > 0) next.Tags = tags;

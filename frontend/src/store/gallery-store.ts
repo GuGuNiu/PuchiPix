@@ -386,21 +386,23 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     }
   },
 
-  downloadZip: async (id: number, manualUrl?: string) => {
+  downloadZip: async (id: number, _manualUrl?: string) => {
     set((s) => ({
       zipStatusMap: { ...s.zipStatusMap, [id]: 'downloading' },
       zipProgressMap: { ...s.zipProgressMap, [id]: { galleryId: id, downloaded: 0, total: 0, percent: 0 } },
     }));
     try {
-      // The backend has no dedicated download-zip action (ShelfAction
-      // returns 501 for it): ZIP download runs INSIDE the download node
-      // (TryDownloadGalleryZip) which is part of every pipeline run.
-      // Trigger the pipeline via the standard download action; if the
-      // gallery already holds a pending ZIP row, the download node
-      // fetches and extracts it.
-      // manualUrl: a user-supplied direct link is persisted by the
-      // gallery-zip-info panel path; here it simply re-triggers the same
-      // pipeline.
+      /*
+       * The backend has no dedicated download-zip action (ShelfAction
+       * returns 501 for it): ZIP download runs INSIDE the download node
+       * (TryDownloadGalleryZip) which is part of every pipeline run.
+       * Trigger the pipeline via the standard download action; if the
+       * gallery already holds a pending ZIP row, the download node
+       * fetches and extracts it.
+       * manualUrl: a user-supplied direct link is persisted by the
+       * gallery-zip-info panel path; here it simply re-triggers the same
+       * pipeline.
+       */
       const res = await fetch(`/api/shelf/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -465,10 +467,12 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     unsubs.push(
       subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
-          // The backend's initial event (task_stream.go) is an object
-          // {tasks, totalCount, page, pageSize, hasMore}; legacy
-          // snapshots sent a bare array. Accept both shapes — same
-          // double-format pattern as task-store.
+          /*
+           * The backend's initial event (task_stream.go) is an object
+           * {tasks, totalCount, page, pageSize, hasMore}; legacy
+           * snapshots sent a bare array. Accept both shapes — same
+           * double-format pattern as task-store.
+           */
           const raw: unknown = JSON.parse(e.data);
           const list = Array.isArray(raw)
             ? (raw as DownloadTask[])

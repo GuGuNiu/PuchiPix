@@ -1,7 +1,7 @@
 /**
- * 占位符一致性深入审计：
- * A类: 翻译含 zh-CN 没有的占位符（真 bug，运行时显示 {xxx} 原文）
- * B类: 翻译缺失 zh-CN 的占位符（信息丢失）
+ * Deep placeholder consistency audit:
+ * Type A: translation contains placeholders zh-CN lacks (real bug; runtime renders literal {xxx}).
+ * Type B: translation is missing placeholders present in zh-CN (information loss).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -29,7 +29,7 @@ const zh = {};
 for (const mod of MODULES) zh[mod] = parseKeys(path.join(localesDir, mod, "zh-CN.ts"));
 
 let a = 0, b = 0;
-console.log("=== A类: 翻译含 zh 没有的占位符（会显示 {xxx} 原文）===");
+console.log("=== Type A: translation has placeholders zh-CN lacks (renders literal {xxx}) ===");
 for (const lang of LANGS) {
   for (const mod of MODULES) {
     const d = parseKeys(path.join(localesDir, mod, `${lang}.ts`));
@@ -38,15 +38,15 @@ for (const lang of LANGS) {
       if (!zhv) continue;
       const extra = [...ph(v)].filter((p) => !ph(zhv).has(p));
       if (extra.length) {
-        console.log(`${lang} ${mod} ${k} => 多余: ${extra.join(",")}`);
+        console.log(`${lang} ${mod} ${k} => extra: ${extra.join(",")}`);
         a++;
       }
     }
   }
 }
-console.log("A类总数:", a);
+console.log("Type A total:", a);
 console.log();
-console.log("=== B类: 翻译缺失 zh 的占位符（信息丢失，非错误）===");
+console.log("=== Type B: translation missing zh-CN placeholders (information loss, not an error) ===");
 for (const lang of LANGS) {
   for (const mod of MODULES) {
     const d = parseKeys(path.join(localesDir, mod, `${lang}.ts`));
@@ -55,10 +55,10 @@ for (const lang of LANGS) {
       if (!zhv) continue;
       const miss = [...ph(zhv)].filter((p) => !ph(v).has(p));
       if (miss.length) {
-        console.log(`${lang} ${mod} ${k} => 缺失: ${miss.join(",")}`);
+        console.log(`${lang} ${mod} ${k} => missing: ${miss.join(",")}`);
         b++;
       }
     }
   }
 }
-console.log("B类总数:", b);
+console.log("Type B total:", b);

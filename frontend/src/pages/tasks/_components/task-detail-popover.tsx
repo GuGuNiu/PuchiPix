@@ -210,9 +210,11 @@ export function TaskDetailPopover({
                   <span className="task-detail-label">{t("tasks.detailTags")}</span>
                   <span className="task-detail-value">
                     {(() => {
-                      // resolveTaskTags: VideoInfo.Tags (detail fetch) first,
-                      // then the top-level Tags passthrough (SSE/list), with
-                      // defensive JSON-string decoding in between.
+                      /*
+                       * ResolveTaskTags: VideoInfo.Tags (detail fetch) first,
+                       * then the top-level Tags passthrough (SSE/list), with
+                       * defensive JSON-string decoding in between.
+                       */
                       const tags = resolveTaskTags(task);
                       if (tags.length === 0) return "—";
                       return (
@@ -238,10 +240,12 @@ export function TaskDetailPopover({
                   <span className="task-detail-label">{t("tasks.detailActors")}</span>
                   <span className="task-detail-value">
                     {(() => {
-                      // resolveTaskActors falls back through VideoInfo →
-                      // Actors passthrough → Person so the actor (e.g.
-                      // "欣欣子" for #HSYZH3) always renders in the 演员
-                      // row — never inside the 标签 row above.
+                      /*
+                       * ResolveTaskActors falls back through VideoInfo →
+                       * Actors passthrough → Person so the actor (e.g.
+                       * "Xinxinzi" for #HSYZH3) always renders in the
+                       * actors row — never inside the tags row above.
+                       */
                       const actors = resolveTaskActors(task);
                       if (actors.length === 0) return "—";
                       return (

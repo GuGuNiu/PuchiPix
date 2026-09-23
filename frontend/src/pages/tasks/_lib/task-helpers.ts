@@ -26,9 +26,11 @@ export const FILTER_PILL_KEYS = [
 ];
 
 export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
-  // "pending" is intentionally NOT in the scraping group: held-back tasks
-  // (queue-full rejections) are written to DB as "pending" by StatusReporter
-  // and must show as waiting, not as actively identifying.
+  /*
+   * "pending" is intentionally NOT in the scraping group: held-back tasks
+   * (queue-full rejections) are written to DB as "pending" by StatusReporter
+   * and must show as waiting, not as actively identifying.
+   */
   scraping: ["scraping", "scrape_pending"],
   downloading: ["downloading", "download_pending", "transcoding"],
 };
@@ -91,16 +93,20 @@ export function getProgressStage(task: DownloadTask, t: TranslateFunction): stri
   if (task.Status === "cancelled") return t("tasks.progressStageCancelled");
   if (task.Status === "paused") return t("tasks.progressStagePaused");
   if (task.TaskType === "gallery") return t("tasks.progressStageDownloading");
-  // Post-processing phases are identified by the status field rather
-  // than progress thresholds, matching the backend ComputeProgressStage.
-  // Note: backend "merging" is surfaced via task.ProgressStage labels,
-  // not as a frontend TaskStatus union member.
+  /*
+   * Post-processing phases are identified by the status field rather
+   * than progress thresholds, matching the backend ComputeProgressStage.
+   * Note: backend "merging" is surfaced via task.ProgressStage labels,
+   * not as a frontend TaskStatus union member.
+   */
   if (task.Status === "transcoding") {
-    // The manager emits exactly one progress=100 event after the ffmpeg
-    // transcode completes and before probing duration/resolution; live
-    // transcode events are clamped to <100 by the backend parser. So
-    // 100 is the precise "probe window" signal, while any value below
-    // it is real transcode percentage.
+    /*
+     * The manager emits exactly one progress=100 event after the ffmpeg
+     * transcode completes and before probing duration/resolution; live
+     * transcode events are clamped to <100 by the backend parser. So
+     * 100 is the precise "probe window" signal, while any value below
+     * it is real transcode percentage.
+     */
     if (task.Progress >= 100) return t("tasks.progressStageProbing");
     return t("tasks.progressStageTranscoding");
   }
@@ -125,9 +131,9 @@ export function actionLabel(action: string, t: TranslateFunction): string {
  * Backend rows store tags/actors as JSON-array strings; every API layer
  * is expected to decode them already, but SSE payloads and older
  * deployments may still deliver the raw `["a","b"]` literal (or a
- * comma/、-separated plain string). Treating such a value as string[]
+ * plain comma-separated string). Treating such a value as string[]
  * rendered the whole JSON literal as one giant "tag pill" — this is
- * how the actor of task #HSYZH3 ("欣欣子") ended up displayed as a tag.
+ * how the actor of task #HSYZH3 ended up displayed as a tag.
  */
 export function normalizeStringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -142,8 +148,9 @@ export function normalizeStringArray(value: unknown): string[] {
         if (Array.isArray(parsed)) {
           return parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
         }
-      } catch {
-        // fall through to delimited split
+      }
+      // Malformed JSON: fall through to the delimited split below.
+      catch {
       }
     }
     return trimmed
@@ -164,7 +171,7 @@ export function resolveTaskTags(task: DownloadTask): string[] {
 /**
  * Resolve the actor list for the detail popover: VideoInfo → top-level
  * Actors passthrough (SSE task:metadata) → Person column string last,
- * so 演员 still renders for tasks scraped before this field existed.
+ * so the actors row still renders for tasks scraped before this field existed.
  */
 export function resolveTaskActors(task: DownloadTask): string[] {
   const fromVideoInfo = normalizeStringArray(task.VideoInfo?.Actors);

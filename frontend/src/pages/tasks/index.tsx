@@ -34,7 +34,6 @@ import {
   TYPE_PILL_KEYS,
   FILTER_PILL_KEYS,
   SORT_OPTION_KEYS,
-  STATUS_ORDER,
   STATUS_FILTER_GROUPS,
   type StatusFilter,
   type TypeFilter,
@@ -59,9 +58,8 @@ import {
   type SortingState,
   type RowSelectionState,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
-const LOAD_MORE_THRESHOLD = 200; // pixels from bottom to trigger load
+const LOAD_MORE_THRESHOLD = 200; // Pixels from bottom to trigger load
 
 interface SseAnimState {
   updatedKeys: Set<string>;
@@ -243,8 +241,10 @@ export default function TasksPage(): React.JSX.Element {
     }
   }, [addTab, saveState]);
 
-  // Infinite scroll: when user scrolls near the bottom and there are more
-  // tasks on the server, trigger loadMoreTasks to fetch the next page.
+  /*
+   * Infinite scroll: when user scrolls near the bottom and there are more
+   * tasks on the server, trigger loadMoreTasks to fetch the next page.
+   */
   useEffect(() => {
     if (!hasMore || loadingMore) return;
 
@@ -575,11 +575,13 @@ export default function TasksPage(): React.JSX.Element {
           const isIdentifying = task.Status === "scraping" || task.Status === "scrape_pending";
           const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending" || isPreparing;
           const isPaused = task.Status === "paused";
-          // Transcode/post-process phase: purple fill driven by the
-          // REAL transcode percentage (SSE carries phase progress 0→100
-          // while status is "transcoding"); the stage text shows the
-          // live percentage. The bar reverts to the normal green
-          // completed fill once the task finishes.
+          /*
+           * Transcode/post-process phase: purple fill driven by the
+           * REAL transcode percentage (SSE carries phase progress 0→100
+           * while status is "transcoding"); the stage text shows the
+           * live percentage. The bar reverts to the normal green
+           * completed fill once the task finishes.
+           */
           const isTranscoding = task.Status === "transcoding";
           const showStage = isIdentifying || isWaitingSlot || isPaused || isTranscoding;
           const stage = getProgressStage(task, t);
@@ -827,10 +829,12 @@ export default function TasksPage(): React.JSX.Element {
 
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
 
-  // ===== TanStack Table Instance =====
-  // Connect manual pagination state to the table so it doesn't fall back
-  // to its internal default (pageSize=10). currentPage is 1-based in the
-  // component but TanStack expects 0-based pageIndex.
+  /*
+   * ===== TanStack Table Instance =====
+   * Connect manual pagination state to the table so it doesn't fall back
+   * to its internal default (pageSize=10). currentPage is 1-based in the
+   * component but TanStack expects 0-based pageIndex.
+   */
   const table = useReactTable({
     data: filteredTasks,
     columns,
@@ -866,14 +870,6 @@ export default function TasksPage(): React.JSX.Element {
     getRowId: (row) => `${row.TaskType || "video"}-${row.ID}`,
   });
 
-  // Virtualizer setup
-  const { getVirtualItems, getTotalSize } = useVirtualizer({
-    count: table.getRowModel().rows.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 52,
-    overscan: 10,
-  });
-
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: tasks.length };
     for (const t of tasks) {
@@ -890,10 +886,6 @@ export default function TasksPage(): React.JSX.Element {
   }, [tasks]);
 
   const clampedPage = Math.min(currentPage, totalPages);
-  const paginatedTasks = useMemo(() => {
-    const start = (clampedPage - 1) * pageSize;
-    return filteredTasks.slice(start, start + pageSize);
-  }, [filteredTasks, clampedPage, pageSize]);
 
   const goToPage = useCallback((page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
@@ -923,19 +915,6 @@ export default function TasksPage(): React.JSX.Element {
     setExpandedTask(expandedTask === key ? null : key);
   }, [expandedTask, setExpandedTask]);
 
-  const toggleSelect = useCallback((key: string): void => {
-    setRowSelection((prev) => {
-      const next = { ...prev };
-      if (next[key]) {
-        delete next[key];
-      } else {
-        next[key] = true;
-      }
-      return next;
-    });
-  }, []);
-
-  const allSelected = selectedIds.size > 0 && selectedIds.size === filteredTasks.length;
   const someSelected = selectedIds.size > 0;
 
   return (

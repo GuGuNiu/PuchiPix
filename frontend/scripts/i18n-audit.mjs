@@ -1,6 +1,6 @@
 /**
- * i18n 审计脚本：对比所有语言文件 vs zh-CN（权威 key 源）
- * 输出：各语言缺失 key / 多余 key / 占位符不一致
+ * I18n audit script: compare all language files against zh-CN (authoritative key source).
+ * Output: missing keys / extra keys / placeholder mismatches per language.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -13,7 +13,7 @@ const LANGS = ["zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "ru-RU", "de-DE", "v
 
 function parseKeys(filePath) {
   const content = fs.readFileSync(filePath, "utf8");
-  // 匹配 "key": "value" — 注意跨行字符串
+  // Match "key": "value" pairs (string values may span lines).
   const entries = [];
   const regex = /"([A-Za-z0-9_.]+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
   let m;
@@ -57,16 +57,16 @@ for (const mod of MODULES) {
 }
 
 console.log("=".repeat(90));
-console.log("【1】缺失 key 统计（相对 zh-CN，按模块）");
+console.log("[1] Missing keys (vs zh-CN, by module)");
 console.log("=".repeat(90));
-console.log(`${"语言".padEnd(8)} ${MODULES.map((m) => m.padEnd(8)).join(" ")}  合计缺失`);
+console.log(`${"Language".padEnd(8)} ${MODULES.map((m) => m.padEnd(8)).join(" ")}  Total missing`);
 for (const lang of LANGS) {
   if (lang === "zh-CN") continue;
   const parts = [];
   let total = 0;
   for (const mod of MODULES) {
     const d = data[lang][mod];
-    if (!d) { parts.push("文件缺失".padEnd(8)); total += zh[mod].entries.length; continue; }
+    if (!d) { parts.push("no file  ".padEnd(8)); total += zh[mod].entries.length; continue; }
     const zhKeys = zh[mod].entries.map((e) => e.key);
     const missing = zhKeys.filter((k) => !d.map.has(k));
     parts.push(String(missing.length).padEnd(8));
@@ -77,7 +77,7 @@ for (const lang of LANGS) {
 
 console.log();
 console.log("=".repeat(90));
-console.log("【2】多余 key（zh-CN 没有的，可能导致未翻译文本）");
+console.log("[2] Extra keys (absent from zh-CN; may render untranslated text)");
 console.log("=".repeat(90));
 for (const lang of LANGS) {
   if (lang === "zh-CN") continue;
@@ -94,7 +94,7 @@ for (const lang of LANGS) {
 
 console.log();
 console.log("=".repeat(90));
-console.log("【3】占位符不一致（{xxx} 与 zh-CN 不同）");
+console.log("[3] Placeholder mismatches ({xxx} differs from zh-CN)");
 console.log("=".repeat(90));
 for (const lang of LANGS) {
   if (lang === "zh-CN") continue;
@@ -115,10 +115,10 @@ for (const lang of LANGS) {
   }
 }
 
-// 汇总缺失 key 明细（对每个语言列出缺失的 key 名，便于补翻译）
+// Detailed missing-key listing per language (for translation follow-up).
 console.log();
 console.log("=".repeat(90));
-console.log("【4】缺失 key 明细（按语言）");
+console.log("[4] Missing key details (by language)");
 console.log("=".repeat(90));
 for (const lang of LANGS) {
   if (lang === "zh-CN") continue;
@@ -133,6 +133,6 @@ for (const lang of LANGS) {
     const missing = zhKeys.filter((k) => !d.map.has(k));
     if (missing.length) missingAll.push(`[${mod}: ${missing.join(", ")}]`);
   }
-  console.log(`\n### ${lang} (共 ${missingAll.length} 组缺项)`);
+  console.log(`\n### ${lang} (${missingAll.length} missing groups)`);
   for (const g of missingAll) console.log(`  ${g}`);
 }

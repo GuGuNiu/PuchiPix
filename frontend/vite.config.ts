@@ -40,8 +40,11 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // 拆分 vendor：React 全家桶等依赖进入独立 chunk，内容不变时
-        // 浏览器可长期缓存，代码更新只让业务 chunk 失效。
+        /*
+         * Split vendors: the React family and other dependencies go into
+         * dedicated chunks so they stay cached across deploys while only
+         * app chunks invalidate on code updates.
+         */
         manualChunks(id: string) {
           if (!id.includes("node_modules")) return;
           if (id.includes("react-router")) return "vendor-router";

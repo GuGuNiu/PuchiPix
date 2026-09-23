@@ -12,12 +12,14 @@ interface UseTaskActionsParams {
   t: TranslateFunction;
 }
 
-// Hard ceiling for task action requests. Without this, a backend handler
-// stuck on file I/O (e.g. delete blocked by locked files) leaves the batch
-// Promise.allSettled unresolved forever: the selection bar stays frozen and
-// the task list spins indefinitely (observed 2026-09-05, 16-item batch
-// delete). On abort the caller's existing failure-recovery path runs
-// (clearDeletedKey + fetchTasks).
+/*
+ * Hard ceiling for task action requests. Without this, a backend handler
+ * stuck on file I/O (e.g. delete blocked by locked files) leaves the batch
+ * Promise.allSettled unresolved forever: the selection bar stays frozen and
+ * the task list spins indefinitely (observed 2026-09-05, 16-item batch
+ * delete). On abort the caller's existing failure-recovery path runs
+ * (clearDeletedKey + fetchTasks).
+ */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
@@ -197,14 +199,16 @@ export function useTaskActions({
     action: string,
   ): { Status: TaskStatus; AllowedActions: string[] } | null {
     const isGallery = task.TaskType === "gallery";
-    const hasScraped = (task.ImageCount ?? 0) > 0 || (task.VideoCount ?? 0) > 0;
 
     switch (action) {
       case "start":
       case "retry":
       case "resume":
-        // 乐观更新为 preparing 状态，让用户立即感知操作生效
-        // 后续由 SSE 推送真实的 scraping/downloading 状态
+        /*
+         * Optimistically switch to "preparing" so the user sees the action
+         * take effect immediately; SSE later pushes the real
+         * scraping/downloading status.
+         */
         if (isGallery) {
           return { Status: "preparing", AllowedActions: ["pause", "delete"] };
         }

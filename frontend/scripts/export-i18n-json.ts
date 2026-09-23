@@ -15,7 +15,7 @@ const LOCALES = [
 
 const OUTPUT_DIR = resolve(__dirname, "..", "..", "backend", "internal", "i18n", "locales");
 
-async function main() {
+async function main(): Promise<void> {
   mkdirSync(OUTPUT_DIR, { recursive: true });
 
   for (const locale of LOCALES) {

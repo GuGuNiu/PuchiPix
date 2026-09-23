@@ -1,5 +1,4 @@
 import type { GalleryDownloadInfoData } from "./gallery";
-import type { ProgressMessage } from "./common";
 
 export type TaskStatus =
   | 'pending'
