@@ -444,6 +444,7 @@ func main() {
 		}
 
 		sched.SyncQueueCapacityFromSlotPool()
+		applyPersistedSchedulerConfig(sched, database, logger)
 		sched.StartScanTimer(2 * time.Second)
 
 		eventBus.On("gallery:stateChanged", func(payload any) {
@@ -825,6 +826,50 @@ func applyPersistedSlotMax(sp *slot.SlotPool, database *db.Database, logger *inf
 	sp.UpdateMax(slotType, n)
 	logger.Info("Applied persisted slot max from app_configs",
 		"slotType", slotType, "max", n, "configKey", dbKey)
+}
+
+// applyPersistedSchedulerConfig loads the scheduler tuning keys from
+// app_configs and applies them to the engine at startup (260817 工单 11),
+// mirroring applyPersistedSlotMax: user-saved starvation threshold /
+// lottery rate / max schedule iterations survive restarts. The engine's
+// setters validate ranges; invalid or absent keys keep defaults.
+func applyPersistedSchedulerConfig(se *orchsched.SchedulerEngine, database *db.Database, logger *infra.Logger) {
+	if se == nil || database == nil {
+		return
+	}
+	read := func(key string) string {
+		var val string
+		if err := database.QueryRow(context.Background(),
+			`SELECT value FROM app_configs WHERE key = ?`, key).Scan(&val); err != nil {
+			return ""
+		}
+		return val
+	}
+
+	if val := read("scheduler_starvation_threshold"); val != "" {
+		if minutes, err := strconv.ParseFloat(val, 64); err == nil {
+			if se.SetStarvationThreshold(time.Duration(minutes * float64(time.Minute))) {
+				logger.Info("Applied persisted scheduler config",
+					"key", "scheduler_starvation_threshold", "value", val)
+			}
+		}
+	}
+	if val := read("scheduler_starvation_lottery_rate"); val != "" {
+		if rate, err := strconv.ParseFloat(val, 64); err == nil {
+			if se.SetStarvationLotteryRate(rate) {
+				logger.Info("Applied persisted scheduler config",
+					"key", "scheduler_starvation_lottery_rate", "value", val)
+			}
+		}
+	}
+	if val := read("scheduler_max_schedule_iterations"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			if se.SetMaxScheduleIterations(n) {
+				logger.Info("Applied persisted scheduler config",
+					"key", "scheduler_max_schedule_iterations", "value", val)
+			}
+		}
+	}
 }
 
 // isLikelyAntiBot checks whether a scrape error pattern suggests the

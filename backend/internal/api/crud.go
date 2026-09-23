@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"database/sql"
@@ -441,6 +442,31 @@ func (h *Handlers) ConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Hot-apply scheduler tuning keys to the live engine so changes take
+	// effect without a restart (260817 工单 11). Setters validate ranges;
+	// invalid values were persisted above but are ignored here — the
+	// engine keeps its current value and the operator sees the rejection
+	// in the scheduler log.
+	if h.Sched != nil {
+		for _, e := range entries {
+			switch e.key {
+			case "scheduler_starvation_threshold":
+				if minutes, err := strconv.ParseFloat(e.value, 64); err == nil {
+					h.Sched.SetStarvationThreshold(time.Duration(minutes * float64(time.Minute)))
+				}
+			case "scheduler_starvation_lottery_rate":
+				if rate, err := strconv.ParseFloat(e.value, 64); err == nil {
+					h.Sched.SetStarvationLotteryRate(rate)
+				}
+			case "scheduler_max_schedule_iterations":
+				if n, err := strconv.Atoi(e.value); err == nil {
+					h.Sched.SetMaxScheduleIterations(n)
+				}
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"updated": true, "count": len(entries)})
 }
 
