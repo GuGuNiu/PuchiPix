@@ -68,9 +68,8 @@ func DownloadSegment(ctx context.Context, task SegmentTask, maxRetries int) Segm
 		}
 
 		headers := map[string]string{
-			"Accept":          "*/*",
-			"Accept-Encoding": "gzip, deflate, br",
-			"Connection":      "keep-alive",
+			"Accept":     "*/*",
+			"Connection": "keep-alive",
 		}
 		if task.Referer != "" {
 			headers["Referer"] = task.Referer

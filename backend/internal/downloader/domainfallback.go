@@ -134,6 +134,7 @@ func downloadFileSingleThread(ctx context.Context, url, filePath string, opts *D
 	for k, v := range opts.Headers {
 		headers.Set(k, v)
 	}
+	headers.Del("Accept-Encoding")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

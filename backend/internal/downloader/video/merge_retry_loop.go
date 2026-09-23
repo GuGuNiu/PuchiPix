@@ -152,7 +152,7 @@ func MergeRetryLoop(
 
 		redownloadIndices := expandToNeighborRange(failedSet, NeighborOptions{
 			Radius:     opts.NeighborRadius,
-			MaxIndex:   len(segments) - 1,
+			MaxIndex:   segments[len(segments)-1].Index,
 			ExcludeSet: successSet,
 		})
 
