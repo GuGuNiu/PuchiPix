@@ -52,4 +52,9 @@ backend/internal/webui/dist/*
 !backend/internal/webui/dist/.placeholder
 /dist-desktop/
 
+*.syso
+build/windows/*.syso
+build/windows/icon-preview.png
+__pycache__/
+
 /.claude

@@ -98,3 +98,58 @@ jobs:
 
       - name: Test
         run: go test -race ./...
+
+  desktop:
+    name: Desktop Package
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Package desktop app
+        run: node scripts/build-desktop.mjs --require-installer
+
+      - name: Verify PE resources
+        shell: pwsh
+        run: |
+          $exe = "dist-desktop\PuchiPix.exe"
+          if (-not (Test-Path $exe)) { throw "exe missing" }
+          $info = (Get-Item $exe).VersionInfo
+          if ($info.ProductName -ne "PuchiPix") { throw "ProductName not stamped" }
+          if (-not $info.FileVersion) { throw "FileVersion not stamped" }
+          Write-Host "version: $($info.FileVersion) / $($info.ProductName)"
+          $setup = Get-ChildItem "dist-desktop\*-setup.exe" -ErrorAction SilentlyContinue
+          if ($setup) { Write-Host "installer: $($setup.Name)" }
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: puchipix-desktop
+          path: |
+            dist-desktop/PuchiPix.exe
+            dist-desktop/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
