@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "@/components/layout/sidebar";
+import TitleBar from "@/components/layout/title-bar";
 import ThemeProvider from "@/components/providers/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ThemedToaster } from "@/components/providers";
@@ -91,32 +92,35 @@ export default function App(): React.JSX.Element {
       <ThemeProvider>
         <QueryProvider>
           <I18nProvider>
-            <div className="app-layout">
-              <Sidebar />
-              <div className="main-area">
-                <main className="content-area">
-                  <RouteErrorBoundary>
-                    <Suspense fallback={<RouteLoading />}>
-                      <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/tasks" element={<TasksPage />} />
-                        <Route path="/search" element={<SearchPage />} />
-                        <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
-                        <Route path="/shelf/photos" element={<ShelfPhotos />} />
-                        <Route path="/shelf/videos" element={<ShelfVideos />} />
-                        <Route path="/shelf/sjs" element={<ShelfSJS />} />
-                        <Route path="/sniff" element={<SniffPage />} />
-                        <Route path="/config" element={<ConfigPage />} />
-                        <Route path="/config/games" element={<ConfigGames />} />
-                        <Route path="/blocklist" element={<BlocklistPage />} />
-                        <Route path="/protagonists" element={<ProtagonistsList />} />
-                        <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
-                        <Route path="/modelstage" element={<ModelStagePage />} />
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
-                    </Suspense>
-                  </RouteErrorBoundary>
-                </main>
+            <div className="app-shell">
+              <TitleBar />
+              <div className="app-layout">
+                <Sidebar />
+                <div className="main-area">
+                  <main className="content-area">
+                    <RouteErrorBoundary>
+                      <Suspense fallback={<RouteLoading />}>
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/tasks" element={<TasksPage />} />
+                          <Route path="/search" element={<SearchPage />} />
+                          <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
+                          <Route path="/shelf/photos" element={<ShelfPhotos />} />
+                          <Route path="/shelf/videos" element={<ShelfVideos />} />
+                          <Route path="/shelf/sjs" element={<ShelfSJS />} />
+                          <Route path="/sniff" element={<SniffPage />} />
+                          <Route path="/config" element={<ConfigPage />} />
+                          <Route path="/config/games" element={<ConfigGames />} />
+                          <Route path="/blocklist" element={<BlocklistPage />} />
+                          <Route path="/protagonists" element={<ProtagonistsList />} />
+                          <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
+                          <Route path="/modelstage" element={<ModelStagePage />} />
+                          <Route path="*" element={<NotFound />} />
+                        </Routes>
+                      </Suspense>
+                    </RouteErrorBoundary>
+                  </main>
+                </div>
               </div>
             </div>
             <ThemedToaster />

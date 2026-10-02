@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -14,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	wopts "github.com/wailsapp/wails/v2/pkg/options/windows"
 
+	"backend/cmd/desktop/window"
 	"backend/internal/app"
 	"backend/internal/config"
 	"backend/internal/infra"
@@ -70,8 +72,10 @@ func main() {
 	}
 	logger := application.Logger()
 
+	winCtrl := window.New()
+
 	srv := &http.Server{
-		Handler: application.Router(),
+		Handler: mountWindowControl(winCtrl, application.Router()),
 		// WriteTimeout must stay zero: SSE responses are long-lived and a
 		// write deadline would sever every progress stream mid-download.
 		ReadTimeout:  30 * time.Second,
@@ -102,10 +106,17 @@ func main() {
 
 			logger.Info("Desktop shutdown requested")
 
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// Short grace period: the WebView holds long-lived SSE connections
+			// that never drain on their own, so a full drain would always hit
+			// the deadline and add that latency to every close. Two seconds is
+			// enough for in-flight normal requests, then force the rest.
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			if err := srv.Shutdown(shutdownCtx); err != nil {
-				logger.Error("Desktop HTTP server forced to shutdown", err)
+				logger.Info("Desktop HTTP server closing remaining connections", "reason", err.Error())
+				if closeErr := srv.Close(); closeErr != nil {
+					logger.Error("Desktop HTTP server close error", closeErr)
+				}
 			}
 
 			application.Shutdown()
@@ -113,11 +124,15 @@ func main() {
 	}
 
 	err = wails.Run(&options.App{
-		Title:  "PuchiPix",
-		Width:  1440,
-		Height: 900,
+		Title:     "PuchiPix",
+		Width:     1440,
+		Height:    900,
 		MinWidth:  1024,
 		MinHeight: 640,
+		// The window draws its own title bar, so the system frame is removed.
+		// The frontend serves the same document in browser mode and renders
+		// the bar only when these endpoints answer.
+		Frameless: true,
 		// The window is pointed at the backend origin rather than at the
 		// Wails asset server. Serving the UI from the same origin as the API
 		// keeps every frontend request a relative /api call, and avoiding the
@@ -139,6 +154,7 @@ func main() {
 			Theme:               wopts.SystemDefault,
 		},
 		OnStartup: func(ctx context.Context) {
+			winCtrl.Bind(ctx)
 			logger.Info("Desktop UI ready", "origin", origin)
 		},
 		OnShutdown: func(ctx context.Context) {
@@ -167,6 +183,19 @@ func main() {
 		}
 	default:
 	}
+}
+
+// mountWindowControl puts the window endpoints in front of the application
+// router. The title bar is the only consumer, and keeping the two routers
+// separate means the app package stays unaware of desktop windowing.
+func mountWindowControl(ctrl *window.Controller, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/window/") {
+			ctrl.Routes().ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // redirectHandler sends the WebView to the backend origin. The asset server

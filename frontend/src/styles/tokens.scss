@@ -183,6 +183,8 @@
   --sidebar-width: 260px;
   --sidebar-width-collapsed: 64px;
   --header-height: 56px;
+  --title-bar-height: 32px;
+  --title-bar-restore-bg: #f0f4f8;
 
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -225,6 +227,7 @@
   color-scheme: dark;
 
   --bg-base: #06060a;
+  --title-bar-restore-bg: #06060a;
   --bg-gradient: linear-gradient(135deg, #030306 0%, #08080f 40%, #0a0a14 100%);
   --bg-card: rgba(14, 14, 22, 0.68);
   --bg-card-solid: #0e0e16;

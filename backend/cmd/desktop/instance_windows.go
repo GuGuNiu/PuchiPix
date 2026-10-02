@@ -28,9 +28,9 @@ type copyDataStruct struct {
 }
 
 var (
-	user32                 = syscall.NewLazyDLL("user32.dll")
-	procFindWindowW        = user32.NewProc("FindWindowW")
-	procSendMessageW       = user32.NewProc("SendMessageW")
+	user32           = syscall.NewLazyDLL("user32.dll")
+	procFindWindowW  = user32.NewProc("FindWindowW")
+	procSendMessageW = user32.NewProc("SendMessageW")
 )
 
 // focusExistingInstance asks the already-running instance to raise its window.

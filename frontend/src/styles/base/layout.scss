@@ -1,6 +1,18 @@
+// The shell stacks the optional title bar above the sidebar/content row.
+// 100dvh tracks the dynamic viewport so a maximised or snapped window never
+// leaves a scrollbar gap along the bottom.
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+}
+
 .app-layout {
   display: flex;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   width: 100vw;
 }
 

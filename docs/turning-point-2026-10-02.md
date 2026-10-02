@@ -133,6 +133,44 @@ git tag -l "web-mode-freeze" # 对应的冻结 tag
 | `.gitignore` | 若干 | 锚定路径 |
 | `backend/internal/db/dbconfig` | — | 库路径解析（需显式修法） |
 
+## 十、自定义标题栏（2026-10-02）
+
+### 决策：窗口控制走 HTTP，不引Wails 绑定
+
+「前端零 Wails 绑定」是本项目的硬约束，窗口控制也不例外。因此没有用 `window.go.main.App.WindowMinimise()`，而是新增 `backend/cmd/desktop/window`，把四个操作暴露为同源 HTTP 端点，由 Go 侧调 Wails runtime：
+
+| 端点 | 方法 | 作用 |
+|---|---|---|
+| `/api/window/state` | GET | 返回 `{"maximised":bool}`，供标题栏对齐最大化图标 |
+| `/api/window/minimise` | POST | 最小化 |
+| `/api/window/toggle-maximise` | POST | 最大化 / 还原 |
+| `/api/window/close` | POST | 走 `runtime.Quit`，与系统关闭同一路径 |
+
+变更类端点一律 POST，避免预取或误链接触发关闭。端点只在桌面壳挂载，服务器模式下 404——标题栏靠探测 `/api/window/state` 是否可用决定渲染，**同一份前端文档在两种形态下都成立**，服务器模式的布局完全不受影响。
+
+Wails 没有内置窗口状态事件，故最大化图标采用「乐观翻转+ focus/resize 时复询 `/api/window/state`」的组合：用户自己触发的操作立即反馈，系统级最大化（Win+↑、贴边）会在下一次 focus/resize 时自愈。
+
+### 视觉与交互
+
+按项目既有 token 体系实现，未引入新配色或新字体族：
+
+- 高度 `32px`（与Windows 标题栏同高），按钮 `46px` 宽 —— 取平台尺寸而非 4px 间距栅格；`44×44` 触控目标那条建议在此处有意放宽，窗口边框由指针操作，不适用触控语境。
+- 背景 `--bg-sidebar` + `--glass-blur`，与侧边栏同材质；底边 `--glass-border`，最大化时透明。
+- 三按钮均为内联 SVG 描边图标（1px），最大化态切换为「双层方框」还原图标；还原图标内填充用 `--title-bar-restore-bg` token，以便在亮/暗主题下都与标题栏背景同色。
+- 关闭按钮 hover 才变红（`--danger`），是整条栏里唯一的红色强调。
+- 交互态齐备：hover / active / focus-visible；`focus-visible` 给 2px `--accent` 描边，保证键盘可达。`prefers-reduced-motion: reduce` 下关闭过渡。
+- 双击标题栏切换最大化，与系统行为一致。
+
+### 实测发现并修掉的缺陷
+
+**SSE 连接导致关闭窗口卡满 10 秒。** 原关闭序列给 `srv.Shutdown` 10 秒超时，但 WebView 持有的 SSE 长连接（`/api/tasks/stream` 等）按设计永不自行结束，`Shutdown` 会一直等到超时。表现为点关闭按钮后进程滞留 10 秒、日志一条 ERROR。
+
+修法：宽限期压到 2 秒（足够在途普通请求收尾），超时后调`srv.Close()` 强制断开剩余连接。退出延迟从 10 秒降到 2 秒以内，且不再产生 ERROR。
+
+### 验证
+
+实机确认：`/api/window/state` 返回正确；`GET` 打到 `close` 返回 405；`toggle-maximise` 使窗口从 1440×900 变为 1936×1048 且 state 翻转为 `true`；`close` 触发完整关闭序列（dm.Stop → flowCtrl → backpressure → dagOrch → sched → DB）后进程退出、端口释放。DOM 层面确认标题栏 32px、拖拽属性 `drag`、按钮 `--wails-draggable: no-drag`、三键 46px、亮暗双主题取色正确。`tsc --noEmit` 与 `eslint` 均通过。
+
 ### 事故备忘：删除守卫会误伤无关文件
 
 本项目的工作区删除守卫会把删除重定向到回收站（`E:\$Recycle.Bin\<SID>\`），且**会把脚本根本没打算删的文件一并移走**。本日累计四次：`start.bat` 三次（`git status` 显示 ` D`）、`docs/` 整目录一次（`docs/ missing`）。四次均以`git checkout --` 完整恢复。
