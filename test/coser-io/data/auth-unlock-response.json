@@ -1,9 +1,0 @@
-{
-  "status": 422,
-  "ok": false,
-  "result": {
-    "success": false,
-    "message": "您的积分不足!",
-    "code": "INSUFFICIENT_POINTS"
-  }
-}

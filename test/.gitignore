@@ -1,9 +1,0 @@
-# Dependencies
-node_modules/
-
-# npm cache
-.npm-cache/
-
-# OS files
-Thumbs.db
-.DS_Store

@@ -79,18 +79,6 @@ importers:
         specifier: ^6.3.0
         version: 6.4.3(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.102.0)(tsx@4.23.1)
 
-  ../test:
-    dependencies:
-      axios:
-        specifier: ^1.7.0
-        version: 1.19.0
-      cheerio:
-        specifier: ^1.0.0
-        version: 1.2.0
-      playwright:
-        specifier: ^1.62.1
-        version: 1.62.1
-
 packages:
 
   '@alloc/quick-lru@5.2.0':

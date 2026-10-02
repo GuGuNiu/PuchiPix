@@ -66,3 +66,77 @@ git tag -l "web-mode-freeze" # 对应的冻结 tag
 ```
 
 `main` 上的服务器模式在桌面版稳定前仍然可用：`start.bat` → 浏览器访问 `http://localhost:10540`。
+
+## 八、M1 实施结果（2026-10-02）
+
+### 落地结构
+
+| 路径 | 职责 |
+|---|---|
+| `backend/internal/app` | 服务装配的唯一来源：DB、slot pool、DAG orchestrator、scheduler、governor、site registry、video download manager、executor 注册、崩溃恢复、关闭序列 |
+| `backend/internal/webui` | `go:embed` 前端 dist + SPA fallback + 安全响应头 + assets 长缓存，行为对齐退役的 `nginx.conf` |
+| `backend/cmd/server` | 退化为薄壳：加载配置 → `app.New` → 起 HTTP → 等信号 → `Shutdown` |
+| `backend/cmd/desktop` | Wails 壳：动态端口、单实例锁、窗口直连后端 origin、优雅退出 |
+| `scripts/sync-dist.mjs` | 把 `frontend/dist` 增量同步进 `backend/internal/webui/dist` |
+| `scripts/build-desktop.mjs` | 前端构建 → dist 同步 → 带标签编译单 exe |
+
+`config.Load` 未被改动：桌面壳通过 `cmd/desktop` 显式注入 `DATA_DIR` / `DB_PATH` 指向 `%APPDATA%\PuchiPix`，服务器模式的路径解析逻辑原样保留。
+
+### 三个必须知道的构建事实
+
+1. **`production` 构建标签是强制的。** 裸 `go build ./cmd/desktop` 会编译成功、不报任何错，但产物启动即退——Wails 在无标签时把 `CreateApp` 编译成一个弹「请使用 wails build」提示框后返回 nil 的桩实现。`scripts/build-desktop.mjs` 已固定传入 `-tags production`。
+2. **Wails 自带的单实例锁生效太晚。** 它在 `wails.Run` 内部才取锁，此时数据库已打开、迁移已跑、调度器与背压监控已启动，第二实例会完整初始化一遍再被拒绝。桌面壳因此在 `main` 最开头自建 named mutex（`Global\PuchiPixDesktopStartupLock`），失败则先发 `WM_COPYDATA` 唤醒已有窗口再退出。
+3. **`internal/app` 的 `Shutdown` 不含 HTTP 关闭。** HTTP server 的归属留给调用方（`cmd/server` 与 `cmd/desktop` 各自建、各自关），`app` 只负责其后的编排器/调度器/DB 序列。这让同一个 `App` 能同时服务于「自有 HTTP server」和「被 Wails 窗口直连的 HTTP server」两种形态。
+
+### 同源与 SSE
+
+窗口不指向 Wails asset server，而是被 302 重定向到后端 origin（`http://127.0.0.1:<动态端口>`）。asset server 在此只作跳板：首次导航离开 `wails://` scheme 之后，WebView 与 HTTP server 直连，中间没有反向代理。这既让前端全部相对 `/api` 调用天然同源（免掉 nginx 时代的 CORS 与 proxy 层），也保住了 SSE 的真流式语义——若改走 assetserver 反代，`EventSource` 会受响应缓冲影响，必须额外设置 flush 间隔才能恢复实时性。`WriteTimeout` 保持为 0。
+
+### 实机验证
+
+`go build` / `go vet` / `go test`（含新增 webui 与 mount 用例）全通过。单exe 28.8 MB。动态端口上 `/api/health` 返回 `database: ok`；index 与 SPA fallback 均 200，assets 带一年 immutable 缓存；`/api/tasks/stream` 立即返回 `event: initial`（无缓冲）；第二实例 1.5s 退出且数据库零接触；关窗后完整跑通关闭序列且 0 ERROR、端口释放；服务器模式回归正常。
+
+## 九、根目录结构：已定稿的形态
+
+### `test/` 已删除
+
+原`test/` 并非临时目录，而是**第二个 pnpm workspace 包**（`frontend/pnpm-workspace.yaml` 里以 `"../test"` 声明，含自己的 `package.json` 与 axios/cheerio/playwright 依赖，271 个文件受git 跟踪，内容为各站点抓包素材与逆向报告）。该目录已由用户删除，连带需要清理三处悬挂引用：
+
+| 文件 | 处置 |
+|---|---|
+| `frontend/pnpm-workspace.yaml` | 移除 `"../test"` 成员声明，`packages` 只留 `"."` |
+| `frontend/pnpm-lock.yaml` | 移除 `importers` 下的 `../test:` 段（axios / cheerio / playwright 三个依赖声明） |
+| `.gitignore` | 移除重复的 `/test` 与 `/test` 两条规则 |
+
+验证：`pnpm exec vite build` 通过（2218 modules transformed），产物与删除前逐字节一致（`sync-dist.mjs` 报告 `0 updated`）。CI 与 dependabot 从未引用 `test/`，无需改动。
+
+### 剩下的结构问题：`data/` 与构建产物
+
+根目录现存7 项：`frontend/` `backend/`（源码）、`data/`（服务器模式运行时数据，16467 文件）、`dist-desktop/`（桌面版产物）、`docs/` `scripts/` `start.bat`（仓库级）。根目录残留的 `.npm-cache/`（8851 文件）已确认为无引用的 npm 自身缓存并删除。
+
+**尚未处理**：把 `data/` 与 `dist-desktop/` 收进 `var/` 之类的目录，使根目录只留源码与配置。迁移 `data/` 必须同步修`internal/db/dbconfig.computeDefaultDBPath()`——它按 `<cwd>/data` → `<cwd>/../data` → `<exeDir>/../data` 三级查找，目录一变就可能够不到库，静默开空库导致 API 全 404 而服务表面健康。`start.bat` 用 `%~dp0` 不受影响，但开发者裸跑会踩。
+
+### 未采纳：`app/frontend` + `app/backend` 嵌套
+
+曾评估把前后端一并下沉一层，结论是**不采纳**：Go 侧收益极小（`go.mod` 是 `module backend`，模块路径与磁盘目录无关，import 语句零改动），却要改 8 处引用（`ci.yml` 6、`cd.yml` 4、`dependabot.yml` 2、`start.bat` 3、两个构建脚本、`sse-contract-check.mjs`、`.gitignore`）并同样撞上库路径陷阱。既然 `test/` 已删除，根目录平级混放的问题已大幅缓解，不值得为「看起来整齐」付这笔代价。
+
+若将来仍要下沉，需同步修改的引用清单：
+
+| 文件 | 处数 | 内容 |
+|---|---|---|
+| `.github/workflows/ci.yml` | 6 | `working-directory: frontend` / `backend`（各 2）、`cache-dependency-path`、`path: frontend/dist` |
+| `.github/workflows/cd.yml` | 4 | `working-directory`、`cache-dependency-path`、`context: ./frontend` |
+| `.github/dependabot.yml` | 2 | `directory: /frontend`、`/backend` |
+| `start.bat` | 3 | `FRONTEND_DIR` / `BACKEND_DIR` / `DATA_DIR` |
+| `scripts/sync-dist.mjs`、`scripts/build-desktop.mjs` | 各 1 | `repoRoot` 解析 |
+| `frontend/scripts/sse-contract-check.mjs` | 1 | `../backend/internal/api/task_stream.go` |
+| `.gitignore` | 若干 | 锚定路径 |
+| `backend/internal/db/dbconfig` | — | 库路径解析（需显式修法） |
+
+### 事故备忘：删除守卫会误伤无关文件
+
+本项目的工作区删除守卫会把删除重定向到回收站（`E:\$Recycle.Bin\<SID>\`），且**会把脚本根本没打算删的文件一并移走**。本日累计四次：`start.bat` 三次（`git status` 显示 ` D`）、`docs/` 整目录一次（`docs/ missing`）。四次均以`git checkout --` 完整恢复。
+
+此外该守卫还会打断构建：Vite 的 `emptyOutDir` 清空 `frontend/dist` 时，守卫二进制 `genie-trash.exe` 超时（`ETIMEDOUT`）导致构建失败。绕法是 `pnpm exec vite build --emptyOutDir false`；注意此时旧产物不会被清掉，需自行确认输出目录状态。
+
+**因此本项目所有批量文件操作必须执行这条纪律**：动手前 `git ls-files -z | xargs -0 md5sum` 快照全部跟踪文件，改完再全量比对一次，确认零差异才收工。不能只看脚本自己的输出。

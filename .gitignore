@@ -48,7 +48,8 @@ air_errors.log
 *.db
 *.sqlite
 backend/data/
-/test
-/test
+backend/internal/webui/dist/*
+!backend/internal/webui/dist/.placeholder
+/dist-desktop/
 
 /.claude

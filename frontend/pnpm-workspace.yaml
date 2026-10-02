@@ -1,6 +1,5 @@
 packages:
   - "."
-  - "../test"
 nodeLinker: isolated
 strictPeerDependencies: false
 enablePrePostScripts: true
