@@ -17,8 +17,6 @@ import (
 
 var scraperLogger = infra.NewLogger("AimeiziziProvider")
 
-// ScrapeGalleryBrowser performs chromedp-based gallery scraping as a
-// fallback when HTTP scraping fails or returns insufficient content.
 func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) (*sites.GalleryScrapeResult, error) {
 	articleID := ExtractArticleID(pageURL)
 	domains := deps.GetDomains()
@@ -45,8 +43,13 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 			tryURL = domain + "/article/" + articleID + "/"
 		}
 
+		started := time.Now()
 		result, err := navigateAndWait(ctx, tryURL)
+		rtt := time.Since(started)
 		if err != nil {
+			// Browser failures must reach the tracker too: a mirror that only
+			// blocks headless fingerprints would otherwise leave no signal.
+			tracker.ReportOutcome(domain, rtt, err)
 			scraperLogger.Debug("Browser navigation failed",
 				infra.LogContext{Extra: map[string]any{
 					"domain": domain,
@@ -56,6 +59,7 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 		}
 
 		if result == "" {
+			tracker.ReportOutcome(domain, rtt, stealth.ErrEmptyResponse)
 			continue
 		}
 
@@ -126,7 +130,6 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 		}
 	}
 
-	// Fetch remaining pages via browser navigation.
 	for pageNum := 2; pageNum <= totalPages; pageNum++ {
 		select {
 		case <-ctx.Done():
@@ -184,8 +187,8 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 	protagonist := deps.ExtractProtagonist(title, firstPageData.Tags)
 	description := deps.ExtractDescription(title, protagonist)
 
-	// Use a fresh context for blocklist check to avoid timeout when
-	// the scrape context has expired after long chromedp navigation.
+	// A fresh context keeps the blocklist check alive after a long browser
+	// navigation has already exhausted the scrape context.
 	blockCheck, err := deps.CheckBlockedAsync(context.Background(), title, firstPageData.Category, protagonist)
 	if err != nil {
 		return nil, fmt.Errorf("check content blocked: %w", err)

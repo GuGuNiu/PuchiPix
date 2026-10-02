@@ -10,10 +10,9 @@ import (
 
 // ValidateMergeOutput must key its found/missing/corrupted/empty sets on
 // the SAME segment identity the downloader writes to disk
-// (SegmentFileName = GenerateTSID). The 260906 D3 diagnosis left the
-// verifier deriving indices from a raw directory scan with its own
-// _N suffix regex, which silently misclassifies segments whenever
-// M3U8 media-sequence offsets make Index != slice position (live-to-VOD
+// (SegmentFileName = GenerateTSID). Deriving indices from a raw directory
+// scan with its own _N suffix regex misclassifies segments whenever M3U8
+// media-sequence offsets make Index != slice position (live-to-VOD
 // playlists), and cannot see non-canonical residue at all.
 
 func TestValidateMergeOutputMediaSequenceOffset(t *testing.T) {
@@ -71,12 +70,7 @@ func TestValidateMergeOutputDetectsMissingCanonicalSegment(t *testing.T) {
 		t.Fatalf("expected missing=[1], got %v", result.MissingIndices)
 	}
 
-	// Duration-level corruption (ProbeDuration returns a value far below
-	// expected) re-queues the FULL segment set as corrupted candidates —
-	// the old code copied MissingIndices (empty when files are all
-	// present), producing an empty redownload set and a permanent
-	// "no redownload candidates" dead end in MergeRetryLoop. In this test
-	// environment ffmpeg cannot probe a text file (returns 0), which
+	// A duration probe that cannot read the text fixture fails, which
 	// exercises the opposite guarantee: a failed probe must NOT mark a
 	// file-complete merge invalid.
 	result = ValidateMergeOutput(context.Background(), dir, out, segments, manifest, 4*time.Second)
@@ -115,8 +109,8 @@ func TestExpandToNeighborRangeUsesSegmentIndices(t *testing.T) {
 	// failed=[11] with MaxIndex=12 must expand to [6..12] excluding the
 	// confirmed-good set.
 	got := expandToNeighborRange([]int{11}, NeighborOptions{
-		Radius:   5,
-		MaxIndex: 12,
+		Radius:     5,
+		MaxIndex:   12,
 		ExcludeSet: map[int]bool{10: true},
 	})
 	want := []int{6, 7, 8, 9, 11, 12}

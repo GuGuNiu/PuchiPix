@@ -12,10 +12,12 @@ import (
 
 type workerCommand struct{}
 
-func (workerCommand) Name() string        { return "worker" }
-func (workerCommand) Description() string { return "Worker process management (status / restart / logs)" }
-func (workerCommand) Usage() string        { return "puchipix-cli worker <status|restart|logs> [options]" }
-func (workerCommand) Aliases() []string   { return []string{"w"} }
+func (workerCommand) Name() string { return "worker" }
+func (workerCommand) Description() string {
+	return "Worker process management (status / restart / logs)"
+}
+func (workerCommand) Usage() string     { return "puchipix-cli worker <status|restart|logs> [options]" }
+func (workerCommand) Aliases() []string { return []string{"w"} }
 
 func (workerCommand) Execute(ctx CommandContext) error {
 	subcommand := ""

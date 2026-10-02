@@ -27,15 +27,14 @@ func SanitizeFileName(name string) string {
 }
 
 // ResolveOUOFn resolves an OUO short link to its direct download URL.
-// It is injected by the orchestrator so the downloader package does not
-// depend on orchestrator internals (avoids an import cycle).
+// Injected by the orchestrator to keep the downloader package free of
+// orchestrator dependencies.
 type ResolveOUOFn func(ctx context.Context, ouoURL string) (string, error)
 
-// TryDownloadGalleryZip attempts to download and extract a ZIP archive
-// for a gallery when the gallery_download_infos table contains a valid
-// download URL. Returns true if ZIP download + extraction succeeded,
-// false if no ZIP is available or the download failed (caller falls back
-// to page-by-page image download).
+// TryDownloadGalleryZip attempts to download and extract a ZIP archive when
+// gallery_download_infos holds a valid download URL. Returns false when no
+// archive URL exists or the download or extraction fails, letting the caller
+// fall back to page-by-page image download.
 func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID int, saveDir string, logger *infra.Logger, resolveOUO ResolveOUOFn, dlDefaults DownloadDefaults) bool {
 	if database == nil {
 		return false
@@ -53,9 +52,9 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	logger.Info("ZIP download available, attempting archive download",
 		"galleryId", galleryID, "source", downloadSource, "url", dlURL)
 
-	// OUO short links are resolved via HTTP redirect chain (no headless browser).
-	// If OUO requires JavaScript interaction, resolution fails and we fall back
-	// to page-by-page image download.
+	// OUO short links resolve through the HTTP redirect chain; a link that
+	// requires JavaScript interaction fails resolution and the caller falls
+	// back to page-by-page image download.
 	downloadURL := dlURL
 	if downloadSource == "ouo" {
 		if resolveOUO == nil {
@@ -86,7 +85,7 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	zipFileName := fmt.Sprintf("gallery_%d.zip", galleryID)
 	zipPath := filepath.Join(saveDir, zipFileName)
 	opts := dlDefaults.ApplyTo(&DownloadOptions{
-		Timeout: 3600_000_000_000, // 1 hour for large archives
+		Timeout: 3600_000_000_000,
 		Atomic:  true,
 	})
 	result := DownloadFileWithDomainFallback(ctx, downloadURL, zipPath, opts)
@@ -132,9 +131,9 @@ func TryDownloadGalleryZip(ctx context.Context, database *db.Database, galleryID
 	return true
 }
 
-// VerifyGallery queries the database to check whether all gallery
-// images were successfully downloaded. It returns (status, corrected, reason)
-// following the same protocol as the filesystem verifier.
+// VerifyGallery reports whether every gallery image reached the downloaded
+// state, returning (status, corrected, reason) using the same protocol as
+// the filesystem verifier.
 func VerifyGallery(ctx context.Context, database *db.Database, galleryID int, logger *infra.Logger) (string, int, string) {
 	// Use COALESCE to handle NULL values from SUM when no rows exist
 	var expectedImages, downloadedImages, failedImages int

@@ -1,6 +1,3 @@
-// Dashboard — dashboard-page / stats-grid / stat-card / quick-links / system-status
-
-// ─── Dashboard container (full-width light theme) ───
 .dashboard-page {
   display: flex;
   flex-direction: column;
@@ -29,7 +26,6 @@
   align-items: start;
 }
 
-// ===== Stats Grid =====
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -87,7 +83,6 @@
   letter-spacing: 0.2px;
 }
 
-// ===== Quick Links =====
 .quick-links {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -170,7 +165,6 @@
   font-weight: 500;
 }
 
-// ===== System Status Card =====
 .system-status-card {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
@@ -212,7 +206,6 @@
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
-// ===== Input Card (Dashboard) =====
 .dash-input-card {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
@@ -329,7 +322,6 @@
   }
 }
 
-// ===== Dash Card =====
 .dash-card {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
@@ -361,7 +353,6 @@
   padding: var(--space-4) var(--space-5);
 }
 
-// ===== Search Box =====
 .search-box {
   display: flex;
   align-items: center;
@@ -398,7 +389,6 @@
   }
 }
 
-// ===== Sniff Control =====
 .sniff-control {
   display: flex;
   gap: var(--space-3);
@@ -412,7 +402,6 @@
   }
 }
 
-// ===== Debug Toggle =====
 .debug-toggle {
   padding: var(--space-5) var(--space-5);
 
@@ -423,7 +412,6 @@
   }
 }
 
-// ===== Sniff Status Banner =====
 .sniff-status-banner {
   display: flex;
   align-items: center;

@@ -51,6 +51,11 @@ type M3U8FetchResult struct {
 	// VariantURL is the URL of the selected variant playlist (empty
 	// when IsMaster is false).
 	VariantURL string
+
+	// IsFragmentedMP4 reports that the resolved media playlist declared
+	// an EXT-X-MAP initialization segment, so Segments[0] is the fMP4
+	// init file and must be written first during merge.
+	IsFragmentedMP4 bool
 }
 
 // FetchAndParseM3U8 is the unified entry point for M3U8 content fetching
@@ -71,6 +76,10 @@ func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOption
 
 	var segments []M3U8Segment
 	var variantURL string
+	// The init segment is declared by the media playlist, which for a
+	// master playlist is the selected variant, so the flag is read from
+	// whichever playlist actually produced the segments.
+	isFragmented := playlist.IsFragmentedMP4
 	if playlist.IsMaster && len(playlist.Variants) > 0 {
 		variantURL = SelectBestVariant(playlist.Variants)
 		if variantURL == "" {
@@ -79,12 +88,11 @@ func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOption
 
 		m3u8Logger.Info("Selected variant from master playlist",
 			infra.LogContext{Extra: map[string]any{
-				"m3u8URL":   m3u8URL,
-				"variant":   variantURL,
-				"referer":   effectiveReferer,
+				"m3u8URL": m3u8URL,
+				"variant": variantURL,
+				"referer": effectiveReferer,
 			}})
 
-		// Fetch variant playlist using the same effective Referer
 		// that succeeded for the master playlist.
 		variantContent, variantEffectiveReferer, err := FetchM3U8ContentWithRefererFallback(
 			ctx, variantURL, effectiveReferer, opts.FallbackDomains)
@@ -92,7 +100,6 @@ func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOption
 			return nil, fmt.Errorf("fetch variant playlist: %w", err)
 		}
 
-		// Update effectiveReferer in case the variant fetch succeeded
 		// with a different fallback domain.
 		if variantEffectiveReferer != "" {
 			effectiveReferer = variantEffectiveReferer
@@ -100,6 +107,7 @@ func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOption
 
 		variantPlaylist := ParseM3U8(variantContent, variantURL)
 		segments = variantPlaylist.Segments
+		isFragmented = variantPlaylist.IsFragmentedMP4
 	} else {
 		segments = playlist.Segments
 	}
@@ -114,6 +122,7 @@ func FetchAndParseM3U8(ctx context.Context, m3u8URL string, opts M3U8FetchOption
 		Playlist:         playlist,
 		IsMaster:         playlist.IsMaster,
 		VariantURL:       variantURL,
+		IsFragmentedMP4:  isFragmented,
 	}, nil
 }
 
@@ -165,71 +174,98 @@ type SegmentBatchResult struct {
 // segment failures do not cancel other in-flight segments. Callers should
 // check the Failed/Total ratio to decide whether to tolerate partial failures.
 func DownloadSegmentsBatch(ctx context.Context, segments []M3U8Segment, opts SegmentBatchOptions) SegmentBatchResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 10
+	}
+	if opts.Concurrency > 64 {
+		opts.Concurrency = 64
 	}
 	if opts.MaxRetries <= 0 {
 		opts.MaxRetries = 3
 	}
 
 	total := len(segments)
-	var segMu sync.Mutex
-	var downloadedSegs int
-	var downloadedIndices []int
-	var failedSegs []int
+	if total == 0 {
+		return SegmentBatchResult{}
+	}
+	workerCount := opts.Concurrency
+	if workerCount > total {
+		workerCount = total
+	}
+
+	type outcome struct {
+		attempted bool
+		success   bool
+	}
+	outcomes := make([]outcome, total)
+	jobs := make(chan int)
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, opts.Concurrency)
+	var callbackMu sync.Mutex
 
-	for _, seg := range segments {
-		seg := seg
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
+	worker := func() {
+		defer wg.Done()
+		for i := range jobs {
+			seg := segments[i]
 			result := DownloadSegment(ctx, SegmentTask{
 				Segment: seg,
 				DestDir: opts.SegDir,
-				// Canonical (URI, Index) identity so retry re-downloads
-				// overwrite the primary-path files instead of coexisting
-				// under a second name and being merged twice.
 				TSID:    GenerateTSID(seg.URI, seg.Index),
 				Referer: opts.Referer,
 			}, opts.MaxRetries)
-
-			segMu.Lock()
-			// Report in playlist-Index space, not slice position: with
-			// M3U8 media-sequence offsets the two differ, and consumers
-			// (MergeRetryLoop success sets, gallery OnSegmentDone) key on
-			// Index.
-			if result.Error != nil {
-				failedSegs = append(failedSegs, seg.Index)
-			} else {
-				downloadedSegs++
-				downloadedIndices = append(downloadedIndices, seg.Index)
-			}
+			outcomes[i] = outcome{attempted: true, success: result.Error == nil}
 			if opts.OnSegmentDone != nil {
+				callbackMu.Lock()
 				opts.OnSegmentDone(seg.Index, result.Error == nil)
+				callbackMu.Unlock()
 			}
-			segMu.Unlock()
-		}()
+		}
 	}
+
+	wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go worker()
+	}
+	go func() {
+		defer close(jobs)
+		for i := range segments {
+			select {
+			case jobs <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	wg.Wait()
 
+	downloaded := 0
+	downloadedIndices := make([]int, 0, total)
+	failed := make([]int, 0, total)
+	for i, result := range outcomes {
+		if !result.attempted {
+			continue
+		}
+		if result.success {
+			downloaded++
+			downloadedIndices = append(downloadedIndices, segments[i].Index)
+			continue
+		}
+		failed = append(failed, segments[i].Index)
+	}
+
 	return SegmentBatchResult{
-		Downloaded:        downloadedSegs,
+		Downloaded:        downloaded,
 		DownloadedIndices: downloadedIndices,
-		Failed:            failedSegs,
+		Failed:            failed,
 		Total:             total,
 	}
 }
 
 // CheckSegmentFailureThreshold returns an error if the failure ratio
-// exceeds the 20% tolerance threshold, matching the behavior of both
-// the gallery and independent video pipelines. Below the threshold,
-// the merge step skips missing segments and produces a valid but
-// truncated output.
+// exceeds the 20% tolerance threshold. Below the threshold, the merge
+// step skips missing segments and produces a valid but truncated output.
 func CheckSegmentFailureThreshold(result SegmentBatchResult) error {
 	if len(result.Failed) > 0 && len(result.Failed)*5 > result.Total {
 		return fmt.Errorf("too many segments failed: %d/%d", len(result.Failed), result.Total)

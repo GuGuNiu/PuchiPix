@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -39,10 +40,52 @@ import (
 	"backend/internal/sites/universal"
 	"backend/internal/sites/xsnvshen"
 	"backend/internal/sites/xvideos"
+	"backend/internal/stealth"
 	"backend/internal/taskprogress"
+	"backend/internal/taskstate"
 	"backend/internal/titleparser"
 	"backend/resources"
 )
+
+func configInt(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int8:
+		return int(v)
+	case int16:
+		return int(v)
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case uint:
+		return int(v)
+	case uint8:
+		return int(v)
+	case uint16:
+		return int(v)
+	case uint32:
+		return int(v)
+	case uint64:
+		return int(v)
+	case float32:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		n, err := v.Int64()
+		if err == nil {
+			return int(n)
+		}
+	case string:
+		n, err := strconv.Atoi(v)
+		if err == nil {
+			return n
+		}
+	}
+	return 0
+}
 
 func main() {
 	infra.InitGlobalConfig("INFO", true)
@@ -69,11 +112,11 @@ func main() {
 		"dataDir", cfg.DataDir,
 		"databasePath", cfg.DatabasePath)
 
-	// Pre-open visibility check: surface WHICH database file we are about
-	// to open and whether it already exists. The 260821 incident had air
-	// hot-reload silently resolve to an empty backend/data database — every
-	// API then 404'd while the server looked healthy. An about-to-be-created
-	// file is often legitimate (first run), but it deserves a loud warning.
+	// Surface which database file is about to be opened and whether it
+	// already exists, because a hot reload that resolves a different path
+	// yields an empty database where every API 404s while the server still
+	// looks healthy. A file about to be created is often legitimate on a
+	// first run, but still warrants a warning.
 	if abs, err := filepath.Abs(cfg.DatabasePath); err == nil {
 		if info, statErr := os.Stat(abs); statErr == nil {
 			logger.Info("Database file found",
@@ -92,10 +135,9 @@ func main() {
 		logger.Warn("Database unavailable, starting in degraded mode",
 			"error", dbErr.Error())
 	} else {
-		// Post-open schema sanity check: a healthy database must contain the
-		// core entity tables. An empty schema here means we just created a
-		// fresh DB (first run) or opened the WRONG file — failing fast beats
-		// serving 404s from a silently-empty database.
+		// A healthy database must contain the core entity tables. An empty
+		// schema means a freshly created DB or the wrong file was opened, and
+		// failing fast beats serving 404s from an empty database.
 		validateDatabaseSchema(logger, database)
 	}
 
@@ -105,8 +147,12 @@ func main() {
 	var progressEngine *taskprogress.Engine
 	var videoTracker *taskprogress.VideoProgressTracker
 	var dm *video.DownloadManager
+	var blocklistSvc *sites.BlocklistService
 	var flowCtrl *governor.FlowController
 	var flowCtrlStarted bool
+	var backpressureLayers *governor.BackpressureLayers
+	var backpressureStarted bool
+	var titleParser *titleparser.Parser
 
 	dlDefaults := &downloader.DownloadDefaults{
 		MultiThread:            cfg.DownloadMultiThread,
@@ -118,6 +164,7 @@ func main() {
 		TSegmentConcurrent:     cfg.TSegmentConcurrent,
 	}
 	downloader.SetGlobalDownloadConcurrent(cfg.GlobalDownloadConcurrent)
+	applyPersistedDownloadDefaults(dlDefaults, database, logger)
 
 	if database != nil {
 		logger.Info("Initializing DAG scheduler")
@@ -129,9 +176,35 @@ func main() {
 
 		progressEngine = taskprogress.NewEngine(logger)
 		progressEngine.SetDatabase(database)
+		// Push per-file gallery progress onto the SSE bus: the onProgress
+		// hook was never wired, so file-count progress was poll-only via
+		// /api/shelf/{id}/files/progress. Events are throttled per gallery;
+		// the payload shape matches the frontend GalleryProgressInfo fields
+		// (completed/total/failed + progress), and omitting status keeps the
+		// entity status owned by the DAG sync / executors.
+		var galleryProgressMu sync.Mutex
+		galleryProgressLast := make(map[int]time.Time)
+		progressEngine.SetOnProgress(func(galleryID int, summary taskprogress.GalleryProgressSummary) {
+			galleryProgressMu.Lock()
+			now := time.Now()
+			if last, ok := galleryProgressLast[galleryID]; ok && now.Sub(last) < 250*time.Millisecond {
+				galleryProgressMu.Unlock()
+				return
+			}
+			galleryProgressLast[galleryID] = now
+			galleryProgressMu.Unlock()
+			eventBus.Emit("task:progress", map[string]any{
+				"taskId":    galleryID,
+				"taskType":  "gallery",
+				"progress":  summary.Progress,
+				"completed": summary.CompletedFiles,
+				"total":     summary.TotalFiles,
+				"failed":    summary.FailedFiles,
+			})
+		})
 		videoTracker = taskprogress.NewVideoProgressTracker(taskprogress.DefaultVideoRetryStrategy())
 
-		titleParser := titleparser.New()
+		titleParser = titleparser.New()
 		if models, err := titleparser.LoadModelsFromJSON(resources.CoserJSON); err == nil {
 			titleParser.LoadModels(models)
 			logger.Info("Title parser loaded models", "count", len(models))
@@ -200,7 +273,13 @@ func main() {
 		})
 
 		healthCtx, healthCancel := context.WithCancel(context.Background())
-		go slotPool.StartHealthCheck(healthCtx, 5*time.Second, 10*time.Minute)
+		// The stale-slot timeout must exceed the largest node timeout
+		// (video download: 2h). executeNode settles every node at its
+		// context deadline, so a slot held longer than that bound belongs
+		// to a genuinely leaked goroutine. The old 10m value stripped
+		// slots from healthy long downloads and let the scheduler
+		// over-commit download concurrency.
+		go slotPool.StartHealthCheck(healthCtx, 5*time.Second, 2*time.Hour+10*time.Minute)
 		defer healthCancel()
 
 		dagOrch = dag.NewDagOrchestrator(eventStore, slotPool)
@@ -222,26 +301,20 @@ func main() {
 			}
 			switch {
 			case nodeDef.Config["galleryId"] != nil:
-				gid, _ := nodeDef.Config["galleryId"].(int)
+				gid := configInt(nodeDef.Config["galleryId"])
 				if gid > 0 {
 					_, err := database.Exec(ctx,
 						`UPDATE galleries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 						dbStatus, gid)
 					if err != nil {
 						logger.Warn("Node status sync failed (gallery)", "galleryId", gid, "error", err.Error())
+					} else {
+						eventBus.Emit("task:progress", map[string]any{
+							"taskId":   gid,
+							"taskType": "gallery",
+							"status":   dbStatus,
+						})
 					}
-					// Emit the synced status so SSE clients see the SAME
-					// value the DB now holds — the FSM→DB→SSE chain must be
-					// atomic from the frontend's perspective. Previously the
-					// API layer duplicated both the DB write and a hardcoded
-					// SSE status after resume/retry, which reintroduced the
-					// "fake scraping" divergence (260821/260822) whenever the
-					// hardcoded label disagreed with what statusSync wrote.
-					eventBus.Emit("task:progress", map[string]any{
-						"taskId":   gid,
-						"taskType": "gallery",
-						"status":   dbStatus,
-					})
 				}
 			case nodeDef.Config["taskSeq"] != nil:
 				seq, _ := nodeDef.Config["taskSeq"].(string)
@@ -251,8 +324,7 @@ func main() {
 						dbStatus, seq)
 					if err != nil {
 						logger.Warn("Node status sync failed (video)", "seq", seq, "error", err.Error())
-					}
-					if taskID, _ := nodeDef.Config["taskId"].(int); taskID > 0 {
+					} else if taskID := configInt(nodeDef.Config["taskId"]); taskID > 0 {
 						eventBus.Emit("task:progress", map[string]any{
 							"taskId":   taskID,
 							"taskType": "video",
@@ -273,24 +345,17 @@ func main() {
 			}
 		})
 
-		// DAG-level terminal guard rail (see DagOrchestrator.checkDagCompletion).
-		// Entity completion is normally written by executors together with
-		// richer data (sizes / file paths / partial classification). But two
-		// documented gaps left entities permanently stuck in an ACTIVE status
-		// after the whole DAG finished:
-		//
-		//   1. Post-download nodes (extract/verify) transition through
-		//      QUEUED/RUNNING, and statusSync maps PhaseFinalize back to
-		//      "downloading" — overwriting the executor's terminal write
-		//      ("100% + downloading forever", 260820/01).
-		//   2. An executor crash between node completion and its final
-		//      UPDATE leaves nothing to write the terminal status at all
-		//      (260817 ticket 06 crash-recovery blind spot).
+		// Entities can end a DAG in an active status for two reasons:
+		// post-download nodes (extract/verify) transition through
+		// QUEUED/RUNNING, and statusSync maps PhaseFinalize back to
+		// "downloading", overwriting the executor's terminal write; or an
+		// executor crashes between node completion and its final UPDATE, so
+		// no terminal write happens at all.
 		//
 		// This guard rail runs once at DAG terminal aggregate and performs a
-		// CONDITIONAL write: it only touches entities still holding an active
-		// status, and derives the gallery terminal label from content counts
-		// (mirroring the executor's completed/partial semantics) so a
+		// conditional write: it only touches entities still holding an
+		// active status, and derives the gallery terminal label from content
+		// counts (mirroring the executor's completed/partial semantics) so a
 		// partial download is never masked as completed. Executor-owned
 		// terminal statuses (completed/partial/failed/cancelled) are never
 		// clobbered because the WHERE clause excludes them.
@@ -300,7 +365,7 @@ func main() {
 			}
 			switch {
 			case def.TaskType == orchestrator.TaskTypeGallery:
-				gid, _ := def.Nodes[0].Config["galleryId"].(int)
+				gid := configInt(def.Nodes[0].Config["galleryId"])
 				if gid <= 0 {
 					return
 				}
@@ -308,13 +373,12 @@ func main() {
 					return
 				}
 				terminal := computeGalleryTerminalStatus(ctx, database, gid)
-				// The healable set includes 'failed': a verify needs_retry
-				// writes "failed", and if its auto-retry then succeeds, the
-				// finalize nodes no longer rewrite the entity (see
-				// StatusReporter) — only this guard rail can restore the
-				// content-derived terminal status. The computed terminal is
-				// derived from real content counts, so a genuine failure
-				// (nothing downloaded) still resolves to failed/partial.
+				// 'failed' is in the healable set because a verify
+				// needs_retry writes "failed"; when its auto-retry succeeds the
+				// finalize nodes no longer rewrite the entity, so only this
+				// guard rail can restore the content-derived terminal status.
+				// A genuine failure (nothing downloaded) still resolves to
+				// failed/partial.
 				res, err := database.Exec(ctx,
 					`UPDATE galleries SET status = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 					 WHERE id = ? AND status IN ('scraping', 'scraped', 'downloading', 'pending', 'paused', 'failed')`,
@@ -340,7 +404,7 @@ func main() {
 				}
 				res, err := database.Exec(ctx,
 					`UPDATE download_tasks SET status = 'completed', progress = 100, updated_at = CURRENT_TIMESTAMP
-					 WHERE seq = ? AND status IN ('scraping', 'downloading', 'merging', 'transcoding', 'pending', 'paused', 'failed')`, seq)
+					 WHERE seq = ? AND status IN ('scraping', 'downloading', 'merging', 'transcoding', 'probing', 'pending', 'paused', 'failed')`, seq)
 				if err == nil {
 					if n, _ := res.RowsAffected(); n > 0 {
 						logger.Warn("DAG terminal guard rail filled video task status (executor write was missed)",
@@ -358,16 +422,19 @@ func main() {
 		orchAdapter := &orchestratorAdapter{orch: dagOrch}
 		sched.SetDagOrchestrator(orchAdapter)
 
-		// Flow control: front-gate admission controller + adaptive
-		// governor. Limits task entry rate based on factory pressure
-		// (slot usage + queue depth). Prevents large batch imports
-		// from overwhelming the task factory. Enabled by default;
-		// the Governor adjusts admission rate automatically.
-		//
-		// Placed after sched+slotPool are wired so the PressureMonitor
-		// can read real-time queue depth via sched.QueueDepth().
+		// The flow control governor is wired after sched+slotPool so the
+		// PressureMonitor can read real-time queue depth via
+		// sched.QueueDepth().
 		flowCtrl = governor.NewFlowController(slotPool, sched, governor.DefaultFlowControllerConfig())
 		dagOrch.SetFlowController(flowCtrl)
+
+		// Per-domain admission: spreads admitted nodes across a site's
+		// mirror domains so a large batch does not concentrate on one
+		// origin, and so a domain that degrades mid-run stops receiving new
+		// work. Rejection keeps the node QUEUED, matching flow control.
+		domainAdmission := stealth.GetDomainAdmissionController()
+		applyPersistedDomainConfig(domainAdmission, database, logger)
+		dagOrch.SetDomainAdmission(domainAdmission)
 
 		sched.SetExecutorFunc(func(ctx context.Context, node orchsched.SchedulableNodeAdapter) (bool, error) {
 			exec := exeReg.Get(node.ExecutorKey)
@@ -390,11 +457,24 @@ func main() {
 			logger.Error("DAG orchestrator init failed", err)
 		}
 
-		// Start the flow control governor after the orchestrator is
-		// initialized. The governor's control loop samples pressure
-		// every tick interval and adjusts admission rate.
+		// Started after the orchestrator is initialized so the control loop
+		// has a real pressure source to sample.
 		flowCtrl.Start(ctx)
 		flowCtrlStarted = true
+
+		// Sample every backpressure layer, including the per-domain gate, so
+		// a stall can be attributed to a specific layer instead of inferred.
+		backpressureMonitor := governor.NewBackpressureMonitor(5 * time.Second)
+		backpressureLayers := governor.RegisterBackpressureLayers(
+			backpressureMonitor,
+			flowCtrl.AdmissionController(),
+			flowCtrl.PressureMonitor(),
+			slotPool,
+			sched,
+			domainAdmission,
+		)
+		backpressureMonitor.Start(backpressureLayers.Start())
+		backpressureStarted = true
 
 		{
 			recoveryCtx := context.Background()
@@ -423,12 +503,11 @@ func main() {
 					logger.Info("Crash recovery: resetting stale galleries",
 						"status", staleStatus, "count", len(orphans))
 					for _, o := range orphans {
-						// Align with the DAG restore semantics: snapshot.go
-						// defaultOnRestart / galleryOnRestart transition every
-						// non-terminal node to PAUSED after restart, so the DB
-						// must say "paused" (user decides when to resume) rather
-						// than "pending" — otherwise the frontend shows waiting
-						// while the DAG actually holds the node paused.
+						// DAG restore moves every non-terminal node to PAUSED
+						// after a restart, so the row must say "paused" and
+						// leave the resume decision to the user; "pending" would
+						// show a waiting task in the frontend while the DAG
+						// actually holds it paused.
 						_, _ = database.Exec(recoveryCtx,
 							`UPDATE galleries SET status = 'paused', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 							o.id)
@@ -439,9 +518,23 @@ func main() {
 			_, _ = database.Exec(recoveryCtx,
 				`UPDATE gallery_videos SET status = 'pending', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'failed')`)
 
-			_, _ = database.Exec(recoveryCtx,
-				`UPDATE download_tasks SET status = 'paused', error_msg = 'reset after server restart', updated_at = CURRENT_TIMESTAMP WHERE status IN ('downloading', 'scraping')`)
+			// Video tasks left mid-pipeline (downloading/scraping, and now
+			// also merging/transcoding/probing) go to paused so the user can
+			// resume them; previously a crash during merge/transcode left the
+			// row stuck forever with no retry action available.
+			recoveryStore := taskstate.NewStore(database, eventBus)
+			if n, err := recoveryStore.RecoverStale(recoveryCtx); err != nil {
+				logger.Warn("Crash recovery: video task reset failed", "error", err.Error())
+			} else if n > 0 {
+				logger.Info("Crash recovery: reset mid-pipeline video tasks to paused", "count", n)
+			}
 		}
+
+		// Heal entity rows whose DAG already reached a terminal state
+		// while the process was down: the completion-time guard rail only
+		// fires in-process, so without this those rows keep an active
+		// label until the next DAG event touches them.
+		dagOrch.ReconcileEntityStatuses(context.Background())
 
 		sched.SyncQueueCapacityFromSlotPool()
 		applyPersistedSchedulerConfig(sched, database, logger)
@@ -470,16 +563,23 @@ func main() {
 		dagOrch.StartAutoReactivation(reactivationCtx, 5*time.Second)
 		defer reactivationCancel()
 
+		// The zombie sweep re-drives nodes whose executor vanished while
+		// their FSM stayed ALLOCATED/RUNNING — the wedge where slots sit
+		// free, the queue is empty, and frozen in-progress rows pile up.
+		zombieCtx, zombieCancel := context.WithCancel(context.Background())
+		dagOrch.StartZombieSweep(zombieCtx, 30*time.Second)
+		defer zombieCancel()
+
 		logger.Info("DAG scheduler initialized")
 
-		// Do NOT call eventStore.Flush() here: dagOrch.Shutdown already
-		// invokes it. A duplicate call obscures the persistence ownership.
-		// dagOrch.Shutdown() and sched.Stop() are called inline in the
-		// graceful shutdown section below, BEFORE database.Close() — the
+		// Do not call eventStore.Flush() here: dagOrch.Shutdown owns that
+		// call, and invoking it twice obscures which layer is responsible
+		// for persistence. dagOrch.Shutdown() and sched.Stop() run in the
+		// shutdown sequence below, before database.Close(), because the
 		// final snapshot needs DB access.
 
 		dataStore := sites.GetSiteDataStore()
-		blocklistSvc := sites.NewBlocklistService(database)
+		blocklistSvc = sites.NewBlocklistService(database)
 		accountMgr := sites.NewSiteAccountManager(database)
 
 		siteReg.Register(aimeizizi.NewProvider(dataStore, blocklistSvc))
@@ -496,6 +596,10 @@ func main() {
 	}
 
 	h := api.New(database, eventBus)
+	h.WithDataDir(cfg.DataDir)
+	if blocklistSvc != nil {
+		h.WithBlocklist(blocklistSvc)
+	}
 
 	if database != nil {
 		siteReg := sites.GetSiteRegistry()
@@ -503,28 +607,29 @@ func main() {
 		dmCfg := video.DefaultManagerConfig()
 		dmCfg.DownloadPath = filepath.Join(cfg.DataDir, "videos")
 		dmCfg.SegmentsPath = filepath.Join(cfg.DataDir, "segments")
+		dmCfg.MaxConcurrent = cfg.TSegmentConcurrent
 		dm = video.NewDownloadManager(database, eventBus, dmCfg)
+		applyPersistedTSConcurrency(dm, database, logger)
 
 		// Auto-enable GPU transcoding on discrete GPUs and disable it on
 		// integrated/unknown GPUs (the user can override from the config
 		// page). Runs once when no persisted choice exists.
 		dm.AutoConfigureGPU()
-		// Mirror the GPU decision to the gallery pipeline so gallery video
-		// merge honors the same gpu_transcode setting as the independent
-		// video pipeline.
+		// The gallery pipeline honors the same gpu_transcode setting for its
+		// embedded video merge.
 		gpuEnabled, gpuForce, _ := dm.GetGPUTranscodeStatus()
 		dlDefaults.GPUTranscode = gpuEnabled
 		dlDefaults.ForceGPUType = gpuForce
 
-		// Inject the video segment tracker into the download manager so
-		// that RegisterSegments and UpdateSegment are called from the
-		// download pipeline. This bridges the gap where the tracker was
-		// initialized but never connected to the segment queue.
+		// The tracker is created before the manager, so it must be injected
+		// here for RegisterSegments and UpdateSegment to be called from the
+		// download pipeline.
 		dm.SetTracker(videoTracker)
 
-		// WireExecutors (called during DAG init above) only registers gallery
-		// executors; DownloadManager is created later. Video DAGs would fail
-		// with "no executor registered for key: video:download" without this.
+		// WireExecutors runs during DAG init above, before the
+		// DownloadManager exists, so the video executors are registered
+		// here; otherwise video DAGs fail with "no executor registered for
+		// key: video:download".
 		if exeReg != nil {
 			statusFn := func(ctx context.Context, taskID int) (string, string, bool) {
 				var status, errMsg string
@@ -537,25 +642,21 @@ func main() {
 				return status, errMsg, true
 			}
 
-			// taskLoaderFn loads the full DownloadTaskInput from the
-			// database. If m3u8_url is empty, it scrapes the page URL
-			// via the universal scraper to discover the M3U8 stream URL.
-			// Uses StrategySelector to choose HTTP-first vs chromedp based
-			// on site configuration and runtime conditions, with automatic
+			// The scrape executor can discover the M3U8 stream when m3u8_url
+			// is still empty, and the strategy selector picks HTTP-first or
+			// chromedp from site configuration and runtime conditions with
 			// domain failover through DomainHealthTracker.
 			strategySelector := orchestrator.NewStrategySelector()
-			// Remove hardcoded "universal" from JSSites so it participates
-			// in the auto-selection path instead of being forced chromedp.
+			// "universal" is removed so it participates in auto-selection
+			// instead of being pinned to chromedp.
 			delete(strategySelector.JSSites, "universal")
 
 			taskLoaderFn := func(ctx context.Context, taskID int) (video.DownloadTaskInput, error) {
-				// Delegate to the shared video preparation helper: ensures the
-				// M3U8 URL is identified (idempotent; a legacy single-node DAG may
-				// reach the download node without a preceding video:scrape node)
-				// and assembles the full DownloadTaskInput (referer domains, metadata).
-				//
-				// The helper now uses canonical seq IDs, so we look up the seq
-				// from the numeric taskID first.
+				// The shared helper ensures the M3U8 URL is identified
+				// (idempotent, since a single-node DAG can reach the download
+				// node with no preceding video:scrape node) and assembles the
+				// full input including referer domains and metadata. The
+				// helper keys on seq, so it is resolved from taskID first.
 				var seq string
 				if err := database.QueryRow(ctx, "SELECT seq FROM download_tasks WHERE id = ?", taskID).Scan(&seq); err != nil {
 					return video.DownloadTaskInput{}, fmt.Errorf("resolve seq for task %d: %w", taskID, err)
@@ -564,24 +665,21 @@ func main() {
 					seq = idgen.GenerateID()
 					database.Exec(ctx, "UPDATE download_tasks SET seq = ? WHERE id = ?", seq, taskID)
 				}
-				return loadVideoTaskInput(ctx, database, h.SiteReg, strategySelector, eventBus, logger, seq)
+				return loadVideoTaskInput(ctx, database, h.SiteReg, strategySelector, eventBus, logger, titleParser, seq)
 			}
 
-			// Register the video identification executor (video:scrape). The
-			// identification runs in a dedicated DAG node that acquires the
-			// *scraping* slot, so video identification concurrency is bounded
-			// by maxScrapingTasks — the fix for "all tasks started identifying / full".
-			//
-			// The scrapeFn receives the canonical taskSeq (uppercase-alphanumeric)
-			// and looks up the task by seq, unifying ID format across the site.
+			// Video identification runs in a dedicated DAG node holding the
+			// *scraping* slot, so its concurrency is bounded by
+			// maxScrapingTasks. The callback receives the canonical
+			// uppercase-alphanumeric taskSeq, so lookups are uniform.
 			exeReg.Register(executors.NewVideoScrapeExecutor(func(ctx context.Context, taskSeq string) error {
-				_, _, _, err := sniffVideoM3U8(ctx, database, h.SiteReg, strategySelector, eventBus, logger, taskSeq)
+				_, _, _, err := sniffVideoM3U8(ctx, database, h.SiteReg, strategySelector, eventBus, logger, titleParser, taskSeq)
 				return err
 			}))
-			exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker))
+			exeReg.Register(executors.NewVideoDownloadExecutor(dm, statusFn, taskLoaderFn, videoTracker, eventBus))
 
-			// No DAG recovery here: unfinished tasks stay 'pending' after restart.
-			// The user's "start" action creates a fresh DAG when ready.
+			// Unfinished tasks stay 'pending' after restart; the user's
+			// "start" action creates a fresh DAG.
 		}
 
 		h.WithDag(dagOrch, sched, exeReg)
@@ -637,33 +735,33 @@ func main() {
 	<-quit
 	logger.Info("Shutting down server")
 
-	// ── Graceful shutdown sequence ──
-	// Order matters: each step depends on the ones before it still being
-	// alive. The database must be the LAST resource closed because
-	// dagOrch.Shutdown() writes a final snapshot to it.
-	//
-	// 1. Stop HTTP server (no new requests)
+	// Shutdown order matters: each step depends on the ones before it still
+	// being alive. The database is closed last because dagOrch.Shutdown()
+	// writes a final snapshot to it.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("Server forced to shutdown", err)
 	}
 
-	// 2. Stop DownloadManager (cancel active downloads, write cancelled
-	// status to DB — needs DB still open)
+	// Cancelling downloads writes "cancelled" rows, so the DB must still be open.
 	if dm != nil {
 		dm.Stop()
 		logger.Info("Download manager stopped")
 	}
 
-	// 3. Stop FlowController governor loop (stop admission rate adjustments)
 	if flowCtrlStarted {
 		flowCtrl.Stop()
 		logger.Info("Flow controller stopped")
 	}
 
-	// 4. DAG orchestrator shutdown: drain scheduler, flush event store,
-	// write final snapshot — all need DB access.
+	if backpressureStarted && backpressureLayers != nil {
+		backpressureLayers.Stop()
+		logger.Info("Backpressure monitor stopped")
+	}
+
+	// Draining the scheduler, flushing the event store, and writing the final
+	// snapshot all need DB access.
 	if dagOrch != nil {
 		dagShutdownCtx, dagShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := dagOrch.Shutdown(dagShutdownCtx); err != nil {
@@ -672,13 +770,13 @@ func main() {
 		dagShutdownCancel()
 	}
 
-	// 5. Stop scheduler (after DAG drain is complete)
+	// Stopped after the DAG drain is complete.
 	if sched != nil {
 		sched.Stop()
 		logger.Info("Scheduler stopped")
 	}
 
-	// 6. Close database (LAST — after all DB writers have stopped)
+	// Last: every DB writer has stopped by now.
 	if database != nil {
 		database.Close()
 	}
@@ -744,6 +842,10 @@ func (a *schedulerAdapter) CancelRunningNode(dagID, nodeID string) {
 	a.sched.CancelRunningNode(dagID, nodeID)
 }
 
+func (a *schedulerAdapter) WaitForDag(ctx context.Context, dagID string) error {
+	return a.sched.WaitForDag(ctx, dagID)
+}
+
 func (a *schedulerAdapter) OnSlotFreed(slotType string) {
 	a.sched.OnSlotFreed(slotType)
 }
@@ -796,13 +898,63 @@ func (a *orchestratorAdapter) ReactivateReadyNodes() {
 }
 
 func (a *orchestratorAdapter) GetNodeForVerification(dagID, nodeID string) interface{} {
-	// Delegate to the orchestrator's production implementation, which
-	// returns a *orchestrator.DagNodeForVerification (or nil if the
-	// DAG/node does not exist). Previously this returned nil unconditionally,
-	// breaking the entire verification chain (StateReconciler could never
-	// be invoked). The scheduler calls this during the VERIFYING phase to
-	// drive side-effect checks and needs_retry auto-retry.
+	// Returning the real node matters: the scheduler calls this during the
+	// VERIFYING phase to drive side-effect checks and needs_retry
+	// auto-retry, so a nil here disables the whole verification chain.
 	return a.orch.GetNodeForVerification(dagID, nodeID)
+}
+
+func (a *schedulerAdapter) IsExecuting(dagID, nodeID string) bool {
+	return a.sched.IsExecuting(dagID, nodeID)
+}
+
+func applyPersistedDownloadDefaults(defaults *downloader.DownloadDefaults, database *db.Database, logger *infra.Logger) {
+	if defaults == nil || database == nil {
+		return
+	}
+	read := func(key string) int {
+		var value string
+		if err := database.QueryRow(context.Background(), "SELECT value FROM app_configs WHERE key = ?", key).Scan(&value); err != nil {
+			return 0
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			return 0
+		}
+		return n
+	}
+	if n := read("ts_segment_concurrent"); n > 0 {
+		if n > 200 {
+			n = 200
+		}
+		defaults.TSegmentConcurrent = n
+		logger.Info("Applied persisted TS segment concurrency to gallery defaults", "max", n)
+	}
+	if n := read("gallery_image_concurrent"); n > 0 {
+		if n > 50 {
+			n = 50
+		}
+		defaults.GalleryImageConcurrent = n
+		logger.Info("Applied persisted gallery image concurrency", "max", n)
+	}
+}
+
+func applyPersistedTSConcurrency(dm *video.DownloadManager, database *db.Database, logger *infra.Logger) {
+	if dm == nil || database == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var value string
+	if err := database.QueryRow(ctx, "SELECT value FROM app_configs WHERE key = 'ts_segment_concurrent'").Scan(&value); err != nil {
+		return
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return
+	}
+	dm.SetMaxConcurrent(n)
+	logger.Info("Applied persisted TS segment concurrency", "max", n)
 }
 
 // applyPersistedSlotMax reads a persisted concurrency setting from
@@ -829,10 +981,9 @@ func applyPersistedSlotMax(sp *slot.SlotPool, database *db.Database, logger *inf
 }
 
 // applyPersistedSchedulerConfig loads the scheduler tuning keys from
-// app_configs and applies them to the engine at startup (260817 ticket 11),
-// mirroring applyPersistedSlotMax: user-saved starvation threshold /
-// lottery rate / max schedule iterations survive restarts. The engine's
-// setters validate ranges; invalid or absent keys keep defaults.
+// app_configs so user-saved starvation threshold, lottery rate, and max
+// schedule iterations survive restarts. The engine setters validate ranges,
+// so an invalid or absent key keeps the default.
 func applyPersistedSchedulerConfig(se *orchsched.SchedulerEngine, database *db.Database, logger *infra.Logger) {
 	if se == nil || database == nil {
 		return
@@ -872,6 +1023,70 @@ func applyPersistedSchedulerConfig(se *orchsched.SchedulerEngine, database *db.D
 	}
 }
 
+// applyPersistedDomainConfig loads the per-domain admission tuning keys from
+// app_configs so user-saved values survive restarts. Out-of-range values are
+// clamped rather than rejected, so a bad manual edit degrades to a usable
+// setting instead of disabling the gate.
+func applyPersistedDomainConfig(ctrl *stealth.DomainAdmissionController, database *db.Database, logger *infra.Logger) {
+	if ctrl == nil {
+		return
+	}
+	cfg := stealth.DefaultDomainAdmissionConfig()
+
+	read := func(key string) string {
+		var val string
+		if err := database.QueryRow(context.Background(),
+			`SELECT value FROM app_configs WHERE key = ?`, key).Scan(&val); err != nil {
+			return ""
+		}
+		return val
+	}
+
+	if val := read("domain_max_concurrent"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			cfg.MaxPerDomain = clampInt(n, 1, 20)
+		}
+	}
+	if val := read("domain_probe_threshold"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			cfg.ProbeThreshold = clampInt(n, 1, 500)
+		}
+	}
+	if val := read("domain_probe_concurrency"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			cfg.ProbeConcurrency = clampInt(n, 1, 16)
+		}
+	}
+	if val := read("domain_cooldown_base_ms"); val != "" {
+		if ms, err := strconv.Atoi(val); err == nil && ms > 0 {
+			base := time.Duration(ms) * time.Millisecond
+			if base < 5*time.Second {
+				base = 5 * time.Second
+			}
+			if base > 10*time.Minute {
+				base = 10 * time.Minute
+			}
+			stealth.GetDomainHealthTracker().SetCooldown(base)
+		}
+	}
+
+	ctrl.Configure(cfg)
+	logger.Info("Per-domain admission configured",
+		"maxPerDomain", cfg.MaxPerDomain,
+		"probeThreshold", cfg.ProbeThreshold,
+		"probeConcurrency", cfg.ProbeConcurrency)
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
 // isLikelyAntiBot checks whether a scrape error pattern suggests the
 // page is protected by a CloudFlare/WAF challenge that blocks headless
 // Chrome. When true, the caller should escalate to a headful (visible)
@@ -897,10 +1112,9 @@ func isLikelyAntiBot(err error) bool {
 }
 
 // validateDatabaseSchema verifies the core entity tables exist right after
-// the database opens. NewDatabase applies embedded migrations, so a healthy
-// path always has them; a missing table means the file is not a PuchiPix
-// database (wrong path resolved — e.g. air hot-reload cwd drift, 260821) or
-// the migration failed. Either way the operator must know immediately.
+// the database opens. NewDatabase applies embedded migrations, so a missing
+// table means the resolved path points at a different file or a migration
+// failed, and the operator needs to know immediately.
 func validateDatabaseSchema(logger *infra.Logger, database *db.Database) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -932,12 +1146,12 @@ func validateDatabaseSchema(logger *infra.Logger, database *db.Database) {
 }
 
 // computeGalleryTerminalStatus derives a gallery's terminal status label
-// from its persisted content counts, mirroring the download executor's
-// own semantics ("completed" only when every expected file was downloaded,
-// "partial" when some succeeded, "failed" when nothing did). It is used by
-// the DAG-level terminal guard rail so a crashed or overwritten executor
-// write cannot leave the entity stuck at "downloading" — and so a partial
-// download is never masked as completed by the guard rail itself.
+// from its persisted content counts, matching the download executor's own
+// semantics: "completed" only when every expected file was downloaded,
+// "partial" when some succeeded, "failed" when nothing did. The DAG-level
+// terminal guard rail uses it so a crashed or overwritten executor write
+// cannot leave the entity stuck at "downloading", and so a partial download
+// is never masked as completed.
 //
 // ZIP-downloaded galleries have no per-file gallery_images/videos records;
 // a gallery_download_infos row with a non-zero actual_size marks that the
@@ -956,8 +1170,8 @@ func computeGalleryTerminalStatus(ctx context.Context, database *db.Database, ga
 			(SELECT COUNT(*) FROM gallery_download_infos WHERE gallery_id = ?1 AND COALESCE(actual_size, 0) > 0) AS zip_count`,
 		galleryID).Scan(&expectedImgs, &downloadedImgs, &expectedVids, &downloadedVids, &zipCount)
 	if err != nil {
-		// Cannot inspect content: fall back to "completed" — the DAG
-		// aggregate already said the pipeline finished successfully.
+		// The DAG aggregate already reported success, so fall back to
+		// "completed" when the content counts cannot be read.
 		return "completed"
 	}
 
@@ -977,12 +1191,6 @@ func computeGalleryTerminalStatus(ctx context.Context, database *db.Database, ga
 	}
 }
 
-// preWriteVideoInfo writes scraped metadata (title, tags, actors,
-// categories, director) to the video_infos table immediately after
-// scraping completes and before the download starts. This mirrors the
-// original TS scrapeVideoAsync behavior where downloadTask.update with
-// videoInfo was called right after scraping, so users can see metadata
-// during the potentially long download phase.
 // marshalStrSlice serializes a string slice to JSON, returning "[]" for
 // nil slices instead of "null" (json.Marshal(nil) produces "null").
 func marshalStrSlice(s []string) []byte {
@@ -993,6 +1201,9 @@ func marshalStrSlice(s []string) []byte {
 	return b
 }
 
+// preWriteVideoInfo writes scraped metadata (title, tags, actors,
+// categories, director) to video_infos right after scraping and before the
+// download starts, so metadata is visible during the download phase.
 func preWriteVideoInfo(ctx context.Context, database *db.Database, taskID int, result *sites.ScrapeResult) {
 	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1001,18 +1212,15 @@ func preWriteVideoInfo(ctx context.Context, database *db.Database, taskID int, r
 	actorsJSON := marshalStrSlice(result.Actors)
 	categoriesJSON := marshalStrSlice(result.Categories)
 
-	// Non-empty guard on every metadata column: a later scrape attempt
-	// (e.g. retry) that returns no tags/actors must NOT wipe metadata
-	// already persisted by a previous successful scrape. This mirrors
-	// the CASE-guarded upsert in DownloadManager.upsertVideoInfo —
-	// without it an empty retry erased good tags/actors (2026-09-05
-	// defect: "empty result upserted over good metadata").
+	// Every metadata column is guarded against a non-empty overwrite: a later
+	// scrape attempt that returns no tags or actors must not wipe what an
+	// earlier successful scrape persisted.
 	_, err := database.Exec(writeCtx, `
 		INSERT INTO video_infos (task_id, title, source_url, tags, actors, categories, director)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET
 			title = CASE WHEN COALESCE(EXCLUDED.title, '') != '' THEN EXCLUDED.title ELSE video_infos.title END,
-			source_url = EXCLUDED.source_url,
+			source_url = CASE WHEN COALESCE(EXCLUDED.source_url, '') != '' THEN EXCLUDED.source_url ELSE video_infos.source_url END,
 			tags = CASE WHEN EXCLUDED.tags != '[]' AND EXCLUDED.tags != '' THEN EXCLUDED.tags ELSE video_infos.tags END,
 			actors = CASE WHEN EXCLUDED.actors != '[]' AND EXCLUDED.actors != '' THEN EXCLUDED.actors ELSE video_infos.actors END,
 			categories = CASE WHEN EXCLUDED.categories != '[]' AND EXCLUDED.categories != '' THEN EXCLUDED.categories ELSE video_infos.categories END,

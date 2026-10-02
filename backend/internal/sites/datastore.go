@@ -18,8 +18,6 @@ type AgeVerifyConfig struct {
 	Cookie string `json:"cookie"`
 }
 
-// ProviderData holds all site-specific provider configuration loaded
-// from the unified JSON data source, eliminating hardcoded constants.
 type ProviderData struct {
 	PlaceholderFragment        string            `json:"placeholderFragment"`
 	PublisherURL               string            `json:"publisherUrl"`
@@ -48,21 +46,17 @@ type ProviderData struct {
 	AgeVerifyCookie            string            `json:"ageVerifyCookie"`
 }
 
-// siteEntry is the JSON-deserialized shape for each site in the
-// unified configuration file, combining module and provider data.
 type siteEntry struct {
 	Module   SiteModuleConfig `json:"module"`
 	Provider ProviderData     `json:"provider"`
 }
 
-// siteConfigFile is the top-level JSON structure of site-configs.json.
 type siteConfigFile struct {
 	Version string               `json:"version"`
 	Sites   map[string]siteEntry `json:"sites"`
 }
 
-// SiteDataStore provides unified access to all site-specific data,
-// eliminating hardcoded constants in individual provider files.
+// SiteDataStore provides unified access to all site-specific data.
 // Static configuration is loaded from an embedded JSON file at init
 // time; variable data (blocked keywords) can optionally be overridden
 // via a DB-backed cache.
@@ -90,16 +84,13 @@ type SiteDataStore interface {
 	CanHandle(siteID string, rawURL string) bool
 }
 
-// siteDataStoreImpl loads site configuration from the embedded JSON
-// at construction time and serves all lookups from memory.
 type siteDataStoreImpl struct {
 	mu    sync.RWMutex
 	sites map[string]siteEntry
 }
 
-// NewSiteDataStore parses the embedded JSON and returns a ready
-// SiteDataStore. It panics on malformed JSON because the configuration
-// is compiled into the binary and must be correct at build time.
+// NewSiteDataStore panics on malformed JSON because the configuration is
+// embedded in the binary and must be valid at build time.
 func NewSiteDataStore() SiteDataStore {
 	return newSiteDataStoreFromJSON(data.SiteConfigsJSON)
 }
@@ -283,8 +274,7 @@ func (s *siteDataStoreImpl) IsBlockedProtagonistsEnabled(siteID string) bool {
 	return entry.Provider.BlockedProtagonistsEnabled
 }
 
-// GetPublisherURL returns the publisher URL for a site, used for
-// fetching the latest available domain list.
+// GetPublisherURL returns the site page that lists its current domains.
 func (s *siteDataStoreImpl) GetPublisherURL(siteID string) string {
 	entry, ok := s.getEntry(siteID)
 	if !ok {

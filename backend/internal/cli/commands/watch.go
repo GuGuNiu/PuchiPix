@@ -16,7 +16,7 @@ type watchCommand struct{}
 
 func (watchCommand) Name() string        { return "watch" }
 func (watchCommand) Description() string { return "Real-time DAG event stream monitoring (SSE)" }
-func (watchCommand) Usage() string        { return "puchipix-cli watch [--with-logs] [--dag=<dagId>]" }
+func (watchCommand) Usage() string       { return "puchipix-cli watch [--with-logs] [--dag=<dagId>]" }
 func (watchCommand) Aliases() []string   { return nil }
 
 func (watchCommand) Execute(ctx CommandContext) error {

@@ -31,9 +31,8 @@ type Provider struct {
 	domainPool        *stealth.DomainPool
 }
 
-// NewProvider creates a 4KHD provider with the given data store
-// and blocklist checker, pre-loading all site data from the unified
-// configuration to eliminate runtime lookups in hot paths.
+// NewProvider pre-loads all site data from the unified configuration so
+// scraping hot paths avoid per-call data store lookups.
 func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker) *Provider {
 	p := &Provider{
 		dataStore: dataStore,
@@ -55,7 +54,6 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 		}
 	}
 
-	// Initialize shared domain pool for Automatic load-balanced domain discovery
 	publisherURL := dataStore.GetPublisherURL("fourkhd")
 	p.domainPool = stealth.NewDomainPool("fourkhd", p.domains, publisherURL)
 	stealth.RegisterDomainPool("fourkhd", p.domainPool)
@@ -69,7 +67,7 @@ func (p *Provider) CanHandle(rawURL string) bool {
 	if p.dataStore.CanHandle("fourkhd", rawURL) {
 		return true
 	}
-	// Also check dynamically discovered domains
+	// Dynamically discovered mirrors are not in the static config.
 	allDomains := p.GetDomains()
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -90,10 +88,9 @@ func (p *Provider) CanHandle(rawURL string) bool {
 }
 
 func (p *Provider) ScrapeGallery(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
-	// 4KHD uses Cloudflare cache HIT, so HTTP scraping is the primary path.
-	// Browser fallback is not needed because:
-	// 1. The Service Worker (scss.js) detects headless browsers and redirects to about:blank
-	// 2. HTTP requests with proper headers always get full HTML from Cloudflare cache
+	// The scss.js service worker detects headless fingerprints and redirects
+	// the browser to about:blank, so a browser fallback cannot serve this site
+	// even though every page is served from the Cloudflare cache.
 	return ScrapeGalleryHTTP(ctx, pageURL, p)
 }
 
@@ -116,7 +113,6 @@ func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*site
 		return nil, err
 	}
 
-	// Content quality check
 	shouldFallback, reason := stealth.ShouldFallbackToBrowser(
 		result.Title, result.ImageCount, result.VideoCount, result.PageCount)
 	if shouldFallback {
@@ -125,8 +121,6 @@ func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*site
 				"url":    pageURL,
 				"reason": reason,
 			}})
-		// For 4KHD, we don't fall back to browser because the Service Worker
-		// will redirect headless browsers to about:blank.
 	}
 
 	return result, nil
@@ -142,7 +136,9 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 	domain := stealth.GetDomainHealthTracker().GetBestDomain(allDomains)
 	tryURL := strings.Replace(searchURL, p.baseURL, domain, 1)
 
+	started := time.Now()
 	result, err := fetchAndParseSearch(ctx, tryURL, domain)
+	stealth.GetDomainHealthTracker().ReportOutcome(domain, time.Since(started), err)
 	if err != nil || result.doc == nil {
 		return nil, err
 	}
@@ -196,8 +192,6 @@ func (p *Provider) GetDomainCacheInfo() (domainCount int, lastFetch time.Time, i
 }
 
 func (p *Provider) GetPlaceholder() string { return p.placeholder }
-
-// ScrapeDeps implementation
 
 func (p *Provider) ResolveURL(rawURL, domain string) string {
 	if rawURL == "" {
@@ -254,32 +248,27 @@ func (p *Provider) checkBlocked(title, category, protagonist string) sites.Block
 	)
 }
 
-// cleanTitleImpl removes publisher prefixes and site suffix patterns.
+// cleanTitleImpl strips the size, photo-count, site suffix, and publisher
+// prefix artifacts from a raw gallery title.
 func cleanTitleImpl(rawTitle string, suffixPatterns []*regexp.Regexp, prefixes []string) string {
 	if rawTitle == "" {
 		return ""
 	}
 	title := strings.TrimSpace(rawTitle)
-	// Remove [size-count] suffix
 	title = titleSizePattern.ReplaceAllString(title, "")
-	// Remove (size)(count) suffix
 	title = regexp.MustCompile(`\(\d+(?:\.\d+)?(?:MB|GB)\)\(\d+photos\)$`).ReplaceAllString(title, "")
-	// Remove site suffix
 	title = regexp.MustCompile(`\s*[-–—]\s*4KHD\s*$`).ReplaceAllString(title, "")
-	// Remove publisher prefixes
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(title, prefix) {
 			title = strings.TrimSpace(title[len(prefix):])
 		}
 	}
-	// Remove configured suffix patterns
 	for _, pattern := range suffixPatterns {
 		title = pattern.ReplaceAllString(title, "")
 	}
 	return strings.TrimSpace(title)
 }
 
-// fetchAndParseSearch is a helper for search page fetching.
 func fetchAndParseSearch(ctx context.Context, searchURL, domain string) (*fetchResult, error) {
 	return fetchAndParse(ctx, searchURL, domain)
 }

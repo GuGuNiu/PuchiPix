@@ -19,9 +19,6 @@ import (
 
 var scraperLogger = infra.NewLogger("SjsProvider")
 
-// ScrapeGalleryHTTP performs HTTP-only thread scraping with cookie
-// authentication, iterating through all thread pages to collect images
-// and videos from post content.
 func ScrapeGalleryHTTP(ctx context.Context, pageURL string, am *sites.SiteAccountManager) (*sites.GalleryScrapeResult, error) {
 	cookieStr, accountID := GetAuthCookieString(ctx, am)
 	tracker := stealth.GetDomainHealthTracker()
@@ -77,8 +74,8 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, am *sites.SiteAccoun
 	return result, nil
 }
 
-// ScrapeGalleryBrowser performs chromedp-based thread scraping with
-// cookie injection, used as a fallback when HTTP mode is blocked.
+// ScrapeGalleryBrowser scrapes a thread with cookie injection over chromedp
+// and is used as a fallback when HTTP requests are blocked.
 func ScrapeGalleryBrowser(ctx context.Context, pageURL string, am *sites.SiteAccountManager) (*sites.GalleryScrapeResult, error) {
 	cookieStr, accountID := GetAuthCookieString(ctx, am)
 	tracker := stealth.GetDomainHealthTracker()
@@ -97,8 +94,11 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, am *sites.SiteAcc
 	for _, domain := range orderedDomains {
 		tryURL := urlutil.ReplaceDomain(pageURL, domain, currentDomains)
 
+		started := time.Now()
 		html, err := navigateWithSjsCookies(ctx, tryURL, domain, cookieData)
+		rtt := time.Since(started)
 		if err != nil {
+			tracker.ReportOutcome(domain, rtt, err)
 			scraperLogger.Debug("Browser navigation failed",
 				infra.LogContext{Extra: map[string]any{
 					"domain": domain,
@@ -254,32 +254,32 @@ func buildScrapeResult(ctx context.Context, doc *goquery.Document, pageHTML, pag
 	}
 
 	result := &sites.GalleryScrapeResult{
-		SourceURL:      pageURL,
-		Title:          metadata.Title,
-		Protagonist:    firstOrEmpty(metadata.Actors),
-		Description:    metadata.Title,
-		Category:       firstOrEmpty(metadata.Categories),
-		Tags:           metadata.Tags,
-		CoverURL:       ResolveURL(firstPageData.CoverURL),
-		PublishTime:    firstPageData.PublishTime,
-		Images:         allImages,
-		Videos:         allVideos,
-		PageCount:      maxPages,
-		ImageCount:     len(allImages),
-		VideoCount:     len(allVideos),
-		ScrapedDomain:  scrapedDomain,
-		NeedsPurchase:  needsPurchase,
-		DownloadLinks:  downloadLinks,
+		SourceURL:     pageURL,
+		Title:         metadata.Title,
+		Protagonist:   firstOrEmpty(metadata.Actors),
+		Description:   metadata.Title,
+		Category:      firstOrEmpty(metadata.Categories),
+		Tags:          metadata.Tags,
+		CoverURL:      ResolveURL(firstPageData.CoverURL),
+		PublishTime:   firstPageData.PublishTime,
+		Images:        allImages,
+		Videos:        allVideos,
+		PageCount:     maxPages,
+		ImageCount:    len(allImages),
+		VideoCount:    len(allVideos),
+		ScrapedDomain: scrapedDomain,
+		NeedsPurchase: needsPurchase,
+		DownloadLinks: downloadLinks,
 	}
 
 	scraperLogger.Info("Gallery scrape completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":     pageURL,
-			"images":  len(allImages),
-			"videos":  len(allVideos),
-			"pages":   maxPages,
-			"domain":  scrapedDomain,
-			"paid":    needsPurchase,
+			"url":    pageURL,
+			"images": len(allImages),
+			"videos": len(allVideos),
+			"pages":  maxPages,
+			"domain": scrapedDomain,
+			"paid":   needsPurchase,
 		}})
 
 	return result, nil

@@ -3,10 +3,9 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 
 /*
- * Global style imports — modular SCSS architecture.
- * globals.css contains the Tailwind import and @theme inline, processed
- * by PostCSS. main.scss is the SCSS entry that @use-loads all style
- * modules in order.
+ * The globals.css import must precede main.scss: globals.css carries the Tailwind
+ * import and @theme inline consumed by PostCSS, and main.scss @use-loads the
+ * style modules.
  */
 import "./styles/globals.css";
 import "./styles/main.scss";

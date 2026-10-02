@@ -14,20 +14,15 @@ import (
 
 var providerLogger = infra.NewLogger("XvideosProvider")
 
-// Provider implements the GallerySiteProvider and SiteProvider interfaces
-// for the XVIDEOS.COM video streaming site.
+// Provider implements the GallerySiteProvider and SiteProvider interfaces for
+// the XVIDEOS.COM video streaming site.
 //
-// XVIDEOS embeds the HLS M3U8 URL and MP4 direct link directly in inline
-// <script> tags via html5player API calls (setVideoHLS, setVideoUrlLow,
-// setVideoUrlHigh). The primary scraping strategy is HTTP-first: a simple
-// HTTP GET retrieves the page HTML, then regex patterns extract the video
-// source URLs and metadata. No JavaScript execution or browser is needed.
+// Video sources are server-rendered inside inline <script> html5player calls,
+// so pages are parsed over plain HTTP without JavaScript execution.
 //
-// Token mechanism: The M3U8 and MP4 URLs contain an encrypted token and
-// Unix timestamp that are server-generated on each page load. The token
-// is valid for approximately 1 hour. The CDN allows cross-origin access
-// (Access-Control-Allow-Origin: *), so no Referer or Cookie is required
-// for downloading.
+// The M3U8 and MP4 URLs carry a server-generated token and timestamp valid for
+// roughly one hour, and the CDN sets Access-Control-Allow-Origin: *, so no
+// Referer or Cookie is needed to download them.
 type Provider struct {
 	dataStore  sites.SiteDataStore
 	blocklist  sites.BlocklistChecker
@@ -36,9 +31,6 @@ type Provider struct {
 	domainPool *stealth.DomainPool
 }
 
-// NewProvider creates an XVIDEOS provider with the given data store
-// and blocklist checker, pre-loading all site data from the unified
-// configuration.
 func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker) *Provider {
 	p := &Provider{
 		dataStore: dataStore,
@@ -50,7 +42,6 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 		p.baseURL = mod.BaseURL
 	}
 
-	// Initialize shared domain pool for automatic load-balanced domain discovery.
 	publisherURL := dataStore.GetPublisherURL("xvideos")
 	p.domainPool = stealth.NewDomainPool("xvideos", p.domains, publisherURL)
 	stealth.RegisterDomainPool("xvideos", p.domainPool)
@@ -58,10 +49,8 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 	return p
 }
 
-// SiteID returns the unique identifier for this provider.
 func (p *Provider) SiteID() string { return "xvideos" }
 
-// CanHandle checks if the given URL belongs to the XVIDEOS site.
 func (p *Provider) CanHandle(rawURL string) bool {
 	if p.dataStore.CanHandle("xvideos", rawURL) {
 		return true
@@ -86,15 +75,10 @@ func (p *Provider) CanHandle(rawURL string) bool {
 	return false
 }
 
-// ScrapeGallery scrapes a video detail page using HTTP-first strategy.
-// For XVIDEOS, the M3U8 URL is embedded in inline <script> tags and can
-// be extracted without browser execution.
 func (p *Provider) ScrapeGallery(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	return p.scrapeDetail(ctx, pageURL)
 }
 
-// ScrapeGalleryHTTP attempts to scrape via HTTP for both listing and detail pages.
-// For XVIDEOS, HTTP is the primary strategy since video sources are server-rendered.
 func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	if p.IsListingPage(pageURL) {
 		return p.scrapeListing(ctx, pageURL)
@@ -102,8 +86,22 @@ func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*site
 	return p.scrapeDetail(ctx, pageURL)
 }
 
-// scrapeDetail scrapes a video detail page and returns a GalleryScrapeResult
-// with the M3U8 URL and metadata extracted from inline scripts.
+// ScrapeVideoDetail identifies the stream and full metadata of one video page
+// over plain HTTP, which is the path the video pipeline prefers over the
+// universal browser sniffer.
+func (p *Provider) ScrapeVideoDetail(ctx context.Context, pageURL string) (*sites.ScrapeResult, error) {
+	detail, err := ScrapeDetailHTTP(ctx, pageURL)
+	if err != nil {
+		providerLogger.Warn("HTTP scrape failed for video detail",
+			infra.LogContext{Extra: map[string]any{
+				"url":   pageURL,
+				"error": err.Error(),
+			}})
+		return nil, fmt.Errorf("detail page scrape failed: %w", err)
+	}
+	return detail.ToScrapeResult(pageURL), nil
+}
+
 func (p *Provider) scrapeDetail(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	detail, err := ScrapeDetailHTTP(ctx, pageURL)
 	if err != nil {
@@ -122,42 +120,36 @@ func (p *Provider) scrapeDetail(ctx context.Context, pageURL string) (*sites.Gal
 		PublishTime: detail.PublishDate,
 		VideoCount:  1,
 		Tags:        detail.Tags,
+		Category:    strings.Join(detail.Categories, ", "),
 	}
 
-	// Add HLS M3U8 URL as the primary video source.
+	// Only the HLS stream goes into Videos: the gallery pipeline expects
+	// one item per playable file, and appending the MP4 rendition as a
+	// second item would break the expected-count check.
 	if detail.M3U8URL != "" {
 		galleryResult.Videos = []sites.GalleryVideoItem{
 			{URL: detail.M3U8URL},
 		}
 	}
 
-	// Also add MP4 direct link as a secondary source if available.
-	if detail.MP4URL != "" {
-		galleryResult.Videos = append(galleryResult.Videos, sites.GalleryVideoItem{
-			URL: detail.MP4URL,
-		})
-	}
-
-	// Set uploader as protagonist.
 	if detail.Uploader != "" {
 		galleryResult.Protagonist = detail.Uploader
 	}
 
 	providerLogger.Info("Detail page scrape completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":        pageURL,
-			"m3u8Found":  detail.M3U8URL != "",
-			"mp4Found":   detail.MP4URL != "",
-			"title":      detail.Title,
-			"uploader":   detail.Uploader,
-			"views":      detail.Views,
-			"tagsCount":  len(detail.Tags),
+			"url":       pageURL,
+			"m3u8Found": detail.M3U8URL != "",
+			"mp4Found":  detail.MP4URL != "",
+			"title":     detail.Title,
+			"uploader":  detail.Uploader,
+			"views":     detail.Views,
+			"tagsCount": len(detail.Tags),
 		}})
 
 	return galleryResult, nil
 }
 
-// scrapeListing scrapes a listing page and returns video URLs for batch enqueue.
 func (p *Provider) scrapeListing(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	result, err := ScrapeListingHTTP(ctx, pageURL)
 	if err != nil {
@@ -186,7 +178,6 @@ func (p *Provider) ScrapeListing(ctx context.Context, listingURL string) (*Listi
 	return ScrapeListingHTTP(ctx, listingURL)
 }
 
-// Search performs a site-wide search for videos.
 func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.SiteSearchResult, error) {
 	searchURL := p.BuildSearchURL(query)
 	if page > 1 {
@@ -215,14 +206,11 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 	return searchResults, nil
 }
 
-// BuildSearchURL constructs a search URL for the given keyword.
-// XVIDEOS search URL format: /?k={keyword}
 func (p *Provider) BuildSearchURL(keyword string) string {
 	encoded := url.QueryEscape(keyword)
 	return p.baseURL + "/?k=" + encoded
 }
 
-// CleanTitle removes site-specific suffixes and prefixes from a title.
 func (p *Provider) CleanTitle(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
@@ -230,7 +218,6 @@ func (p *Provider) CleanTitle(rawTitle string) string {
 
 	title := strings.TrimSpace(rawTitle)
 
-	// Remove XVIDEOS suffix.
 	suffixes := []string{
 		" - XVIDEOS.COM",
 		" - Xvideos",
@@ -241,14 +228,11 @@ func (p *Provider) CleanTitle(rawTitle string) string {
 		title = strings.TrimSuffix(title, suffix)
 	}
 
-	// Clean up whitespace.
 	title = regexp.MustCompile(`\s+`).ReplaceAllString(title, " ")
 
 	return strings.TrimSpace(title)
 }
 
-// CheckContentBlocked checks if the content should be blocked based on
-// title, category, or protagonist.
 func (p *Provider) CheckContentBlocked(title, category, protagonist string) sites.BlockCheckResult {
 	if p.blocklist != nil {
 		fields := map[string]string{
@@ -265,9 +249,7 @@ func (p *Provider) CheckContentBlocked(title, category, protagonist string) site
 	return sites.BlockCheckResult{Blocked: false}
 }
 
-// NormalizeURL normalizes an XVIDEOS URL to a canonical form.
 func (p *Provider) NormalizeURL(rawURL string) string {
-	// Ensure HTTPS.
 	if strings.HasPrefix(rawURL, "http://") {
 		rawURL = "https://" + rawURL[7:]
 	}
@@ -282,35 +264,21 @@ func (p *Provider) GetDomains() []string {
 	return p.domains
 }
 
-// IsListingPage checks if the URL is a listing page (category/sort/search)
-// rather than a detail page.
 func (p *Provider) IsListingPage(rawURL string) bool {
-	// Detail pages contain /video.{id}
 	if strings.Contains(rawURL, "/video.") {
 		return false
 	}
 
-	// Listing pages include:
-	// - Homepage (no path or just /)
-	// - /best/
-	// - /hottest/
-	// - /latest/
-	// - /?k= (search)
-	// - /tags/
-	// - /channels/
-	// - /models/
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
 	path := strings.Trim(parsed.Path, "/")
 
-	// Empty path = homepage (listing).
 	if path == "" {
 		return true
 	}
 
-	// Check query string for search.
 	if parsed.RawQuery != "" && strings.Contains(parsed.RawQuery, "k=") {
 		return true
 	}

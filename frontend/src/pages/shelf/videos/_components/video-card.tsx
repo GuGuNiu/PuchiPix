@@ -15,6 +15,7 @@ import {
   VIDEO_STATUS_CLASS,
   formatDuration,
   formatClock,
+  isVideoActivePhase,
   videoFileUrl,
   type VideoShelfItem,
 } from "../video-helpers";
@@ -30,14 +31,12 @@ export interface VideoCardProps {
 
 const HOVER_DELAY = 150;
 
-/**
- * Effective hover-preview speed (user requirement: 32X).
- * HTMLMediaElement.playbackRate is hard-capped at 16 in Chromium/Safari —
- * anything higher throws NotSupportedError (or is silently clamped). To
- * reach an effective 32x we compound the maximum supported rate with a
- * periodic time-skip: every SKIP_INTERVAL_MS the playhead jumps forward by
- * the media-seconds the capped rate cannot cover
- * (16x * 0.5s playback + 8s skip = 16 media-seconds per 0.5s wall clock).
+/*
+ * The HTMLMediaElement.playbackRate property is hard-capped at 16 in
+ * Chromium/Safari; anything higher throws NotSupportedError. The 32x effective
+ * preview therefore compounds the capped rate with a periodic time-skip,
+ * jumping the playhead forward by the media-seconds the capped rate cannot
+ * cover.
  */
 const HOVER_EFFECTIVE_RATE = 32;
 const MAX_PLAYBACK_RATE = 16;
@@ -69,9 +68,8 @@ function VideoCardComponent({
   const [hoverReady, setHoverReady] = useState(false);
   const [videoError, setVideoError] = useState(false);
   /*
-   * Real duration probed from the file's own metadata — the most truthful
-   * source (guards against stale/misplaced DB values). Falls back to the
-   * DB minutes value when the file has no playable metadata.
+   * Probed from the file metadata so a stale DB value cannot win; null falls
+   * back to the DB minutes value
    */
   const [fileDuration, setFileDuration] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -99,11 +97,6 @@ function VideoCardComponent({
     setMaxHoverRate(el);
     el.play().catch(() => {});
 
-    /*
-     * Compound the capped playbackRate into an effective 32x: periodically
-     * jump the playhead forward by the uncovered media-seconds. Skipped
-     * frames render as keyframe hops — expected at extreme skim speeds.
-     */
     if (skipIntervalRef.current) {
       clearInterval(skipIntervalRef.current);
     }
@@ -212,7 +205,7 @@ function VideoCardComponent({
             onLoadedData={(e) => {
               /*
                * Seek slightly past 0 so the browser paints a real frame
-               * as the poster instead of a blank player.
+               * instead of a blank player
                */
               const el = e.target as HTMLVideoElement;
               // Seek can fail while the element is not ready — ignore.
@@ -221,7 +214,6 @@ function VideoCardComponent({
               }
             }}
             onLoadedMetadata={(e) => {
-              // The file's own duration beats the DB value — use it.
               const el = e.target as HTMLVideoElement;
               if (Number.isFinite(el.duration) && el.duration > 0) {
                 setFileDuration(el.duration);
@@ -389,7 +381,7 @@ function VideoCardComponent({
             </span>
           )}
         </div>
-        {(video.Status === "downloading" || video.Status === "scraping") && (
+        {isVideoActivePhase(video.Status) && (
           <div
             style={{
               display: "flex",

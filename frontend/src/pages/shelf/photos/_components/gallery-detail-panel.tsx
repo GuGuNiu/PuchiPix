@@ -27,6 +27,7 @@ interface GalleryDetailPanelProps {
   onClose: () => void;
   onDelete: (id: number) => void;
   onRetry: (id: number) => void;
+  onRetryFailedFiles: (id: number) => Promise<boolean>;
   onDownloadZip: (id: number, manualUrl?: string) => Promise<boolean>;
 }
 
@@ -36,6 +37,7 @@ function GalleryDetailPanelComponent({
   onClose,
   onDelete,
   onRetry,
+  onRetryFailedFiles,
   onDownloadZip,
 }: GalleryDetailPanelProps): React.JSX.Element {
   const { t } = useI18n();
@@ -92,14 +94,28 @@ function GalleryDetailPanelComponent({
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {canRetry && (
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => onRetry(gallery.ID)}
-              title={t("gallery.redownload")}
-            >
-              <RotateCw size={14} />
-              {t("gallery.redownload")}
-            </button>
+            <>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => onRetry(gallery.ID)}
+                title={t("gallery.redownload")}
+              >
+                <RotateCw size={14} />
+                {t("gallery.redownload")}
+              </button>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={async () => {
+                  const ok = await onRetryFailedFiles(gallery.ID);
+                  if (ok) toast.success("gallery.retryStarted", { id: gallery.ID });
+                  else toast.error("gallery.retryFailed");
+                }}
+                title={t("tasks.retryFailedFiles")}
+              >
+                <RotateCw size={14} />
+                {t("tasks.retryFailedFiles")}
+              </button>
+            </>
           )}
           <button
             className="btn btn-danger btn-sm"

@@ -72,6 +72,7 @@ export default function SjsPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [importResults, setImportResults] = useState<BatchImportResult[] | null>(
     null,
   );
@@ -158,13 +159,16 @@ export default function SjsPage(): React.JSX.Element {
       setImportResults(data.results || []);
       setImportSummary(data.summary || null);
 
-      if (data.summary?.created > 0) {
-        toast.success("sjs.shelf.importSuccess", {
-          created: data.summary.created,
-          skipped: data.summary.skipped,
-          failed: data.summary.failed,
-        });
-      }
+       if (data.summary?.created > 0) {
+         toast.success("sjs.shelf.importSuccess", {
+           created: data.summary.created,
+           skipped: data.summary.skipped,
+           failed: data.summary.failed,
+         });
+       }
+       if (data.summary?.failed > 0) {
+         toast.warning("sjs.shelf.importFailed", { error: `${data.summary.failed} invalid` });
+       }
 
       await fetchCards();
     } catch {
@@ -192,7 +196,9 @@ export default function SjsPage(): React.JSX.Element {
   );
 
   const handleClearAll = useCallback(async () => {
+    if (clearing) return;
     if (!confirm(t("sjs.shelf.clearAllConfirm"))) return;
+    setClearing(true);
     try {
       const res = await fetch("/api/shelf/sjs?id=all", { method: "DELETE" });
       if (!res.ok) throw new Error("Clear failed");
@@ -201,8 +207,10 @@ export default function SjsPage(): React.JSX.Element {
       setForums([]);
     } catch {
       toast.error("sjs.shelf.clearFailed");
+    } finally {
+      setClearing(false);
     }
-  }, [t]);
+  }, [clearing, t]);
 
   const handleRefreshMetadata = useCallback(
     async (id: number) => {
@@ -352,8 +360,9 @@ export default function SjsPage(): React.JSX.Element {
             {cards.length > 0 && (
               <button
                 className="btn btn-outline btn-sm"
-                onClick={handleClearAll}
-                style={{ color: "var(--danger)" }}
+                 onClick={handleClearAll}
+                 disabled={clearing}
+                 style={{ color: "var(--danger)" }}
               >
                 <Trash2 size={14} />
                 {t("sjs.shelf.clearAll")}

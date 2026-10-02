@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Blocklist page text — en-US
 const enUS: TranslationDict = {
   "blocklist.title": "Blocklist",
   "blocklist.subtitle": "Manage content block rules — filter by title/category/character/director",

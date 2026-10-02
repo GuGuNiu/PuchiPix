@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// API error messages — en-US
 const enUS: TranslationDict = {
   "api.validation.maxConcurrentTasks": "Max concurrent tasks must be between 1 and 50",
   "api.validation.maxSniffConcurrent": "Max sniff concurrency must be between 1 and 10",
@@ -14,7 +13,6 @@ const enUS: TranslationDict = {
   "api.sjs.buyMissingTid": "Buying post requires tid parameter (post ID)",
   "api.sjs.loginMissingAccountId": "Login requires accountId parameter",
 
-  // SJS Shelf
   "api.sjsShelf.noUrls": "Please provide a URL list",
   "api.sjsShelf.emptyUrl": "Empty URL",
   "api.sjsShelf.invalidSjsUrl": "Not a valid SJS URL",
@@ -60,30 +58,24 @@ const enUS: TranslationDict = {
 
   "api.blocklist.addFailed": "Add failed",
 
-// Logs
   "api.logs.systemReady": "System ready, waiting for tasks...",
   "api.logs.taskNumber": "Task #{id}",
   "api.logs.fetchFailed": "Failed to fetch logs",
 
-  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "Site {site} does not support gallery scraping",
   "api.gallery.allDomainsFailed": "All domains failed to scrape",
 
-  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "Detected {count} M3U8 addresses, please select",
   "api.tasks.unsupportedListScrape": "Provider does not support listing page scraping",
 
-  // Common
   "api.characterDb.syncRunning": "Sync task is already running",
   "api.common.internalError": "Internal server error",
   "api.common.missingParams": "Missing required parameters: {params}",
 
-  // DAG
   "api.dag.notFound": "DAG {dagId} not found",
   "api.dag.invalidAction": "Invalid action: {action}",
   "api.dag.schedulerRequired": "DAG control requires scheduler (Phase 3)",
 
-  // Go backend — common
   "api.common.databaseUnavailable": "Database not available",
   "api.common.missingBody": "Request body is required",
   "api.common.invalidJson": "Invalid JSON body",
@@ -93,36 +85,30 @@ const enUS: TranslationDict = {
   "api.common.invalidId": "Invalid ID",
   "api.common.keyRequired": "Key is required",
 
-  // Go backend — accounts
   "api.accounts.queryFailed": "Failed to query accounts",
   "api.accounts.missingFields": "siteId, username, and password are required",
   "api.accounts.createFailed": "Failed to create account",
   "api.accounts.updateFailed": "Failed to update account",
   "api.accounts.deleteFailed": "Failed to delete account",
 
-  // Go backend — persons
   "api.persons.queryFailed": "Failed to query persons",
   "api.persons.missingName": "Name is required",
   "api.persons.createFailed": "Failed to create person",
   "api.persons.updateFailed": "Failed to update person",
   "api.persons.deleteFailed": "Failed to delete person",
 
-  // Go backend — blocklist
   "api.blocklist.queryFailed": "Failed to query blocklist",
   "api.blocklist.missingFields": "fieldType and keyword are required",
   "api.blocklist.createFailed": "Failed to create blocklist rule",
   "api.blocklist.updateFailed": "Failed to update blocklist rule",
   "api.blocklist.deleteFailed": "Failed to delete blocklist rule",
 
-  // Go backend — config
   "api.config.queryFailed": "Failed to query config",
   "api.config.updateFailed": "Failed to update config",
 
-  // Go backend — preferences
   "api.preferences.queryFailed": "Failed to query preferences",
   "api.preferences.updateFailed": "Failed to update preference",
 
-  // Go backend — tasks
   "api.tasks.queryFailed": "Failed to query tasks",
   "api.tasks.missingUrl": "URL is required",
   "api.tasks.createFailed": "Failed to create task",
@@ -130,15 +116,12 @@ const enUS: TranslationDict = {
   "api.tasks.notFound": "Task not found",
   "api.tasks.schedulerRequired": "Task actions require scheduler (Phase 3)",
 
-  // Go backend — gallery
   "api.gallery.queryFailed": "Failed to query galleries",
   "api.gallery.invalidId": "Invalid gallery ID",
   "api.gallery.queryImagesFailed": "Failed to query images",
 
-  // Go backend — history
   "api.history.queryFailed": "Failed to query history",
 
-  // Go backend — SJS shelf (supplement)
   "api.sjsShelf.queryFailed": "Failed to query SJS bookmarks",
   "api.sjsShelf.missingUrlAndThreadId": "URL and threadId are required",
   "api.sjsShelf.createFailed": "Failed to create bookmark",

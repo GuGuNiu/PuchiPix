@@ -19,13 +19,12 @@ import (
 var extractorLogger = infra.NewLogger("ExhentaiProvider")
 
 var (
-	datePattern      = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
-	numberPattern    = regexp.MustCompile(`(\d+)`)
-	ratingPattern    = regexp.MustCompile(`Average:\s*([\d.]+)`)
-	imgSrcPattern    = regexp.MustCompile(`<img[^>]+id="img"[^>]+src="([^"]+)"`)
+	datePattern   = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
+	numberPattern = regexp.MustCompile(`(\d+)`)
+	ratingPattern = regexp.MustCompile(`Average:\s*([\d.]+)`)
+	imgSrcPattern = regexp.MustCompile(`<img[^>]+id="img"[^>]+src="([^"]+)"`)
 )
 
-// SearchEntry represents a single result from a listing or search page.
 type SearchEntry struct {
 	URL      string
 	Title    string
@@ -33,8 +32,7 @@ type SearchEntry struct {
 	Date     string
 }
 
-// ExtendedMetadata holds the full metadata extracted from a gallery page,
-// mirroring the TypeScript ExtendedMetadata interface.
+// ExtendedMetadata aggregates the gallery page fields used for search indexing.
 type ExtendedMetadata struct {
 	Title       string
 	Tags        []string
@@ -46,25 +44,20 @@ type ExtendedMetadata struct {
 	BlockReason string
 }
 
-// SeriesEntry represents a related series entry discovered during scraping.
 type SeriesEntry struct {
 	URL   string
 	Title string
 	ID    string
 }
 
-// GalleryInfo holds essential gallery page fields needed to drive
-// image collection and result construction.
 type GalleryInfo struct {
-	Pages     int
-	Posted    string
-	CoverURL  string
-	Uploader  string
-	Category  string
+	Pages    int
+	Posted   string
+	CoverURL string
+	Uploader string
+	Category string
 }
 
-// rawMetadata captures the intermediate data extracted from the DOM
-// before being transformed into ExtendedMetadata.
 type rawMetadata struct {
 	H1Title       string
 	Uploader      string
@@ -140,8 +133,6 @@ func ExtractSearchResults(doc *goquery.Document) []SearchEntry {
 	return results
 }
 
-// ExtractExtendedMetadata parses title, tags, actors, and other metadata
-// from a gallery detail page document.
 func ExtractExtendedMetadata(doc *goquery.Document) ExtendedMetadata {
 	raw := parseRawMetadata(doc)
 
@@ -259,8 +250,6 @@ func parseRawMetadata(doc *goquery.Document) rawMetadata {
 	return raw
 }
 
-// ExtractGalleryInfo parses essential gallery fields (page count, posted
-// date, cover, uploader, category) from a gallery detail page.
 func ExtractGalleryInfo(doc *goquery.Document) GalleryInfo {
 	var info GalleryInfo
 
@@ -369,9 +358,8 @@ func CollectImagePageLinks(ctx context.Context, galleryURL string, totalImages i
 	return allLinks
 }
 
-// FetchImageURLs retrieves the actual image source URL from each
-// image page, processing in batches with inter-batch delays to
-// avoid triggering rate limits.
+// FetchImageURLs resolves each image page to its image URL, pausing between
+// batches so the burst does not trigger rate limiting.
 func FetchImageURLs(ctx context.Context, imagePageURLs []string, cookieStr string) []string {
 	results := make([]string, len(imagePageURLs))
 

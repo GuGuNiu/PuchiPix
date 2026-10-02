@@ -1,14 +1,11 @@
 import type { TranslationDict } from "../../types";
 
-// Log message templates — vi-VN
 const viVN: TranslationDict = {
-  // Safe delete
   "log.safeDelete.fileFailed": "Xóa tệp thất bại ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "Xóa tệp cuối cùng thất bại: {path} — {msg}",
   "log.safeDelete.dirFailed": "Xóa thư mục thất bại ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.dirFinalFailed": "Xóa thư mục cuối cùng thất bại: {path} — {msg}",
 
-  // Handler library
   "log.galleryHandler.cancelledInQueue": "Thư viện #{id} bị hủy khi đang chờ trong hàng đợi",
   "log.galleryHandler.cancelledInScrapeQueue": "Thư viện #{id} bị hủy khi đang chờ trong hàng đợi cào",
   "log.galleryHandler.domainRateLimited": "Tên miền {url} trả về {status} (giới hạn tốc độ), chuyển đổi nhanh",
@@ -17,7 +14,6 @@ const viVN: TranslationDict = {
   "log.galleryHandler.downloadFailed": "Download failed: {msg}",
   "log.galleryHandler.downloadComplete": "Download complete: {success} succeeded, {failed} failed, {skipped} skipped",
 
-  // SJS site
   "log.sjs.noAccount": "Không có tài khoản khả dụng, truy cập với chế độ khách (nội dung đầy đủ có thể không hiển thị)",
   "log.sjs.cookieInjected": "Cookie tài khoản #{id} đã được chèn ({count} mục)",
   "log.sjs.cookieInjectionFailed": "Chèn Cookie thất bại, sẽ thử đăng nhập lại",
@@ -40,13 +36,10 @@ const viVN: TranslationDict = {
   "log.sjs.buyFormParams": "Tham số form mua: formhash={formhash}, tid={tid}",
   "log.sjs.startSign": "Bắt đầu điểm danh: {username}",
 
-  // Site registry
   "log.siteRegistry.providerNotFound": "Không tìm thấy triển khai Provider cho trang web \"{id}\"",
 
-  // Site account management
   "log.siteAccountManager.cookieSaved": "Cookie tài khoản #{id} đã được lưu ({count} mục)",
 
-  // ExHentai
   "log.exhentai.scrapePageFailed": "Cào trang thư viện {page} thất bại",
   "log.exhentai.pageNewLinks": "Trang thư viện {page}: thu thập {count} liên kết trang ảnh (tổng {total})",
   "log.exhentai.batchFailed": "Tải URL ảnh hàng loạt thất bại (lô {batch})",
@@ -55,7 +48,6 @@ const viVN: TranslationDict = {
   "log.exhentai.listPageNoNext": "Không có liên kết trang tiếp theo, kết thúc",
   "log.exhentai.navNextFailed": "Điều hướng đến trang tiếp theo thất bại",
 
-  // Aimeizizi
   "log.aimeizizi.learnPersonFailed": "learnPerson thất bại",
   "log.aimeizizi.blockedSearchResult": "Kết quả tìm kiếm bị chặn: \"{title}...\", lý do: {reason}",
   "log.aimeizizi.domainRateLimited": "Trang {page} nhận {status}, đánh dấu tên miền {domain} là giới hạn tốc độ",
@@ -66,13 +58,10 @@ const viVN: TranslationDict = {
   "log.aimeizizi.gameCharDetected": "Phát hiện nhân vật trò chơi: {chars}",
   "log.aimeizizi.listPageFailed": "Cào trang danh sách {page} thất bại",
 
-  // Common scraping
   "log.scrape.capturedM3u8": "{url} — bắt được {count} URL M3U8: {urls}",
 
-  // Protagonist service
   "log.protagonist.personCacheInitFailed": "Khởi tạo bộ nhớ đệm Person thất bại",
 
-  // Search engine
   "log.search.batchComplete": "Cào hàng loạt hoàn tất! {ok} thành công, {fail} thất bại",
   "log.search.terminated": "Search task terminated abnormally: {msg}",
   "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
@@ -82,7 +71,6 @@ const viVN: TranslationDict = {
   "log.downloadManager.segmentFailed": "  Segment #{idx}: {msg}",
   "log.downloadManager.incomplete": "Download incomplete: {failedCount} segments failed (out of {totalSegments} total)\n{details}",
 
-  // Task queue manager
   "log.taskQueue.slotAllocated": "Slot được phân bổ: {key} (đang chạy: thường={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "Slot được giải phóng: {key} (đang chạy: thường={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "Slot nhận dạng được phân bổ: {key} (nhận dạng: {scraping}/{maxScraping})",
@@ -101,13 +89,11 @@ const viVN: TranslationDict = {
 "log.taskQueue.startupRecovery": "Khôi phục khởi động: đã xếp lại {count} tác vụ",
   "log.taskQueue.configLoadFailed": "Tải cấu hình thất bại, sử dụng giá trị mặc định: {error}",
 
-  // Server lifecycle
   "log.server.taskStateReset": "Hoàn tất đặt lại trạng thái tác vụ khi khởi động",
   "log.server.downloadManagerInit": "Trình quản lý tải xuống đã được khởi tạo",
   "log.server.eventBusBridgeInit": "Cầu EventBus đã được khởi tạo",
   "log.server.ouoOrchestratorStart": "Bộ điều phối OUO đã khởi động",
 
-  // Task state reset
   "log.taskStateReset.started": "Bắt đầu đặt lại trạng thái tác vụ đang chạy...",
   "log.taskStateReset.cleanupSlots": "Dọn dẹp slot cũ: thường={normal}, sniff={sniff}, nhận dạng={scraping}",
   "log.taskStateReset.completed": "Hoàn tất đặt lại: video {videoTasks}, thư viện {galleries}, ảnh {galleryImages}, video {galleryVideos}, sniff {sniffTasks}, thông tin ZIP {galleryDownloadInfos}, tổng {total} tác vụ đã được đặt lại",

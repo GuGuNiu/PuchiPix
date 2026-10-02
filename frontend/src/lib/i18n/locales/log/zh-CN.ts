@@ -1,13 +1,11 @@
 import type { TranslationDict } from "../../types";
 
 const zhCN: TranslationDict = {
-  // Safe delete
   "log.safeDelete.fileFailed": "文件删除失败 ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "文件删除最终失败: {path} — {msg}",
   "log.safeDelete.dirFailed": "目录删除失败 ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.dirFinalFailed": "目录删除最终失败: {path} — {msg}",
 
-  // Gallery handler
   "log.galleryHandler.cancelledInQueue": "图库 #{id} 在排队等待中被取消",
   "log.galleryHandler.cancelledInScrapeQueue": "图库 #{id} 在识别排队等待中被取消",
   "log.galleryHandler.domainRateLimited": "域名 {url} 返回 {status}限流快速切换",
@@ -16,7 +14,6 @@ const zhCN: TranslationDict = {
   "log.galleryHandler.downloadFailed": "下载失败: {msg}",
   "log.galleryHandler.downloadComplete": "下载完成: 成功 {success}, 失败 {failed}, 跳过 {skipped}",
 
-  // SJS site
   "log.sjs.noAccount": "无可用账户将以游客模式访问可能无法看到完整内容",
   "log.sjs.cookieInjected": "账户 #{id} Cookie 已注入{count} 个",
   "log.sjs.cookieInjectionFailed": "Cookie 注入失败将尝试重新登录",
@@ -39,13 +36,10 @@ const zhCN: TranslationDict = {
   "log.sjs.buyFormParams": "购买表单参数: formhash={formhash}, tid={tid}",
   "log.sjs.startSign": "开始签到: {username}",
 
-  // Site registry
   "log.siteRegistry.providerNotFound": "未找到站点 \"{id}\" 的 Provider 实现",
 
-  // Site account management
   "log.siteAccountManager.cookieSaved": "账户 #{id} Cookie 已保存{count} 个",
 
-  // ExHentai
   "log.exhentai.scrapePageFailed": "爬取图库第 {page} 页失败",
   "log.exhentai.pageNewLinks": "图库第 {page} 页: 收集 {count} 个图片页链接累计 {total}",
   "log.exhentai.batchFailed": "批量获取图片 URL 失败 (batch {batch})",
@@ -54,7 +48,6 @@ const zhCN: TranslationDict = {
   "log.exhentai.listPageNoNext": "列表页无下一页链接结束",
   "log.exhentai.navNextFailed": "导航到下一页失败",
 
-  // Aimeizizi
   "log.aimeizizi.learnPersonFailed": "learnPerson 失败",
   "log.aimeizizi.blockedSearchResult": "屏蔽搜索结果: \"{title}...\"原因: {reason}",
   "log.aimeizizi.domainRateLimited": "第 {page} 页遭遇 {status}标记域名 {domain} 为限流",
@@ -65,7 +58,6 @@ const zhCN: TranslationDict = {
   "log.aimeizizi.gameCharDetected": "识别到游戏角色: {chars}",
   "log.aimeizizi.listPageFailed": "爬取列表页第 {page} 页失败",
 
-  // Xsnvshen
   "log.xsnvshen.ageVerifySuccess": "防沉迷验证通过 (域名: {domain})",
   "log.xsnvshen.ageVerifyFailed": "防沉迷验证失败 (域名: {domain}, 状态: {status})",
   "log.xsnvshen.ageVerifyError": "防沉迷验证异常 (域名: {domain}, 错误: {error})",
@@ -76,29 +68,22 @@ const zhCN: TranslationDict = {
   "log.xsnvshen.learnPersonFailed": "learnPerson 失败",
   "log.xsnvshen.listPageFailed": "爬取列表页第 {page} 页失败",
 
-  // Scrape
   "log.scrape.capturedM3u8": "{url} — 捕获到 {count} 个 M3U8 URL: {urls}",
 
-  // Protagonist service
   "log.protagonist.personCacheInitFailed": "Person 缓存初始化失败",
 
-  // Search engine
   "log.search.batchComplete": "批量爬取完成成功 {ok}失败 {fail}",
   "log.search.terminated": "搜索任务异常终止: {msg}",
   "log.search.batchTerminated": "批量搜索任务异常终止: {msg}",
 
-  // Task creator
   "log.taskCreator.downloadStartFailed": "下载任务 #{taskId} 启动失败: {msg}",
 
-  // Parallel downloader
   "log.parallelDL.writeFailed": "[ParallelDL] 写入失败: {msg}",
   "log.parallelDL.requestFailed": "[ParallelDL] 请求失败: {msg}",
 
-  // Download manager
   "log.downloadManager.segmentFailed": "  分片 #{idx}: {msg}",
   "log.downloadManager.incomplete": "下载不完整{failedCount} 个分片下载失败共 {totalSegments} 个分片\n{details}",
 
-  // Task queue manager
   "log.taskQueue.slotAllocated": "槽位已分配: {key} (运行中: 普通={normal}/{maxNormal}, 嗅探={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "槽位已释放: {key} (运行中: 普通={normal}/{maxNormal}, 嗅探={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "识别槽位已分配: {key} (识别中: {scraping}/{maxScraping})",
@@ -117,23 +102,19 @@ const zhCN: TranslationDict = {
 "log.taskQueue.startupRecovery": "启动恢复已重新排队 {count} 个任务",
   "log.taskQueue.configLoadFailed": "加载配置失败使用默认值: {error}",
 
-  // Server lifecycle
   "log.server.taskStateReset": "启动时任务状态重置完成",
   "log.server.downloadManagerInit": "下载管理器已初始化",
   "log.server.eventBusBridgeInit": "EventBus 桥接已初始化",
   "log.server.ouoOrchestratorStart": "OUO 编排器已启动",
 
-  // Task state reset
   "log.taskStateReset.started": "开始重置运行中任务状态...",
   "log.taskStateReset.cleanupSlots": "清理残留槽位: 普通={normal}, 嗅探={sniff}, 识别={scraping}",
   "log.taskStateReset.completed": "重置完成视频 {videoTasks}图库 {galleries}图片 {galleryImages}视频 {galleryVideos}嗅探 {sniffTasks}ZIP信息 {galleryDownloadInfos}共 {total} 个任务已重置为待处理状态",
   "log.taskStateReset.noop": "未发现运行中任务无需重置",
   "log.taskStateReset.suspended": "服务重启，任务已挂起",
 
-  // Preset data seed
   "log.seed.presetDataSeeded": "预置数据已写入数据库: 用户偏好 {prefs} 条, 屏蔽词 {blocklists} 条",
 
-  // DAG Orchestrator
   "log.dagOrchestrator.initComplete": "[DagOrchestrator] 初始化完成",
   "log.dagOrchestrator.dagCompleted": "[DagOrchestrator] DAG {dagId} 全部完成",
   "log.dagOrchestrator.dagEndedWithFailure": "[DagOrchestrator] DAG {dagId} 已结束（有失败/取消）",
@@ -152,7 +133,6 @@ const zhCN: TranslationDict = {
   "log.dagOrchestrator.dagPaused": "[DagOrchestrator] DAG {dagId} 已暂停 ({pausedCount} 个节点)",
   "log.dagOrchestrator.dagNotFoundCannotPause": "[DagOrchestrator] DAG {dagId} 未找到无法暂停",
 
-  // DAG Init
   "log.dagSystem.alreadyInitialized": "[DagSystem] 已初始化，跳过",
   "log.dagSystem.initComplete": "[DagSystem] 初始化完成 (功能开关: {status})",
   "log.dagSystem.initFailed": "[DagSystem] 初始化失败",
@@ -160,7 +140,6 @@ const zhCN: TranslationDict = {
   "log.dagSystem.stopped": "[DagSystem] 已停止",
   "log.dagSystem.gracefulShutdownComplete": "[DagSystem] 优雅关闭完成",
 
-  // Orchestrator Base
   "log.orchestratorBase.alreadyRunning": "[{name}] 已在运行，跳过",
   "log.orchestratorBase.started": "[{name}] 编排器已启动",
   "log.orchestratorBase.stopping": "[{name}] 编排器停止中...",
@@ -190,7 +169,6 @@ const zhCN: TranslationDict = {
   "log.orchestratorBase.ipRateLimitExhausted": "IP 限流（已耗尽重试）",
   "log.orchestratorBase.cooldownEndExhausted": "[{name}] 冷却结束但已耗尽重试: ID={id}",
 
-  // DAG Config
   "log.dagConfig.schedulerToggle": "[DagConfig] DAG 调度器{status}",
   "log.dagConfig.taskTypesUpdated": "[DagConfig] DAG 任务类型更新: [{value}]",
   "log.dagConfig.configLoadComplete": "[DagConfig] 配置加载完成: enabled={enabled}, taskTypes=[{taskTypes}]",
@@ -198,7 +176,6 @@ const zhCN: TranslationDict = {
   "log.dagConfig.usingDefaultConfig": "[DagConfig] 使用默认配置: enabled=true (加载失败后的安全降级)",
 } satisfies TranslationDict;
 
-/** Log module translation key union type */
 export type LogTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

@@ -11,7 +11,7 @@ type schedulerCommand struct{}
 
 func (schedulerCommand) Name() string        { return "scheduler" }
 func (schedulerCommand) Description() string { return "View scheduler queue stats" }
-func (schedulerCommand) Usage() string        { return "puchipix-cli scheduler" }
+func (schedulerCommand) Usage() string       { return "puchipix-cli scheduler" }
 func (schedulerCommand) Aliases() []string   { return nil }
 
 func (schedulerCommand) Execute(ctx CommandContext) error {

@@ -2,11 +2,11 @@ package db
 
 import "time"
 
-// DownloadTask represents a video download task (m3u8/mp4).
+// DownloadTask is a video download task (m3u8/mp4).
 //
-// JSON tags use PascalCase to match the frontend TypeScript interface.
-// The Go field Seq maps to the JSON key "DisplayID" because the frontend
-// uses DisplayID as the user-facing identifier.
+// JSON tags are PascalCase to match the frontend TypeScript interface; the Go
+// field Seq is exposed as "DisplayID" because the frontend uses that key as
+// the user-facing identifier.
 type DownloadTask struct {
 	ID        int       `json:"ID" db:"id"`
 	URL       string    `json:"URL" db:"url"`
@@ -21,16 +21,16 @@ type DownloadTask struct {
 	Seq       *string   `json:"DisplayID" db:"seq"`
 	CreatedAt time.Time `json:"CreatedAt" db:"created_at"`
 	UpdatedAt time.Time `json:"UpdatedAt" db:"updated_at"`
-	Title  string `json:"GalleryTitle"`
-	Person string `json:"Person"`
-	Tags   []string `json:"Tags"`
+	Title     string    `json:"GalleryTitle"`
+	Person    string    `json:"Person"`
+	Tags      []string  `json:"Tags"`
 	// VideoInfo carries the joined video_infos metadata for detail views
 	// (title/duration/resolution/size/tags). Nil when the task has no
 	// video_infos row yet (e.g. before the first scrape completes).
-	VideoInfo *VideoInfo `json:"VideoInfo,omitempty"`
-	TotalSegments int `json:"TotalSegments" db:"total_segments"`
-	Segment       int `json:"Segment" db:"completed_segments"`
-	FileSize int64 `json:"FileSize" db:"file_size"`
+	VideoInfo     *VideoInfo `json:"VideoInfo,omitempty"`
+	TotalSegments int        `json:"TotalSegments" db:"total_segments"`
+	Segment       int        `json:"Segment" db:"completed_segments"`
+	FileSize      int64      `json:"FileSize" db:"file_size"`
 	// Computed fields (not stored in DB, populated by helper functions at query time).
 	EffectiveStatus string   `json:"EffectiveStatus" db:"-"`
 	ProgressStage   string   `json:"ProgressStage" db:"-"`
@@ -40,11 +40,10 @@ type DownloadTask struct {
 // VideoInfo stores metadata extracted from a download task's source URL.
 //
 // Tags/Actors/Categories are typed []string so the JSON contract matches
-// the frontend (`string[]`). The DB columns are JSON-array strings; the
-// API layer must decode them via task_compute.ParseTagsColumn before
-// populating this struct — never assign the raw column text (a JSON
-// string in a string field serialized the whole `["a","b"]` literal,
-// which the frontend then rendered as garbage tag pills / crashes).
+// the frontend (string[]). The DB columns hold JSON-array text and must be
+// decoded through task_compute.ParseTagsColumn before being assigned here:
+// assigning the raw column text makes the whole ["a","b"] literal serialize
+// as the tag value.
 type VideoInfo struct {
 	ID         int       `json:"ID" db:"id"`
 	TaskID     int       `json:"TaskID" db:"task_id"`
@@ -60,46 +59,42 @@ type VideoInfo struct {
 	CreatedAt  time.Time `json:"CreatedAt" db:"created_at"`
 }
 
-// Gallery is the central model for a multi-site image/video collection,
-// linking images, videos, and download metadata through a 1-to-many
-// and 1-to-1 relationship respectively.
 type Gallery struct {
-	ID                  int        `json:"ID" db:"id"`
-	Seq                 *string    `json:"DisplayID" db:"seq"`
-	SourceURL           string     `json:"SourceURL" db:"source_url"`
-	SiteID              string     `json:"SiteID" db:"site_id"`
-	ScrapedDomain       string     `json:"ScrapedDomain" db:"scraped_domain"`
-	Title               string     `json:"Title" db:"title"`
-	Protagonist         string     `json:"Protagonist" db:"protagonist"`
-	Description         string     `json:"Description" db:"description"`
-	Category            string     `json:"Category" db:"category"`
-	Tags                string     `json:"Tags" db:"tags"`
-	CoverURL            string     `json:"CoverURL" db:"cover_url"`
-	CoverLocalPath      string     `json:"CoverLocalPath" db:"cover_local_path"`
-	ImageCount          int        `json:"ImageCount" db:"image_count"`
-	VideoCount          int        `json:"VideoCount" db:"video_count"`
-	PageCount           int        `json:"PageCount" db:"page_count"`
-	Status              string     `json:"Status" db:"status"`
-	ErrorMsg            string     `json:"ErrorMsg" db:"error_msg"`
-	DownloadMethod      string     `json:"DownloadMethod" db:"download_method"`
-	ExpectedImageCount  int        `json:"ExpectedImageCount" db:"expected_image_count"`
-	ExpectedVideoCount  int        `json:"ExpectedVideoCount" db:"expected_video_count"`
-	ContentVerified     bool       `json:"ContentVerified" db:"content_verified"`
-	SavePath            string     `json:"SavePath" db:"save_path"`
-	TotalSize           int64      `json:"TotalSize" db:"total_size"`
-	DownloadedSize      int64      `json:"DownloadedSize" db:"downloaded_size"`
-	GameCharacters      *string    `json:"GameCharacters" db:"game_characters"`
-	PublishTime         *string    `json:"PublishTime" db:"publish_time"`
-	ScrapedAt           *time.Time `json:"ScrapedAt" db:"scraped_at"`
-	CompletedAt         *time.Time `json:"CompletedAt" db:"completed_at"`
-	CreatedAt           time.Time  `json:"CreatedAt" db:"created_at"`
-	UpdatedAt           time.Time  `json:"UpdatedAt" db:"updated_at"`
+	ID                 int        `json:"ID" db:"id"`
+	Seq                *string    `json:"DisplayID" db:"seq"`
+	SourceURL          string     `json:"SourceURL" db:"source_url"`
+	SiteID             string     `json:"SiteID" db:"site_id"`
+	ScrapedDomain      string     `json:"ScrapedDomain" db:"scraped_domain"`
+	Title              string     `json:"Title" db:"title"`
+	Protagonist        string     `json:"Protagonist" db:"protagonist"`
+	Description        string     `json:"Description" db:"description"`
+	Category           string     `json:"Category" db:"category"`
+	Tags               []string   `json:"Tags" db:"tags"`
+	CoverURL           string     `json:"CoverURL" db:"cover_url"`
+	CoverLocalPath     string     `json:"CoverLocalPath" db:"cover_local_path"`
+	ImageCount         int        `json:"ImageCount" db:"image_count"`
+	VideoCount         int        `json:"VideoCount" db:"video_count"`
+	PageCount          int        `json:"PageCount" db:"page_count"`
+	Status             string     `json:"Status" db:"status"`
+	ErrorMsg           string     `json:"ErrorMsg" db:"error_msg"`
+	DownloadMethod     string     `json:"DownloadMethod" db:"download_method"`
+	ExpectedImageCount int        `json:"ExpectedImageCount" db:"expected_image_count"`
+	ExpectedVideoCount int        `json:"ExpectedVideoCount" db:"expected_video_count"`
+	ContentVerified    bool       `json:"ContentVerified" db:"content_verified"`
+	SavePath           string     `json:"SavePath" db:"save_path"`
+	TotalSize          int64      `json:"TotalSize" db:"total_size"`
+	DownloadedSize     int64      `json:"DownloadedSize" db:"downloaded_size"`
+	GameCharacters     *string    `json:"GameCharacters" db:"game_characters"`
+	PublishTime        *string    `json:"PublishTime" db:"publish_time"`
+	ScrapedAt          *time.Time `json:"ScrapedAt" db:"scraped_at"`
+	CompletedAt        *time.Time `json:"CompletedAt" db:"completed_at"`
+	CreatedAt          time.Time  `json:"CreatedAt" db:"created_at"`
+	UpdatedAt          time.Time  `json:"UpdatedAt" db:"updated_at"`
 	// Videos is populated on detail responses only (db:"-"); it is not
 	// part of the galleries row scan.
 	Videos []GalleryVideo `json:"Videos" db:"-"`
 }
 
-// GalleryImage tracks a single image within a gallery.
 type GalleryImage struct {
 	ID          int        `json:"id" db:"id"`
 	GalleryID   int        `json:"galleryId" db:"gallery_id"`
@@ -119,7 +114,6 @@ type GalleryImage struct {
 	UpdatedAt   time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
-// GalleryVideo tracks a single video within a gallery.
 type GalleryVideo struct {
 	ID          int        `json:"id" db:"id"`
 	GalleryID   int        `json:"galleryId" db:"gallery_id"`
@@ -137,7 +131,6 @@ type GalleryVideo struct {
 	UpdatedAt   time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
-// GalleryDownloadInfo captures archive download metadata (ZIP/RAR).
 type GalleryDownloadInfo struct {
 	ID                int       `json:"id" db:"id"`
 	GalleryID         int       `json:"galleryId" db:"gallery_id"`
@@ -156,7 +149,7 @@ type GalleryDownloadInfo struct {
 	Status            string    `json:"status" db:"status"`
 	LocalPath         string    `json:"localPath" db:"local_path"`
 	ExtractedPath     string    `json:"extractedPath" db:"extracted_path"`
-	ActualSize       int64      `json:"actualSize" db:"actual_size"`
+	ActualSize        int64     `json:"actualSize" db:"actual_size"`
 	ZipFileName       string    `json:"zipFileName" db:"zip_file_name"`
 	Parallelism       int       `json:"parallelism" db:"parallelism"`
 	AvgSpeed          int       `json:"avgSpeed" db:"avg_speed"`
@@ -166,7 +159,6 @@ type GalleryDownloadInfo struct {
 	UpdatedAt         time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SniffTask records a URL sniffing operation.
 type SniffTask struct {
 	ID           int        `json:"ID" db:"id"`
 	Seq          *string    `json:"DisplayID" db:"seq"`
@@ -190,7 +182,6 @@ type AppConfig struct {
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SiteAccount stores credentials and cookie state for a site login session.
 type SiteAccount struct {
 	ID           int        `json:"id" db:"id"`
 	SiteID       string     `json:"siteId" db:"site_id"`
@@ -208,21 +199,19 @@ type SiteAccount struct {
 	UpdatedAt    time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
-// Person is a named individual in the character database.
 type Person struct {
 	ID           int       `json:"id" db:"id"`
 	Name         string    `json:"name" db:"name"`
 	Pinyin       string    `json:"pinyin" db:"pinyin"`
 	Aliases      string    `json:"aliases" db:"aliases"`
 	Source       string    `json:"source" db:"source"`
-	SourceGame   *string    `json:"sourceGame" db:"source_game"`
+	SourceGame   *string   `json:"sourceGame" db:"source_game"`
 	GalleryCount int       `json:"galleryCount" db:"gallery_count"`
 	Confirmed    bool      `json:"confirmed" db:"confirmed"`
 	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt    time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// BlocklistRule defines a keyword-based gallery filtering rule.
 type BlocklistRule struct {
 	ID        int       `json:"id" db:"id"`
 	SiteID    string    `json:"siteId" db:"site_id"`
@@ -280,7 +269,6 @@ type DownloadHistory struct {
 	UpdatedAt   time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SiteConfigRecord stores runtime-overridable site provider configuration.
 type SiteConfigRecord struct {
 	SiteID              string    `json:"siteId" db:"site_id"`
 	CookiePrefix        string    `json:"cookiePrefix" db:"cookie_prefix"`
@@ -297,7 +285,6 @@ type SiteConfigRecord struct {
 	UpdatedAt           time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// SjsBookmark stores a saved SJS forum thread.
 type SjsBookmark struct {
 	ID           int       `json:"id" db:"id"`
 	URL          string    `json:"url" db:"url"`

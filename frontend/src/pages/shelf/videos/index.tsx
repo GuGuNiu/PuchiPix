@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { toast } from "@/lib/i18n/toast";
 import {
   RefreshCw,
@@ -12,10 +12,12 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { useUrlState, useDebouncedUrlParam } from "@/hooks/use-url-state";
+import { subscribeSseEvent } from "@/lib/sse/shared-sse";
 import GlassSelect from "@/components/ui/glass-select";
 import {
   VIDEO_FILTER_PILLS,
   VIDEO_SORT_OPTIONS,
+  isVideoActivePhase,
   type VideoStatusFilter,
   type VideoSortBy,
   type VideoShelfItem,
@@ -28,7 +30,10 @@ async function fetchVideoShelf(): Promise<VideoShelfItem[]> {
   const res = await fetch("/api/videos");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return Array.isArray(data) ? (data as VideoShelfItem[]) : [];
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid video shelf response");
+  }
+  return data as VideoShelfItem[];
 }
 
 export default function VideosPage(): React.JSX.Element {
@@ -55,36 +60,116 @@ export default function VideosPage(): React.JSX.Element {
   const [videos, setVideos] = useState<VideoShelfItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  /*
-   * The playlist queue lives in the persistent playlist store (survives
-   * reloads); the page only owns whether the player modal is open.
-   */
+  // The queue lives in the persistent store; the page only tracks modal visibility
   const [playerOpen, setPlayerOpen] = useState(false);
   const addToQueue = useVideoPlaylistStore((s) => s.addToQueue);
   const addManyToQueue = useVideoPlaylistStore((s) => s.addManyToQueue);
   const queueCount = useVideoPlaylistStore((s) => s.queueIds.length);
 
-  // Selection mode state (cards toggle selection instead of playing).
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const refreshInFlightRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     try {
       const items = await fetchVideoShelf();
       setVideos(items);
     } catch {
       toast.error("common.failed");
     } finally {
+      refreshInFlightRef.current = false;
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     refresh();
-    // Periodic refresh keeps download progress badges current without SSE.
+    /*
+     * Periodic refresh is the fallback; the SSE subscription below carries
+     * live status/progress updates.
+     */
     const interval = setInterval(refresh, 15000);
     return () => clearInterval(interval);
   }, [refresh]);
+
+  useEffect(() => {
+    /*
+     * Live pipeline updates from the shared /api/tasks/stream: patch the
+     * matching shelf item in place so merge/transcode percentages and
+     * status transitions show without waiting for the 15s poll. Gallery and
+     * sniff payloads carry their own taskType and are ignored. A completed
+     * event triggers a full refresh to pick up the new file (duration,
+     * size, playable state).
+     */
+    const patchStatus = (taskId: number, status: string, progress?: number): void => {
+      setVideos((prev) => {
+        let changed = false;
+        const next = prev.map((v) => {
+          if (v.ID !== taskId) return v;
+          changed = true;
+          return {
+            ...v,
+            Status: status,
+            Progress: progress !== undefined ? progress : v.Progress,
+          };
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    const unsubs = [
+      // Malformed frames are ignored; the 15s poll self-heals.
+      subscribeSseEvent("task:progress", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as {
+            taskId: number;
+            taskType?: string;
+            progress?: number;
+            status?: string;
+          };
+          if (payload.taskType === "gallery" || payload.taskType === "sniff") return;
+          if (!payload.status) return;
+          patchStatus(payload.taskId, payload.status, payload.progress);
+        } catch {
+        }
+      }),
+      subscribeSseEvent("task:completed", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          if (payload.taskType === "gallery" || payload.taskType === "sniff") return;
+          refresh();
+        } catch {
+        }
+      }),
+      subscribeSseEvent("task:failed", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          if (payload.taskType === "gallery" || payload.taskType === "sniff") return;
+          patchStatus(payload.taskId, "failed");
+        } catch {
+        }
+      }),
+      subscribeSseEvent("task:cancelled", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          if (payload.taskType === "gallery" || payload.taskType === "sniff") return;
+          patchStatus(payload.taskId, "cancelled");
+        } catch {
+        }
+      }),
+    ];
+    return () => unsubs.forEach((unsub) => unsub());
+  }, [refresh]);
+
+  useEffect(() => {
+    const available = new Set(videos.filter((video) => video.HasFile).map((video) => video.ID));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => available.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [videos]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: videos.length };
@@ -100,6 +185,12 @@ export default function VideosPage(): React.JSX.Element {
     if (statusFilter !== "all") {
       if (statusFilter === "completed") {
         result = result.filter((v) => v.Status === "completed");
+      } else if (statusFilter === "downloading") {
+        /*
+         * The downloading bucket covers the whole active pipeline,
+         * mirroring the tasks page grouping.
+         */
+        result = result.filter((v) => isVideoActivePhase(v.Status));
       } else {
         result = result.filter((v) => v.Status === statusFilter);
       }
@@ -132,8 +223,6 @@ export default function VideosPage(): React.JSX.Element {
     return sorted;
   }, [videos, statusFilter, searchQuery, sortBy]);
 
-  // ---- Playback ----
-
   const handlePlay = useCallback((video: VideoShelfItem) => {
     if (!video.HasFile) return;
     addToQueue(video.ID, true);
@@ -143,8 +232,6 @@ export default function VideosPage(): React.JSX.Element {
   const openPlayer = useCallback(() => {
     if (queueCount > 0) setPlayerOpen(true);
   }, [queueCount]);
-
-  // ---- Selection ----
 
   const toggleSelectMode = useCallback(() => {
     setSelectMode((prev) => {
@@ -164,12 +251,17 @@ export default function VideosPage(): React.JSX.Element {
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelectedIds(new Set(filteredVideos.map((v) => v.ID)));
+    setSelectedIds(new Set(filteredVideos.filter((v) => v.HasFile).map((v) => v.ID)));
   }, [filteredVideos]);
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
   }, []);
+
+  const playableSelectedCount = useMemo(
+    () => filteredVideos.filter((video) => selectedIds.has(video.ID) && video.HasFile).length,
+    [filteredVideos, selectedIds],
+  );
 
   const playSelected = useCallback(() => {
     const playable = filteredVideos.filter(
@@ -281,7 +373,7 @@ export default function VideosPage(): React.JSX.Element {
             }}
           >
             <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-              {t("video.selectedCount", { count: selectedIds.size })}
+                {t("video.selectedCount", { count: playableSelectedCount })}
             </span>
             <button className="btn btn-outline btn-sm" onClick={selectAll}>
               <CheckSquare size={14} />
@@ -294,11 +386,11 @@ export default function VideosPage(): React.JSX.Element {
             <button
               className="btn btn-primary btn-sm"
               onClick={playSelected}
-              disabled={selectedIds.size === 0}
+                disabled={playableSelectedCount === 0}
               style={{ marginLeft: "auto" }}
             >
               <Play size={14} />
-              {t("video.playSelected", { count: selectedIds.size })}
+               {t("video.playSelected", { count: playableSelectedCount })}
             </button>
           </div>
         )}

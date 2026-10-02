@@ -1,22 +1,18 @@
 package orchestrator
 
 // StatusReporter maps DAG node states back to entity-table statuses
-// (download_tasks / galleries / sniff_tasks), closing the "DB status vs
-// real scheduling state" gap that made every submitted task look like
-// it was actively identifying ("scraping") even when the scheduler had
-// rejected it (queue full) and rolled it back to READY.
+// (download_tasks / galleries / sniff_tasks).
 //
-// Design rule (restored from the 260717 slot-unification design):
-//   - In progress / queued (QUEUED/ALLOCATED/RUNNING) maps to active status
-//     (scraping / downloading / sniffing) — only nodes that truly won a
-//     scheduler slot show as in-progress.
-//   - Waiting / held back (PENDING/READY) maps to "pending" — queue-full
-//     rejections show as waiting, not falsely as "identifying".
-//   - Terminal states map to completed / failed / cancelled / paused
+// Only nodes that actually won a scheduler slot report an in-progress
+// label:
+//   - QUEUED / ALLOCATED / RUNNING map to the active status for the node's
+//     phase (scraping / downloading / sniffing).
+//   - PENDING / READY map to "pending", so a queue-full rejection reads as
+//     waiting instead of as if work had already started.
+//   - Terminal states map to completed / failed / cancelled / paused.
 //
-// The phase / executor of the node determines WHICH in-progress label
-// applies: video M3U8 identification occupies the scraping slot and
-// reports "scraping"; the download phase reports "downloading".
+// Video M3U8 identification occupies the scraping slot and reports
+// "scraping", while the download phase reports "downloading".
 type StatusReporter struct{}
 
 // MapNodeToEntityStatus converts a node's FSM state into the entity
@@ -26,22 +22,20 @@ type StatusReporter struct{}
 func (r *StatusReporter) MapNodeToEntityStatus(def DagNodeDefinition, state NodeState) (string, bool) {
 	switch state {
 	case NodeStateQueued, NodeStateAllocated, NodeStateRunning:
-		// Post-processing nodes (extract/verify — PhaseFinalize) never
-		// drive the entity status for in-progress states: by the time they
-		// run, the download executor has already written the outcome
-		// (completed / partial / failed with sizes). Letting their QUEUED/
-		// RUNNING transitions write "downloading" REGRESSED that terminal
-		// write — the "100% + downloading forever" defect (260820). The
-		// DAG-level guard rail (checkDagCompletion) remains the backstop.
+		// Post-processing nodes (extract/verify — PhaseFinalize) never drive
+		// the entity status for in-progress states: the download executor
+		// has already written the terminal outcome by then, so a
+		// QUEUED/RUNNING write here would regress it back to "downloading"
+		// and pin the task at 100% while still reported as running.
 		if def.Phase == PhaseFinalize {
 			return "", false
 		}
 		return r.inProgressStatus(def), true
 	case NodeStateReady, NodeStatePending:
-		// READY = rejected by the scheduler (queue full) or paused-and-
-		// resumed; the node is waiting for capacity. Report "pending".
-		// Finalize nodes are excluded for the same regression reason as
-		// above (a rolled-back extract must not flip completed → pending).
+		// READY means the scheduler rejected the node (queue full) or it was
+		// paused and resumed, so it is waiting for capacity. Finalize nodes
+		// are excluded for the same regression reason as above: a rolled-back
+		// extract must not flip completed back to pending.
 		if def.Phase == PhaseFinalize {
 			return "", false
 		}
@@ -63,7 +57,6 @@ func (r *StatusReporter) MapNodeToEntityStatus(def DagNodeDefinition, state Node
 	case NodeStateCancelled:
 		return "cancelled", true
 	default:
-		// verifying / resume_verify / internal states: no entity write.
 		return "", false
 	}
 }
@@ -83,7 +76,6 @@ func (r *StatusReporter) inProgressStatus(def DagNodeDefinition) string {
 	case "sniff":
 		return "sniffing"
 	}
-	// Fall back on phase for executors without a dedicated slot type.
 	switch def.Phase {
 	case PhaseScrape:
 		return "scraping"
@@ -99,7 +91,6 @@ func (r *StatusReporter) inProgressStatus(def DagNodeDefinition) string {
 	}
 }
 
-// NewStatusReporter returns a shared StatusReporter (stateless).
 func NewStatusReporter() *StatusReporter {
 	return &StatusReporter{}
 }

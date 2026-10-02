@@ -13,10 +13,14 @@ import (
 
 type logsCommand struct{}
 
-func (logsCommand) Name() string        { return "logs" }
-func (logsCommand) Description() string { return "View real-time system logs (filter by DAG/module/trace)" }
-func (logsCommand) Usage() string       { return "puchipix-cli logs [--dag=<dagId>] [--node=<nodeId>] [--trace=<traceId>] [--module=<name>] [--level=<debug|info|warn|error>]" }
-func (logsCommand) Aliases() []string   { return nil }
+func (logsCommand) Name() string { return "logs" }
+func (logsCommand) Description() string {
+	return "View real-time system logs (filter by DAG/module/trace)"
+}
+func (logsCommand) Usage() string {
+	return "puchipix-cli logs [--dag=<dagId>] [--node=<nodeId>] [--trace=<traceId>] [--module=<name>] [--level=<debug|info|warn|error>]"
+}
+func (logsCommand) Aliases() []string { return nil }
 
 func (logsCommand) Execute(ctx CommandContext) error {
 	filter := dagclient.LogQueryFilter{

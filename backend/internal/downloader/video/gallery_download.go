@@ -49,13 +49,11 @@ type GalleryVideoOptions struct {
 	OnProgress GalleryVideoProgressFn
 }
 
-// GalleryDownloadVideo downloads an M3U8 video stream into saveDir and merges
-// segments into an MP4 file at outputPath. It uses the unified M3U8 pipeline
-// shared with the independent video pipeline for consistent Referer handling
-// and CDN anti-hotlink fallback.
+// GalleryDownloadVideo downloads an M3U8 stream into saveDir and merges the
+// segments into an MP4 file at outputPath.
 //
-// The caller must decode any MacCMS-encoded URL before calling. The referer
-// must be the gallery page URL, not the M3U8 URL itself (CDNs reject this).
+// The m3u8URL must already be decoded from any MacCMS encoding, and referer
+// must be the gallery page URL rather than the M3U8 URL, which CDNs reject.
 func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, referer string, refererDomains []string, opts GalleryVideoOptions) error {
 	fetchResult, err := FetchAndParseM3U8(ctx, m3u8URL, M3U8FetchOptions{
 		Referer:         referer,
@@ -65,9 +63,8 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		return fmt.Errorf("fetch M3U8 playlist: %w", err)
 	}
 
-	// Announce the discovered segment count so the gallery pipeline can
-	// add it to its progress denominator the moment it is known (rather
-	// than waiting until the whole video finishes).
+	// Publishing the segment count as soon as the playlist is parsed lets
+	// the gallery pipeline widen its progress denominator immediately.
 	totalSegs := len(fetchResult.Segments)
 	var segMu sync.Mutex
 	var doneSegs int
@@ -83,15 +80,15 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		return fmt.Errorf("create segments dir: %w", mkdirErr)
 	}
 
-	// A re-run against the same saveDir must not mix old-variant segments
-	// into the new merge — wipe the cache when the playlist changed.
+	// Reusing the same saveDir must not mix old-variant segments into the
+	// new merge, so a changed playlist clears the cache.
 	if EnsurePlaylistFingerprint(segDir, fetchResult.Segments) {
 		m3u8Logger.Warn("Playlist changed since last run, segment cache reset",
 			infra.LogContext{Extra: map[string]any{"output": outputPath}})
 	}
 
-	// Use the effective referer (accepted by the CDN) for all segment downloads
-	// to avoid repeated 403 failures.
+	// The referer accepted during the M3U8 fetch is reused for segments,
+	// which avoids repeated 403 rejections from the CDN.
 	segmentConcurrent := opts.SegmentConcurrent
 	if segmentConcurrent <= 0 {
 		segmentConcurrent = 10
@@ -110,8 +107,8 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		},
 	})
 
-	if err := CheckSegmentFailureThreshold(batchResult); err != nil {
-		return err
+	if len(batchResult.Failed) > 0 {
+		return fmt.Errorf("incomplete segment download: %d/%d segments failed", len(batchResult.Failed), batchResult.Total)
 	}
 
 	gpuInfo := DetectGPU()
@@ -120,8 +117,9 @@ func GalleryDownloadVideo(ctx context.Context, m3u8URL, saveDir, outputPath, ref
 		forceType = string(gpuInfo.Type)
 	}
 	transcodeOpts := TranscodeOptions{
-		UseGPU:       opts.UseGPU && gpuInfo.SupportsHWTranscode(),
-		ForceGPUType: forceType,
+		UseGPU:           opts.UseGPU && gpuInfo.SupportsHWTranscode(),
+		ForceGPUType:     forceType,
+		ExpectedDuration: SumSegmentDurations(fetchResult.Segments),
 	}
 	manifest := SegmentManifest(fetchResult.Segments)
 	if transcodeErr := TranscodeTSWithFallback(ctx, segDir, outputPath, manifest, transcodeOpts); transcodeErr != nil {

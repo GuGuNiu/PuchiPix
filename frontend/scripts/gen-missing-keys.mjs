@@ -1,6 +1,4 @@
-/**
- * Generate the missing-key worksheet (zh-CN source text as reference).
- */
+// Generates the missing-key worksheet, using the zh-CN source text as reference.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

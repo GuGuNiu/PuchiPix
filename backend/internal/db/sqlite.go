@@ -35,9 +35,9 @@ type Database struct {
 	logger *infra.Logger
 }
 
-// NewDatabase opens a SQLite file at dbPath, applies WAL-mode PRAGMAs,
-// and returns a ready Database handle. The parent directory is created
-// if it does not exist so first-run startup is zero-config.
+// NewDatabase opens a SQLite file at dbPath, applies WAL-mode PRAGMAs, and
+// returns a ready handle. The parent directory is created when missing so a
+// first run needs no manual setup.
 func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 	if dbPath == "" {
 		return nil, fmt.Errorf("database path must not be empty")
@@ -55,12 +55,11 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 		}
 	}
 
-	// Use DSN-level PRAGMAs so EVERY connection in the pool inherits
-	// busy_timeout and other per-connection settings. With MaxOpenConns > 1,
-	// db.Exec("PRAGMA ...") only sets the pragma on the connection that
-	// services that call — new pool connections get default values and
-	// hit SQLITE_BUSY immediately on write contention instead of waiting.
-	// modernc.org/sqlite supports _pragma=NAME(VALUE) query parameters.
+	// DSN-level PRAGMAs, so every pooled connection inherits busy_timeout
+	// and the other per-connection settings. db.Exec("PRAGMA ...") only
+	// affects the one connection that services the call, and later pool
+	// connections fall back to defaults that fail with SQLITE_BUSY instead
+	// of waiting. modernc.org/sqlite exposes _pragma=NAME(VALUE) parameters.
 	dsn := dbPath +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +
@@ -88,12 +87,10 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 		}
 	}
 
-	// Allow concurrent read connections. WAL mode permits multiple
-	// readers alongside a single writer; the busy_timeout pragma
-	// handles write contention gracefully. With MaxOpenConns(1) every
-	// query — including reads — serialized behind any in-flight write,
-	// which caused multi-second stalls when the scheduler, event
-	// handlers, and API all competed for the single connection.
+	// WAL permits multiple readers alongside a single writer and
+	// busy_timeout absorbs write contention. MaxOpenConns(1) would instead
+	// queue reads behind any in-flight write, so the scheduler, event
+	// handlers, and API handlers would stall each other for seconds.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 	db.SetConnMaxIdleTime(5 * time.Minute)
@@ -105,12 +102,8 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
-	// Auto-migrate: create tables if they don't exist.
-	// Uses a separate, longer timeout so large schema files (16+ tables,
-	// 20+ indexes) do not get cut short by the 5-second Ping timeout.
-	// Fixes the bug where the server starts with an empty database
-	// (only PRAGMAs applied) but no schema tables, causing all
-	// gallery/task queries to fail with HTTP 500.
+	// A dedicated 30s budget keeps large schema files (16+ tables, 20+
+	// indexes) from being cut short by the 5s ping timeout above.
 	schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer schemaCancel()
 	if err := applySchema(schemaCtx, db); err != nil {
@@ -122,11 +115,8 @@ func NewDatabase(dbPath string, logger *infra.Logger) (*Database, error) {
 	return &Database{DB: db, logger: logger}, nil
 }
 
-// applySchema reads the embedded migration files and executes them
-// idempotently (all statements use IF NOT EXISTS). Each SQL file is
-// split into individual statements and executed one at a time, so a
-// failure in one table/index creation does not mask the exact location
-// (the error includes the failed SQL snippet).
+// applySchema executes the embedded migration files, each of which is
+// idempotent because every statement uses IF NOT EXISTS.
 func applySchema(ctx context.Context, db *sql.DB) error {
 	type migration struct {
 		name string
@@ -144,7 +134,51 @@ func applySchema(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
+
+	// Column backfills for databases created before a column existed:
+	// CREATE TABLE IF NOT EXISTS leaves old tables untouched, so each
+	// added column is ensured here idempotently.
+	ensureColumns := []struct{ table, column, ddl string }{
+		{"download_tasks", "file_size", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, c := range ensureColumns {
+		if err := ensureColumn(ctx, db, c.table, c.column, c.ddl); err != nil {
+			return fmt.Errorf("ensure column %s.%s: %w", c.table, c.column, err)
+		}
+	}
 	return nil
+}
+
+// ensureColumn adds the column to the table when missing. PRAGMA
+// table_info drives the check, so repeated opens are no-ops.
+func ensureColumn(ctx context.Context, db *sql.DB, table, column, ddl string) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	exists := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			exists = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if exists {
+		return nil
+	}
+	_, err = db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" "+ddl)
+	return err
 }
 
 // mustReadEmbed reads an embedded file, panicking on error so the
@@ -157,15 +191,13 @@ func mustReadEmbed(fs embed.FS, name string) []byte {
 	return data
 }
 
-// execSQLStatements splits a SQL script on semicolons and executes each
-// non-empty statement individually. This gives precise error location
-// (filename + failed SQL snippet) compared to a single ExecContext that
-// may return a generic "near line N" error without identifying the file.
+// execSQLStatements splits a SQL script on semicolons and runs each
+// non-empty statement on its own, so a failure reports the filename and the
+// failing snippet instead of a bare "near line N".
 //
-// Handles schema drift: if an INDEX or FK references a column that does
-// not yet exist (common when a pre-existing database was created from an
-// older schema version), it attempts to ALTER TABLE ADD COLUMN with a
-// sensible default type, then retries the failed statement.
+// Schema drift: when an INDEX or FK names a column that does not exist yet
+// (a database created from an older schema), a missing column is added
+// before the statement is retried.
 func execSQLStatements(ctx context.Context, db *sql.DB, filename, script string) error {
 	statements := splitSQL(script)
 	for i, stmt := range statements {
@@ -174,8 +206,6 @@ func execSQLStatements(ctx context.Context, db *sql.DB, filename, script string)
 			continue
 		}
 		if _, err := db.ExecContext(ctx, trimmed); err != nil {
-			// Attempt to recover from "no such column" errors by
-			// adding the missing column and retrying.
 			if tryAddMissingColumn(ctx, db, trimmed, err) {
 				if _, retryErr := db.ExecContext(ctx, trimmed); retryErr != nil {
 					return fmt.Errorf("%s statement %d (retry failed): %w\nSQL: %s",
@@ -190,7 +220,6 @@ func execSQLStatements(ctx context.Context, db *sql.DB, filename, script string)
 	return nil
 }
 
-// truncateSQL shortens a SQL statement for error messages.
 func truncateSQL(s string) string {
 	if len(s) > 120 {
 		return s[:120] + "..."
@@ -233,13 +262,10 @@ func tryAddMissingColumn(ctx context.Context, db *sql.DB, sqlStmt string, origEr
 		return false
 	}
 
-	// Attempt to add the column. Ignore "duplicate column name" errors
-	// (column already exists).
 	alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s TEXT", tableName, colName)
 	if _, err := db.ExecContext(ctx, alterSQL); err != nil {
-		// If the column already exists, the ALTER fails but the
-		// original CREATE INDEX will also fail — return false so
-		// the caller reports the original error.
+		// A failed ALTER means the retry will fail too, so report the
+		// original error instead of the ALTER failure.
 		return false
 	}
 	return true
@@ -279,7 +305,7 @@ func splitSQL(script string) []string {
 	return out
 }
 
-// Close releases the database handle. Safe to call multiple times.
+// Close releases the database handle. Repeated calls are a no-op.
 func (db *Database) Close() {
 	if db.DB != nil {
 		db.DB.Close()

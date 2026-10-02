@@ -11,7 +11,6 @@ import (
 // It focuses on M3U8 sniffing rather than gallery image extraction.
 type Provider struct{}
 
-// NewProvider creates a Universal provider instance.
 func NewProvider() *Provider {
 	return &Provider{}
 }
@@ -66,8 +65,6 @@ func (p *Provider) IsListingPage(_ string) bool {
 	return false
 }
 
-// ScrapePage delegates to the M3U8 sniffing scraper, returning a
-// ScrapeResult suitable for creating video download tasks.
 func (p *Provider) ScrapePage(ctx context.Context, pageURL string) (*sites.ScrapeResult, error) {
 	return ScrapePage(ctx, pageURL)
 }

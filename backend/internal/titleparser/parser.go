@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -13,11 +14,13 @@ import (
 
 // ParseResult holds the output of title parsing.
 type ParseResult struct {
-	Protagonist    string   // recognized model/character name(s), joined by "与"
-	Description    string   // remaining part of title after removing protagonist
-	GameCharacters []string
-	Segments       []string
-	Confidence     float64
+	Protagonist      string
+	Description      string
+	GameCharacters   []string
+	RecognizedModels []string
+	Segments         []string
+	Confidence       float64
+	KnownMatch       bool
 }
 
 // ModelEntry is a read-only view of a cosplay model for matching.
@@ -29,18 +32,18 @@ type ModelEntry struct {
 
 // GameCharEntry is a read-only view of a game character for matching.
 type GameCharEntry struct {
-	Name      string   `json:"name"`
-	Pinyin    string   `json:"pinyin"`
-	Aliases   []string `json:"aliases"`
-	GameName  string   `json:"game_name"`
-	GameEn    string   `json:"game_name_en"`
+	Name     string   `json:"name"`
+	Pinyin   string   `json:"pinyin"`
+	Aliases  []string `json:"aliases"`
+	GameName string   `json:"game_name"`
+	GameEn   string   `json:"game_name_en"`
 }
 
 // segInfo holds classification results for a single title segment.
 type segInfo struct {
 	text       string
 	isModel    bool
-	modelName  string   // canonical model name
+	modelName  string // canonical model name
 	isGameChar bool
 	gameChars  []string // game character names
 	isCount    bool     // photo/video count
@@ -52,8 +55,8 @@ type segInfo struct {
 // data to be loaded via LoadModels / LoadGameCharacters before use.
 type Parser struct {
 	mu     sync.RWMutex
-	models map[string]*ModelEntry     // keyed by lowercase name
-	chars  map[string]*GameCharEntry  // keyed by lowercase name
+	models map[string]*ModelEntry    // keyed by lowercase name
+	chars  map[string]*GameCharEntry // keyed by lowercase name
 
 	modelAliasIndex map[string]string // lowercase alias → canonical name
 	charAliasIndex  map[string]string // lowercase alias → canonical name
@@ -87,33 +90,33 @@ func New() *Parser {
 	}
 }
 
-// LoadModels populates the parser's model database from a slice of entries.
-// Thread-safe; can be called at any time.
-// Also builds a 2-rune prefix inverted index for fast substring matching.
+// LoadModels populates the parser's model database from a slice of entries and
+// builds a 2-rune prefix inverted index for fast substring matching. It takes
+// the parser lock, so it may be called at any time, including while parsing.
 func (p *Parser) LoadModels(models []ModelEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range models {
+		models[i].Name = xutil.CleanText(models[i].Name)
+		models[i].Pinyin = xutil.CleanText(models[i].Pinyin)
+		models[i].Aliases = xutil.CleanActorList(models[i].Aliases)
 		m := &models[i]
-		key := strings.ToLower(m.Name)
+		if m.Name == "" {
+			continue
+		}
+		key := xutil.MetadataKey(m.Name)
 		p.models[key] = m
 		for _, alias := range m.Aliases {
-			ak := strings.ToLower(alias)
+			ak := xutil.MetadataKey(alias)
 			if ak == "" || ak == key {
 				continue
 			}
 			if _, exists := p.modelAliasIndex[ak]; !exists {
 				p.modelAliasIndex[ak] = m.Name
 			}
-		}
-		p.addToPrefixIndex(p.modelPrefixIndex, key)
-		for _, alias := range m.Aliases {
-			ak := strings.ToLower(alias)
-			if ak == "" || ak == key {
-				continue
-			}
 			p.addToPrefixIndex(p.aliasPrefixIndex, ak)
 		}
+		p.addToPrefixIndex(p.modelPrefixIndex, key)
 	}
 }
 
@@ -145,17 +148,23 @@ func extractPrefixes(s string, n int) []string {
 	return result
 }
 
-// LoadGameCharacters populates the parser's game character database.
-// Thread-safe; can be called at any time.
+// LoadGameCharacters populates the parser's game character database. It takes
+// the parser lock, so it may be called at any time, including while parsing.
 func (p *Parser) LoadGameCharacters(chars []GameCharEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range chars {
+		chars[i].Name = xutil.CleanText(chars[i].Name)
+		chars[i].Pinyin = xutil.CleanText(chars[i].Pinyin)
+		chars[i].Aliases = xutil.CleanActorList(chars[i].Aliases)
 		c := &chars[i]
-		key := strings.ToLower(c.Name)
+		if c.Name == "" {
+			continue
+		}
+		key := xutil.MetadataKey(c.Name)
 		p.chars[key] = c
 		for _, alias := range c.Aliases {
-			ak := strings.ToLower(alias)
+			ak := xutil.MetadataKey(alias)
 			if ak == "" || ak == key {
 				continue
 			}
@@ -166,7 +175,6 @@ func (p *Parser) LoadGameCharacters(chars []GameCharEntry) {
 	}
 }
 
-// Parse runs the full parsing pipeline on a title.
 // rawTitle should already have publisher prefixes/suffixes stripped.
 func (p *Parser) Parse(rawTitle string) *ParseResult {
 	if strings.TrimSpace(rawTitle) == "" {
@@ -178,10 +186,9 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 
 	result := &ParseResult{Confidence: 0}
 
-	// Remove brackets [xxx] and cosplay preamble prefixes
 	title := regexp.MustCompile(`^\[.*?\]\s*`).ReplaceAllString(rawTitle, "")
 	title = StripCosplayPreamble(title)
-	title = strings.TrimSpace(title)
+	title = xutil.CleanText(title)
 	if title == "" {
 		return result
 	}
@@ -198,14 +205,14 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 		infos[i] = p.classifySegment(seg)
 	}
 
-	// "与"/"和" at segment start indicates dual-person: segment N-1 is
-	// model A, segment N (after stripping prefix) is model B.
-	protagonists := p.detectProtagonists(segments, infos)
+	protagonists, recognizedModels := p.detectProtagonists(segments, infos)
 
 	gameChars := p.extractGameCharacters(segments, infos)
 	description := p.buildDescription(segments, infos, protagonists)
 
 	result.Protagonist = strings.Join(protagonists, "与")
+	result.RecognizedModels = append([]string(nil), recognizedModels...)
+	result.KnownMatch = len(recognizedModels) > 0
 	result.Description = description
 	result.GameCharacters = gameChars
 	if len(protagonists) > 0 {
@@ -213,6 +220,60 @@ func (p *Parser) Parse(rawTitle string) *ParseResult {
 	}
 
 	return result
+}
+
+func (p *Parser) RecognizeModels(rawTitle string) []string {
+	parsed := p.Parse(rawTitle)
+	if parsed == nil || !parsed.KnownMatch {
+		return nil
+	}
+	return append([]string(nil), parsed.RecognizedModels...)
+}
+
+func (p *Parser) NormalizeActors(values []string, title string) []string {
+	cleaned := xutil.CleanActorList(values)
+	titleModels := p.RecognizeModels(title)
+
+	p.mu.RLock()
+	actors := make([]string, 0, len(cleaned)+len(titleModels))
+	for _, actor := range cleaned {
+		if name, ok := p.scoredMatch(actor); ok {
+			actors = append(actors, name)
+			continue
+		}
+		if characters := p.matchGameChar(actor); len(characters) > 0 {
+			actors = append(actors, characters...)
+			continue
+		}
+		actors = append(actors, actor)
+	}
+	p.mu.RUnlock()
+
+	return xutil.MergeMetadata(actors, titleModels)
+}
+
+func (p *Parser) RemoveActorsFromTags(tags, actors []string) []string {
+	excluded := append([]string(nil), actors...)
+	p.mu.RLock()
+	for _, actor := range actors {
+		key := xutil.MetadataKey(actor)
+		if name, ok := p.modelAliasIndex[key]; ok {
+			key = xutil.MetadataKey(name)
+		}
+		if model, ok := p.models[key]; ok {
+			excluded = append(excluded, model.Name)
+			excluded = append(excluded, model.Aliases...)
+		}
+		if name, ok := p.charAliasIndex[key]; ok {
+			key = xutil.MetadataKey(name)
+		}
+		if character, ok := p.chars[key]; ok {
+			excluded = append(excluded, character.Name)
+			excluded = append(excluded, character.Aliases...)
+		}
+	}
+	p.mu.RUnlock()
+	return xutil.RemoveMetadataValues(tags, excluded)
 }
 
 func (p *Parser) classifySegment(seg string) segInfo {
@@ -235,7 +296,6 @@ func (p *Parser) classifySegment(seg string) segInfo {
 		return info
 	}
 
-	// Model DB: exact → substring → pinyin
 	if name, ok := p.scoredMatch(seg); ok {
 		info.isModel = true
 		info.modelName = name
@@ -252,7 +312,7 @@ func (p *Parser) classifySegment(seg string) segInfo {
 }
 
 func (p *Parser) matchGameChar(seg string) []string {
-	lower := strings.ToLower(seg)
+	lower := xutil.MetadataKey(seg)
 	var found []string
 
 	if c, ok := p.chars[lower]; ok {
@@ -260,12 +320,11 @@ func (p *Parser) matchGameChar(seg string) []string {
 	}
 
 	if name, ok := p.charAliasIndex[lower]; ok {
-		if c, ok2 := p.chars[strings.ToLower(name)]; ok2 {
+		if c, ok2 := p.chars[xutil.MetadataKey(name)]; ok2 {
 			return []string{c.Name}
 		}
 	}
 
-	// Require ≥2 runes to filter out single-CJK-character names that cause false positives
 	for key, c := range p.chars {
 		if utf8.RuneCountInString(key) >= 2 && strings.Contains(lower, key) {
 			found = append(found, c.Name)
@@ -273,7 +332,7 @@ func (p *Parser) matchGameChar(seg string) []string {
 	}
 	for alias, name := range p.charAliasIndex {
 		if utf8.RuneCountInString(alias) >= 2 && strings.Contains(lower, alias) {
-			if c, ok := p.chars[strings.ToLower(name)]; ok {
+			if c, ok := p.chars[xutil.MetadataKey(name)]; ok {
 				dup := false
 				for _, f := range found {
 					if f == c.Name {
@@ -288,6 +347,7 @@ func (p *Parser) matchGameChar(seg string) []string {
 		}
 	}
 
+	sort.Strings(found)
 	return found
 }
 
@@ -305,30 +365,30 @@ func (p *Parser) containsGameName(seg string) bool {
 	return false
 }
 
-func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string {
+func (p *Parser) detectProtagonists(segments []string, infos []segInfo) ([]string, []string) {
 	var protagonists []string
+	var recognizedModels []string
 
 	for i := range segments {
 		seg := segments[i]
 
-		// Check for "&" dual-person pattern on the FIRST segment
-		// BEFORE model classification. A segment like "奈汐酱nice & 奶桃"
-		// would be classified as isModel (matching "奈汐酱nice") and
-		// skip the & handler via continue. By checking & first, we
-		// split and match both parts.
 		if i == 0 {
 			if idx := strings.Index(seg, "&"); idx > 0 {
 				partA := strings.TrimSpace(seg[:idx])
 				partB := strings.TrimSpace(seg[idx+1:])
 				if partA != "" && partB != "" && isPlausibleModelName(partA) {
-					if nameA, ok := p.matchModelInText(partA); ok {
+					nameA, matchedA := p.matchModelInText(partA)
+					nameB, matchedB := p.matchModelInText(partB)
+					if matchedA {
 						protagonists = append(protagonists, nameA)
-					} else if isPlausibleModelName(partA) {
+						recognizedModels = append(recognizedModels, nameA)
+					} else {
 						protagonists = append(protagonists, partA)
 					}
-					if nameB, ok := p.matchModelInText(partB); ok {
+					if matchedB {
 						protagonists = append(protagonists, nameB)
-					} else if isPlausibleModelName(partB) {
+						recognizedModels = append(recognizedModels, nameB)
+					} else {
 						protagonists = append(protagonists, partB)
 					}
 					continue
@@ -341,6 +401,7 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 				continue
 			}
 			protagonists = append(protagonists, infos[i].modelName)
+			recognizedModels = append(recognizedModels, infos[i].modelName)
 			continue
 		}
 
@@ -348,6 +409,7 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 			dualPart := strings.TrimSpace(m[1])
 			if name, ok := p.matchModelInText(dualPart); ok {
 				protagonists = append(protagonists, name)
+				recognizedModels = append(recognizedModels, name)
 				continue
 			}
 		}
@@ -357,22 +419,15 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 			partB := strings.TrimSpace(seg[idx+utf8.RuneLen('与'):])
 			if nameA, ok := p.matchModelInText(partA); ok {
 				protagonists = append(protagonists, nameA)
+				recognizedModels = append(recognizedModels, nameA)
 			}
 			if nameB, ok := p.matchModelInText(partB); ok {
 				protagonists = append(protagonists, nameB)
+				recognizedModels = append(recognizedModels, nameB)
 			}
 		}
-
 	}
 
-	// Fallback: if no model found via segment classification, try
-	// substring matching. For the first segment, accept any match.
-	// For later segments, only accept matches where the model name
-	// appears at the START of the segment — this prevents finding
-	// unrelated models mentioned mid-description (e.g. "绫地宁宁"
-	// in "大三在读女大学生 绫地宁宁&浊心斯卡蒂") while still
-	// catching models in later segments when they're at the head
-	// (e.g. "蠢沫沫" in "蠢沫沫奇遇记_102P_写真合集").
 	if len(protagonists) == 0 {
 		for i, seg := range segments {
 			if name, ok := p.matchModelInText(seg); ok {
@@ -380,14 +435,12 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 					continue
 				}
 				protagonists = append(protagonists, name)
+				recognizedModels = append(recognizedModels, name)
 				break
 			}
 		}
 	}
 
-	// Heuristic fallback: cosplay titles consistently place the model name
-	// before the first separator. Only check the first non-classified segment
-	// to avoid false positives from description/costume segments.
 	if len(protagonists) == 0 && len(segments) >= 2 {
 		if !infos[0].isGameChar && !infos[0].isCount && !infos[0].isCosTag {
 			if isPlausibleModelName(segments[0]) {
@@ -396,7 +449,7 @@ func (p *Parser) detectProtagonists(segments []string, infos []segInfo) []string
 		}
 	}
 
-	return xutil.UniqueStrings(protagonists, false)
+	return xutil.UniqueStrings(protagonists, false), xutil.UniqueStrings(recognizedModels, false)
 }
 
 func (p *Parser) matchModelInText(text string) (string, bool) {
@@ -494,9 +547,9 @@ func (p *Parser) calcConfidence(segments []string, infos []segInfo, protagonists
 	return conf
 }
 
-// StripCosplayPreamble removes known cosplay-preamble prefixes from
-// the beginning of a title. Prefixes like "COS福利", "Cosplay", "Coser"
-// are site-added metadata, not part of the model name or description.
+// StripCosplayPreamble removes known cosplay-preamble prefixes from the
+// beginning of a title. These prefixes are site-added metadata, not part of
+// the model name or the description.
 func StripCosplayPreamble(title string) string {
 	preambles := []string{
 		"Cosplay", "COSPLAY", "cosplay",
@@ -511,8 +564,8 @@ func StripCosplayPreamble(title string) string {
 				return strings.TrimSpace(rest)
 			}
 			next := firstRune(rest)
-			// Strip if next char is not alpha-num, or if the boundary
-			// crosses script families (e.g. CJK preamble → Latin model).
+			// A preamble prefix only ends at a script boundary, otherwise
+			// short Latin preambles would truncate real model names.
 			if !isAlphaNum(next) || scriptOf(next) != scriptOf(lastRune(p)) {
 				return strings.TrimSpace(rest)
 			}

@@ -19,7 +19,6 @@ func TestSSEStormAggregation(t *testing.T) {
 	}
 	defer stream.Close()
 
-	// Wait for writerLoop to start
 	time.Sleep(50 * time.Millisecond)
 
 	// Simulate 1400 tasks emitting events at once
@@ -27,7 +26,6 @@ func TestSSEStormAggregation(t *testing.T) {
 	var sentCount atomic.Int64
 	var wg sync.WaitGroup
 
-	// Send concurrently (task storm)
 	for i := 0; i < totalEvents; i++ {
 		wg.Add(1)
 		go func(idx int) {
@@ -104,7 +102,6 @@ func TestSSEQueueExpansion(t *testing.T) {
 	}
 	defer stream.Close()
 
-	// Queue capacity must be >= 4096
 	queueCap := cap(stream.queue)
 	t.Logf("Queue capacity: %d", queueCap)
 
@@ -169,7 +166,6 @@ func TestSSEAggregatorFlush(t *testing.T) {
 		})
 	}
 
-	// Flush manually
 	stream.aggregator.flush()
 
 	time.Sleep(100 * time.Millisecond)
@@ -189,7 +185,6 @@ func BenchmarkSSEStorm(b *testing.B) {
 			b.Fatal("Failed to create SSE stream")
 		}
 
-		// Send 1000 events
 		for j := 0; j < 1000; j++ {
 			stream.TrySendEvent("dag:nodeStateChanged", map[string]any{
 				"dagID":  "test",

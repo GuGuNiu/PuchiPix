@@ -22,7 +22,7 @@ export function TaskDetailPopover({
 
   if (expandedTask === null) return null;
 
-  const task = tasks.find((t) => (t.DisplayID ?? String(t.ID)) === expandedTask);
+  const task = tasks.find((t) => `${t.TaskType || "video"}-${t.ID}` === expandedTask);
   if (!task) return null;
 
   const isGalleryTask = task.TaskType === "gallery";
@@ -181,40 +181,12 @@ export function TaskDetailPopover({
                 </span>
               </div>
             )}
-            {isGalleryTask && task.GalleryTitle && (
-              <div className="task-detail-item full-width">
-                <span className="task-detail-label">{t("tasks.detailTags")}</span>
-                <span className="task-detail-value">
-                  {task.GalleryTitle ? (
-                    <div className="task-detail-tags">
-                      {task.GalleryTitle.split(/[\s\-_,]+/).filter((tag: string) => tag.length > 1 && !/\d+P/i.test(tag)).slice(0, 8).map((tag: string) => (
-                        <span
-                          key={tag}
-                          className="pill pill-clickable"
-                          onClick={() => {
-                            navigator.clipboard.writeText(tag);
-                            toast.success("common.copied");
-                          }}
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : "—"}
-                </span>
-              </div>
-            )}
-            {!isGalleryTask && (
+            {!isSniffTask && (
               <div className="task-detail-row full-width">
                 <div className="task-detail-item task-detail-item-flex">
                   <span className="task-detail-label">{t("tasks.detailTags")}</span>
                   <span className="task-detail-value">
                     {(() => {
-                      /*
-                       * ResolveTaskTags: VideoInfo.Tags (detail fetch) first,
-                       * then the top-level Tags passthrough (SSE/list), with
-                       * defensive JSON-string decoding in between.
-                       */
                       const tags = resolveTaskTags(task);
                       if (tags.length === 0) return "—";
                       return (
@@ -240,12 +212,6 @@ export function TaskDetailPopover({
                   <span className="task-detail-label">{t("tasks.detailActors")}</span>
                   <span className="task-detail-value">
                     {(() => {
-                      /*
-                       * ResolveTaskActors falls back through VideoInfo →
-                       * Actors passthrough → Person so the actor (e.g.
-                       * "Xinxinzi" for #HSYZH3) always renders in the
-                       * actors row — never inside the tags row above.
-                       */
                       const actors = resolveTaskActors(task);
                       if (actors.length === 0) return "—";
                       return (

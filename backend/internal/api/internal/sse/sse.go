@@ -55,41 +55,41 @@ type SSEStream struct {
 
 	writeTimeout time.Duration
 
-	dropped uint64
-	mu      sync.Mutex
+	dropped   uint64
+	mu        sync.Mutex
+	closeOnce sync.Once
 
-	// Batch aggregator: under event bursts, merge fine-grained events into summaries
 	aggregator *sseAggregator
 }
 
 // sseAggregator batches events into aggregate summaries during storms
-// (e.g. 1400+ tasks resuming at once), preventing SSE queue overflow and frontend lag.
+// (e.g. 1400+ tasks resuming at once), preventing SSE queue overflow and
+// frontend lag.
 type sseAggregator struct {
 	mu       sync.Mutex
 	events   []sseEvent
 	timer    *time.Timer
 	stream   *SSEStream
-	aggCount atomic.Int64 // aggregation trigger count
+	aggCount atomic.Int64
 }
 
-// TryGetAggCount returns the aggregation trigger count (for monitoring).
 func (a *sseAggregator) TryGetAggCount() int64 {
 	return a.aggCount.Load()
 }
 
 const (
-	sseQueueSize       = 4096  // grew 256 → 4096 for task storms
+	sseQueueSize       = 4096 // sized for task storms
 	sseWriteTimeout    = 30 * time.Second
 	sseDrainTimeout    = 2 * time.Second
 	sseSyncWaitTimeout = 5 * time.Second
 	SseRetryDelayMs    = 2000
-	sseBatchMaxSize    = 256   // grew 64 → 256 to reduce syscalls
+	sseBatchMaxSize    = 256 // larger batches mean fewer write syscalls
 	sseMaxUnwrapDepth  = 8
 
 	// Aggregation tuning: merge events into summaries when a burst arrives.
-	sseAggregateThreshold = 100   // event count that triggers aggregation
-	sseAggregateTimeout   = 100 * time.Millisecond  // max wait before flushing a partial batch
-	sseAggregateMaxSize   = 64    // max original events per aggregate
+	sseAggregateThreshold = 100                    // event count that triggers aggregation
+	sseAggregateTimeout   = 100 * time.Millisecond // max wait before flushing a partial batch
+	sseAggregateMaxSize   = 64                     // max original events per aggregate
 )
 
 type writeDeadliner interface{ SetWriteDeadline(time.Time) error }
@@ -144,13 +144,11 @@ func NewSSEStream(w http.ResponseWriter) *SSEStream {
 		done:         make(chan struct{}),
 		writeTimeout: sseWriteTimeout,
 	}
-	// Initialize the aggregator
 	s.aggregator = newSseAggregator(s)
 	go s.writerLoop()
 	return s
 }
 
-// newSseAggregator creates a batch event aggregator.
 func newSseAggregator(stream *SSEStream) *sseAggregator {
 	return &sseAggregator{
 		stream: stream,
@@ -169,7 +167,6 @@ func (a *sseAggregator) flush() {
 		return
 	}
 
-	// Count events by type
 	type eventSummary struct {
 		EventType string `json:"eventType"`
 		Count     int    `json:"count"`
@@ -179,7 +176,6 @@ func (a *sseAggregator) flush() {
 		summaries[ev.event]++
 	}
 
-	// Build the aggregate summary
 	summaryList := make([]eventSummary, 0, len(summaries))
 	for eventType, count := range summaries {
 		summaryList = append(summaryList, eventSummary{
@@ -188,7 +184,6 @@ func (a *sseAggregator) flush() {
 		})
 	}
 
-	// Push the aggregate summary
 	a.stream.enqueueRaw("events:aggregated", mustJSON(map[string]any{
 		"type":      "aggregated",
 		"count":     len(events),
@@ -196,7 +191,8 @@ func (a *sseAggregator) flush() {
 		"timestamp": time.Now().UnixMilli(),
 	}), false)
 
-	// Ack original events (non-blocking)
+	// Acking lets blocked SendEvent callers continue, so the flush must
+	// close every buffered ack channel.
 	for _, ev := range events {
 		if ev.ack != nil {
 			close(ev.ack)
@@ -213,7 +209,6 @@ func (a *sseAggregator) add(ev sseEvent) {
 	shouldFlush := len(a.events) >= sseAggregateThreshold
 
 	if a.timer == nil && !shouldFlush {
-		// Schedule a timeout flush
 		a.timer = time.AfterFunc(sseAggregateTimeout, func() {
 			a.flush()
 		})
@@ -225,8 +220,6 @@ func (a *sseAggregator) add(ev sseEvent) {
 	}
 }
 
-// shouldAggregate reports whether to enable aggregation mode
-// (queue backlog at or above the threshold).
 func (a *sseAggregator) shouldAggregate(queueLen int) bool {
 	return queueLen >= sseAggregateThreshold
 }
@@ -307,11 +300,11 @@ func (s *SSEStream) writeFrame(frame []byte) bool {
 // Critical events (created, completed, failed, cancelled) must always
 // reach the client; High events (gallery:created, nodeStateChanged) are
 // important but can be shed in extreme overload; Low events (progress,
-// heartbeat, nodeProgress) are high-frequency and safely droppable.
+// heartbeat, nodeProgress) are high-frequency and droppable under load.
 func eventPriorityFor(event string) EventPriority {
 	switch event {
-	case "task:created", "task:completed", "task:failed", "task:cancelled",
-		"gallery:created", "gallery:stateChanged":
+	case "task:created", "task:completed", "task:failed", "task:cancelled", "task:deleted",
+		"events:aggregated", "gallery:created", "gallery:stateChanged":
 		return PriorityCritical
 	case "dag:nodeStateChanged", "slot:stateChanged", "task:metadata":
 		return PriorityHigh
@@ -328,6 +321,25 @@ func (s *SSEStream) TrySendEvent(event string, data any) bool {
 	return s.enqueue(event, data, false)
 }
 
+// TrySendEventWithPriority enqueues with an explicit priority for events
+// whose importance depends on their payload rather than their type — e.g. a
+// task:progress frame that carries a status transition must not be shed
+// like routine numeric progress.
+func (s *SSEStream) TrySendEventWithPriority(event string, data any, prio EventPriority) bool {
+	c := s.client
+	c.mu.Lock()
+	dead := c.isClosed()
+	c.mu.Unlock()
+	if dead {
+		return false
+	}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return false
+	}
+	return s.enqueueRawPrio(event, payload, false, prio)
+}
+
 func (s *SSEStream) enqueue(event string, data any, wait bool) bool {
 	c := s.client
 	c.mu.Lock()
@@ -341,10 +353,14 @@ func (s *SSEStream) enqueue(event string, data any, wait bool) bool {
 	if err != nil {
 		return false
 	}
-	return s.enqueueRaw(event, payload, wait)
+	return s.enqueueRawPrio(event, payload, wait, eventPriorityFor(event))
 }
 
 func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
+	return s.enqueueRawPrio(event, payload, wait, eventPriorityFor(event))
+}
+
+func (s *SSEStream) enqueueRawPrio(event string, payload []byte, wait bool, prio EventPriority) bool {
 	c := s.client
 	c.mu.Lock()
 	dead := c.isClosed()
@@ -361,7 +377,7 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 		event:    event,
 		data:     payload,
 		ack:      ack,
-		priority: eventPriorityFor(event),
+		priority: prio,
 	}
 
 	// Aggregation mode: when queue backlog exceeds the threshold, low-priority
@@ -372,8 +388,6 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 			s.aggregator.add(ev)
 			return true
 		}
-		// High/critical events still attempt direct enqueue in aggregation
-		// mode; they fall back to the aggregator only when the queue is full.
 	}
 
 	if !wait {
@@ -381,20 +395,24 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 		case s.queue <- ev:
 			return true
 		default:
-			// Queue-full priority handling: low-priority events are dropped
-			// (progress is lossy); the drop counter still increments.
+			// Queue-full handling: progress events are lossy, so they are
+			// dropped and counted before falling back to the aggregator.
 			if ev.priority == PriorityLow {
 				s.mu.Lock()
 				s.dropped++
 				s.mu.Unlock()
-				// Try the aggregator if it is enabled
 				if s.aggregator != nil {
 					s.aggregator.add(ev)
 					return true
 				}
 				return false
 			}
-			// High/critical events are not dropped lightly: evict one low-priority event.
+			if ev.priority != PriorityLow {
+				s.mu.Lock()
+				s.dropped++
+				s.mu.Unlock()
+				return false
+			}
 			s.mu.Lock()
 			s.dropped++
 			s.mu.Unlock()
@@ -402,17 +420,7 @@ func (s *SSEStream) enqueueRaw(event string, payload []byte, wait bool) bool {
 				s.aggregator.add(ev)
 				return true
 			}
-			select {
-			case <-s.queue:
-			case <-s.done:
-				return false
-			}
-			select {
-			case s.queue <- ev:
-				return true
-			case <-s.done:
-				return false
-			}
+			return false
 		}
 	}
 
@@ -439,7 +447,6 @@ func (s *SSEStream) Dropped() uint64 {
 	return s.dropped
 }
 
-// AggregatedCount returns the aggregation trigger count (for monitoring).
 func (s *SSEStream) AggregatedCount() int64 {
 	if s.aggregator == nil {
 		return 0
@@ -457,12 +464,9 @@ func mustJSON(v any) []byte {
 }
 
 func (s *SSEStream) Close() {
-	select {
-	case <-s.done:
-		return
-	default:
+	s.closeOnce.Do(func() {
 		close(s.done)
-	}
+	})
 }
 
 func (s *SSEStream) SendKeepalive() {

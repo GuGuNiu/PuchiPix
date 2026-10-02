@@ -5,8 +5,6 @@ import (
 	"fmt"
 )
 
-// NodeState mirrors the orchestrator NodeState string type so the CLI
-// can parse DAG node states without importing the backend package.
 type NodeState string
 
 const (
@@ -82,12 +80,12 @@ type DagProgress struct {
 }
 
 type NodeSummary struct {
-	NodeID    string            `json:"nodeId"`
-	State     NodeState         `json:"state"`
-	Error     *NodeError        `json:"error"`
-	HasResult bool              `json:"hasResult"`
-	HistCount int               `json:"historyCount"`
-	LastTrans *LastTransition  `json:"lastTransition"`
+	NodeID    string          `json:"nodeId"`
+	State     NodeState       `json:"state"`
+	Error     *NodeError      `json:"error"`
+	HasResult bool            `json:"hasResult"`
+	HistCount int             `json:"historyCount"`
+	LastTrans *LastTransition `json:"lastTransition"`
 }
 
 type LastTransition struct {
@@ -99,14 +97,14 @@ type LastTransition struct {
 }
 
 type DagSummary struct {
-	DagID      string        `json:"dagId"`
-	TaskType   TaskType      `json:"taskType"`
-	State      string        `json:"state"`     // API returns aggregate state directly
-	SourceURL  string        `json:"sourceUrl"`
-	CreatedAt  string        `json:"createdAt"`
-	NodeCount  int           `json:"nodeCount"`
-	Progress   DagProgress   `json:"progress,omitempty"`
-	Nodes      []NodeSummary `json:"nodes,omitempty"`
+	DagID     string        `json:"dagId"`
+	TaskType  TaskType      `json:"taskType"`
+	State     string        `json:"state"`
+	SourceURL string        `json:"sourceUrl"`
+	CreatedAt string        `json:"createdAt"`
+	NodeCount int           `json:"nodeCount"`
+	Progress  DagProgress   `json:"progress,omitempty"`
+	Nodes     []NodeSummary `json:"nodes,omitempty"`
 }
 
 type DagStats struct {
@@ -129,23 +127,19 @@ type SlotUsage struct {
 	Available int    `json:"available"`
 }
 
-// DagListResponse handles the /api/dag endpoint which may return either
-// a JSON array (legacy) or an object with dags+stats (newer clients).
-// We unmarshal into a flexible structure and normalize in the caller.
+// DagListResponse holds the result of GET /api/dag, whose body is either a
+// plain array of summaries or an object carrying dags plus stats.
 type DagListResponse struct {
-	Dags  []DagSummary    `json:"dags"`
-	Stats *DagListStats   `json:"stats"`
-	// Raw captures the response if it's a plain array.
-	Raw   []DagSummary    `json:"-"`
+	Dags  []DagSummary  `json:"dags"`
+	Stats *DagListStats `json:"stats"`
+	Raw   []DagSummary  `json:"-"`
 }
 
-// UnmarshalJSON implements custom unmarshaling to handle both array and
-// object response formats from the backend.
+// UnmarshalJSON accepts both the array and the object body of GET /api/dag.
 func (d *DagListResponse) UnmarshalJSON(data []byte) error {
-	// Try object format first.
 	type aux struct {
-		Dags  []DagSummary   `json:"dags"`
-		Stats *DagListStats  `json:"stats"`
+		Dags  []DagSummary  `json:"dags"`
+		Stats *DagListStats `json:"stats"`
 	}
 	var a aux
 	if err := json.Unmarshal(data, &a); err == nil && (len(a.Dags) > 0 || a.Stats != nil) {
@@ -153,7 +147,6 @@ func (d *DagListResponse) UnmarshalJSON(data []byte) error {
 		d.Stats = a.Stats
 		return nil
 	}
-	// Fallback: plain array.
 	var arr []DagSummary
 	if err := json.Unmarshal(data, &arr); err == nil {
 		d.Dags = arr
@@ -165,8 +158,8 @@ func (d *DagListResponse) UnmarshalJSON(data []byte) error {
 
 type DagListStats struct {
 	DagStats
-	Scheduler SchedulerStats        `json:"scheduler"`
-	Slots     map[string]SlotUsage  `json:"slots"`
+	Scheduler SchedulerStats       `json:"scheduler"`
+	Slots     map[string]SlotUsage `json:"slots"`
 }
 
 type DagNodeDefinition struct {
@@ -181,12 +174,12 @@ type DagNodeDefinition struct {
 }
 
 type StateTransitionRecord struct {
-	From        NodeState   `json:"from"`
-	To          NodeState   `json:"to"`
-	Timestamp   string      `json:"timestamp"`
-	Reason      string      `json:"reason"`
-	TriggeredBy string      `json:"triggeredBy"`
-	Error       *NodeError  `json:"error,omitempty"`
+	From        NodeState  `json:"from"`
+	To          NodeState  `json:"to"`
+	Timestamp   string     `json:"timestamp"`
+	Reason      string     `json:"reason"`
+	TriggeredBy string     `json:"triggeredBy"`
+	Error       *NodeError `json:"error,omitempty"`
 }
 
 type NodeDetail struct {
@@ -198,41 +191,35 @@ type NodeDetail struct {
 }
 
 type DagDefinition struct {
-	NodeCount int                  `json:"nodeCount"`
-	Nodes     []DagNodeDefinition  `json:"nodes"`
+	NodeCount int                 `json:"nodeCount"`
+	Nodes     []DagNodeDefinition `json:"nodes"`
 }
 
-// DagDetailResponse matches GET /api/dag/{id}.
-// The backend returns a simplified shape:
-//
-//	{"id": "...", "state": "...", "nodes": [{"nodeId":..., "state":..., "phase":...}]}
-//
-// dagId, taskType, sourceUrl etc. are optional in the response. The CLI
-// derives display fields from what's present.
+// DagDetailResponse is the body of GET /api/dag/{id}. Only "id", "state" and
+// "nodes" are always present, the remaining display fields are optional.
 type DagDetailResponse struct {
-	DagID      string         `json:"id"`       // API uses "id" not "dagId"
-	State      string         `json:"state"`    // Aggregate state (optional)
-	TaskType   TaskType       `json:"taskType"`
-	SourceURL  string         `json:"sourceUrl"`
-	ProviderID string         `json:"providerId,omitempty"`
-	CreatedAt  string         `json:"createdAt"`
-	Definition DagDefinition  `json:"definition,omitempty"`
+	DagID      string                 `json:"id"` // API uses "id" not "dagId"
+	State      string                 `json:"state"`
+	TaskType   TaskType               `json:"taskType"`
+	SourceURL  string                 `json:"sourceUrl"`
+	ProviderID string                 `json:"providerId,omitempty"`
+	CreatedAt  string                 `json:"createdAt"`
+	Definition DagDefinition          `json:"definition,omitempty"`
 	Nodes      []SimplifiedNodeDetail `json:"nodes"`
-	WorkerDown bool           `json:"workerDown,omitempty"`
+	WorkerDown bool                   `json:"workerDown,omitempty"`
 }
 
-// SimplifiedNodeDetail matches the lightweight node info from DagDetail.
 type SimplifiedNodeDetail struct {
-	NodeID    string    `json:"nodeId"`
-	State     NodeState `json:"state"`
-	Phase     TaskPhase `json:"phase"`
-	Error     *NodeError `json:"error,omitempty"`
+	NodeID string     `json:"nodeId"`
+	State  NodeState  `json:"state"`
+	Phase  TaskPhase  `json:"phase"`
+	Error  *NodeError `json:"error,omitempty"`
 }
 
 type DagControlResponse struct {
 	DagID    string             `json:"dagId"`
 	Action   DagControlAction   `json:"action"`
-	Snapshot *DagDetailResponse  `json:"snapshot"`
+	Snapshot *DagDetailResponse `json:"snapshot"`
 }
 
 type DagEvent struct {
@@ -260,7 +247,7 @@ type SlotStats struct {
 
 type DownloadConcurrency struct {
 	TsSegmentConcurrent    int `json:"tsSegmentConcurrent"`
-	GalleryImageConcurrent  int `json:"galleryImageConcurrent"`
+	GalleryImageConcurrent int `json:"galleryImageConcurrent"`
 }
 
 type SlotStatusResponse struct {
@@ -269,7 +256,6 @@ type SlotStatusResponse struct {
 	DownloadConcurrency DownloadConcurrency  `json:"downloadConcurrency"`
 }
 
-// apiSlotItem matches the per-type entry returned by GET /api/slots.
 type apiSlotItem struct {
 	SlotType    string  `json:"slotType"`
 	Current     int     `json:"current"`
@@ -279,26 +265,22 @@ type apiSlotItem struct {
 	Status      string  `json:"status"`
 }
 
-// apiSlotListResponse matches the actual GET /api/slots response shape
-// (slots array + scheduler queue stats). The old SlotStatusResponse
-// struct expected {snapshot, stats, downloadConcurrency}, which the Go
-// backend never returned, so the CLI slots command showed empty data.
-// Custom UnmarshalJSON bridges both shapes (260802-style dual-format).
+// apiSlotListResponse is the wire shape of GET /api/slots. The snapshot,
+// stats and downloadConcurrency fields are absent from the Go backend
+// response but are still decoded so older payloads keep working.
 type apiSlotListResponse struct {
-	Slots              []apiSlotItem     `json:"slots"`
-	QueueSize          int               `json:"queueSize"`
-	ByPriority         map[string]int    `json:"byPriority"`
-	ByTaskType         map[string]int    `json:"byTaskType"`
-	SchedulerStrategy  string            `json:"schedulerStrategy"`
-	// legacy fields, ignored but kept for shape documentation
-	Snapshot           map[string]SlotUsage `json:"snapshot"`
-	Stats              SlotStats            `json:"stats"`
-	DownloadConcurrency DownloadConcurrency `json:"downloadConcurrency"`
+	Slots               []apiSlotItem        `json:"slots"`
+	QueueSize           int                  `json:"queueSize"`
+	ByPriority          map[string]int       `json:"byPriority"`
+	ByTaskType          map[string]int       `json:"byTaskType"`
+	SchedulerStrategy   string               `json:"schedulerStrategy"`
+	Snapshot            map[string]SlotUsage `json:"snapshot"`
+	Stats               SlotStats            `json:"stats"`
+	DownloadConcurrency DownloadConcurrency  `json:"downloadConcurrency"`
 }
 
-// UnmarshalJSON accepts both the Go backend's {slots: [...]} shape and
-// the legacy {snapshot: {...}} shape, normalizing into SlotStatusResponse
-// so CLI consumers work regardless of backend version.
+// UnmarshalJSON normalizes both the {slots: [...]} and {snapshot: {...}}
+// bodies of GET /api/slots into a single shape.
 func (r *SlotStatusResponse) UnmarshalJSON(data []byte) error {
 	var modern apiSlotListResponse
 	if err := json.Unmarshal(data, &modern); err != nil {
@@ -307,7 +289,6 @@ func (r *SlotStatusResponse) UnmarshalJSON(data []byte) error {
 	r.Stats = modern.Stats
 	r.DownloadConcurrency = modern.DownloadConcurrency
 
-	// Modern path: normalize the slots array into the Snapshot map.
 	if modern.Slots != nil {
 		r.Snapshot = make(map[string]SlotUsage, len(modern.Slots))
 		for _, item := range modern.Slots {
@@ -320,15 +301,14 @@ func (r *SlotStatusResponse) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	}
-	// Legacy path: snapshot map is provided directly.
 	r.Snapshot = modern.Snapshot
 	return nil
 }
 
-// LogEntry matches the Go backend StructuredLogEntry JSON output. The
-// Context field is decoded as a generic map because the backend LogContext
-// struct lacks JSON tags, producing PascalCase keys (TraceID, DagID, etc.)
-// that differ from the TypeScript camelCase contract.
+// LogEntry is one structured log line. The Context field is decoded as a
+// generic map because the backend LogContext struct has no JSON tags and
+// therefore emits PascalCase keys (TraceID, DagID) that differ from the
+// camelCase contract the rest of the API uses.
 type LogEntry struct {
 	Timestamp  string          `json:"timestamp"`
 	Level      string          `json:"level"`
@@ -339,28 +319,22 @@ type LogEntry struct {
 	Data       json.RawMessage `json:"data,omitempty"`
 }
 
-// TraceID extracts the trace identifier from the context map, handling
-// both camelCase and PascalCase key variants.
 func (e LogEntry) TraceID() string {
 	return ctxString(e.Context, "traceId", "TraceID")
 }
 
-// DagID extracts the DAG identifier from the context map.
 func (e LogEntry) DagID() string {
 	return ctxString(e.Context, "dagId", "DagID")
 }
 
-// NodeID extracts the node identifier from the context map.
 func (e LogEntry) NodeID() string {
 	return ctxString(e.Context, "nodeId", "NodeID")
 }
 
-// TaskTypeStr extracts the task type from the context map.
 func (e LogEntry) TaskTypeStr() string {
 	return ctxString(e.Context, "taskType", "TaskType")
 }
 
-// PhaseStr extracts the phase from the context map.
 func (e LogEntry) PhaseStr() string {
 	return ctxString(e.Context, "phase", "Phase")
 }
@@ -390,7 +364,6 @@ type WorkerRestartResponse struct {
 	ReadyMs int64 `json:"readyMs"`
 }
 
-// DagCreateRequest is the payload for creating a new DAG via the API.
 type DagCreateRequest struct {
 	TaskType   string `json:"taskType"`
 	SourceURL  string `json:"sourceUrl,omitempty"`
@@ -399,14 +372,12 @@ type DagCreateRequest struct {
 	TaskID     int    `json:"taskId,omitempty"`
 }
 
-// DagCreateResponse is the response for a DAG creation request.
 type DagCreateResponse struct {
 	DagID    string `json:"dagId"`
 	TaskType string `json:"taskType"`
 	Status   string `json:"status"`
 }
 
-// TaskCreateRequest matches the POST /api/tasks payload.
 type TaskCreateRequest struct {
 	URL      string `json:"url"`
 	Format   string `json:"format,omitempty"`
@@ -414,23 +385,19 @@ type TaskCreateRequest struct {
 	Priority int    `json:"priority,omitempty"`
 }
 
-// TaskCreateResponse matches the POST /api/tasks response body.
-// Handles both video task format (ID, DisplayID, Status, SiteID) and
-// gallery task format (type, galleryId, seq, status, dagId).
-// JSON tags accept both PascalCase (TS frontend contract) and lowercase
-// (Go map literal) field names via custom unmarshaling.
+// TaskCreateResponse covers both POST /api/tasks result shapes: video tasks
+// answer with ID/DisplayID, gallery tasks with type/galleryId/seq/dagId.
 type TaskCreateResponse struct {
-	ID        int    `json:"ID"`        // Video task ID
-	GalleryID int    `json:"galleryId"` // Gallery task ID (alternative)
+	ID        int    `json:"ID"`
+	GalleryID int    `json:"galleryId"`
 	DisplayID string `json:"DisplayID"`
-	Seq       string `json:"seq"`       // Gallery task Seq (alternative)
-	Status    string `json:"status"`    // lowercase matches Go map literal response
-	SiteID    string `json:"siteId"`    // lowercase matches Go map literal
-	TaskType  string `json:"type"`      // "gallery" / "video" / "sniff"
-	DagID     string `json:"dagId"`     // Associated DAG ID
+	Seq       string `json:"seq"`
+	Status    string `json:"status"`
+	SiteID    string `json:"siteId"`
+	TaskType  string `json:"type"`
+	DagID     string `json:"dagId"`
 }
 
-// GalleryIDOrID returns the gallery ID for gallery tasks, or ID for video tasks.
 func (t *TaskCreateResponse) GalleryIDOrID() int {
 	if t.GalleryID != 0 {
 		return t.GalleryID
@@ -438,7 +405,6 @@ func (t *TaskCreateResponse) GalleryIDOrID() int {
 	return t.ID
 }
 
-// EffectiveSeq returns the effective sequence ID (seq or DisplayID).
 func (t *TaskCreateResponse) EffectiveSeq() string {
 	if t.Seq != "" {
 		return t.Seq
@@ -446,13 +412,11 @@ func (t *TaskCreateResponse) EffectiveSeq() string {
 	return t.DisplayID
 }
 
-// DagLinkRequest is the payload for adding a dependency edge.
 type DagLinkRequest struct {
 	ParentID string `json:"parentId"`
 	ChildID  string `json:"childId"`
 }
 
-// DagLinkResponse confirms a dependency was added.
 type DagLinkResponse struct {
 	DagID    string `json:"dagId"`
 	ParentID string `json:"parentId"`
@@ -460,20 +424,15 @@ type DagLinkResponse struct {
 	Status   string `json:"status"`
 }
 
-// DagDeleteResponse confirms a DAG was removed.
 type DagDeleteResponse struct {
 	DagID  string `json:"dagId"`
 	Status string `json:"status"`
 }
 
-// SseEvent represents a single Server-Sent Events message parsed from
-// the event stream.
 type SseEvent struct {
 	Type string          `json:"-"`
 	Data json.RawMessage `json:"-"`
 }
-
-// ── Health / System / Stats ──
 
 // HealthResponse matches GET /api/health output.
 type HealthResponse struct {
@@ -496,22 +455,19 @@ type SystemResponse struct {
 // StatsResponse matches GET /api/stats output. Fields are loosely
 // typed because the backend assembles this map dynamically.
 type StatsResponse struct {
-	Galleries         int            `json:"galleries"`
-	Tasks             int            `json:"tasks"`
-	DownloadHistory   int            `json:"downloadHistory"`
-	CurrentSpeedStr   string         `json:"current_speed_str"`
-	DiskIOStr         string         `json:"disk_io_str"`
-	SlotUsage         map[string]any `json:"slotUsage,omitempty"`
-	SchedulerQueueSize int           `json:"schedulerQueueSize,omitempty"`
+	Galleries           int            `json:"galleries"`
+	Tasks               int            `json:"tasks"`
+	DownloadHistory     int            `json:"downloadHistory"`
+	CurrentSpeedStr     string         `json:"current_speed_str"`
+	DiskIOStr           string         `json:"disk_io_str"`
+	SlotUsage           map[string]any `json:"slotUsage,omitempty"`
+	SchedulerQueueSize  int            `json:"schedulerQueueSize,omitempty"`
 	SchedulerByPriority map[string]int `json:"schedulerByPriority,omitempty"`
-	DagTotal          int            `json:"dagTotal,omitempty"`
-	DagActive         int            `json:"dagActive,omitempty"`
+	DagTotal            int            `json:"dagTotal,omitempty"`
+	DagActive           int            `json:"dagActive,omitempty"`
 }
 
-// ── Sites ──
-
-// SiteInfo represents a supported site provider entry from
-// GET /api/sites.
+// SiteInfo is a site provider entry returned by GET /api/sites.
 type SiteInfo struct {
 	SiteID      string   `json:"siteId"`
 	Name        string   `json:"name"`
@@ -520,10 +476,8 @@ type SiteInfo struct {
 	Description string   `json:"description,omitempty"`
 }
 
-// ── Download Tasks (video) ──
-
-// DownloadTask matches the backend db.DownloadTask JSON output.
-// JSON tags use PascalCase to match the backend contract.
+// DownloadTask matches the backend db.DownloadTask JSON output. The JSON tags
+// use PascalCase to match the backend contract.
 type DownloadTask struct {
 	ID           int     `json:"ID"`
 	URL          string  `json:"URL"`
@@ -554,12 +508,8 @@ type TaskActionResponse struct {
 	Status string `json:"status"`
 }
 
-// ── Galleries ──
-
-// GallerySummary is a compact gallery representation for list views.
-// The backend returns full Gallery structs; we only need key fields
-// for the CLI table output. Since the API returns full Gallery JSON,
-// all fields are present — we just use a subset for display.
+// GallerySummary is the subset of the full Gallery JSON used for CLI table
+// output.
 type GallerySummary struct {
 	ID             int     `json:"ID"`
 	DisplayID      *string `json:"DisplayID"`
@@ -579,22 +529,22 @@ type GallerySummary struct {
 // GalleryDetail matches the full db.Gallery JSON output.
 type GalleryDetail struct {
 	GallerySummary
-	ScrapedDomain       string  `json:"ScrapedDomain"`
-	Description         string  `json:"Description"`
-	Category            string  `json:"Category"`
-	Tags                string  `json:"Tags"`
-	CoverURL            string  `json:"CoverURL"`
-	PageCount           int     `json:"PageCount"`
-	DownloadMethod      string  `json:"DownloadMethod"`
-	ExpectedImageCount  int     `json:"ExpectedImageCount"`
-	ExpectedVideoCount  int     `json:"ExpectedVideoCount"`
-	ContentVerified     bool    `json:"ContentVerified"`
-	SavePath            string  `json:"SavePath"`
-	GameCharacters      *string `json:"GameCharacters"`
-	PublishTime         *string `json:"PublishTime"`
-	ScrapedAt           *string `json:"ScrapedAt"`
-	CompletedAt         *string `json:"CompletedAt"`
-	UpdatedAt           string  `json:"UpdatedAt"`
+	ScrapedDomain      string   `json:"ScrapedDomain"`
+	Description        string   `json:"Description"`
+	Category           string   `json:"Category"`
+	Tags               []string `json:"Tags"`
+	CoverURL           string   `json:"CoverURL"`
+	PageCount          int      `json:"PageCount"`
+	DownloadMethod     string   `json:"DownloadMethod"`
+	ExpectedImageCount int      `json:"ExpectedImageCount"`
+	ExpectedVideoCount int      `json:"ExpectedVideoCount"`
+	ContentVerified    bool     `json:"ContentVerified"`
+	SavePath           string   `json:"SavePath"`
+	GameCharacters     *string  `json:"GameCharacters"`
+	PublishTime        *string  `json:"PublishTime"`
+	ScrapedAt          *string  `json:"ScrapedAt"`
+	CompletedAt        *string  `json:"CompletedAt"`
+	UpdatedAt          string   `json:"UpdatedAt"`
 }
 
 // GalleryActionRequest is the body for POST /api/shelf/{id}.
@@ -613,12 +563,10 @@ type GalleryActionResponse struct {
 
 // GalleryFileProgressResponse matches GET /api/shelf/{id}/files/progress.
 type GalleryFileProgressResponse struct {
-	GalleryID int           `json:"galleryId"`
+	GalleryID int            `json:"galleryId"`
 	Summary   map[string]any `json:"summary"`
 	Failed    []any          `json:"failed"`
 }
-
-// ── Slot Holders / Slot Update ──
 
 // SlotHoldersResponse matches GET /api/slots/holders.
 type SlotHoldersResponse struct {
@@ -658,7 +606,6 @@ type SlotDetailResponse struct {
 	SchedulerQueue int      `json:"schedulerQueue"`
 }
 
-// LogQueryFilter narrows a log history or SSE stream query.
 type LogQueryFilter struct {
 	Module  string
 	DagID   string

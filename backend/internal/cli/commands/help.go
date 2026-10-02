@@ -38,13 +38,11 @@ func PrintHelp(registry *Registry, args []string) {
 	fmt.Printf("%sPuchiPix CLI%s \u2014 DAG task scheduling & management CLI tool\n\n", ui.Bold, ui.Reset)
 	fmt.Printf("%sUsage:%s\n  puchipix-cli <command> [args] [options]\n\n", ui.Bold, ui.Reset)
 
-	// Build a map of command name -> Command for quick lookup.
 	cmdMap := make(map[string]Command, len(registry.Commands()))
 	for _, cmd := range registry.Commands() {
 		cmdMap[cmd.Name()] = cmd
 	}
 
-	// Calculate max name width across all commands for alignment.
 	maxName := 0
 	for _, cmd := range registry.Commands() {
 		if len(cmd.Name()) > maxName {

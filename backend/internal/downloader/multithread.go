@@ -153,13 +153,8 @@ func newMultiThreadClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// downloadFileMultiThread downloads a file using HTTP Range parallel
-// requests. It creates a staging file, pre-allocates it to totalSize,
-// spawns concurrent workers each writing to its own offset, and
-// atomically renames the staging file to the final path on success.
-//
-// Preconditions: caller must have verified Range support via
-// probeRangeSupport and passed valid totalSize/etag/lastModified.
+// Range support and resource identity must already be verified by
+// probeRangeSupport. A nil result requests the single-thread fallback.
 func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *DownloadOptions, totalSize int64, etag, lastModified string) *DownloadResult {
 	concurrency := opts.Concurrency
 	if concurrency < 2 {
@@ -171,7 +166,7 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 
 	minFileSize := opts.MinFileSize
 	if minFileSize <= 0 {
-		minFileSize = 1 << 20 // 1 MB
+		minFileSize = 1 << 20
 	}
 	if totalSize < minFileSize {
 		return nil //nolint:nilnil // signals caller to fall back
@@ -246,8 +241,6 @@ func downloadFileMultiThread(ctx context.Context, url, filePath string, opts *Do
 	}
 }
 
-// makeStagingPath generates a unique staging file path by appending
-// a random suffix to the base name + ".mtmp".
 func makeStagingPath(filePath string) (string, error) {
 	rnd := make([]byte, 8)
 	if _, err := rand.Read(rnd); err != nil {
@@ -259,9 +252,8 @@ func makeStagingPath(filePath string) (string, error) {
 	return filepath.Join(dir, base+".mtmp."+suffix), nil
 }
 
-// downloadChunkWithRetry downloads a single chunk with exponential
-// backoff retry (max 3 attempts). Only the failing chunk is retried;
-// already-succeeded chunks are not re-downloaded.
+// downloadChunkWithRetry retries a failed chunk with exponential backoff,
+// up to 3 attempts. Sibling chunks that already succeeded are kept.
 func downloadChunkWithRetry(ctx context.Context, client *http.Client, url string, f *os.File, r chunkRange, opts *DownloadOptions, expectedETag, expectedLastModified string, rl *SharedRateLimiter) error {
 	const maxRetries = 3
 	baseDelay := 500 * time.Millisecond
@@ -292,8 +284,6 @@ func downloadChunkWithRetry(ctx context.Context, client *http.Client, url string
 	return fmt.Errorf("chunk %d-%d after %d retries: %w", r.start, r.end, maxRetries, lastErr)
 }
 
-// downloadChunk performs a single Range request for one chunk and
-// writes the response body to the staging file at the chunk's offset.
 func downloadChunk(ctx context.Context, client *http.Client, url string, f *os.File, r chunkRange, opts *DownloadOptions, expectedETag, expectedLastModified string, rl *SharedRateLimiter) error {
 	profile := stealth.RandomProfile()
 	headers := stealth.BuildStealthHeaders(profile, opts.Referer)
@@ -329,6 +319,8 @@ func downloadChunk(ctx context.Context, client *http.Client, url string, f *os.F
 				return werr
 			}
 			offset += int64(n)
+			infra.RecordNetBytes(int64(n))
+			infra.RecordDiskBytes(int64(n))
 		}
 		if readErr == io.EOF {
 			break

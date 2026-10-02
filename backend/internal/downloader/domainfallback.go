@@ -18,7 +18,6 @@ import (
 
 var fallbackLogger = infra.NewLogger("DownloadManager")
 
-// DownloadOptions configures file download behavior.
 type DownloadOptions struct {
 	Headers map[string]string
 	Timeout time.Duration
@@ -38,8 +37,8 @@ type DownloadOptions struct {
 	MinFileSize int64
 }
 
-// DownloadDefaults holds runtime download configuration passed from the
-// orchestrator to avoid a direct dependency on the config package.
+// DownloadDefaults carries runtime download configuration from the
+// orchestrator, avoiding a direct dependency on the config package.
 type DownloadDefaults struct {
 	MultiThread bool
 	Concurrency int
@@ -86,22 +85,26 @@ type DownloadResult struct {
 	Error     error
 }
 
-// DownloadFile fetches a file from the given URL and saves it to filePath,
-// applying stealth headers and supporting atomic writes via temp files.
-// When opts.MultiThread is true and the server supports Range requests,
-// the download is split into parallel chunks for faster throughput.
-// If Range is unsupported or the file is too small, it transparently
-// falls back to single-thread download with identical return semantics.
+// DownloadFile fetches a file and stores it at filePath, applying stealth
+// headers and writing through a temp file when opts.Atomic is set. When
+// opts.MultiThread is set and the server supports Range requests, the body
+// is fetched as parallel chunks; an unsupported Range capability, a size
+// below opts.MinFileSize, or any chunk failure falls back to single-thread
+// download with identical return semantics.
 func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptions) *DownloadResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if opts == nil {
 		opts = &DownloadOptions{}
 	}
 
-	// Respect the process-wide in-flight download cap (aggregate HTTP
-	// pressure valve). One file occupies one slot regardless of internal
-	// multi-threading. Waiting here is bounded by the global cap so a
-	// large batch import cannot burst past it.
-	release := AcquireGlobalDownload()
+	// A file occupies one in-flight slot regardless of its internal
+	// worker count, so the cap bounds aggregate HTTP pressure.
+	release, err := AcquireGlobalDownloadCtx(ctx)
+	if err != nil {
+		return &DownloadResult{Success: false, Error: err}
+	}
 	defer release()
 
 	timeout := opts.Timeout
@@ -109,8 +112,8 @@ func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptio
 		timeout = 30 * time.Second
 	}
 
-	// Multi-thread path: probe Range support and attempt parallel
-	// download. Falls back to single-thread on any failure.
+	// Any failure inside the multi-thread path returns a nil result to
+	// request the single-thread fallback.
 	if opts.MultiThread {
 		probe, err := probeRangeSupport(ctx, url, opts, timeout)
 		if err == nil && probe.supportsRange && probe.totalSize > 0 {
@@ -118,16 +121,12 @@ func DownloadFile(ctx context.Context, url, filePath string, opts *DownloadOptio
 			if mtResult != nil {
 				return mtResult
 			}
-			// mtResult == nil signals "fall back to single-thread".
 		}
 	}
 
 	return downloadFileSingleThread(ctx, url, filePath, opts, timeout)
 }
 
-// downloadFileSingleThread is the legacy single-thread download path,
-// extracted so that both the default path and the multi-thread fallback
-// share the same logic and return-value structure.
 func downloadFileSingleThread(ctx context.Context, url, filePath string, opts *DownloadOptions, timeout time.Duration) *DownloadResult {
 	profile := stealth.RandomProfile()
 	headers := stealth.BuildStealthHeaders(profile, opts.Referer)
@@ -167,7 +166,12 @@ func downloadFileSingleThread(ctx context.Context, url, filePath string, opts *D
 		return &DownloadResult{Success: false, Error: err}
 	}
 
-	written, err := io.Copy(out, resp.Body)
+	// Count real throughput: network bytes off the response body, disk
+	// bytes at the file writer (io.Copy reads before writing, so both
+	// counters advance live during the transfer).
+	netR := &infra.CountingReader{R: resp.Body}
+	diskW := &infra.CountingWriter{W: out}
+	written, err := io.Copy(diskW, netR)
 	out.Close()
 	if err != nil {
 		os.Remove(writePath)
@@ -188,24 +192,36 @@ func downloadFileSingleThread(ctx context.Context, url, filePath string, opts *D
 	}
 }
 
-// DownloadFileWithDomainFallback downloads a file, trying mirror domains
-// if the original URL fails due to network errors or non-200 responses.
-// Domain health tracking prioritizes domains that have been recently
-// successful and deprioritizes rate-limited domains, enabling adaptive
-// failover when primary domains become unavailable.
+// DownloadFileWithDomainFallback downloads a file, retrying against mirror
+// domains when the original URL fails with a network error or non-200
+// response. Every attempt reports its latency and outcome to the domain
+// health tracker, so failover ranking adapts to observed conditions.
 func DownloadFileWithDomainFallback(ctx context.Context, url, filePath string, opts *DownloadOptions) *DownloadResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tracker := stealth.GetDomainHealthTracker()
+	origin := ExtractDomain(url)
+
+	started := time.Now()
 	result := DownloadFile(ctx, url, filePath, opts)
 	if result.Success {
-		stealth.GetDomainHealthTracker().MarkHealthy(ExtractDomain(url))
+		tracker.ReportOutcome(origin, time.Since(started), nil)
 		return result
 	}
-	stealth.GetDomainHealthTracker().MarkRateLimited(ExtractDomain(url))
+	if ctx.Err() != nil {
+		return result
+	}
+	tracker.ReportOutcome(origin, time.Since(started), result.Error)
 
 	fallbackURLs := GenerateMirrorURLs(url)
-	originalDomain := ExtractDomain(url)
+	originalDomain := origin
+	if ctx.Err() != nil {
+		return result
+	}
 
-	// Use health-aware domain ordering: healthy domains first (shuffled
-	// for load distribution), then cooling domains by ascending cooldown.
+	// A slow or saturated mirror ranks below a fresher one without
+	// requiring any configuration change.
 	orderedDomains := orderDomainsByHealth(fallbackURLs)
 
 	for _, fallbackURL := range orderedDomains {
@@ -219,25 +235,26 @@ func DownloadFileWithDomainFallback(ctx context.Context, url, filePath string, o
 				"mirror":   fbDomain,
 			}})
 
+		mirrorStarted := time.Now()
 		fallbackResult := DownloadFile(ctx, fallbackURL, filePath, opts)
+		mirrorRtt := time.Since(mirrorStarted)
 		if fallbackResult.Success {
-			stealth.GetDomainHealthTracker().MarkHealthy(fbDomain)
+			tracker.ReportOutcome(fbDomain, mirrorRtt, nil)
 			return fallbackResult
 		}
-		stealth.GetDomainHealthTracker().MarkRateLimited(fbDomain)
+		tracker.ReportOutcome(fbDomain, mirrorRtt, fallbackResult.Error)
 	}
 
 	return result
 }
 
-// FetchText fetches text content from a URL with stealth headers and
-// a configurable timeout, returning the response body as a string.
 func FetchText(ctx context.Context, url string, headers map[string]string) (string, error) {
 	profile := stealth.RandomProfile()
 	hdr := stealth.BuildStealthHeaders(profile, "")
 	for k, v := range headers {
 		hdr.Set(k, v)
 	}
+	hdr.Del("Accept-Encoding")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -253,7 +270,11 @@ func FetchText(ctx context.Context, url string, headers map[string]string) (stri
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		// A media CDN answers 410 for two unrelated causes; the body is the
+		// only signal separating an expired signed URL from a bot rejection,
+		// so report which one it is instead of a bare status code.
+		reason := stealth.ClassifyMediaRejection(resp.StatusCode, peekBody(resp.Body))
+		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, reason)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -264,19 +285,28 @@ func FetchText(ctx context.Context, url string, headers map[string]string) (stri
 	return string(body), nil
 }
 
-// FetchTextWithDomainFallback fetches text content, trying mirror
-// domains when the original URL fails. Domain health tracking
-// prioritizes healthy domains and deprioritizes rate-limited ones.
+// peekBody reads a bounded prefix of a response body for classification
+// without consuming what the caller may still need.
+func peekBody(r io.Reader) []byte {
+	buf := make([]byte, 256)
+	n, _ := io.ReadFull(r, buf)
+	return buf[:n]
+}
+
 func FetchTextWithDomainFallback(ctx context.Context, url string, headers map[string]string) (string, error) {
+	tracker := stealth.GetDomainHealthTracker()
+	origin := ExtractDomain(url)
+
+	started := time.Now()
 	text, err := FetchText(ctx, url, headers)
 	if err == nil {
-		stealth.GetDomainHealthTracker().MarkHealthy(ExtractDomain(url))
+		tracker.ReportOutcome(origin, time.Since(started), nil)
 		return text, nil
 	}
-	stealth.GetDomainHealthTracker().MarkRateLimited(ExtractDomain(url))
+	tracker.ReportOutcome(origin, time.Since(started), err)
 
 	fallbackURLs := GenerateMirrorURLs(url)
-	originalDomain := ExtractDomain(url)
+	originalDomain := origin
 
 	var lastErr error = err
 
@@ -288,44 +318,37 @@ func FetchTextWithDomainFallback(ctx context.Context, url string, headers map[st
 			continue
 		}
 
+		mirrorStarted := time.Now()
 		text, err := FetchText(ctx, fallbackURL, headers)
+		mirrorRtt := time.Since(mirrorStarted)
 		if err == nil {
-			stealth.GetDomainHealthTracker().MarkHealthy(fbDomain)
+			tracker.ReportOutcome(fbDomain, mirrorRtt, nil)
 			return text, nil
 		}
-		stealth.GetDomainHealthTracker().MarkRateLimited(fbDomain)
+		tracker.ReportOutcome(fbDomain, mirrorRtt, err)
 		lastErr = err
 	}
 
 	return "", lastErr
 }
 
-// orderDomainsByHealth extracts the unique domain set from a list of
-// mirror URLs and returns them ordered by health: healthy domains
-// first (shuffled), then cooling domains by ascending cooldown.
 func orderDomainsByHealth(urls []string) []string {
-	// Build unique domain list preserving order for consistent results.
-	seen := make(map[string]bool)
-	var domains []string
-	for _, u := range urls {
-		d := ExtractDomain(u)
-		if d != "" && !seen[d] {
-			seen[d] = true
-			domains = append(domains, u) // keep full URL for direct use
-		}
-	}
-
-	tracker := stealth.GetDomainHealthTracker()
+	// Keep the first URL per domain so the returned entries are
+	// directly usable for requests.
 	domainURLs := make(map[string]string)
 	var domainList []string
-	for _, u := range domains {
+	for _, u := range urls {
 		d := ExtractDomain(u)
+		if d == "" {
+			continue
+		}
 		if _, exists := domainURLs[d]; !exists {
 			domainURLs[d] = u
 			domainList = append(domainList, d)
 		}
 	}
 
+	tracker := stealth.GetDomainHealthTracker()
 	orderedDomains := tracker.GetAllDomainsOrdered(domainList)
 
 	result := make([]string, 0, len(orderedDomains))
@@ -337,8 +360,6 @@ func orderDomainsByHealth(urls []string) []string {
 	return result
 }
 
-// GenerateMirrorURLs produces alternative URLs by replacing the domain
-// portion with known mirror domains for the same site.
 func GenerateMirrorURLs(rawURL string) []string {
 	domain := ExtractDomain(rawURL)
 	if domain == "" {
@@ -358,7 +379,6 @@ func GenerateMirrorURLs(rawURL string) []string {
 	return result
 }
 
-// ExtractDomain returns the scheme://host portion of a URL.
 func ExtractDomain(rawURL string) string {
 	idx := strings.Index(rawURL, "://")
 	if idx < 0 {
@@ -372,10 +392,6 @@ func ExtractDomain(rawURL string) string {
 	return rawURL
 }
 
-// GetMirrorDomains returns known mirror domains for a given primary
-// domain, dynamically built from the unified SiteDataStore so that
-// any site with multiple configured domains automatically supports
-// mirror-based failover without hardcoded entries.
 var (
 	mirrorOnce      sync.Once
 	mirrorDomainMap map[string][]string
@@ -385,9 +401,14 @@ func buildMirrorDomainMap() {
 	ds := sites.GetSiteDataStore()
 	mirrorDomainMap = make(map[string][]string)
 	for _, mod := range ds.GetAllModuleConfigs() {
-		for _, d := range mod.Domains {
+		// The pool can contribute domains absent from the static config.
+		domains := mod.Domains
+		if pooled := stealth.DomainsForSite(mod.ID); len(pooled) > len(domains) {
+			domains = pooled
+		}
+		for _, d := range domains {
 			var mirrors []string
-			for _, other := range mod.Domains {
+			for _, other := range domains {
 				if other != d {
 					mirrors = append(mirrors, other)
 				}
@@ -399,13 +420,16 @@ func buildMirrorDomainMap() {
 	}
 }
 
+// GetMirrorDomains returns the known mirror domains for a primary domain.
+// Sources are the unified SiteDataStore and the dynamic domain pool, so a
+// mirror learned at runtime becomes usable for failover without a restart.
 func GetMirrorDomains(domain string) []string {
 	mirrorOnce.Do(buildMirrorDomainMap)
 	return mirrorDomainMap[domain]
 }
 
-// SanitizeFilename replaces characters unsafe for filesystem paths
-// with underscores, preserving readability for display purposes.
+// SanitizeFilename replaces characters that are rejected in filesystem
+// paths with underscores, keeping the remainder readable for display.
 func SanitizeFilename(name string) string {
 	if name == "" {
 		return "untitled"

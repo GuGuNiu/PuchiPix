@@ -1,8 +1,8 @@
 package sjs
 
 import (
-	"slices"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,7 +19,6 @@ type SearchEntry struct {
 	Date     string
 }
 
-// ExtendedMetadata holds the full metadata extracted from a thread page.
 type ExtendedMetadata struct {
 	Title      string
 	Tags       []string
@@ -29,8 +28,6 @@ type ExtendedMetadata struct {
 	Blocked    bool
 }
 
-// PostContentData holds images, videos, and metadata extracted from a
-// single thread page's first post content.
 type PostContentData struct {
 	Images      []PostImage
 	Videos      []string
@@ -38,7 +35,6 @@ type PostContentData struct {
 	PublishTime string
 }
 
-// PostImage represents a single image URL with its page index.
 type PostImage struct {
 	URL       string
 	PageIndex int
@@ -134,18 +130,16 @@ func ExtractForumListResults(doc *goquery.Document) []SearchEntry {
 	return results
 }
 
-// ExtractExtendedMetadata parses title, author, date, category, and tags
-// from a thread detail page document.
 func ExtractExtendedMetadata(doc *goquery.Document) ExtendedMetadata {
 	var raw struct {
-		Title          string
-		Author         string
-		Date           string
-		Category       string
-		Tags           []string
-		KeywordStr     string
-		CoverURL       string
-		DocumentTitle  string
+		Title         string
+		Author        string
+		Date          string
+		Category      string
+		Tags          []string
+		KeywordStr    string
+		CoverURL      string
+		DocumentTitle string
 	}
 
 	raw.Title = strings.TrimSpace(doc.Find("#thread_subject").First().Text())
@@ -229,8 +223,6 @@ func ExtractExtendedMetadata(doc *goquery.Document) ExtendedMetadata {
 	}
 }
 
-// ExtractPostContent parses images, videos, cover URL, and publish time
-// from the first post's .t_f content element.
 func ExtractPostContent(doc *goquery.Document, pageIndex int) PostContentData {
 	var result PostContentData
 
@@ -332,4 +324,3 @@ func GetThreadTotalPages(doc *goquery.Document) int {
 
 	return maxPage
 }
-

@@ -10,7 +10,6 @@ import (
 	"backend/internal/db/dbconfig"
 )
 
-// Config holds all runtime configuration for the PuchiPix backend.
 type Config struct {
 	DatabasePath     string
 	ServerPort       int
@@ -18,7 +17,7 @@ type Config struct {
 	LogSinkCapacity  int
 	SQLiteSourcePath string
 	DataDir          string
-	// Download tuning — multi-thread Range download and concurrency.
+	// Range download tuning and per-channel download concurrency.
 	DownloadMultiThread    bool
 	DownloadConcurrency    int
 	DownloadMaxSpeed       int64

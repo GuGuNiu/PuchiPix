@@ -1,7 +1,6 @@
 import type { TranslationDict } from "../../types";
 
 const jaJP: TranslationDict = {
-  /* ─── Common ─── */
   "common.refresh": "更新",
   "common.delete": "削除",
   "common.cancel": "キャンセル",
@@ -20,6 +19,7 @@ const jaJP: TranslationDict = {
   "common.success": "成功",
   "common.failed": "失敗",
   "common.pending": "待機中",
+  "common.preparing": "準備中",
   "common.completed": "完了",
   "common.downloading": "ダウンロード中",
   "common.scraping": "識別中",
@@ -36,7 +36,6 @@ const jaJP: TranslationDict = {
   "common.adding": "追加中...",
   "common.pages": "ページ",
 
-  /* ─── Navigation ─── */
   "nav.dashboard": "ぷちホール",
   "nav.tasks": "タスク管理",
   "nav.shelf": "リソース棚",
@@ -56,13 +55,12 @@ const jaJP: TranslationDict = {
   "nav.collapse": "サイドバーを折りたたむ",
   "nav.language": "言語",
   "nav.photos": "写真パック",
+  "nav.videos": "動画",
   "nav.sjs": "SJS",
 
-  /* ─── SJS ─── */
   "sjs.comingSoon": "SJS 近日公開",
   "sjs.underConstruction": "建設中です。お楽しみに",
 
-  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "一括インポート",
   "sjs.shelf.searchPlaceholder": "タイトル、作成者、URLで検索...",
   "sjs.shelf.allForums": "全セクション",
@@ -100,7 +98,6 @@ const jaJP: TranslationDict = {
   "sjs.shelf.refreshed": "更新済み",
   "sjs.shelf.refreshNetworkError": "更新要求失敗、ネットワークを確認",
 
-  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "リアルタイム接続",
   "dashboard.offline": "オフライン",
   "dashboard.totalTasks": "総タスク",
@@ -130,7 +127,6 @@ const jaJP: TranslationDict = {
   "dashboard.addLinkToStart": "リンクを追加してダウンロードを開始",
   "dashboard.identifying": "識別中",
 
-  /* ─── Gallery ─── */
   "gallery.statusScraping": "スクレイプ中",
   "gallery.statusScrapePending": "識別待ち",
   "gallery.statusDownloadPending": "ダウンロード待ち",
@@ -200,7 +196,6 @@ const jaJP: TranslationDict = {
   "gallery.zipExtractLabel": "解凍",
   "gallery.clickToCopy": "クリックでコピー",
 
-  /* ─── Search ─── */
   "search.placeholderGallery": "キーワードまたは完全な URL を貼り付け/article/ /tag/ ページなど...",
   "search.placeholderVideo": "検索キーワードを入力カンマ・スペース区切り対応...",
   "search.searching": "検索中...",
@@ -246,7 +241,6 @@ const jaJP: TranslationDict = {
   "search.statusCancelled": "キャンセル済",
   "search.statusScraping": "スクレイプ中",
 
-  /* ─── Settings ─── */
   "config.title": "システム設定",
   "config.pathSettings": "パス設定",
   "config.chromeDriverPath": "ChromeDriver パス",
@@ -267,7 +261,13 @@ const jaJP: TranslationDict = {
   "config.downloadMaxSpeed": "速度制限 (MB/s, 0=無制限)",
   "config.downloadMinFileSize": "最小ファイルサイズ (MB)",
 
-  /* ─── Sniff ─── */
+  "config.gpuTranscodeSettings": "GPU ハードウェアトランスコード",
+  "config.enableGPUTranscode": "GPU ハードウェアアクセラレーションを有効化",
+  "config.gpuDetecting": "GPU を検出中...",
+  "config.gpuDetected": "GPU を検出しました",
+  "config.gpuDriver": "ドライバーバージョン",
+  "config.gpuEncoder": "エンコーダー",
+  "config.gpuNotAvailable": "対応 GPU が見つかりません。CPU でトランスコードします",
   "sniff.title": "M3U8 リンクスニッフ",
   "sniff.control": "スニッフコントロール",
   "sniff.targetUrl": "ターゲット URL",
@@ -286,7 +286,6 @@ const jaJP: TranslationDict = {
   "sniff.addedToDownload": "ダウンロードタスクに追加しました",
   "sniff.untitled": "無題",
 
-  /* ─── Characters ─── */
   "protagonists.title": "キャラギャラリー",
   "protagonists.subtitle": "正規化されたキャラクターリスト — クリックでそのキャラの全ギャラリーを表示",
   "protagonists.searchPlaceholder": "キャラ名を検索...",
@@ -302,7 +301,6 @@ const jaJP: TranslationDict = {
   "protagonists.statGalleries": "{count} ギャラリー",
   "protagonists.statAliases": "{count} 個の別名",
 
-  /* ─── Ops Panel ─── */
   "ops.online": "オンライン",
   "ops.offline": "オフライン",
   "ops.todayTasks": "今日のタスク",
@@ -320,7 +318,6 @@ const jaJP: TranslationDict = {
   "ops.noLogs": "ログなし",
   "ops.pausedBuffer": "一時停止中 — バッファーに {count} 件の新着ログ",
 
-  /* ─── Create Task ─── */
   "createTask.title": "ダウンロードタスク作成",
   "createTask.pleaseFillLink": "リンクを入力してください",
   "createTask.exactMatch": "完全一致",
@@ -369,7 +366,6 @@ const jaJP: TranslationDict = {
   "search.estimatedSizeValue": "推定中",
   "search.bitrate": "ビットレート",
 
-  /* ─── Batch Search ─── */
   "batchSearch.title": "一括検索",
   "batchSearch.titleLabel": "タイトル",
   "batchSearch.siteLabel": "サイト",
@@ -406,7 +402,6 @@ const jaJP: TranslationDict = {
   "batchSearch.refilled": "失敗したタイトルを入力欄に反映しました",
   "batchSearch.inputHint": "{count} 件のタイトルを検出 · 自動ファジー検索で一致する動画をダウンロード · タイトルごとに3〜5秒の間隔でブロック防止",
 
-  /* ─── Task Settings ─── */
   "taskSettings.title": "タスク設定",
   "taskSettings.maxConcurrentTasks": "最大同時タスク数",
   "taskSettings.maxConcurrentTasksDesc": "同時実行する動画/ギャラリーダウンロードタスクの上限",
@@ -428,11 +423,9 @@ const jaJP: TranslationDict = {
   "taskSettings.saveFailed": "設定の保存に失敗しました",
   "taskSettings.saved": "設定を保存しました",
 
-  /* ─── Console Log ─── */
   "console.noTaskLogs": "タスクログはありません",
   "console.fetchFailed": "ログの取得に失敗しました",
 
-  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "待機中",
   "dag.nodeState.ready": "準備完了",
   "dag.nodeState.queued": "キュー待ち",
@@ -454,7 +447,36 @@ const jaJP: TranslationDict = {
   "modelstage.comingSoon": "近日公開予定です",
   "modelstage.title": "モデルステージ",
 
-  /* ─── Videos ─── */
+  "video.statusScraping": "スクレイプ中",
+  "video.statusScrapePending": "識別待ち",
+  "video.statusDownloadPending": "ダウンロード待ち",
+  "video.statusCompleted": "完了",
+  "video.statusDownloading": "ダウンロード中",
+  "video.statusPartial": "一部完了",
+  "video.statusFailed": "失敗",
+  "video.statusPending": "待機中",
+  "video.filterAll": "すべて",
+  "video.filterScraping": "スクレイプ中",
+  "video.filterDownloading": "ダウンロード中",
+  "video.filterCompleted": "完了",
+  "video.filterFailed": "失敗",
+  "video.sortDateDesc": "新着順",
+  "video.sortDateAsc": "古い順",
+  "video.sortVideosDesc": "動画数順",
+  "video.sortSizeDesc": "サイズ順",
+  "video.searchPlaceholder": "タイトル、モデル、URL で検索...",
+  "video.noVideos": "動画なし",
+  "video.noMatchingVideos": "一致する動画なし",
+  "video.emptyHintNew": "タスクページに動画サイト URL を入力するとスクレイプを開始します",
+  "video.emptyHintFilter": "フィルターまたは検索キーワードを調整してみてください",
+  "video.videoTitle": "動画 #{id}",
+  "video.model": "モデル",
+  "video.confirmDelete": "動画リソース #{id} を削除しますか",
+  "video.deleted": "動画リソース #{id} を削除しました",
+  "video.deleteFailed": "削除失敗",
+  "video.retryStarted": "動画リソース #{id} のダウンロードを再開しました",
+  "video.retryFailed": "ダウンロードの開始に失敗",
+  "video.previewError": "プレビューは利用できません",
   "video.play": "再生",
   "video.pause": "一時停止",
   "video.mute": "ミュート",

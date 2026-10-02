@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Blocklist page text — ru-RU
 const ruRU: TranslationDict = {
   "blocklist.title": "Чёрный список",
   "blocklist.subtitle": "Управление правилами блокировки контента — фильтр по названию/категории/персонажу/режиссёру",

@@ -24,8 +24,6 @@ import (
 
 var scraperLogger = infra.NewLogger("UniversalProvider")
 
-// pageMetadata holds the extracted video page metadata before
-// transformation into a ScrapeResult.
 type pageMetadata struct {
 	Title      string
 	Tags       []string
@@ -48,9 +46,8 @@ func ScrapePageHeadful(ctx context.Context, pageURL string) (*sites.ScrapeResult
 	return scrapeChrome(ctx, pageURL, true)
 }
 
-// scrapeChrome is the shared implementation for both headless and headful
-// Chromedp scraping. When headful=true, the browser window is visible and
-// extra flags suppress automation markers.
+// scrapeChrome backs both scrape modes; headful mode additionally suppresses
+// the automation-controlled blink feature.
 func scrapeChrome(ctx context.Context, pageURL string, headful bool) (*sites.ScrapeResult, error) {
 	opts := []chromedp.ExecAllocatorOption{
 		chromedp.NoFirstRun,
@@ -146,10 +143,10 @@ func scrapeChrome(ctx context.Context, pageURL string, headful bool) (*sites.Scr
 
 	scraperLogger.Info("M3U8 sniffing completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":       pageURL,
-			"captured":  len(allURLs),
-			"filtered":  len(filtered),
-			"selected":  m3u8URL != "",
+			"url":      pageURL,
+			"captured": len(allURLs),
+			"filtered": len(filtered),
+			"selected": m3u8URL != "",
 		}})
 
 	result := &sites.ScrapeResult{
@@ -204,14 +201,14 @@ func extractMetadata(ctx context.Context) pageMetadata {
 	var director string
 	_ = chromedp.Run(ctx, chromedp.Evaluate(directorExtractorJS(), &director))
 
-	actors = xutil.UniqueStrings(actors, true)
+	actors = xutil.CleanActorList(actors)
 
 	return pageMetadata{
-		Title:      title,
-		Tags:       stripActorsFromTags(xutil.UniqueStrings(tags, true), actors),
+		Title:      xutil.CleanText(title),
+		Tags:       stripActorsFromTags(xutil.CleanTagList(tags), actors),
 		Actors:     actors,
-		Categories: xutil.UniqueStrings(categories, true),
-		Director:   director,
+		Categories: xutil.CleanTagList(categories),
+		Director:   xutil.CleanText(director),
 	}
 }
 
@@ -323,9 +320,8 @@ func tagsExtractorJS() string {
 	`
 }
 
-// actorsExtractorJS extracts actor/model names from the page.
-// Primary source: player_aaaa.vod_data.vod_actor (Kanav/MacCMS).
-// Fallback: generic DOM CSS selectors (.actor a, .model a, etc.).
+// actorsExtractorJS prefers the MacCMS vod_actor field and falls back to a
+// broad set of DOM selectors.
 func actorsExtractorJS() string {
 	return `
 		(function() {
@@ -503,10 +499,8 @@ func videoM3U8ScannerJS() string {
 	`
 }
 
-
-// categoriesExtractorJS extracts video categories from the page.
-// Primary source: player_aaaa.vod_data.vod_class (Kanav/MacCMS).
-// Fallback: .video-countext-categories a[rel="tag"] selectors.
+// categoriesExtractorJS prefers the MacCMS vod_class field and falls back to
+// DOM category links.
 func categoriesExtractorJS() string {
 	return `
 		(function() {
@@ -552,9 +546,8 @@ func categoriesExtractorJS() string {
 	`
 }
 
-// directorExtractorJS extracts the director name from the page.
-// Primary source: player_aaaa.vod_data.vod_director (Kanav/MacCMS).
-// Fallback: meta[itemprop="director"] content attribute.
+// directorExtractorJS prefers the MacCMS vod_director field and falls back to
+// schema.org metadata and labelled DOM nodes.
 func directorExtractorJS() string {
 	return `
 		(function() {
@@ -592,13 +585,10 @@ func directorExtractorJS() string {
 	`
 }
 
-// playerDataPattern extracts the player_aaaa JSON object from inline scripts.
 var playerDataPattern = regexp.MustCompile(`var\s+player_aaaa\s*=\s*(\{[\s\S]*?\});`)
 
-// ScrapePageHTTP fetches the page via HTTP GET (no browser), extracts M3U8
-// URLs from player_aaaa JSON, <video> source tags, and inline JavaScript
-// patterns, then parses HTML metadata via goquery. This is the HTTP-first
-// strategy for video sites that serve M3U8 URLs in static HTML.
+// ScrapePageHTTP collects M3U8 candidates from static HTML, so it only works
+// for sites that expose the stream URL without running JavaScript.
 func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
 	if err != nil {
@@ -630,12 +620,10 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 			infra.LogContext{Extra: map[string]any{"url": pageURL, "error": docErr.Error()}})
 	}
 
-	// Extract M3U8 URLs.
 	var m3u8URLs []string
 
-	// 1. player_aaaa JSON (Kanav/MacCMS).
-	// MacCMS encodes the M3U8 URL as base64(url_encode(actual_url)).
-	// We decode it here so downstream code gets a real HTTP URL.
+	// MacCMS stores the stream URL as base64(url_encode(...)), so each match
+	// is decoded before it is handed downstream.
 	for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
 		if len(m) >= 2 {
 			if urlMatch := regexp.MustCompile(`"url"\s*:\s*"([^"]+)"`).FindStringSubmatch(m[1]); len(urlMatch) >= 2 {
@@ -644,7 +632,6 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		}
 	}
 
-	// 2. <video> source tags.
 	if doc != nil {
 		doc.Find("video source[src*='.m3u8'], video source[src*='.m3u'], video[src*='.m3u8']").Each(func(_ int, s *goquery.Selection) {
 			if src, ok := s.Attr("src"); ok && src != "" {
@@ -658,7 +645,6 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		}
 	}
 
-	// 3. Generic M3U8 URL patterns in page text.
 	for _, m := range regexp.MustCompile(`https?://[^\s"'<>]+\.m3u8[^\s"'<>]*`).FindAllString(body, -1) {
 		m3u8URLs = append(m3u8URLs, m)
 	}
@@ -666,7 +652,6 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 	filtered := filterM3U8(m3u8URLs)
 	m3u8URL := SelectBestM3U8(filtered)
 
-	// Extract metadata from HTML.
 	title := ""
 	tags := []string{}
 	actors := []string{}
@@ -686,6 +671,27 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 				tags = append(tags, text)
 			}
 		})
+		doc.Find(TagSelectors).Each(func(_ int, s *goquery.Selection) {
+			if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 50 {
+				tags = append(tags, text)
+			}
+		})
+		doc.Find(`meta[property*="tag"], meta[name*="tag"]`).Each(func(_ int, s *goquery.Selection) {
+			if content, ok := s.Attr("content"); ok {
+				tags = append(tags, content)
+			}
+		})
+
+		doc.Find(strings.Join(ActorSelectors, ",")).Each(func(_ int, s *goquery.Selection) {
+			if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 80 {
+				actors = append(actors, text)
+			}
+		})
+		doc.Find(`[itemprop="actor"]`).Each(func(_ int, s *goquery.Selection) {
+			if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 80 {
+				actors = append(actors, text)
+			}
+		})
 
 		doc.Find(".video-countext-categories a[rel=\"tag\"]").Each(func(_ int, s *goquery.Selection) {
 			if text := strings.TrimSpace(s.Text()); text != "" && !strings.Contains(text, "上映") {
@@ -694,11 +700,8 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		})
 	}
 
-	// Actors/Director from player_aaaa JSON in raw HTML.
-	// Use json.Unmarshal instead of regex to properly decode Unicode
-	// escape sequences (\uXXXX) in MacCMS JSON values. The previous
-	// regex approach captured literal \uXXXX text without decoding,
-	// causing double-escaping when the value was later re-serialized.
+	// json.Unmarshal rather than a regex, so \uXXXX escape sequences are
+	// decoded instead of being captured as literal text.
 	for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
 		if len(m) >= 2 {
 			raw := m[1]
@@ -712,7 +715,6 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 				} `json:"vod_data"`
 			}
 			if err := json.Unmarshal([]byte(raw), &pd); err == nil {
-				// json.Unmarshal properly decodes \uXXXX sequences.
 				for _, a := range strings.Split(pd.VodData.Actor, ",") {
 					if a = strings.TrimSpace(a); a != "" {
 						actors = append(actors, a)
@@ -721,17 +723,13 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 				if director == "" {
 					director = strings.TrimSpace(pd.VodData.Director)
 				}
-				// Use vod_name as title fallback if title is empty.
 				if title == "" && pd.VodData.Name != "" {
 					title = CleanTitle(strings.TrimSpace(pd.VodData.Name))
 				}
-				// MacCMS keeps the page's tag list in vod_tag(s).
-				// When the DOM tag section is missing or JS-rendered
-				// (invisible to the plain HTTP fetch), this is the
-				// only remaining source for page tags. vod_class is
-				// deliberately NOT used — on MacCMS it is the category
-				// name (already captured via .video-countext-categories)
-				// and would pollute the tag list with category names.
+				// MacCMS keeps the page tag list in vod_tag(s), which is the only
+				// source left when the tag section is JS-rendered. vod_class is
+				// deliberately ignored: on MacCMS it holds the category name,
+				// which the category selectors already capture.
 				if len(tags) == 0 {
 					for _, field := range []string{pd.VodData.Tag, pd.VodData.Tags} {
 						for _, t := range strings.Split(field, ",") {
@@ -742,9 +740,8 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 					}
 				}
 			} else {
-				// Fallback: regex extraction if JSON parsing fails.
-				// Wrap the captured value in quotes and json.Unmarshal
-				// it as a JSON string to properly decode \uXXXX escapes.
+				// The captured value is re-parsed as a quoted JSON string so
+				// \uXXXX escapes are still decoded without full JSON parsing.
 				if actorMatch := regexp.MustCompile(`"vod_actor"\s*:\s*"([^"]+)"`).FindStringSubmatch(raw); len(actorMatch) >= 2 {
 					for _, a := range strings.Split(actorMatch[1], ",") {
 						if a = strings.TrimSpace(a); a != "" {
@@ -768,10 +765,8 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		}
 	}
 
-	// Last-resort tag source: SEO meta keywords (often mixed with the
-	// title and actor names — stripActorsFromTags below removes the
-	// actor overlaps, but keywords stay noisier than vod_tag, hence
-	// lowest priority).
+	// SEO meta keywords are the lowest-priority tag source because they mix
+	// in title and actor text.
 	if len(tags) == 0 && doc != nil {
 		if meta, ok := doc.Find(`meta[name="keywords"]`).Attr("content"); ok {
 			for _, t := range strings.Split(meta, ",") {
@@ -782,69 +777,43 @@ func ScrapePageHTTP(ctx context.Context, pageURL string) (*sites.ScrapeResult, e
 		}
 	}
 
-	actors = xutil.UniqueStrings(actors, true)
+	actors = xutil.CleanActorList(actors)
 
 	result := &sites.ScrapeResult{
 		M3U8URL:    m3u8URL,
-		Title:      title,
+		Title:      xutil.CleanText(title),
 		PageURL:    pageURL,
-		Tags:       stripActorsFromTags(xutil.UniqueStrings(tags, true), actors),
+		Tags:       stripActorsFromTags(xutil.CleanTagList(tags), actors),
 		Actors:     actors,
-		Categories: xutil.UniqueStrings(categories, true),
-		Director:   director,
+		Categories: xutil.CleanTagList(categories),
+		Director:   xutil.CleanText(director),
 	}
 
 	scraperLogger.Info("HTTP scrape completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":      pageURL,
-			"m3u8":     m3u8URL != "",
-			"title":    title,
-			"actors":   len(actors),
-			"tags":     len(tags),
+			"url":    pageURL,
+			"m3u8":   m3u8URL != "",
+			"title":  title,
+			"actors": len(actors),
+			"tags":   len(tags),
 		}})
 
 	return result, nil
 }
 
-// stripActorsFromTags removes actor names that leaked into the tag list.
-// Some site templates render actor links inside the tags block, so the
-// generic tag extraction picks them up (e.g. an actress appearing both as
-// Actor and Tag). Matching is exact, case-insensitive.
 func stripActorsFromTags(tags, actors []string) []string {
-	if len(tags) == 0 || len(actors) == 0 {
-		return tags
-	}
-	actorSet := make(map[string]struct{}, len(actors))
-	for _, a := range actors {
-		actorSet[strings.ToLower(a)] = struct{}{}
-	}
-	out := make([]string, 0, len(tags))
-	for _, t := range tags {
-		if _, hit := actorSet[strings.ToLower(t)]; hit {
-			continue
-		}
-		out = append(out, t)
-	}
-	return out
+	return xutil.RemoveMetadataValues(tags, actors)
 }
 
-// QuickMetadataResult holds the fast-extracted metadata from a
-// lightweight HTTP scrape. It only contains title and protagonist
-// (actors) — the minimum needed to give the frontend something to
-// display while the full scrape continues in the background.
+// QuickMetadataResult holds the title and actor names a lightweight scrape can
+// return while the full scrape is still running.
 type QuickMetadataResult struct {
 	Title       string
 	Protagonist string
 }
 
-// QuickMetadataScrape performs a fast HTTP-only scrape to extract
-// just the title and protagonist (actors) from the page. It uses a
-// short 5-second timeout and only parses HTML metadata — no M3U8
-// detection, no image extraction, no multi-page traversal.
-//
-// This is the "Phase 1" of the progressive scrape strategy: get
-// basic metadata to the frontend in < 2 seconds, then continue with
-// the full scrape (HTTP or chromedp) in the background.
+// QuickMetadataScrape returns only the title and actors within a short HTTP
+// timeout, so the UI has content before the full scrape completes.
 func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataResult, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
 	if err != nil {
@@ -864,7 +833,7 @@ func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataRes
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024)) // 2MB limit
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 	if err != nil {
 		return nil, err
 	}
@@ -880,7 +849,6 @@ func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataRes
 	actors := []string{}
 
 	if doc != nil {
-		// Extract title: og:title → <title> → CleanTitle.
 		if og, ok := doc.Find(`meta[property="og:title"]`).Attr("content"); ok && og != "" {
 			title = og
 		} else {
@@ -889,7 +857,6 @@ func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataRes
 		title = CleanTitle(title)
 	}
 
-	// Extract actors from player_aaaa JSON (MacCMS/Kanav pattern).
 	for _, m := range playerDataPattern.FindAllStringSubmatch(body, 1) {
 		if len(m) >= 2 {
 			raw := m[1]
@@ -905,7 +872,6 @@ func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataRes
 						actors = append(actors, a)
 					}
 				}
-				// Use vod_name as title fallback.
 				if title == "" && pd.VodData.Name != "" {
 					title = CleanTitle(strings.TrimSpace(pd.VodData.Name))
 				}
@@ -913,16 +879,15 @@ func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataRes
 		}
 	}
 
-	// Also try og:description meta as a fallback source for actor hints.
 	if doc != nil && len(actors) == 0 {
-		doc.Find(".video-countext-tags a, .tag-list a, .actor-list a, .model-tag").Each(func(_ int, s *goquery.Selection) {
-			if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 30 {
+		doc.Find(".video-countext-actors a, .actor-list a, .model-tag, [itemprop='actor']").Each(func(_ int, s *goquery.Selection) {
+			if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 80 {
 				actors = append(actors, text)
 			}
 		})
 	}
 
-	protagonist := strings.Join(xutil.UniqueStrings(actors, true), ", ")
+	protagonist := strings.Join(xutil.CleanActorList(actors), ", ")
 
 	scraperLogger.Info("Quick metadata extracted",
 		infra.LogContext{Extra: map[string]any{
@@ -932,20 +897,36 @@ func QuickMetadataScrape(ctx context.Context, pageURL string) (*QuickMetadataRes
 		}})
 
 	return &QuickMetadataResult{
-		Title:       title,
+		Title:       xutil.CleanText(title),
 		Protagonist: protagonist,
 	}, nil
 }
 
-// ScrapePageWithFallback wraps a scrape function with domain health-aware
-// mirror domain switching. It uses DomainHealthTracker to prioritize
-// healthy domains and deprioritize rate-limited ones.
+// ScrapeSuccessFunc reports whether a scrape result carries the content the
+// caller needs. Returning false makes the mirror loop continue to the next
+// domain, which a bare nil-error return cannot express: a mirror can answer
+// HTTP 200 with a page that holds no stream, and treating that as success
+// would abandon the remaining mirrors while crediting a domain that cannot
+// actually serve the request.
+type ScrapeSuccessFunc func(*sites.ScrapeResult) bool
+
+// ScrapePageWithFallback tries each candidate domain in health-tracker order,
+// so a slow or error-prone mirror is deprioritized, and feeds every attempt's
+// latency and outcome back into the tracker.
+//
+// successFn is optional; without it any nil error counts as success.
 func ScrapePageWithFallback(
 	ctx context.Context,
 	pageURL string,
 	domains []string,
 	scrapeFn func(context.Context, string) (*sites.ScrapeResult, error),
+	successFn ...ScrapeSuccessFunc,
 ) (*sites.ScrapeResult, error) {
+	usable := func(r *sites.ScrapeResult) bool { return r != nil }
+	if len(successFn) > 0 && successFn[0] != nil {
+		usable = successFn[0]
+	}
+
 	if len(domains) == 0 {
 		return scrapeFn(ctx, pageURL)
 	}
@@ -956,19 +937,35 @@ func ScrapePageWithFallback(
 	var lastErr error
 	for _, domain := range orderedDomains {
 		targetURL := urlutil.ReplaceHost(pageURL, domain)
+		started := time.Now()
 		result, err := scrapeFn(ctx, targetURL)
-		if err == nil {
-			tracker.MarkHealthy(domain)
+		rtt := time.Since(started)
+
+		if err == nil && usable(result) {
+			tracker.ReportOutcome(domain, rtt, nil)
 			return result, nil
 		}
-		tracker.MarkRateLimited(domain)
-		lastErr = err
-		scraperLogger.Debug("Domain failed, trying next",
+
+		// An unusable result is a soft failure: the host answered, so the
+		// round-trip time is still a valid latency sample, but the domain
+		// did not serve what was asked for.
+		reason := err
+		if reason == nil {
+			reason = errUnusableScrapeResult
+		}
+		tracker.ReportOutcome(domain, rtt, reason)
+		lastErr = reason
+		scraperLogger.Debug("Domain did not serve request, trying next",
 			infra.LogContext{Extra: map[string]any{
 				"domain": domain,
-				"error":  err.Error(),
+				"rttMs":  rtt.Milliseconds(),
+				"error":  reason.Error(),
 			}})
 	}
 
 	return nil, fmt.Errorf("all domains failed: %w", lastErr)
 }
+
+// errUnusableScrapeResult marks a response that arrived intact but lacked the
+// requested content, so the tracker can tell it apart from a transport error.
+var errUnusableScrapeResult = stealth.ErrEmptyResponse

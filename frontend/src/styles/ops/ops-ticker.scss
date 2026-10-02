@@ -1,12 +1,8 @@
-// Ops dashboard — container + top live ticker
-
-// ─── Dashboard container (full-width light theme) ───
 .dashboard-page {
-  // Also defined in pages/dashboard.scss, but ops.css loads before that
-  // module; kept here so load order stays correct.
+  // Ops styles load before pages/dashboard.scss, so the override for load
+  // order has to be declared here
 }
 
-// ─── Top live data ticker ───
 .ops-ticker {
   display: flex;
   align-items: center;
@@ -89,7 +85,6 @@
   animation: none;
 }
 
-// ─── Data stream indicator ───
 .ops-data-stream {
   display: flex;
   align-items: center;
@@ -115,7 +110,6 @@
   50% { transform: scaleY(1.6); opacity: 1; }
 }
 
-// ─── Disk activity indicator ───
 .ops-disk-activity {
   display: flex;
   align-items: center;
@@ -140,7 +134,6 @@
   50% { transform: scale(1.8); opacity: 1; }
 }
 
-// ─── Two-column layout ───
 .ops-two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -154,7 +147,6 @@
   }
 }
 
-// ─── Live stats pulse ───
 .ops-pulse {
   display: inline-flex;
   align-items: center;
@@ -174,7 +166,6 @@
   animation: pulse-glow 1.5s ease-in-out infinite;
 }
 
-// ─── Scan-line effect ───
 .ops-scan {
   position: relative;
   overflow: hidden;

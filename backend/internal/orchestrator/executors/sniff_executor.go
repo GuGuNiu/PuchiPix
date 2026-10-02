@@ -66,6 +66,9 @@ func (e *SniffExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, e
 
 	found, err := e.sniffFn(sniffCtx, url, siteID)
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		e.logger.Error("Sniff failed", err,
 			"nodeId", node.NodeID, "dagId", node.DagID)
 		if e.eventBus != nil && sniffSeq != "" {

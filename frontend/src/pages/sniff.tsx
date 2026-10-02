@@ -17,6 +17,7 @@ const POLL_INTERVAL = 2000;
 const STATUS_LABEL_KEY: Record<string, string> = {
   pending: "common.pending",
   scraping: "common.scraping",
+  sniffing: "common.scraping",
   running: "common.downloading",
   completed: "common.completed",
   failed: "common.failed",

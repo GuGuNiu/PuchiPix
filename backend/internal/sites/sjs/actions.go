@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// ExtractDownloadLinks parses the jnpar-pansell-links div for cloud
-// storage download URLs, returning empty when content requires purchase.
+// ExtractDownloadLinks returns the cloud storage links of a thread, or nothing
+// when the thread is purchase-gated.
 func ExtractDownloadLinks(html string) []string {
 	linksDiv := extractClassContent(html, "jnpar-pansell-links")
 	if linksDiv == "" {
@@ -20,8 +20,6 @@ func ExtractDownloadLinks(html string) []string {
 	return parseDownloadLinks(linksDiv)
 }
 
-// IsThreadPurchasable checks whether the thread requires payment to
-// access download links.
 func IsThreadPurchasable(html string) bool {
 	linksDiv := extractClassContent(html, "jnpar-pansell-links")
 	if linksDiv == "" {

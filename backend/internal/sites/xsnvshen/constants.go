@@ -23,25 +23,20 @@ var BlockedProtagonists []string
 var BlockedProtagonistsEnabled bool
 
 var (
-	albumIDPattern      = regexp.MustCompile(`/album/(\d+)`)
-	modelIDPattern      = regexp.MustCompile(`/album/(\d+)/(\d+)/`)
-	siteSuffixPattern   = regexp.MustCompile(`(?i)\s*[_|]\s*(秀色女神|xsnvshen|XsNvShen)\s*$`)
-	publisherPrefix     = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
-	bracketPrefix       = regexp.MustCompile(`^\[.*?\]\s*`)
-	trailingSeparator   = regexp.MustCompile(`(?i)\s*[-\s]*$`)
-	datePattern         = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
-	descCountPattern    = regexp.MustCompile(`(?i)\s*\d+P\d*V?\s*$`)
-	
-	// xsnvshen-specific patterns for title cleaning
-	// Matches prefixes like "[XiuRen]高清写真图 2025.11.27 No.11037 "
+	albumIDPattern    = regexp.MustCompile(`/album/(\d+)`)
+	modelIDPattern    = regexp.MustCompile(`/album/(\d+)/(\d+)/`)
+	siteSuffixPattern = regexp.MustCompile(`(?i)\s*[_|]\s*(秀色女神|xsnvshen|XsNvShen)\s*$`)
+	publisherPrefix   = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
+	bracketPrefix     = regexp.MustCompile(`^\[.*?\]\s*`)
+	trailingSeparator = regexp.MustCompile(`(?i)\s*[-\s]*$`)
+	datePattern       = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})`)
+	descCountPattern  = regexp.MustCompile(`(?i)\s*\d+P\d*V?\s*$`)
+
 	xiuRenPrefixPattern = regexp.MustCompile(`^\[.*?\]高清写真图\s+\d{4}\.\d{2}\.\d{2}\s+No\.\d+\s*`)
-	// Matches suffixes like "秀人网性感" or "女神私房照"
 	xiuRenSuffixPattern = regexp.MustCompile(`\s*秀人网.*$`)
-	// Extracts model name from meta description: "模特@模特名"
-	descModelPattern = regexp.MustCompile(`模特[@:：]\s*(\S+)`)
+	descModelPattern    = regexp.MustCompile(`模特[@:：]\s*(\S+)`)
 )
 
-// GalleryPageMetadata holds parsed data from a gallery album page.
 type GalleryPageMetadata struct {
 	H1Title     string
 	RawTitle    string
@@ -52,17 +47,16 @@ type GalleryPageMetadata struct {
 	ModelID     string
 	AlbumID     string
 	Images      []GalleryImageEntry
-	Protagonist string // extracted model/protagonist name
+	Protagonist string
 }
 
-// GalleryImageEntry represents a single image URL with its page index.
 type GalleryImageEntry struct {
 	URL       string
 	PageIndex int
 }
 
-// initData populates package-level configuration variables from the
-// unified SiteDataStore, replacing former hardcoded constants.
+// initData loads the site configuration into the package-level variables so
+// the rest of the package can read them without a data store handle.
 func initData(ds sites.SiteDataStore) {
 	if mod, ok := ds.GetModuleConfig("xsnvshen"); ok {
 		SiteDomains = mod.Domains
@@ -85,7 +79,6 @@ func initData(ds sites.SiteDataStore) {
 	BlockedProtagonistsEnabled = pd.BlockedProtagonistsEnabled
 }
 
-// ExtractAlbumID extracts the numeric album ID from a URL path.
 func ExtractAlbumID(rawURL string) string {
 	if m := albumIDPattern.FindStringSubmatch(rawURL); len(m) >= 2 {
 		return m[1]
@@ -93,7 +86,7 @@ func ExtractAlbumID(rawURL string) string {
 	return ""
 }
 
-// ExtractModelIDFromImageUrl extracts the model ID and album ID from
+// ExtractModelIDFromImageUrl returns the model ID and album ID parsed from
 // an image URL path segment.
 func ExtractModelIDFromImageUrl(rawURL string) (string, string) {
 	if m := modelIDPattern.FindStringSubmatch(rawURL); len(m) >= 3 {
@@ -102,8 +95,6 @@ func ExtractModelIDFromImageUrl(rawURL string) (string, string) {
 	return "", ""
 }
 
-// CleanTitle removes bracket prefixes, publisher prefixes, and site
-// suffixes from a raw title string.
 func CleanTitle(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
@@ -116,23 +107,18 @@ func CleanTitle(rawTitle string) string {
 	return strings.TrimSpace(title)
 }
 
-// CleanTitleXsnvshen removes xsnvshen-specific prefixes and suffixes.
-// Strips "[XiuRen]高清写真图 2025.11.27 No.11037 " prefix and "秀人网..." suffix
-// to expose the model name and theme description.
 func CleanTitleXsnvshen(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
 	}
 	title := strings.TrimSpace(rawTitle)
-	// Remove "[XiuRen]高清写真图 YYYY.MM.DD No.XXXXX " prefix
 	title = xiuRenPrefixPattern.ReplaceAllString(title, "")
-	// Remove trailing "秀人网性感..." suffix
 	title = xiuRenSuffixPattern.ReplaceAllString(title, "")
 	return strings.TrimSpace(title)
 }
 
-// ExtractModelFromDescription extracts the model name from meta description.
-// Pattern: "模特@模特名" or "模特:模特名"
+// ExtractModelFromDescription reads the model name from a meta description,
+// which the site writes as a "model@name" or "model:name" pair.
 func ExtractModelFromDescription(desc string) string {
 	if m := descModelPattern.FindStringSubmatch(desc); len(m) >= 2 {
 		return strings.TrimSpace(m[1])
@@ -140,9 +126,8 @@ func ExtractModelFromDescription(desc string) string {
 	return ""
 }
 
-// CleanDescription removes the protagonist name from the title,
-// strips leading separators, and trims trailing image-count suffixes
-// like "73P" or "100P2V" to produce a concise description.
+// CleanDescription strips the protagonist name, leading separators, and the
+// trailing image-count suffix (e.g. 73P, 100P2V) from a title.
 func CleanDescription(title, protagonist string) string {
 	if title == "" {
 		return ""
@@ -156,7 +141,6 @@ func CleanDescription(title, protagonist string) string {
 	return strings.TrimSpace(desc)
 }
 
-// ExtractDomainFromUrl extracts the scheme+host portion of a URL.
 func ExtractDomainFromUrl(rawURL string) string {
 	for _, domain := range SiteDomains {
 		if strings.HasPrefix(rawURL, domain) {
@@ -166,13 +150,10 @@ func ExtractDomainFromUrl(rawURL string) string {
 	return ""
 }
 
-// IsListingPage reports whether the URL is a listing or search page
-// rather than an album detail page.
 func IsListingPage(rawURL string) bool {
 	return !strings.Contains(rawURL, "/album/")
 }
 
-// NormalizeURL ensures URL protocol completeness.
 func NormalizeURL(rawURL string) string {
 	if rawURL == "" {
 		return ""

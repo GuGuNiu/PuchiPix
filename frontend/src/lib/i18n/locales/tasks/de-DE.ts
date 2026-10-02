@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Task management page text — de-DE
 const deDE: TranslationDict = {
   "tasks.typeAll": "Alle",
   "tasks.typeVideo": "Video",

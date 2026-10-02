@@ -3,35 +3,33 @@ package video
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"backend/internal/infra"
 )
 
 var pipelineLogger = infra.NewLogger("Pipeline")
 
-// PipelineData carries data through the pipeline.
 type PipelineData struct {
 	// InputDir input directory (segment files live here)
-	InputDir string
-	// OutputPath output file path
-	OutputPath string
-	// Segments segment info
-	Segments []M3U8Segment
-	// Metadata resolution/bitrate etc.
-	Metadata map[string]any
-	// TempFiles temp files to clean up
-	TempFiles []string
+	InputDir         string
+	MergedInputPath  string
+	ExpectedDuration time.Duration
+	OutputPath       string
+	Segments         []M3U8Segment
+	Metadata         map[string]any
+	TempFiles        []string
 	// Ctx context, supports cancellation
 	Ctx context.Context
 	// OnProgress transcode progress callback (0-100 percent), consumed by
 	// TranscodeStep. Nil = no progress reporting. Invoked from the ffmpeg
 	// output-parsing goroutine — implementations must be lightweight and
-	// concurrency-safe.
+	// tolerate concurrent calls.
 	OnProgress func(percent float64)
 }
 
-// NewPipelineData creates a new PipelineData.
 func NewPipelineData(ctx context.Context, inputDir, outputPath string, segments []M3U8Segment) *PipelineData {
 	return &PipelineData{
 		InputDir:   inputDir,
@@ -55,12 +53,8 @@ func (d *PipelineData) Cleanup() {
 	d.TempFiles = nil
 }
 
-// PipelineStep is one processing step in the pipeline.
-// Follows cat-catch's use(fn, name) design (see design doc §2.5.2).
 type PipelineStep interface {
-	// Name returns the step name for logs and debugging.
 	Name() string
-	// Process transforms data and returns the result.
 	Process(ctx context.Context, data *PipelineData) (*PipelineData, error)
 }
 
@@ -70,35 +64,28 @@ type FuncStep struct {
 	fn   func(ctx context.Context, data *PipelineData) (*PipelineData, error)
 }
 
-// Name returns the step name.
 func (s *FuncStep) Name() string {
 	return s.name
 }
 
-// Process invokes the wrapped function.
 func (s *FuncStep) Process(ctx context.Context, data *PipelineData) (*PipelineData, error) {
 	return s.fn(ctx, data)
 }
 
-// NewFuncStep creates a function-based step.
 func NewFuncStep(name string, fn func(ctx context.Context, data *PipelineData) (*PipelineData, error)) *FuncStep {
 	return &FuncStep{name: name, fn: fn}
 }
 
-// Pipeline is a processing pipeline.
-// Follows cat-catch's use()/removeProcessor() pattern.
 type Pipeline struct {
 	steps []PipelineStep
 	mu    sync.RWMutex
 }
 
-// NewPipeline creates a new pipeline.
 func NewPipeline() *Pipeline {
 	return &Pipeline{}
 }
 
 // Use appends a step (chainable).
-// Follows cat-catch's downloader.use(fn, name).
 func (p *Pipeline) Use(step PipelineStep) *Pipeline {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -106,8 +93,6 @@ func (p *Pipeline) Use(step PipelineStep) *Pipeline {
 	return p
 }
 
-// Remove drops the step with the given name.
-// Follows cat-catch's removeProcessor(name).
 func (p *Pipeline) Remove(name string) *Pipeline {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -146,7 +131,6 @@ func (p *Pipeline) Steps() []string {
 	return names
 }
 
-// Execute runs the pipeline.
 func (p *Pipeline) Execute(ctx context.Context, data *PipelineData) (*PipelineData, error) {
 	p.mu.RLock()
 	steps := make([]PipelineStep, len(p.steps))
@@ -195,26 +179,23 @@ func (p *Pipeline) ExecuteWithCleanup(ctx context.Context, data *PipelineData) (
 	return p.Execute(ctx, data)
 }
 
-// ============================================================
-// Built-in steps
-// ============================================================
-
 // ConcatStep produces the segment concat list.
 type ConcatStep struct{}
 
-// Name returns the step name.
 func (s *ConcatStep) Name() string {
 	return "concat"
 }
 
-// Process generates the concat.txt file.
 func (s *ConcatStep) Process(ctx context.Context, data *PipelineData) (*PipelineData, error) {
+	if data.MergedInputPath != "" {
+		return data, nil
+	}
 	if len(data.Segments) == 0 {
 		return data, fmt.Errorf("no segments to concat")
 	}
 
-	// Should reuse the existing MergeSegments logic to generate concat.txt;
-	// simplified for now.
+	// TODO: write concat.txt from the segment manifest when no merged
+	// input was produced upstream
 	return data, nil
 }
 
@@ -225,17 +206,16 @@ type TranscodeStep struct {
 	EncoderArgs  []string // custom encoder args
 }
 
-// Name returns the step name.
 func (s *TranscodeStep) Name() string {
 	return "transcode"
 }
 
-// Process runs the FFmpeg transcode.
 func (s *TranscodeStep) Process(ctx context.Context, data *PipelineData) (*PipelineData, error) {
 	opts := TranscodeOptions{
-		UseGPU:       s.UseGPU,
-		ForceGPUType: s.ForceGPUType,
-		OnProgress:   data.OnProgress,
+		UseGPU:           s.UseGPU,
+		ForceGPUType:     s.ForceGPUType,
+		ExpectedDuration: data.ExpectedDuration,
+		OnProgress:       data.OnProgress,
 	}
 
 	if len(s.EncoderArgs) > 0 {
@@ -246,11 +226,14 @@ func (s *TranscodeStep) Process(ctx context.Context, data *PipelineData) (*Pipel
 			}})
 	}
 
-	// The segment manifest is the authoritative transcode input set —
-	// derived from the playlist, never from a directory scan, so stray .ts
-	// files (stale merge outputs, foreign-variant residue) are excluded.
-	manifest := SegmentManifest(data.Segments)
+	if data.MergedInputPath != "" {
+		if err := TranscodeMergedTSWithFallback(ctx, data.MergedInputPath, data.OutputPath, opts); err != nil {
+			return data, fmt.Errorf("transcode failed: %w", err)
+		}
+		return data, nil
+	}
 
+	manifest := SegmentManifest(data.Segments)
 	if err := TranscodeTSWithFallback(ctx, data.InputDir, data.OutputPath, manifest, opts); err != nil {
 		return data, fmt.Errorf("transcode failed: %w", err)
 	}
@@ -265,12 +248,10 @@ type WatermarkStep struct {
 	Opacity   float64 // 0.0 - 1.0
 }
 
-// Name returns the step name.
 func (s *WatermarkStep) Name() string {
 	return "watermark"
 }
 
-// Process applies the watermark.
 func (s *WatermarkStep) Process(ctx context.Context, data *PipelineData) (*PipelineData, error) {
 	if s.ImagePath == "" {
 		pipelineLogger.Warn("Watermark step skipped: no image path", nil)
@@ -280,7 +261,7 @@ func (s *WatermarkStep) Process(ctx context.Context, data *PipelineData) (*Pipel
 	// TODO: implement watermarking
 	pipelineLogger.Info("Watermark step (placeholder)",
 		infra.LogContext{Extra: map[string]any{
-			"image": s.ImagePath,
+			"image":    s.ImagePath,
 			"position": s.Position,
 		}})
 
@@ -294,12 +275,10 @@ type MetadataStep struct {
 	Tags    []string
 }
 
-// Name returns the step name.
 func (s *MetadataStep) Name() string {
 	return "metadata"
 }
 
-// Process writes metadata into PipelineData.Metadata.
 func (s *MetadataStep) Process(ctx context.Context, data *PipelineData) (*PipelineData, error) {
 	if s.Title != "" {
 		data.Metadata["title"] = s.Title
@@ -314,10 +293,6 @@ func (s *MetadataStep) Process(ctx context.Context, data *PipelineData) (*Pipeli
 	// TODO: actually write MP4 metadata
 	return data, nil
 }
-
-// ============================================================
-// Prebuilt pipeline factories
-// ============================================================
 
 // NewDefaultPipeline creates the default transcode pipeline (concat -> transcode).
 func NewDefaultPipeline(useGPU bool, forceGPUType string) *Pipeline {
@@ -360,5 +335,9 @@ func NewWatermarkPipeline(useGPU bool, forceGPUType string, watermarkImage strin
 
 // removeFile deletes a file, ignoring errors.
 func removeFile(path string) error {
-	return nil // stub: should call os.Remove and ignore not-exist errors
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }

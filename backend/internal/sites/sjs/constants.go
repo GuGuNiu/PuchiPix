@@ -27,22 +27,20 @@ func getCurrentDomains() []string {
 }
 
 var (
-	threadIDPattern      = regexp.MustCompile(`thread-(\d+)-\d+-\d+\.html`)
-	threadIDQueryPattern = regexp.MustCompile(`[?&]tid=(\d+)`)
-	forumIDPattern       = regexp.MustCompile(`forum-(\d+)-\d+\.html`)
-	threadURLPattern     = regexp.MustCompile(`thread-\d+-\d+-\d+\.html`)
-	datePattern          = regexp.MustCompile(`(\d{4}-\d{1,2}-\d{1,2})`)
-	relDatePattern       = regexp.MustCompile(`(\d{4}-\d{1,2}-\d{1,2}|\d+天前|\d+小时前|昨天|前天|\d+分钟前)`)
-	publishedPattern     = regexp.MustCompile(`发布时间\s*(.+)`)
+	threadIDPattern        = regexp.MustCompile(`thread-(\d+)-\d+-\d+\.html`)
+	threadIDQueryPattern   = regexp.MustCompile(`[?&]tid=(\d+)`)
+	forumIDPattern         = regexp.MustCompile(`forum-(\d+)-\d+\.html`)
+	threadURLPattern       = regexp.MustCompile(`thread-\d+-\d+-\d+\.html`)
+	datePattern            = regexp.MustCompile(`(\d{4}-\d{1,2}-\d{1,2})`)
+	relDatePattern         = regexp.MustCompile(`(\d{4}-\d{1,2}-\d{1,2}|\d+天前|\d+小时前|昨天|前天|\d+分钟前)`)
+	publishedPattern       = regexp.MustCompile(`发布时间\s*(.+)`)
 	publisherPrefixPattern = regexp.MustCompile(`^[\x{4e00}-\x{9fff}]{3,8}[:]\s*`)
-	sjsSuffixPattern     = regexp.MustCompile(`(?i)\s*-\s*司机社\s*-\s*求出处.*$`)
-	sjsSuffixPattern2    = regexp.MustCompile(`(?i)\s*-\s*司机社.*$`)
+	sjsSuffixPattern       = regexp.MustCompile(`(?i)\s*-\s*司机社\s*-\s*求出处.*$`)
+	sjsSuffixPattern2      = regexp.MustCompile(`(?i)\s*-\s*司机社.*$`)
 )
 
 var categorySuffixPatterns []*regexp.Regexp
 
-// initData populates package-level configuration variables from the
-// unified SiteDataStore, replacing former hardcoded constants.
 func initData(ds sites.SiteDataStore) {
 	if mod, ok := ds.GetModuleConfig("sjs"); ok {
 		SiteDomains = mod.Domains
@@ -77,7 +75,6 @@ func ExtractThreadID(rawURL string) string {
 	return ""
 }
 
-// ExtractForumID extracts the numeric forum ID from a URL path.
 func ExtractForumID(rawURL string) string {
 	if m := forumIDPattern.FindStringSubmatch(rawURL); len(m) >= 2 {
 		return m[1]
@@ -98,8 +95,6 @@ func NormalizeSjsUrl(rawURL string) string {
 	return urlutil.ReplaceDomain(rawURL, PrimaryDomain, getCurrentDomains())
 }
 
-// IsListingPage reports whether the URL is a forum listing or search
-// page rather than a thread detail page.
 func IsListingPage(rawURL string) bool {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -131,7 +126,6 @@ func CleanSjsTitle(rawTitle string) string {
 	return strings.TrimSpace(title)
 }
 
-// ResolveURL converts a relative URL to absolute using the primary domain.
 func ResolveURL(rawURL string) string {
 	if rawURL == "" {
 		return ""

@@ -27,6 +27,7 @@ export default function PhotosPage(): React.JSX.Element {
   const fetchGalleries = useGalleryStore((s) => s.fetchGalleries);
   const deleteGallery = useGalleryStore((s) => s.deleteGallery);
   const retryDownload = useGalleryStore((s) => s.retryDownload);
+  const retryFailedFiles = useGalleryStore((s) => s.retryFailedFiles);
   const downloadZip = useGalleryStore((s) => s.downloadZip);
   const fetchGalleryDetail = useGalleryStore((s) => s.fetchGalleryDetail);
   const subscribeToSocket = useGalleryStore((s) => s.subscribeToSocket);
@@ -285,6 +286,7 @@ export default function PhotosPage(): React.JSX.Element {
           onClose={() => setExpandedId(null)}
           onDelete={handleDelete}
           onRetry={handleRetry}
+          onRetryFailedFiles={retryFailedFiles}
           onDownloadZip={downloadZip}
         />
       )}

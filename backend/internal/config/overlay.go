@@ -10,19 +10,18 @@ type ConfigLayer struct {
 	Settings map[string]any `json:"settings"`
 }
 
-// ConfigOverlay resolves settings across three layers: subtype overrides
-// (most specific) → site overrides → global defaults. Resolution semantics
-// mirror the gallery-dl pattern of interpolated chain lookup with additive
-// aggregation, adapted to PuchiPix's flat key space.
+// ConfigOverlay resolves settings across three layers, from least to most
+// specific: global defaults, site overrides, and subtype overrides. Lookup
+// returns the most specific match; Accumulate merges values across layers.
 type ConfigOverlay struct {
 	Global   *ConfigLayer
 	Sites    map[string]*ConfigLayer
 	SubTypes map[string]*ConfigLayer
 }
 
-// NewConfigOverlay returns an overlay with an empty global layer and no
-// overrides; lookups against it always miss, which keeps legacy single-layer
-// deployments working without any override files present.
+// NewConfigOverlay returns an overlay whose global layer is empty and whose
+// override maps are unpopulated, so every lookup misses and callers fall
+// through to their own defaults.
 func NewConfigOverlay() *ConfigOverlay {
 	return &ConfigOverlay{
 		Global:   &ConfigLayer{Name: "global", Settings: map[string]any{}},
@@ -31,13 +30,11 @@ func NewConfigOverlay() *ConfigOverlay {
 	}
 }
 
-// subtypeKey composes the map key for subtype layers.
 func subtypeKey(siteID, subtype string) string {
 	return siteID + ":" + subtype
 }
 
 // layersFor returns the lookup chain ordered from most to least specific.
-// Nil layers are skipped so callers get a uniform iteration.
 func (o *ConfigOverlay) layersFor(siteID, subtype string) []*ConfigLayer {
 	var chain []*ConfigLayer
 	if subtype != "" {
@@ -66,7 +63,7 @@ func (o *ConfigOverlay) Lookup(siteID, subtype, key string) any {
 }
 
 // LookupString returns the resolved value as a string, or fallback when the
-// key is absent in every layer.
+// key is absent from every layer or holds a non-string value.
 func (o *ConfigOverlay) LookupString(siteID, subtype, key, fallback string) string {
 	if v, ok := o.Lookup(siteID, subtype, key).(string); ok {
 		return v
@@ -74,7 +71,8 @@ func (o *ConfigOverlay) LookupString(siteID, subtype, key, fallback string) stri
 	return fallback
 }
 
-// LookupBool returns the resolved value as a bool, or fallback when absent.
+// LookupBool returns the resolved value as a bool, or fallback when the key is
+// absent from every layer or holds a non-bool value.
 func (o *ConfigOverlay) LookupBool(siteID, subtype, key string, fallback bool) bool {
 	if v, ok := o.Lookup(siteID, subtype, key).(bool); ok {
 		return v
@@ -105,10 +103,9 @@ func (o *ConfigOverlay) LookupInt(siteID, subtype, key string, fallback int) int
 // entries — a plain override would silently weaken filtering for every site
 // that customizes the list.
 func (o *ConfigOverlay) Accumulate(siteID, subtype, key string) any {
-	// layersFor yields most-specific first; accumulation walks the chain
-	// in reverse (global first) so list entries from broader layers stay
-	// ahead of the more specific additions, and later map layers override
-	// earlier ones.
+	// layersFor yields most-specific first, so accumulation walks the chain
+	// in reverse to keep broader list entries ahead of the more specific
+	// additions and let deeper map layers override shallower ones.
 	chain := o.layersFor(siteID, subtype)
 	var slices [][]any
 	var maps []map[string]any
@@ -200,7 +197,7 @@ func (o *ConfigOverlay) AccumulateStrings(siteID, subtype, key string) []string 
 	return out
 }
 
-// SiteLayer exposes the site-level layer for mutation during load.
+// SiteLayer returns the site-level layer, creating it on first use.
 func (o *ConfigOverlay) SiteLayer(siteID string) *ConfigLayer {
 	if l, ok := o.Sites[siteID]; ok {
 		return l
@@ -210,7 +207,8 @@ func (o *ConfigOverlay) SiteLayer(siteID string) *ConfigLayer {
 	return l
 }
 
-// SubtypeLayer exposes the subtype-level layer keyed by "siteID:subtype".
+// SubtypeLayer returns the layer keyed by "siteID:subtype", creating it on
+// first use.
 func (o *ConfigOverlay) SubtypeLayer(siteID, subtype string) *ConfigLayer {
 	k := subtypeKey(siteID, subtype)
 	if l, ok := o.SubTypes[k]; ok {

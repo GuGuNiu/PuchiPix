@@ -1,5 +1,3 @@
-// Cyberpunk city background — full-height vertical SVG city animation
-
 .cp-city-bg {
   position: absolute;
   inset: 0;
@@ -9,12 +7,10 @@
   opacity: 0.95;
   transition: opacity 0.6s ease;
 
-  // Sidebar collapsed
   .sidebar.collapsed:not(.hover-expand) & {
     opacity: 0.55;
   }
 
-  // Boosted in dark theme
   [data-theme="dark"] & {
     opacity: 1;
   }
@@ -34,7 +30,6 @@
   display: block;
 }
 
-// ===== Starfield particles =====
 .cp-city-particles {
   opacity: 0.6;
 
@@ -59,13 +54,11 @@
   100% { opacity: 0.5; transform: scale(1); }
 }
 
-// ===== Building layers =====
 .cp-city-layer {
   fill: url(#cp-city-bgrad);
   transition: fill 0.5s ease;
 }
 
-// Far layer
 .cp-city-far {
   opacity: 0.55;
   animation: cp-city-drift-far 60s linear infinite alternate;
@@ -75,7 +68,6 @@
   }
 }
 
-// Mid layer
 .cp-city-mid {
   opacity: 0.8;
   animation: cp-city-drift-mid 45s linear infinite alternate;
@@ -85,7 +77,6 @@
   }
 }
 
-// Near layer
 .cp-city-near {
   opacity: 1;
   animation: cp-city-drift-near 30s linear infinite alternate;
@@ -110,7 +101,6 @@
   100% { transform: translateX(14px); }
 }
 
-// ===== Vertical cables =====
 .cp-city-wires {
   opacity: 0.4;
 
@@ -131,7 +121,6 @@
   100% { stroke-dashoffset: 48; }
 }
 
-// ===== Horizontal skybridges =====
 .cp-city-bridges {
   opacity: 0.45;
 
@@ -157,7 +146,6 @@
   100% { stroke-dashoffset: 54; }
 }
 
-// ===== Neon poles =====
 .cp-city-neon-poles {
   opacity: 0.6;
 
@@ -176,7 +164,6 @@
   100% { opacity: 0.9; }
 }
 
-// ===== Neon sign text =====
 .cp-city-neon-signs {
   opacity: 0.5;
 
@@ -207,7 +194,6 @@
   90%      { opacity: 1; filter: drop-shadow(0 0 12px var(--cp-city-neon)); }
 }
 
-// ===== Windows =====
 .cp-city-windows {
   opacity: 0.9;
 
@@ -226,7 +212,7 @@
     animation-duration: 3s;
   }
 
-  // Staggered per-window delays
+  // Prime divisors keep the window flickers out of phase
   &:nth-child(3n+1) { animation-delay: 0.2s; }
   &:nth-child(3n+2) { animation-delay: 1.5s; }
   &:nth-child(5n+1) { animation-delay: 0.7s; }
@@ -247,7 +233,6 @@
   90%      { fill: var(--cp-city-win-off); }
 }
 
-// ===== Floating orbs / drones =====
 .cp-city-orbs {
   opacity: 0.8;
 
@@ -285,7 +270,6 @@
   100% { transform: translateY(-6px) translateX(-1px); opacity: 0.5; }
 }
 
-// ===== Holographic grid floor =====
 .cp-city-grid {
   opacity: 0.35;
 
@@ -305,7 +289,6 @@
   100% { opacity: 0.6; }
 }
 
-// ===== Vertical scan line =====
 .cp-scan-line-v {
   stroke: var(--cp-city-scan);
   stroke-width: 1.5;

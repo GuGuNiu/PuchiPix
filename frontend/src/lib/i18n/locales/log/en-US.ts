@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Log message templates — en-US
 const enUS: TranslationDict = {
   "log.safeDelete.fileFailed": "File deletion failed ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "File deletion ultimately failed: {path} — {msg}",
@@ -67,18 +66,14 @@ const enUS: TranslationDict = {
   "log.search.terminated": "Search task terminated abnormally: {msg}",
   "log.search.batchTerminated": "Batch search task terminated abnormally: {msg}",
 
-  // Task Queue Manager
   "log.taskCreator.downloadStartFailed": "Download task #{taskId} failed to start: {msg}",
 
-  // Parallel Downloader
   "log.parallelDL.writeFailed": "[ParallelDL] Write failed: {msg}",
   "log.parallelDL.requestFailed": "[ParallelDL] Request failed: {msg}",
 
-  // Download Manager
   "log.downloadManager.segmentFailed": "  Segment #{idx}: {msg}",
   "log.downloadManager.incomplete": "Download incomplete: {failedCount} segments failed (out of {totalSegments} total)\n{details}",
 
-  // Task Queue Manager
   "log.taskQueue.slotAllocated": "Slot allocated: {key} (running: normal={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "Slot released: {key} (running: normal={normal}/{maxNormal}, sniff={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "Scraping slot allocated: {key} (scraping: {scraping}/{maxScraping})",
@@ -97,20 +92,17 @@ const enUS: TranslationDict = {
 "log.taskQueue.startupRecovery": "Startup recovery: re-queued {count} task(s)",
   "log.taskQueue.configLoadFailed": "Failed to load config, using defaults: {error}",
 
-  // Server Lifecycle
   "log.server.taskStateReset": "Startup task state reset complete",
   "log.server.downloadManagerInit": "Download manager initialized",
   "log.server.eventBusBridgeInit": "EventBus bridge initialized",
   "log.server.ouoOrchestratorStart": "OUO orchestrator started",
 
-  // Task State Reset
   "log.taskStateReset.started": "Starting running task state reset...",
   "log.taskStateReset.cleanupSlots": "Cleaning stale slots: normal={normal}, sniff={sniff}, scraping={scraping}",
   "log.taskStateReset.completed": "Reset complete: video {videoTasks}, galleries {galleries}, images {galleryImages}, videos {galleryVideos}, sniff {sniffTasks}, ZIP info {galleryDownloadInfos}, total {total} tasks reset to pending",
   "log.taskStateReset.noop": "No running tasks found, nothing to reset",
   "log.taskStateReset.suspended": "Server restarted, task suspended",
 
-  // Preset Data Seed
   "log.seed.presetDataSeeded": "Preset data seeded to database: {prefs} preferences, {blocklists} blocklist rules",
   "log.dagOrchestrator.initComplete": "[DagOrchestrator] Initialization complete",
   "log.dagOrchestrator.dagCompleted": "[DagOrchestrator] DAG {dagId} fully completed",

@@ -25,8 +25,8 @@ var SiteDomains []string
 var CategoryLabels map[string]int
 var CategoryNames map[int]string
 
-// initData populates package-level configuration variables from the
-// unified SiteDataStore, replacing former hardcoded constants.
+// initData loads the site configuration into the package-level variables so
+// the rest of the package can read them without a data store handle.
 func initData(ds sites.SiteDataStore) {
 	if mod, ok := ds.GetModuleConfig("exhentai"); ok {
 		SiteDomains = mod.Domains
@@ -78,8 +78,6 @@ func GetExhentaiCookies() *ExhentaiCookies {
 	}
 }
 
-// AsCookieString formats the cookies as a Cookie header value so
-// HTTP clients can carry authentication across requests.
 func (c *ExhentaiCookies) AsCookieString() string {
 	parts := []string{
 		"ipb_member_id=" + c.IPBMemberID,
@@ -91,15 +89,13 @@ func (c *ExhentaiCookies) AsCookieString() string {
 	return strings.Join(parts, "; ")
 }
 
-// HasExCookies reports whether exhentai.org authentication cookies
-// are configured, enabling access to the restricted site.
+// HasExCookies reports whether restricted-site access is configured.
 func HasExCookies() bool {
 	return GetExhentaiCookies() != nil
 }
 
 var galleryIDPattern = regexp.MustCompile(`/g/(\d+)/`)
 
-// ExtractGalleryID extracts the numeric gallery ID from a URL path.
 func ExtractGalleryID(rawURL string) string {
 	m := galleryIDPattern.FindStringSubmatch(rawURL)
 	if len(m) >= 2 {
@@ -110,7 +106,7 @@ func ExtractGalleryID(rawURL string) string {
 
 var galleryTokenPattern = regexp.MustCompile(`/g/\d+/([a-f0-9]+)/`)
 
-// ExtractGalleryToken extracts the hash token from a gallery URL.
+// ExtractGalleryToken returns the per-gallery hash token embedded in the URL.
 func ExtractGalleryToken(rawURL string) string {
 	m := galleryTokenPattern.FindStringSubmatch(rawURL)
 	if len(m) >= 2 {
@@ -128,8 +124,7 @@ func NormalizeToEhentai(rawURL string) string {
 	return strings.ReplaceAll(rawURL, BaseExURL, BaseEURL)
 }
 
-// CleanExhentaiTitle decodes HTML entities and trims whitespace,
-// matching the TypeScript decodeHtmlEntities + trim pipeline.
+// CleanExhentaiTitle decodes the HTML entities the site embeds in titles.
 func CleanExhentaiTitle(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
@@ -139,8 +134,6 @@ func CleanExhentaiTitle(rawTitle string) string {
 	return strings.TrimSpace(title)
 }
 
-// IsExhentaiListingPage reports whether the URL is a search or
-// listing page rather than a gallery detail page under /g/.
 func IsExhentaiListingPage(rawURL string) bool {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -149,8 +142,8 @@ func IsExhentaiListingPage(rawURL string) bool {
 	return !strings.HasPrefix(parsed.Path, "/g/")
 }
 
-// GetAdaptiveURLs returns candidate URLs for a gallery, preferring
-// e-hentai.org first and adding exhentai.org when cookies exist.
+// GetAdaptiveURLs lists the public-domain gallery URL first, appending the
+// restricted-domain variant only when authentication cookies are present.
 func GetAdaptiveURLs(rawURL string) []string {
 	galleryID := ExtractGalleryID(rawURL)
 	if galleryID == "" {
@@ -169,8 +162,8 @@ func GetAdaptiveURLs(rawURL string) []string {
 	return urls
 }
 
-// GetAdaptiveSearchURLs returns search URLs for both domains when
-// ExHentai cookies are available, maximizing result coverage.
+// GetAdaptiveSearchURLs queries the restricted domain as well when
+// authentication cookies are present.
 func GetAdaptiveSearchURLs(keyword string) []string {
 	params := "f_search=" + url.QueryEscape(keyword) + "&advsearch=1&f_srdd=0&f_cats=0"
 	urls := []string{BaseEURL + "/?" + params}

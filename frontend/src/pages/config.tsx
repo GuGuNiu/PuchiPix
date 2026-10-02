@@ -4,8 +4,8 @@ import { useI18n } from "@/lib/i18n";
 import { Save, RefreshCw, Cpu, Settings } from "lucide-react";
 
 /*
- * Mirrors the backend GET /api/gpu-info contract (crud.go GPUInfo):
- * snake_case keys, gpu_enabled only present when DownloadManager is wired.
+ * Snake_case keys mirror the GET /api/gpu-info response; gpu_enabled is only
+ * present when a DownloadManager is wired.
  */
 interface GpuInfo {
   gpu_enabled: boolean;
@@ -21,7 +21,7 @@ export default function ConfigPage(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
 
-  // GET /api/config returns a flat {key: value} map (crud.go ConfigList).
+  // GET /api/config returns a flat {key: value} map
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     try {
@@ -62,9 +62,8 @@ export default function ConfigPage(): React.JSX.Element {
   }, [fetchConfig, fetchGPUInfo]);
 
   /*
-   * PUT /api/config accepts the flat {key: value} object (crud.go
-   * ConfigUpdate); the old {config: [...]} wrapper was stored as a
-   * literal "config" key and the real entries never saved.
+   * PUT /api/config takes the flat {key: value} object; a {config: [...]}
+   * wrapper is stored as one literal "config" key and saves nothing
    */
   const handleSaveConfig = async (): Promise<void> => {
     setSaving(true);
@@ -88,9 +87,8 @@ export default function ConfigPage(): React.JSX.Element {
   };
 
   /*
-   * PUT /api/gpu-setting expects {enabled, force_gpu_type} (crud.go
-   * GPUSettingUpdate) — the old {gpu_enabled} field decoded to the Go
-   * zero value, silently disabling the toggle.
+   * PUT /api/gpu-setting expects {enabled, force_gpu_type}; a {gpu_enabled}
+   * field decodes to the Go zero value and leaves the toggle disabled
    */
   const handleSaveGpu = async (): Promise<void> => {
     if (!gpuInfo) return;

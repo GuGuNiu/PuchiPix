@@ -33,10 +33,10 @@ const (
 // states and READY/RUNNING. It signals that the system is actively preparing
 // resources (e.g., re-establishing connections, validating slots, restoring
 // state after restart) before the node can actually run. This gives the UI
-// an immediate optimistic feedback ("preparing", UI label 准备中) instead of an opaque gap.
+// an immediate optimistic "preparing" signal instead of an opaque gap.
 var validTransitions = map[NodeState][]NodeState{
 	NodeStatePending:      {NodeStatePreparing, NodeStateReady, NodeStateCancelled, NodeStateFailed},
-	NodeStatePreparing:    {NodeStateReady, NodeStateRunning, NodeStateFailed, NodeStateCancelled},
+	NodeStatePreparing:    {NodeStateReady, NodeStateRunning, NodeStatePaused, NodeStateFailed, NodeStateCancelled},
 	NodeStateReady:        {NodeStateQueued, NodeStateCancelled, NodeStatePaused, NodeStateNeedsRetry, NodeStateFailed},
 	NodeStateQueued:       {NodeStateAllocated, NodeStateCancelled, NodeStatePaused, NodeStateReady, NodeStateFailed},
 	NodeStateAllocated:    {NodeStateRunning, NodeStateCancelled, NodeStatePaused, NodeStateFailed},
@@ -146,10 +146,10 @@ type ResourceRequirement struct {
 
 // SlotUsage reports the current occupancy of a slot type.
 type SlotUsage struct {
-	SlotType   string `json:"slotType"`
-	Current    int    `json:"current"`
-	Max        int    `json:"max"`
-	Available  int    `json:"available"`
+	SlotType  string `json:"slotType"`
+	Current   int    `json:"current"`
+	Max       int    `json:"max"`
+	Available int    `json:"available"`
 }
 
 // NodeError carries structured failure information so callers can
@@ -163,33 +163,33 @@ type NodeError struct {
 // TransitionContext captures why a state transition happened and who
 // initiated it, providing an audit trail for every node state change.
 type TransitionContext struct {
-	Reason      string    `json:"reason"`
-	TriggeredBy string    `json:"triggeredBy"`
+	Reason      string     `json:"reason"`
+	TriggeredBy string     `json:"triggeredBy"`
 	Error       *NodeError `json:"error,omitempty"`
 }
 
 // DagNodeDefinition declares a single node within a DAG, including its
 // dependencies, resource needs, and executor routing key.
 type DagNodeDefinition struct {
-	ID                   string                 `json:"id"`
-	TaskType             TaskType               `json:"taskType"`
-	Phase                TaskPhase              `json:"phase"`
-	Dependencies         []string               `json:"dependencies"`
-	ResourceRequirements []ResourceRequirement  `json:"resourceRequirements"`
-	Executor             string                 `json:"executor"`
-	Config               map[string]any         `json:"config"`
-	Priority             TaskPriority           `json:"priority"`
-	Timeout              int                    `json:"timeout,omitempty"`
-	MaxRetries           int                    `json:"maxRetries,omitempty"`
-	RetryDelay           int                    `json:"retryDelay,omitempty"`
+	ID                   string                `json:"id"`
+	TaskType             TaskType              `json:"taskType"`
+	Phase                TaskPhase             `json:"phase"`
+	Dependencies         []string              `json:"dependencies"`
+	ResourceRequirements []ResourceRequirement `json:"resourceRequirements"`
+	Executor             string                `json:"executor"`
+	Config               map[string]any        `json:"config"`
+	Priority             TaskPriority          `json:"priority"`
+	Timeout              int                   `json:"timeout,omitempty"`
+	MaxRetries           int                   `json:"maxRetries,omitempty"`
+	RetryDelay           int                   `json:"retryDelay,omitempty"`
 	// NonCritical marks a node whose failure should not cascade to its
 	// dependents. When a NonCritical node fails, its direct successors
 	// are still activated (the failed dep counts as "completed"). The
 	// DAG is not marked as FAILED due solely to NonCritical failures.
-	NonCritical          bool                   `json:"nonCritical,omitempty"`
+	NonCritical bool `json:"nonCritical,omitempty"`
 	// TransitionPolicy overrides the global validTransitions table. When nil,
 	// the FSM falls back to validTransitions.
-	TransitionPolicy     *TransitionPolicy      `json:"transitionPolicy,omitempty"`
+	TransitionPolicy *TransitionPolicy `json:"transitionPolicy,omitempty"`
 }
 
 // RetryPolicy declares the retry behavior for a node when it fails.
@@ -210,9 +210,9 @@ type RetryPolicy struct {
 // permitted given the current state-machine context and the transition
 // context (reason/triggeredBy/error). Guards must be side-effect free so
 // they can be unit-tested in isolation and evaluated multiple times
-// safely. A guard returning false causes resolveTargetState to redirect
-// to the rule's Fallback state (or to keep the original target if no
-// Fallback is set).
+// without observable effects. A guard returning false causes
+// resolveTargetState to redirect to the rule's Fallback state (or to keep
+// the original target if no Fallback is set).
 type GuardFn func(ctx StateMachineContext, event TransitionContext) bool
 
 // ActionFn is a side-effect callback invoked after a transition completes.
@@ -251,7 +251,7 @@ type TransitionPolicy struct {
 	// while download nodes (partial files) return PAUSED.
 	OnPause func(ctx StateMachineContext) NodeState
 	// OnResume returns the state a paused node should enter when resumed.
-	// Returning "" means "use default READY". 
+	// Returning "" means "use default READY".
 	OnResume func(ctx StateMachineContext) NodeState
 	// OnRestart decides the fate of a node found in RUNNING or VERIFYING
 	// state after a service restart. Returning "" means "use default
@@ -263,10 +263,10 @@ type TransitionPolicy struct {
 // DagDefinition is the blueprint for a DAG, containing its nodes and
 // metadata describing the source of the work.
 type DagDefinition struct {
-	ID       string               `json:"id"`
-	TaskType TaskType             `json:"taskType"`
-	Nodes    []DagNodeDefinition  `json:"nodes"`
-	Metadata DagMetadata          `json:"metadata"`
+	ID       string              `json:"id"`
+	TaskType TaskType            `json:"taskType"`
+	Nodes    []DagNodeDefinition `json:"nodes"`
+	Metadata DagMetadata         `json:"metadata"`
 }
 
 // DagMetadata carries origin information about a DAG for logging and
@@ -301,10 +301,10 @@ type SchedulableNode struct {
 	// TimeoutMs carries DagNodeDefinition.Timeout (milliseconds) to the
 	// scheduler so it can enforce per-node execution deadlines; 0
 	// disables enforcement.
-	TimeoutMs            int                   `json:"timeoutMs,omitempty"`
+	TimeoutMs int `json:"timeoutMs,omitempty"`
 	// NonCritical marks a node whose failure should not cascade to its
 	// dependents or cause the DAG to fail.
-	NonCritical          bool                  `json:"nonCritical,omitempty"`
+	NonCritical bool `json:"nonCritical,omitempty"`
 }
 
 // NodeExecutionResult is returned by an executor after a node runs,
@@ -317,12 +317,12 @@ type NodeExecutionResult struct {
 
 // NodeProgress reports incremental execution progress for real-time UI.
 type NodeProgress struct {
-	NodeID  string     `json:"nodeId"`
-	Phase   TaskPhase  `json:"phase"`
-	Current int        `json:"current"`
-	Total   int        `json:"total"`
-	Speed   string     `json:"speed,omitempty"`
-	Failed  int        `json:"failed,omitempty"`
+	NodeID  string    `json:"nodeId"`
+	Phase   TaskPhase `json:"phase"`
+	Current int       `json:"current"`
+	Total   int       `json:"total"`
+	Speed   string    `json:"speed,omitempty"`
+	Failed  int       `json:"failed,omitempty"`
 }
 
 // StateTransitionRecord logs a single state change for audit and replay.
@@ -356,28 +356,28 @@ type DagSnapshot struct {
 // DagEvent is an append-only event in the event sourcing log, enabling
 // state reconstruction by replaying events from a snapshot.
 type DagEvent struct {
-	Seq       int64           `json:"seq"`
-	Type      string          `json:"type"`
-	DagID     string          `json:"dagId"`
-	NodeID    string          `json:"nodeId,omitempty"`
+	Seq       int64          `json:"seq"`
+	Type      string         `json:"type"`
+	DagID     string         `json:"dagId"`
+	NodeID    string         `json:"nodeId,omitempty"`
 	Timestamp time.Time      `json:"timestamp"`
-	Payload   map[string]any  `json:"payload"`
+	Payload   map[string]any `json:"payload"`
 }
 
 // VerificationResult is returned by the StateReconciler after checking
 // whether a node's side effects are consistent with its state.
 type VerificationResult struct {
-	Status   string `json:"status"`
-	Corrected int   `json:"corrected"`
-	Reason   string `json:"reason"`
+	Status    string `json:"status"`
+	Corrected int    `json:"corrected"`
+	Reason    string `json:"reason"`
 }
 
 // SchedulerStats summarizes the scheduler's queue composition.
 type SchedulerStats struct {
-	QueueSize   int            `json:"queueSize"`
-	ByPriority  map[string]int `json:"byPriority"`
-	ByTaskType  map[string]int `json:"byTaskType"`
-	Strategy    string         `json:"strategy"`
+	QueueSize  int            `json:"queueSize"`
+	ByPriority map[string]int `json:"byPriority"`
+	ByTaskType map[string]int `json:"byTaskType"`
+	Strategy   string         `json:"strategy"`
 }
 
 // DagOrchestratorStats reports aggregate DAG counts for monitoring.
@@ -391,7 +391,7 @@ type DagOrchestratorStats struct {
 	TotalNodes int `json:"totalNodes"`
 }
 
-// IllegalTransitionError is returned when a state transition violates
+// ErrIllegalTransition is returned when a state transition violates
 // the validTransitions table, preventing corrupt state machines.
 var ErrIllegalTransition = errors.New("illegal state transition")
 

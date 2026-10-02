@@ -6,32 +6,25 @@ import (
 
 // AggregatorFn computes the aggregate DAG status string (e.g.
 // "completed", "failed", "needs_retry", "paused", "pending") from a
-// slice of node snapshots. It mirrors the signature of the existing
-// AggregateTaskStatus function, which remains the default gallery
-// aggregator.
+// slice of node snapshots.
 type AggregatorFn func(taskType TaskType, nodes []NodeSnapshotInfo) string
 
 // TaskTypeRegistry maps a TaskType to its aggregator function and
-// optional TransitionPolicy. New TaskTypes register via
-// RegisterAggregator / RegisterTransitionPolicy instead of modifying
-// hardcoded switch statements ??satisfying the open-closed principle
-// identified as missing in audit item P4.
+// optional TransitionPolicy, so new TaskTypes register through
+// RegisterAggregator / RegisterTransitionPolicy rather than through
+// hardcoded switch statements.
 //
-// Lookup order in AggregateTaskStatus / DagOrchestrator:
-//  1. registry.GetAggregator(taskType) ??if registered, use it
-//  2. default gallery aggregator (the existing AggregateTaskStatus
-//     logic) ??fallback for unregistered TaskTypes
-//
-// Similarly for policies: registry.GetTransitionPolicy(taskType) returns
-// the policy to install on nodes whose DagNodeDefinition.TransitionPolicy
-// is nil (e.g. definitions persisted before the strategy layer existed).
+// A registered aggregator wins over the default gallery aggregator in
+// AggregateTaskStatus / DagOrchestrator; unregistered TaskTypes fall back
+// to the default. Policies are resolved the same way, and
+// GetTransitionPolicy supplies the policy for nodes whose
+// DagNodeDefinition.TransitionPolicy is nil.
 type TaskTypeRegistry struct {
 	mu          sync.RWMutex
 	aggregators map[TaskType]AggregatorFn
 	policies    map[TaskType]*TransitionPolicy
 }
 
-// NewTaskTypeRegistry creates an empty registry.
 func NewTaskTypeRegistry() *TaskTypeRegistry {
 	return &TaskTypeRegistry{
 		aggregators: make(map[TaskType]AggregatorFn),
@@ -55,9 +48,8 @@ func (r *TaskTypeRegistry) RegisterAggregator(taskType TaskType, fn AggregatorFn
 
 // RegisterTransitionPolicy installs a TransitionPolicy for a TaskType.
 // The orchestrator looks up this policy when a node's
-// DagNodeDefinition.TransitionPolicy is nil, so that definitions
-// persisted before the strategy layer still get policy-driven behavior.
-// Registering nil policy removes the entry.
+// DagNodeDefinition.TransitionPolicy is nil. Registering nil policy
+// removes the entry.
 func (r *TaskTypeRegistry) RegisterTransitionPolicy(taskType TaskType, p *TransitionPolicy) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -77,8 +69,6 @@ func (r *TaskTypeRegistry) GetAggregator(taskType TaskType) AggregatorFn {
 	return r.aggregators[taskType]
 }
 
-// GetTransitionPolicy returns the registered TransitionPolicy for
-// taskType, or nil if none is registered.
 func (r *TaskTypeRegistry) GetTransitionPolicy(taskType TaskType) *TransitionPolicy {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

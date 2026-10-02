@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Task management page text — ru-RU
 const ruRU: TranslationDict = {
   "tasks.typeAll": "Все",
   "tasks.typeVideo": "Видео",

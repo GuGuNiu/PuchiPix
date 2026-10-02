@@ -120,28 +120,39 @@ func ResolveDataPath(storedPath string) string {
 	if storedPath == "" {
 		return ""
 	}
-
-	if filepath.IsAbs(storedPath) {
-		dataRoot, _ := filepath.Abs(filepath.Join("..", "data"))
-		abs := filepath.Clean(storedPath)
-		if strings.HasPrefix(filepath.ToSlash(abs)+"/", filepath.ToSlash(dataRoot)+"/") {
-			return abs
-		}
-		return ""
+	dataRoot := os.Getenv("DATA_DIR")
+	if dataRoot == "" {
+		dataRoot = filepath.Join("..", "data")
 	}
-
-	clean := strings.TrimPrefix(filepath.FromSlash(storedPath), "data"+string(filepath.Separator))
-	clean = strings.TrimPrefix(clean, "data/")
-
-	fullPath := filepath.Join("..", "data", clean)
-
-	abs, err := filepath.Abs(fullPath)
+	root, err := filepath.Abs(dataRoot)
 	if err != nil {
 		return ""
 	}
-	dataRoot, _ := filepath.Abs(filepath.Join("..", "data"))
-	if !strings.HasPrefix(filepath.ToSlash(abs)+"/", filepath.ToSlash(dataRoot)+"/") {
+
+	target := storedPath
+	if !filepath.IsAbs(target) {
+		clean := strings.TrimPrefix(filepath.FromSlash(target), "data"+string(filepath.Separator))
+		clean = strings.TrimPrefix(clean, "data/")
+		target = filepath.Join(root, clean)
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
 		return ""
 	}
-	return abs
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err == nil {
+		resolvedTarget, targetErr := filepath.EvalSymlinks(target)
+		if targetErr == nil {
+			rel, relErr := filepath.Rel(resolvedRoot, resolvedTarget)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return ""
+			}
+		}
+	}
+	return target
 }

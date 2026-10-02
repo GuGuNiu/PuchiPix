@@ -11,8 +11,8 @@ type sitesCommand struct{}
 
 func (sitesCommand) Name() string        { return "sites" }
 func (sitesCommand) Description() string { return "List supported site providers" }
-func (sitesCommand) Usage() string        { return "puchipix-cli sites" }
-func (sitesCommand) Aliases() []string    { return nil }
+func (sitesCommand) Usage() string       { return "puchipix-cli sites" }
+func (sitesCommand) Aliases() []string   { return nil }
 
 func (sitesCommand) Execute(ctx CommandContext) error {
 	sites, err := ctx.Client.GetSites()

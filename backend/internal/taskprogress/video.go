@@ -15,10 +15,10 @@ import (
 type VideoSegmentStatus string
 
 const (
-	SegPending    VideoSegmentStatus = "pending"
+	SegPending     VideoSegmentStatus = "pending"
 	SegDownloading VideoSegmentStatus = "downloading"
-	SegCompleted  VideoSegmentStatus = "completed"
-	SegFailed     VideoSegmentStatus = "failed"
+	SegCompleted   VideoSegmentStatus = "completed"
+	SegFailed      VideoSegmentStatus = "failed"
 )
 
 type VideoSegmentProgress struct {
@@ -58,11 +58,10 @@ type VideoRetryStrategy struct {
 	ConcurrentSegments int
 	// VerifyIntegrity enables checksum/size verification on retry.
 	VerifyIntegrity bool
-	// BackoffBaseMs base delay for exponential backoff between retries.
+	// BackoffBaseMs is the base delay for exponential backoff between retries.
 	BackoffBaseMs int
 }
 
-// DefaultVideoRetryStrategy returns sensible defaults.
 func DefaultVideoRetryStrategy() VideoRetryStrategy {
 	return VideoRetryStrategy{
 		MaxRetries:         5,
@@ -72,9 +71,6 @@ func DefaultVideoRetryStrategy() VideoRetryStrategy {
 	}
 }
 
-// VideoProgressTracker manages segment-level progress for video
-// download tasks. It supports fine-grained retry of individual
-// segments and integrity verification.
 type VideoProgressTracker struct {
 	mu       sync.RWMutex
 	segments map[int]map[int]*VideoSegmentProgress // taskID -> segmentIdx -> progress
@@ -82,7 +78,6 @@ type VideoProgressTracker struct {
 	logger   *infra.Logger
 }
 
-// NewVideoProgressTracker creates a video progress tracker.
 func NewVideoProgressTracker(strategy VideoRetryStrategy) *VideoProgressTracker {
 	if strategy.MaxRetries == 0 {
 		strategy = DefaultVideoRetryStrategy()
@@ -94,29 +89,58 @@ func NewVideoProgressTracker(strategy VideoRetryStrategy) *VideoProgressTracker 
 	}
 }
 
-// RegisterSegments initializes segment tracking for a video task.
 func (vt *VideoProgressTracker) RegisterSegments(taskID int, totalSegments int) {
+	indices := make([]int, totalSegments)
+	for i := range indices {
+		indices[i] = i
+	}
+	vt.RegisterSegmentIndices(taskID, indices)
+}
+
+func (vt *VideoProgressTracker) RegisterSegmentIndices(taskID int, indices []int) {
 	vt.mu.Lock()
 	defer vt.mu.Unlock()
 
-	if _, ok := vt.segments[taskID]; !ok {
-		vt.segments[taskID] = make(map[int]*VideoSegmentProgress, totalSegments)
-	}
-	now := time.Now()
-	for i := 0; i < totalSegments; i++ {
-		if _, exists := vt.segments[taskID][i]; !exists {
-			vt.segments[taskID][i] = &VideoSegmentProgress{
-				TaskID:     taskID,
-				SegmentIdx: i,
-				Status:     SegPending,
-				UpdatedAt:  now,
+	existing, exists := vt.segments[taskID]
+	sameIndices := exists && len(existing) == len(indices)
+	if sameIndices {
+		for _, index := range indices {
+			if _, ok := existing[index]; !ok {
+				sameIndices = false
+				break
 			}
+		}
+	}
+	if sameIndices {
+		return
+	}
+
+	vt.segments[taskID] = make(map[int]*VideoSegmentProgress, len(indices))
+	now := time.Now()
+	for _, index := range indices {
+		vt.segments[taskID][index] = &VideoSegmentProgress{
+			TaskID:     taskID,
+			SegmentIdx: index,
+			Status:     SegPending,
+			UpdatedAt:  now,
 		}
 	}
 }
 
-// UpdateSegment updates a single segment's status.
+func (vt *VideoProgressTracker) RemoveTask(taskID int) {
+	vt.mu.Lock()
+	delete(vt.segments, taskID)
+	vt.mu.Unlock()
+}
+
+// UpdateSegment records the outcome for one segment, resolving the file size
+// from disk when the caller reports completion without a size.
 func (vt *VideoProgressTracker) UpdateSegment(taskID, segmentIdx int, status VideoSegmentStatus, localPath string, fileSize int64, errMsg string) {
+	if status == SegCompleted && fileSize <= 0 && localPath != "" {
+		if info, err := os.Stat(localPath); err == nil {
+			fileSize = info.Size()
+		}
+	}
 	vt.mu.Lock()
 	defer vt.mu.Unlock()
 
@@ -144,7 +168,6 @@ func (vt *VideoProgressTracker) UpdateSegment(taskID, segmentIdx int, status Vid
 	}
 }
 
-// GetSummary computes the current progress for a video task.
 func (vt *VideoProgressTracker) GetSummary(taskID int) VideoProgressSummary {
 	vt.mu.RLock()
 	defer vt.mu.RUnlock()
@@ -189,7 +212,6 @@ func (vt *VideoProgressTracker) computeSummaryLocked(taskID int) VideoProgressSu
 		summary.IntegrityScore = integrity
 	}
 
-	// Determine status.
 	switch {
 	case summary.CompletedSegments == summary.TotalSegments:
 		summary.Status = "completed"
@@ -204,8 +226,6 @@ func (vt *VideoProgressTracker) computeSummaryLocked(taskID int) VideoProgressSu
 	return summary
 }
 
-// computeIntegrityLocked checks file sizes of completed segments
-// and returns the percentage that appear valid (non-zero size).
 func (vt *VideoProgressTracker) computeIntegrityLocked(taskSegments map[int]*VideoSegmentProgress) float64 {
 	if len(taskSegments) == 0 {
 		return 0
@@ -231,8 +251,6 @@ func (vt *VideoProgressTracker) computeIntegrityLocked(taskSegments map[int]*Vid
 	return math.Round(float64(valid)/float64(completed)*100*100) / 100
 }
 
-// GetRetryableSegments returns segments that should be retried.
-// Segments exceeding MaxRetries are excluded (permanently failed).
 func (vt *VideoProgressTracker) GetRetryableSegments(taskID int) []int {
 	vt.mu.RLock()
 	defer vt.mu.RUnlock()
@@ -256,16 +274,15 @@ func (vt *VideoProgressTracker) GetRetryableSegments(taskID int) []int {
 // using exponential backoff: base * 2^retryCount ms.
 func (vt *VideoProgressTracker) GetBackoffDelay(retryCount int) time.Duration {
 	shift := uint(retryCount)
+	// Cap the shift so the computed duration does not overflow.
 	if shift > 10 {
-		shift = 10 // cap to avoid overflow
+		shift = 10
 	}
 	return time.Duration(vt.strategy.BackoffBaseMs<<shift) * time.Millisecond
 }
 
-// VerifySegmentIntegrity checks a downloaded segment file:
-//   - File exists and is not empty.
-//   - For TS segments, checks for the sync byte (0x47).
-// Returns an error if integrity check fails.
+// VerifySegmentIntegrity rejects a missing or empty segment, and for .ts
+// segments also requires the 0x47 sync byte at offset 0.
 func (vt *VideoProgressTracker) VerifySegmentIntegrity(localPath string) error {
 	info, err := os.Stat(localPath)
 	if err != nil {
@@ -288,8 +305,6 @@ func (vt *VideoProgressTracker) VerifySegmentIntegrity(localPath string) error {
 	return nil
 }
 
-// CleanupFailedSegments removes segment files that failed integrity
-// checks, freeing disk space before retry.
 func (vt *VideoProgressTracker) CleanupFailedSegments(taskID int, segDir string) error {
 	vt.mu.RLock()
 	taskSegments, ok := vt.segments[taskID]

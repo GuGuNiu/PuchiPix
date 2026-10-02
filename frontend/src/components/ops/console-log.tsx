@@ -10,7 +10,7 @@ export function ConsoleLog(): React.JSX.Element {
       try {
         const res = await fetch("/api/logs/latest");
         const data = await res.json();
-        // Backend returns an array; older versions returned {log: "..."}. Support both.
+        // Older backends returned {log: "..."} instead of an array
         if (Array.isArray(data)) {          const last = data[data.length - 1];
           setLog(typeof last?.message === 'string' && last.message ? last.message : t("console.noTaskLogs"));
         } else {

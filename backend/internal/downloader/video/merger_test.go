@@ -1,15 +1,20 @@
 package video
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 )
 
-// The 260906 diagnosis: task_2's 197.5MB video inflated to 1024.3MB (5.2x)
-// because merge/transcode inputs came from raw directory scans that
-// swallowed stale merged outputs and duplicate-named segments. These tests
-// lock the manifest-based behavior.
+// Merge and transcode inputs must come from the playlist manifest, never a raw
+// directory scan. A scan swallows stale merged outputs and duplicate-named
+// segments, so a retried merge ingests its own previous output and the file
+// grows on every round. These tests lock the manifest-based behavior.
 
 func writeSegment(t *testing.T, dir, name, content string) {
 	t.Helper()
@@ -25,7 +30,6 @@ func seg(uri string, index int) M3U8Segment {
 func TestMergeSegmentsOnlyUsesManifest(t *testing.T) {
 	dir := t.TempDir()
 
-	// Canonical segments.
 	writeSegment(t, dir, SegmentFileName(seg("http://cdn/a.ts", 0)), "AAA")
 	writeSegment(t, dir, SegmentFileName(seg("http://cdn/b.ts", 1)), "BBB")
 	writeSegment(t, dir, SegmentFileName(seg("http://cdn/c.ts", 2)), "CCC")
@@ -64,8 +68,8 @@ func TestMergeSegmentsSkipsMissingAndEmpty(t *testing.T) {
 	dir := t.TempDir()
 
 	writeSegment(t, dir, SegmentFileName(seg("http://cdn/a.ts", 0)), "AAA")
-	// Index 1 intentionally missing.
-	writeSegment(t, dir, SegmentFileName(seg("http://cdn/c.ts", 2)), "") // empty
+	// Index 1 intentionally missing; index 2 present but zero-length.
+	writeSegment(t, dir, SegmentFileName(seg("http://cdn/c.ts", 2)), "")
 
 	manifest := SegmentManifest([]M3U8Segment{
 		seg("http://cdn/a.ts", 0),
@@ -105,7 +109,6 @@ func TestEnsurePlaylistFingerprintResetsOnChange(t *testing.T) {
 	if EnsurePlaylistFingerprint(dir, first) {
 		t.Fatal("first run must not report a reset")
 	}
-	// Fingerprint file must exist and segments survive an identical re-run.
 	if _, err := os.Stat(filepath.Join(dir, playlistFingerprintFile)); err != nil {
 		t.Fatalf("fingerprint not persisted: %v", err)
 	}
@@ -116,7 +119,6 @@ func TestEnsurePlaylistFingerprintResetsOnChange(t *testing.T) {
 		t.Fatal("segments must survive an identical re-run")
 	}
 
-	// Changed playlist (variant switch) → cache wiped.
 	changed := []M3U8Segment{seg("http://cdn/hires.ts", 0), seg("http://cdn/hires2.ts", 1)}
 	if !EnsurePlaylistFingerprint(dir, changed) {
 		t.Fatal("changed playlist must report reset")
@@ -134,5 +136,147 @@ func TestSegmentFileNameMatchesDownloadNaming(t *testing.T) {
 	want := GenerateTSID(s.URI, s.Index) + ".ts"
 	if got := SegmentFileName(s); got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestDownloadSegmentsBatchReturnsPlaylistOrder(t *testing.T) {
+	dir := t.TempDir()
+	segments := []M3U8Segment{
+		seg("http://cdn/10.ts", 10),
+		seg("http://cdn/11.ts", 11),
+		seg("http://cdn/12.ts", 12),
+	}
+	for _, segment := range segments {
+		writeSegment(t, dir, SegmentFileName(segment), segment.URI)
+	}
+
+	result := DownloadSegmentsBatch(context.Background(), segments, SegmentBatchOptions{
+		Concurrency: 3,
+		SegDir:      dir,
+	})
+	want := []int{10, 11, 12}
+	if !reflect.DeepEqual(result.DownloadedIndices, want) {
+		t.Fatalf("downloaded indices = %v, want %v", result.DownloadedIndices, want)
+	}
+	if result.Downloaded != len(want) || len(result.Failed) != 0 {
+		t.Fatalf("unexpected batch result: %+v", result)
+	}
+}
+
+func TestMergeSegmentsReportsOrderedProgress(t *testing.T) {
+	dir := t.TempDir()
+	segments := []M3U8Segment{
+		seg("http://cdn/a.ts", 0),
+		seg("http://cdn/b.ts", 1),
+		seg("http://cdn/c.ts", 2),
+	}
+	for _, segment := range segments {
+		writeSegment(t, dir, SegmentFileName(segment), segment.URI)
+	}
+	var updates [][2]int
+	_, err := MergeSegmentsContextWithProgress(
+		context.Background(), dir, filepath.Join(dir, "merged.ts"), SegmentManifest(segments),
+		func(completed, total int) {
+			updates = append(updates, [2]int{completed, total})
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updates) != 4 || updates[0] != [2]int{0, 3} || updates[len(updates)-1] != [2]int{3, 3} {
+		t.Fatalf("unexpected merge progress: %v", updates)
+	}
+}
+
+func TestBuildCopyArgsForMergedInput(t *testing.T) {
+	got := buildCopyArgs("input.ts", "output.mp4", false)
+	want := []string{"-i", "input.ts", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-y", "output.mp4"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("args = %v, want %v", got, want)
+	}
+
+	got = buildCopyArgs("concat.txt", "output.mp4", true)
+	want = []string{"-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-y", "output.mp4"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("concat args = %v, want %v", got, want)
+	}
+}
+
+func TestMergeRetryLoopUsesSegmentDirectory(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("segment"))
+	}))
+	defer server.Close()
+
+	segment := M3U8Segment{URI: server.URL + "/0.ts", FullURI: server.URL + "/0.ts", Index: 0}
+	dir := t.TempDir()
+	output := filepath.Join(dir, "merged.ts")
+	opts := DefaultMergeRetryOptions(output, dir)
+
+	if err := MergeRetryLoop(context.Background(), []M3U8Segment{segment}, nil, opts); err != nil {
+		t.Fatalf("merge retry loop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, SegmentFileName(segment))); err != nil {
+		t.Fatalf("segment was not written to configured directory: %v", err)
+	}
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("merged output was not created: %v", err)
+	}
+}
+
+type blockingWriter struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (w *blockingWriter) Write(p []byte) (int, error) {
+	select {
+	case <-w.started:
+	default:
+		close(w.started)
+	}
+	<-w.release
+	return len(p), nil
+}
+
+func TestIndexBufferCancelUnblocksWrite(t *testing.T) {
+	buffer := NewIndexBuffer(1, MemoryMode)
+	if err := buffer.Store(0, []byte("segment")); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := &blockingWriter{started: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		_, err := buffer.SequentialPush(writer)
+		done <- err
+	}()
+
+	select {
+	case <-writer.started:
+	case <-time.After(time.Second):
+		t.Fatal("write did not start")
+	}
+
+	cancelled := make(chan struct{})
+	go func() {
+		buffer.Cancel()
+		close(cancelled)
+	}()
+
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("cancel blocked behind writer")
+	}
+
+	close(writer.release)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled push returned nil")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("push did not return after cancellation")
 	}
 }

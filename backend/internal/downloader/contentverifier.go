@@ -105,10 +105,10 @@ func VerifyExtractedContent(extractPath string, expectedImages, expectedVideos i
 
 	if expectedImages == 0 && expectedVideos == 0 {
 		return VerificationResult{
-			FileCounts:         counts,
-			ExpectedImages:     expectedImages,
-			ExpectedVideos:     expectedVideos,
-			Matched:            true,
+			FileCounts:          counts,
+			ExpectedImages:      expectedImages,
+			ExpectedVideos:      expectedVideos,
+			Matched:             true,
 			NeedsFallbackScrape: false,
 		}
 	}

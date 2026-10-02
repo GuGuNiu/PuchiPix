@@ -10,8 +10,10 @@ import (
 
 type dagDeleteCommand struct{}
 
-func (c dagDeleteCommand) Name() string        { return "delete" }
-func (c dagDeleteCommand) Description() string { return "Remove a completed/cancelled/failed DAG from memory" }
+func (c dagDeleteCommand) Name() string { return "delete" }
+func (c dagDeleteCommand) Description() string {
+	return "Remove a completed/cancelled/failed DAG from memory"
+}
 func (c dagDeleteCommand) Usage() string {
 	return "puchipix-cli delete <dagId> [--force]"
 }
@@ -38,7 +40,6 @@ func (c dagDeleteCommand) Execute(ctx CommandContext) error {
 	if force {
 		fmt.Printf("%sForce-deleting DAG %s (cancelling first if active)...%s\n",
 			ui.Yellow, dagID, ui.Reset)
-		// Try to cancel first (ignore errors if already terminal)
 		_, _ = ctx.Client.CancelDag(dagID)
 	}
 

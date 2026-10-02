@@ -9,10 +9,12 @@ import (
 
 type systemCommand struct{}
 
-func (systemCommand) Name() string        { return "system" }
-func (systemCommand) Description() string { return "Show server runtime info (version, goroutines, memory, uptime)" }
-func (systemCommand) Usage() string        { return "puchipix-cli system" }
-func (systemCommand) Aliases() []string    { return []string{"sys", "info"} }
+func (systemCommand) Name() string { return "system" }
+func (systemCommand) Description() string {
+	return "Show server runtime info (version, goroutines, memory, uptime)"
+}
+func (systemCommand) Usage() string     { return "puchipix-cli system" }
+func (systemCommand) Aliases() []string { return []string{"sys", "info"} }
 
 func (systemCommand) Execute(ctx CommandContext) error {
 	data, err := ctx.Client.GetSystem()

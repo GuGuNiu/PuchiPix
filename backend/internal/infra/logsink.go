@@ -4,7 +4,6 @@ import (
 	"sync"
 )
 
-// LogQueryFilter narrows a LogSink query by level, module, or trace context.
 type LogQueryFilter struct {
 	Level    LogLevel
 	HasLevel bool
@@ -16,18 +15,16 @@ type LogQueryFilter struct {
 	Limit    int
 }
 
-// LogSinkListener receives every entry pushed into the sink.
 type LogSinkListener func(entry StructuredLogEntry)
 
-// LogSinkStats reports buffer occupancy and subscriber count.
 type LogSinkStats struct {
 	Total     int
 	Capacity  int
 	Listeners int
 }
 
-// LogSink is a thread-safe ring buffer holding structured log entries for
-// API/CLI queries and real-time SSE fan-out.
+// LogSink is a ring buffer guarded by a RWMutex, holding structured log
+// entries for API/CLI queries and real-time SSE fan-out.
 type LogSink struct {
 	mu             sync.RWMutex
 	buffer         []StructuredLogEntry
@@ -36,7 +33,6 @@ type LogSink struct {
 	nextListenerID uint64
 }
 
-// NewLogSink creates a sink with the given ring-buffer capacity.
 func NewLogSink(capacity int) *LogSink {
 	if capacity < 100 {
 		capacity = 1000
@@ -75,7 +71,6 @@ func (s *LogSink) Push(entry StructuredLogEntry) {
 	}
 }
 
-// Subscribe registers a listener and returns an unsubscribe function.
 func (s *LogSink) Subscribe(fn LogSinkListener) func() {
 	s.mu.Lock()
 	id := s.nextListenerID

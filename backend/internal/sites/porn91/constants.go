@@ -7,15 +7,16 @@ import (
 
 // VideoMetadata represents a single video item extracted from listing or detail page.
 type VideoMetadata struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	PageURL      string `json:"pageUrl"`
-	ThumbnailURL string `json:"thumbnailUrl"`
-	Views        int    `json:"views"`
-	ViewsText    string `json:"viewsText"`
-	Duration     string `json:"duration"`
-	PublishDate  string `json:"publishDate"`
-	Author       string `json:"author"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	PageURL      string   `json:"pageUrl"`
+	ThumbnailURL string   `json:"thumbnailUrl"`
+	Views        int      `json:"views"`
+	ViewsText    string   `json:"viewsText"`
+	Duration     string   `json:"duration"`
+	DurationSec  int      `json:"durationSec"`
+	PublishDate  string   `json:"publishDate"`
+	Author       string   `json:"author"`
 	Tags         []string `json:"tags"`
 }
 
@@ -40,55 +41,64 @@ type VideoDetailResult struct {
 type SortType string
 
 const (
-	SortTypeLatest   SortType = "latest"    // newest
-	SortTypeHottest  SortType = "hottest"   // hottest
-	SortTypeTopRated SortType = "toprated"  // top rated
+	SortTypeLatest   SortType = "latest"
+	SortTypeHottest  SortType = "hottest"
+	SortTypeTopRated SortType = "toprated"
 )
 
-// URL patterns for 91porn.plus site.
-// The site is an Angular (Ionic) SPA with the following URL structure:
-//   - Detail page:  /video/{videoId}
-//   - Listing page: /category/{categoryId}/{sort}/{page}
-//   - Search page:  /search/{keyword}/{page}
+// The site is an Angular (Ionic) SPA whose routes are detail /video/{videoId},
+// listing /category/{categoryId}/{sort}/{page} and search /search/{keyword}/{page}
 const (
 	DetailPathFormat  = "/video/%s"
 	ListingPathFormat = "/category/%d/%s/%d"
 	SearchPathFormat  = "/search/%s/%d"
 )
 
-// Pre-compiled regex patterns.
+// Pre-compiled at package init so listing scrapes do not recompile them per page
 var (
-	// VideoID extraction from URL: /video/vMoXOjXEp
 	VideoIDPattern = regexp.MustCompile(`/video/([a-zA-Z0-9]+)`)
 
-	// Views extraction from text like "140,323" or "140323"
-	ViewsPattern = regexp.MustCompile(`([\d,]+)`)
-
-	// Duration extraction: "PT11M30S" → "11:30"
+	// ISO 8601 duration, e.g. PT11M30S
 	ISODurationPattern = regexp.MustCompile(`PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?`)
 
-	// Thumbnail URL extraction from JSON-LD
 	ThumbnailPattern = regexp.MustCompile(`"thumbnailUrl"\s*:\s*\[?"([^"]+)"\]?`)
 
-	// JSON-LD VideoObject contentUrl extraction
 	ContentURLPattern = regexp.MustCompile(`"contentUrl"\s*:\s*"([^"]+)"`)
 
-	// Upload date extraction from JSON-LD: "2026-08-09T16:00:00.000Z"
 	UploadDatePattern = regexp.MustCompile(`"uploadDate"\s*:\s*"([^"]+)"`)
 
-	// Interaction count extraction from JSON-LD
 	InteractionCountPattern = regexp.MustCompile(`"userInteractionCount"\s*:\s*(\d+)`)
 
-	// JSON-LD script block detection
 	JSONLDVideoObjectPattern = regexp.MustCompile(`(?s)<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>`)
+
+	// The site publishes no tag or category markup, so the keywords meta
+	// tag is the only structured tag source on a detail page.
+	MetaKeywordsPattern = regexp.MustCompile(`(?is)<meta\s+name="keywords"\s+content="([^"]*)"`)
+
+	OGTitlePattern = regexp.MustCompile(`<meta\s+property="og:title"\s+content="([^"]*)"`)
+
+	OGImagePattern = regexp.MustCompile(`<meta\s+property="og:image"\s+content="([^"]*)"`)
 )
+
+// brandKeywordPrefixes are the site's own SEO keywords, which appear in
+// every detail page's keywords meta tag and describe the site rather than
+// the video. A keyword that starts with one of these is dropped.
+var brandKeywordPrefixes = []string{"91porn", "91视频", "91视頻", "91p"}
 
 // parseISODuration converts an ISO 8601 duration string (e.g. "PT11M30S")
 // to a human-readable "HH:MM:SS" or "MM:SS" format.
 func parseISODuration(iso string) string {
+	text, _ := parseISODurationSeconds(iso)
+	return text
+}
+
+// parseISODurationSeconds converts an ISO 8601 duration string to its
+// display form and the total number of seconds, which the pipeline records
+// on the video row.
+func parseISODurationSeconds(iso string) (string, int) {
 	m := ISODurationPattern.FindStringSubmatch(iso)
 	if len(m) < 4 {
-		return iso
+		return iso, 0
 	}
 
 	hours := 0
@@ -106,12 +116,11 @@ func parseISODuration(iso string) string {
 	}
 
 	if hours > 0 {
-		return fmtDuration(hours, minutes, seconds)
+		return fmtDuration(hours, minutes, seconds), hours*3600 + minutes*60 + seconds
 	}
-	return fmtDuration(0, minutes, seconds)
+	return fmtDuration(0, minutes, seconds), minutes*60 + seconds
 }
 
-// atoiSafe converts a numeric string to int, returning 0 on error.
 func atoiSafe(s string) int {
 	n := 0
 	for _, c := range s {
@@ -122,7 +131,6 @@ func atoiSafe(s string) int {
 	return n
 }
 
-// fmtDuration formats hours, minutes, seconds into "HH:MM:SS" or "MM:SS".
 func fmtDuration(h, m, s int) string {
 	if h > 0 {
 		return pad2(h) + ":" + pad2(m) + ":" + pad2(s)
@@ -130,7 +138,6 @@ func fmtDuration(h, m, s int) string {
 	return pad2(m) + ":" + pad2(s)
 }
 
-// padZero ensures a number string has leading zero if single digit.
 func pad2(n int) string {
 	if n < 10 {
 		return "0" + string(rune('0'+n))
@@ -144,8 +151,8 @@ func pad2(n int) string {
 	return string(b)
 }
 
-// parseUploadDate converts an ISO 8601 date string (e.g. "2026-08-09T16:00:00.000Z")
-// to a "YYYY-MM-DD" format. Falls back to the original string on parse failure.
+// parseUploadDate converts an ISO 8601 date string to "YYYY-MM-DD" and returns
+// the input unchanged when parsing fails.
 func parseUploadDate(dateStr string) string {
 	t, err := time.Parse(time.RFC3339, dateStr)
 	if err != nil {
@@ -154,7 +161,6 @@ func parseUploadDate(dateStr string) string {
 	return t.Format("2006-01-02")
 }
 
-// ExtractVideoID extracts the video ID from a URL like /video/vMoXOjXEp.
 func ExtractVideoID(rawURL string) string {
 	m := VideoIDPattern.FindStringSubmatch(rawURL)
 	if len(m) >= 2 {
@@ -163,7 +169,6 @@ func ExtractVideoID(rawURL string) string {
 	return ""
 }
 
-// ExtractViews parses the views count from text like "140,323".
 func ExtractViews(text string) int {
 	cleaned := ""
 	for _, c := range text {

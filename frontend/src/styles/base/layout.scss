@@ -1,13 +1,9 @@
-// Layout — app shell skeleton
-
-// ===== App Layout =====
 .app-layout {
   display: flex;
   height: 100vh;
   width: 100vw;
 }
 
-// ===== Status Bar =====
 .status-bar {
   height: var(--header-height);
   min-height: var(--header-height);
@@ -50,7 +46,6 @@
   &.active { background: var(--warning); }
 }
 
-// ===== Content Area =====
 .content-area {
   flex: 1;
   overflow-y: auto;
@@ -75,7 +70,6 @@
   margin: var(--space-6) 0;
 }
 
-// ===== Main Area =====
 .main-area {
   flex: 1;
   display: flex;

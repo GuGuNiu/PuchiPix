@@ -14,20 +14,16 @@ import (
 
 var providerLogger = infra.NewLogger("PornhubProvider")
 
-// Provider implements the GallerySiteProvider and SiteProvider interfaces
-// for the PORNHUB.COM video streaming site.
+// Provider implements the GallerySiteProvider and SiteProvider interfaces for
+// the PORNHUB.COM video streaming site.
 //
-// PORNHUB embeds the HLS M3U8 URL and MP4 direct links directly in an
-// inline flashvars JSON object (playerObjectList) inside the page HTML.
-// The primary scraping strategy is HTTP-first: a simple HTTP GET with
-// browser-like headers retrieves the page, then regex patterns extract
-// the video source URLs and metadata. No JavaScript execution is needed.
+// Video sources are server-rendered inside an inline flashvars JSON object
+// (playerObjectList), so pages are parsed over plain HTTP without JavaScript
+// execution.
 //
-// Token mechanism: The M3U8 and MP4 URLs contain a server-generated
-// token bound to the requesting session. URLs are valid for a limited
-// time window, so tasks should re-scrape the page if a stale URL fails.
-// The CDN allows direct access with the token embedded in the URL, so
-// no Referer or Cookie is required for downloading.
+// The M3U8 and MP4 URLs carry a session-bound token with a limited validity
+// window, so a task should re-scrape the page when a URL turns out to be
+// stale. The CDN accepts the embedded token without Referer or Cookie.
 type Provider struct {
 	dataStore  sites.SiteDataStore
 	blocklist  sites.BlocklistChecker
@@ -36,9 +32,6 @@ type Provider struct {
 	domainPool *stealth.DomainPool
 }
 
-// NewProvider creates a PORNHUB provider with the given data store
-// and blocklist checker, pre-loading all site data from the unified
-// configuration.
 func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker) *Provider {
 	p := &Provider{
 		dataStore: dataStore,
@@ -50,7 +43,6 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 		p.baseURL = mod.BaseURL
 	}
 
-	// Initialize shared domain pool for automatic load-balanced domain discovery.
 	publisherURL := dataStore.GetPublisherURL("pornhub")
 	p.domainPool = stealth.NewDomainPool("pornhub", p.domains, publisherURL)
 	stealth.RegisterDomainPool("pornhub", p.domainPool)
@@ -58,10 +50,8 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 	return p
 }
 
-// SiteID returns the unique identifier for this provider.
 func (p *Provider) SiteID() string { return "pornhub" }
 
-// CanHandle checks if the given URL belongs to the PORNHUB site.
 func (p *Provider) CanHandle(rawURL string) bool {
 	if p.dataStore.CanHandle("pornhub", rawURL) {
 		return true
@@ -86,15 +76,10 @@ func (p *Provider) CanHandle(rawURL string) bool {
 	return false
 }
 
-// ScrapeGallery scrapes a video detail page using HTTP-first strategy.
-// For PORNHUB, the M3U8 URL is embedded in the flashvars JSON and can
-// be extracted without browser execution.
 func (p *Provider) ScrapeGallery(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	return p.scrapeDetail(ctx, pageURL)
 }
 
-// ScrapeGalleryHTTP attempts to scrape via HTTP for both listing and detail pages.
-// For PORNHUB, HTTP is the primary strategy since video sources are server-rendered.
 func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	if p.IsListingPage(pageURL) {
 		return p.scrapeListing(ctx, pageURL)
@@ -102,8 +87,39 @@ func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*site
 	return p.scrapeDetail(ctx, pageURL)
 }
 
-// scrapeDetail scrapes a video detail page and returns a GalleryScrapeResult
-// with the M3U8 URL and metadata extracted from the flashvars JSON.
+// ScrapeVideoDetail identifies the stream and full metadata of one video page
+// over plain HTTP, which is the path the video pipeline prefers over the
+// universal browser sniffer.
+func (p *Provider) ScrapeVideoDetail(ctx context.Context, pageURL string) (*sites.ScrapeResult, error) {
+	detail, err := ScrapeDetailHTTP(ctx, pageURL)
+	if err != nil {
+		providerLogger.Warn("HTTP scrape failed for video detail",
+			infra.LogContext{Extra: map[string]any{
+				"url":   pageURL,
+				"error": err.Error(),
+			}})
+		return nil, fmt.Errorf("detail page scrape failed: %w", err)
+	}
+
+	// A video may advertise MP4 only through the get_media endpoint, which
+	// resolves to direct links. HLS-only videos answer with an empty list
+	// and keep the HLS stream.
+	if detail.M3U8URL == "" && detail.GetMediaURL != "" {
+		if links, ok, err := ResolveGetMedia(ctx, detail.GetMediaURL, pageURL); err == nil && ok {
+			detail.MP4Links = links
+			detail.MP4URL = pickBestQuality(links)
+		} else if err != nil {
+			providerLogger.Warn("get_media resolution failed",
+				infra.LogContext{Extra: map[string]any{
+					"url":   pageURL,
+					"error": err.Error(),
+				}})
+		}
+	}
+
+	return detail.ToScrapeResult(pageURL), nil
+}
+
 func (p *Provider) scrapeDetail(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	detail, err := ScrapeDetailHTTP(ctx, pageURL)
 	if err != nil {
@@ -118,27 +134,23 @@ func (p *Provider) scrapeDetail(ctx context.Context, pageURL string) (*sites.Gal
 	galleryResult := &sites.GalleryScrapeResult{
 		SourceURL:   pageURL,
 		Title:       detail.Title,
+		Description: detail.CastText(),
 		CoverURL:    detail.ThumbnailURL,
 		PublishTime: detail.PublishDate,
 		VideoCount:  1,
 		Tags:        detail.Tags,
+		Category:    strings.Join(detail.Categories, ", "),
 	}
 
-	// Add HLS M3U8 URL as the primary video source.
+	// Only the HLS stream goes into Videos: the gallery pipeline expects
+	// one item per playable file, and appending the MP4 rendition as a
+	// second item would break the expected-count check.
 	if detail.M3U8URL != "" {
 		galleryResult.Videos = []sites.GalleryVideoItem{
 			{URL: detail.M3U8URL},
 		}
 	}
 
-	// Also add the best MP4 direct link as a secondary source if available.
-	if detail.MP4URL != "" {
-		galleryResult.Videos = append(galleryResult.Videos, sites.GalleryVideoItem{
-			URL: detail.MP4URL,
-		})
-	}
-
-	// Set uploader as protagonist.
 	if detail.Uploader != "" {
 		galleryResult.Protagonist = detail.Uploader
 	}
@@ -152,12 +164,12 @@ func (p *Provider) scrapeDetail(ctx context.Context, pageURL string) (*sites.Gal
 			"uploader":  detail.Uploader,
 			"views":     detail.Views,
 			"tagsCount": len(detail.Tags),
+			"catsCount": len(detail.Categories),
 		}})
 
 	return galleryResult, nil
 }
 
-// scrapeListing scrapes a listing page and returns video URLs for batch enqueue.
 func (p *Provider) scrapeListing(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	result, err := ScrapeListingHTTP(ctx, pageURL)
 	if err != nil {
@@ -186,7 +198,6 @@ func (p *Provider) ScrapeListing(ctx context.Context, listingURL string) (*Listi
 	return ScrapeListingHTTP(ctx, listingURL)
 }
 
-// Search performs a site-wide search for videos.
 func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.SiteSearchResult, error) {
 	searchURL := p.BuildSearchURL(query)
 	if page > 1 {
@@ -211,14 +222,11 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 	return searchResults, nil
 }
 
-// BuildSearchURL constructs a search URL for the given keyword.
-// PORNHUB search URL format: /video/search?search={keyword}
 func (p *Provider) BuildSearchURL(keyword string) string {
 	encoded := url.QueryEscape(keyword)
 	return p.baseURL + "/video/search?search=" + encoded
 }
 
-// CleanTitle removes site-specific suffixes and prefixes from a title.
 func (p *Provider) CleanTitle(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
@@ -226,7 +234,6 @@ func (p *Provider) CleanTitle(rawTitle string) string {
 
 	title := strings.TrimSpace(rawTitle)
 
-	// Remove PORNHUB suffixes.
 	suffixes := []string{
 		" - Pornhub.com",
 		" - Pornhub",
@@ -238,14 +245,11 @@ func (p *Provider) CleanTitle(rawTitle string) string {
 		title = strings.TrimSuffix(title, suffix)
 	}
 
-	// Clean up whitespace.
 	title = regexp.MustCompile(`\s+`).ReplaceAllString(title, " ")
 
 	return strings.TrimSpace(title)
 }
 
-// CheckContentBlocked checks if the content should be blocked based on
-// title, category, or protagonist.
 func (p *Provider) CheckContentBlocked(title, category, protagonist string) sites.BlockCheckResult {
 	if p.blocklist != nil {
 		fields := map[string]string{
@@ -262,9 +266,7 @@ func (p *Provider) CheckContentBlocked(title, category, protagonist string) site
 	return sites.BlockCheckResult{Blocked: false}
 }
 
-// NormalizeURL normalizes a PORNHUB URL to a canonical form.
 func (p *Provider) NormalizeURL(rawURL string) string {
-	// Ensure HTTPS.
 	if strings.HasPrefix(rawURL, "http://") {
 		rawURL = "https://" + rawURL[7:]
 	}
@@ -279,32 +281,21 @@ func (p *Provider) GetDomains() []string {
 	return p.domains
 }
 
-// IsListingPage checks if the URL is a listing page (category/sort/search)
-// rather than a detail page.
 func (p *Provider) IsListingPage(rawURL string) bool {
-	// Detail pages contain viewkey= or /watch/.
 	if strings.Contains(rawURL, "viewkey=") || strings.Contains(rawURL, "/watch/") {
 		return false
 	}
 
-	// Listing pages include:
-	// - Homepage (no path or just /)
-	// - /video (generic listing)
-	// - /video?search= (search)
-	// - /video/search?search=...
-	// - /categories, /channels, /playlists, /model/..., /pornstar/...
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
 	path := strings.Trim(parsed.Path, "/")
 
-	// Empty path = homepage (listing).
 	if path == "" {
 		return true
 	}
 
-	// Search query is always a listing.
 	if parsed.RawQuery != "" && strings.Contains(parsed.RawQuery, "search=") {
 		return true
 	}

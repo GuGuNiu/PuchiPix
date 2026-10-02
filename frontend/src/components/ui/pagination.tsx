@@ -33,7 +33,6 @@ export interface PaginationProps {
   };
 }
 
-/** Pagination component with first/prev/numbers/next/last controls. */
 export function Pagination({
   currentPage,
   totalPages,

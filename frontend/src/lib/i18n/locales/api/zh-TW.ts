@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// API error messages — zh-TW
 const zhTW: TranslationDict = {
   "api.validation.maxConcurrentTasks": "同時執行任務數必須在 1~50 之間",
   "api.validation.maxSniffConcurrent": "嗅探最大並行數必須在 1~10 之間",
@@ -14,7 +13,6 @@ const zhTW: TranslationDict = {
   "api.sjs.buyMissingTid": "購買帖子需要 tid 參數帖子 ID",
   "api.sjs.loginMissingAccountId": "登入需要 accountId 參數",
 
-  // SJS Shelf
   "api.sjsShelf.noUrls": "請提供 URL 列表",
   "api.sjsShelf.emptyUrl": "空 URL",
   "api.sjsShelf.invalidSjsUrl": "不是有效的司機社 URL",
@@ -60,25 +58,20 @@ const zhTW: TranslationDict = {
 
   "api.blocklist.addFailed": "新增失敗",
 
-// Logs
   "api.logs.systemReady": "系統就緒，等待任務...",
   "api.logs.taskNumber": "任務 #{id}",
   "api.logs.fetchFailed": "日誌取得失敗",
 
-  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "站點 {site} 不支援圖庫爬取",
   "api.gallery.allDomainsFailed": "所有域名均爬取失敗",
 
-  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "偵測到 {count} 個 M3U8 位址，請選擇",
   "api.tasks.unsupportedListScrape": "Provider 不支援列表頁爬取",
 
-  // Common
   "api.characterDb.syncRunning": "同步任務正在執行中",
   "api.common.internalError": "伺服器內部錯誤",
   "api.common.missingParams": "缺少必需參數: {params}",
 
-  // DAG
   "api.dag.notFound": "DAG {dagId} 未找到",
   "api.dag.invalidAction": "無效操作: {action}",
   "api.accounts.createFailed": "創建帳戶失敗",

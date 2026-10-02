@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"backend/internal/cli/dagclient"
 	"backend/internal/cli/ui"
@@ -11,8 +12,10 @@ import (
 
 type galleriesCommand struct{}
 
-func (galleriesCommand) Name() string        { return "galleries" }
-func (galleriesCommand) Description() string { return "Manage galleries (list / detail / progress / retry / pause / resume / delete)" }
+func (galleriesCommand) Name() string { return "galleries" }
+func (galleriesCommand) Description() string {
+	return "Manage galleries (list / detail / progress / retry / pause / resume / delete)"
+}
 func (galleriesCommand) Usage() string {
 	return "puchipix-cli galleries <list|detail|progress|retry|pause|resume|delete> [args]"
 }
@@ -184,8 +187,8 @@ func galleriesDetail(ctx CommandContext) error {
 	if g.Category != "" {
 		fmt.Printf("  %sCategory%s:     %s\n", ui.Bold, ui.Reset, g.Category)
 	}
-	if g.Tags != "" {
-		fmt.Printf("  %sTags%s:         %s\n", ui.Bold, ui.Reset, ui.Truncate(g.Tags, 60))
+	if len(g.Tags) > 0 {
+		fmt.Printf("  %sTags%s:         %s\n", ui.Bold, ui.Reset, ui.Truncate(strings.Join(g.Tags, ", "), 60))
 	}
 	fmt.Printf("  %sSource URL%s:   %s\n", ui.Bold, ui.Reset, g.SourceURL)
 	fmt.Printf("  %sImages%s:       %d", ui.Bold, ui.Reset, g.ImageCount)

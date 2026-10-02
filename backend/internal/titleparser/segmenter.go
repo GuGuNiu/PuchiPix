@@ -11,15 +11,14 @@ type pairedDelim struct {
 	close rune
 }
 
-// CJK book title marks 《》 are the primary target; additional brackets
-// such as 【】「」『』 can be added here as needed.
+// CJK book title marks are the only paired delimiters handled here; other
+// bracket pairs would need to be appended to this list to be segmented.
 var defaultPairedDelims = []pairedDelim{
 	{'《', '》'},
 }
 
-// smartSegment splits a raw title into segments using a multi-pass
-// hierarchical algorithm. When no paired delimiters are present it
-// falls back to the legacy regex-based segmenter for zero overhead.
+// smartSegment splits a title into segments, using paired delimiters when the
+// title contains any and falling back to plain separator matching otherwise.
 func (p *Parser) smartSegment(title string) []string {
 	var segments []string
 	if !containsPairedDelim(title) {
@@ -52,10 +51,8 @@ func segmentLegacy(title string, sepRE *regexp.Regexp) []string {
 	return result
 }
 
-// segmentPaired extracts paired-delimiter content, splits the remaining
-// text on explicit separators, then reinserts the extracted content.
-// Paired content is replaced with indexed placeholder tokens that survive
-// the regex split, then expanded back to original text in the final pass.
+// segmentPaired shields paired-delimiter content from the separator split by
+// swapping each region for a placeholder token, then restores the content.
 func segmentPaired(title string, sepRE *regexp.Regexp) []string {
 	placeholders, replaced := extractPairedContent(title, defaultPairedDelims)
 	segments := segmentLegacy(replaced, sepRE)
@@ -71,9 +68,8 @@ type bracketRegion struct {
 	content string
 }
 
-// extractPairedContent locates every paired-delimiter region in text,
-// extracts the inner content, and replaces each region with a numbered
-// placeholder token so it survives the separator-based split pass.
+// extractPairedContent replaces every paired-delimiter region with a numbered
+// placeholder token, which survives the separator-based split pass.
 func extractPairedContent(text string, delims []pairedDelim) (map[string]string, string) {
 	var regions []bracketRegion
 	for _, pd := range delims {

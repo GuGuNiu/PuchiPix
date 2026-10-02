@@ -1,6 +1,8 @@
 package api
 
 import (
+	"sync"
+
 	"backend/internal/db"
 	"backend/internal/downloader"
 	"backend/internal/downloader/video"
@@ -11,6 +13,7 @@ import (
 	"backend/internal/orchestrator/scheduler"
 	"backend/internal/sites"
 	"backend/internal/taskprogress"
+	"backend/internal/taskstate"
 )
 
 type Handlers struct {
@@ -25,12 +28,24 @@ type Handlers struct {
 	ProgressEngine *taskprogress.Engine
 	VideoTracker   *taskprogress.VideoProgressTracker
 	DlDefaults     *downloader.DownloadDefaults
+	Blocklist      *sites.BlocklistService
+	DataDir        string
+	deletionLocks  sync.Map
+	sniffCreateMu  sync.Mutex
+	// progressReplay caches the latest task:progress payload per task so
+	// every (re)connecting SSE client resumes with fresh state for all
+	// live tasks, not just the single event kept by the EventBus.
+	progressReplay progressReplayCache
+	// stateStore is the entity-status transition authority for user-action
+	// writes (pause/cancel/submit-failure) on video tasks.
+	stateStore *taskstate.Store
 }
 
 func New(database *db.Database, eventBus *infra.EventBus) *Handlers {
 	return &Handlers{
-		DB:       database,
-		EventBus: eventBus,
+		DB:         database,
+		EventBus:   eventBus,
+		stateStore: taskstate.NewStore(database, eventBus),
 	}
 }
 
@@ -54,9 +69,29 @@ func (h *Handlers) WithProgressEngine(pe *taskprogress.Engine, vt *taskprogress.
 	return h
 }
 
-// WithDownloadDefaults injects the shared DownloadDefaults pointer so
-// task-settings updates can mutate concurrency limits at runtime.
+// WithDownloadDefaults shares the DownloadDefaults pointer so task-settings
+// updates mutate the live concurrency limits.
 func (h *Handlers) WithDownloadDefaults(dd *downloader.DownloadDefaults) *Handlers {
 	h.DlDefaults = dd
 	return h
+}
+
+func (h *Handlers) WithBlocklist(service *sites.BlocklistService) *Handlers {
+	h.Blocklist = service
+	return h
+}
+
+func (h *Handlers) WithDataDir(dataDir string) *Handlers {
+	h.DataDir = dataDir
+	return h
+}
+
+func (h *Handlers) lockDeletionPath(key string) func() {
+	if key == "" {
+		return func() {}
+	}
+	value, _ := h.deletionLocks.LoadOrStore(key, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
 }

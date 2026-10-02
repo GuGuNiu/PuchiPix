@@ -6,15 +6,16 @@ import (
 	"backend/internal/orchestrator"
 )
 
-// Shutdown performs the full graceful-stop sequence: drain the
-// scheduler (wait for running nodes or cancel them at the deadline),
-// flush the async event writer so every queued event is persisted, then
-// take a final snapshot so a subsequent restart restores a consistent
-// PAUSED/resumable state. The scheduler must implement DrainStopper.
+// DrainStopper is implemented by schedulers that can drain in-flight
+// nodes before shutdown.
 type DrainStopper interface {
 	StopWithDrain(ctx context.Context) bool
 }
 
+// Shutdown drains the scheduler (waiting for running nodes, or
+// cancelling them at the deadline), flushes the async event writer so
+// every queued event is persisted, then takes a final snapshot so a
+// subsequent restart restores a consistent PAUSED/resumable state.
 func (o *DagOrchestrator) Shutdown(ctx context.Context) error {
 	if ds, ok := o.scheduler.(DrainStopper); ok {
 		drained := ds.StopWithDrain(ctx)

@@ -3,8 +3,10 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,8 +17,8 @@ import (
 )
 
 // Defaults for the starvation lottery and scheduling iteration params.
-// Tuned at runtime via the Set* methods below — loaded from app_configs
-// at startup and hot-updated through PUT /api/config (260817 ticket 11).
+// Tuned at runtime via the Set* methods below, loaded from app_configs at
+// startup and hot-updated through PUT /api/config.
 const (
 	defaultStarvationThreshold   = 30 * time.Minute
 	defaultStarvationLotteryRate = 0.1
@@ -65,10 +67,10 @@ type SchedulableNodeAdapter struct {
 	SubmittedAt          time.Time
 	// TimeoutMs is the per-node execution timeout in milliseconds
 	// (0 disables enforcement). Sourced from DagNodeDefinition.Timeout.
-	TimeoutMs            int
+	TimeoutMs int
 	// NonCritical marks a node whose failure should not cascade to its
 	// dependents or cause the DAG to fail.
-	NonCritical          bool
+	NonCritical bool
 }
 
 // PriorityFairStrategy selects the highest-priority node whose resource
@@ -149,26 +151,26 @@ type SchedulerMetrics struct {
 // individually atomic but the snapshot is not transactional).
 func (m *SchedulerMetrics) Snapshot() SchedulerMetricsSnapshot {
 	return SchedulerMetricsSnapshot{
-		TotalScheduled:           m.TotalScheduled.Load(),
-		TotalRejected:            m.TotalRejected.Load(),
-		TotalSlotRaceLost:        m.TotalSlotRaceLost.Load(),
-		TotalSchedulePasses:      m.TotalSchedulePasses.Load(),
-		TotalNoopPasses:          m.TotalNoopPasses.Load(),
+		TotalScheduled:            m.TotalScheduled.Load(),
+		TotalRejected:             m.TotalRejected.Load(),
+		TotalSlotRaceLost:         m.TotalSlotRaceLost.Load(),
+		TotalSchedulePasses:       m.TotalSchedulePasses.Load(),
+		TotalNoopPasses:           m.TotalNoopPasses.Load(),
 		TotalStarvationPromotions: m.TotalStarvationPromotions.Load(),
-		LastScheduleAt:           m.LastScheduleAt.Load(),
+		LastScheduleAt:            m.LastScheduleAt.Load(),
 	}
 }
 
 // SchedulerMetricsSnapshot is the value type returned by Snapshot,
 // suitable for JSON serialization in API responses.
 type SchedulerMetricsSnapshot struct {
-	TotalScheduled           int64 `json:"totalScheduled"`
-	TotalRejected            int64 `json:"totalRejected"`
-	TotalSlotRaceLost        int64 `json:"totalSlotRaceLost"`
-	TotalSchedulePasses      int64 `json:"totalSchedulePasses"`
-	TotalNoopPasses          int64 `json:"totalNoopPasses"`
+	TotalScheduled            int64 `json:"totalScheduled"`
+	TotalRejected             int64 `json:"totalRejected"`
+	TotalSlotRaceLost         int64 `json:"totalSlotRaceLost"`
+	TotalSchedulePasses       int64 `json:"totalSchedulePasses"`
+	TotalNoopPasses           int64 `json:"totalNoopPasses"`
 	TotalStarvationPromotions int64 `json:"totalStarvationPromotions"`
-	LastScheduleAt           int64 `json:"lastScheduleAt"`
+	LastScheduleAt            int64 `json:"lastScheduleAt"`
 }
 
 // SchedulerEngine is the central scheduling engine that accepts
@@ -202,10 +204,16 @@ type SchedulerEngine struct {
 	starvationLotteryRate atomic.Uint64
 	maxScheduleIterations atomic.Int64
 
-	// drain state (Stage 4 graceful shutdown)
+	// drain state
 	draining   bool
 	runningWg  sync.WaitGroup
-	nodeCancel map[string]context.CancelFunc // holderID -> cancel of running node ctx
+	nodeCancel map[string]context.CancelFunc
+	nodeDone   map[string]chan struct{}
+	// nodeEpoch counts dispatches per holder ID. The supervisor's settle
+	// skips its bookkeeping when a newer dispatch of the same node has
+	// re-registered (only reachable through out-of-FSM paths), so a late
+	// settle can never tear down a fresh run.
+	nodeEpoch map[string]uint64
 
 	// metrics tracks cumulative scheduling counters for observability.
 	// All fields are atomic; the hot path never blocks on collection.
@@ -233,9 +241,11 @@ func NewSchedulerEngine(sp *slot.SlotPool) *SchedulerEngine {
 			"download": 5,
 			"sniff":    1,
 		},
-		stopCh:  make(chan struct{}),
-		nowFunc: time.Now,
+		stopCh:     make(chan struct{}),
+		nowFunc:    time.Now,
 		nodeCancel: make(map[string]context.CancelFunc),
+		nodeDone:   make(map[string]chan struct{}),
+		nodeEpoch:  make(map[string]uint64),
 	}
 	s.starvationThreshold.Store(int64(defaultStarvationThreshold))
 	s.starvationLotteryRate.Store(math.Float64bits(defaultStarvationLotteryRate))
@@ -310,7 +320,6 @@ func (s *SchedulerEngine) SetDagOrchestrator(orch DagOrchestratorInterface) {
 	s.dagOrchestrator = orch
 }
 
-// SetExecutorFunc installs the callback used to dispatch node execution.
 func (s *SchedulerEngine) SetExecutorFunc(fn ExecutorFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -370,6 +379,17 @@ func (s *SchedulerEngine) HasNode(dagID, nodeID string) bool {
 	return s.readyQueue.Has(dagID, nodeID)
 }
 
+// IsExecuting reports whether a live executor supervisor is currently
+// running this node. The zombie sweep uses it to tell a node whose
+// executor is genuinely gone (supervisor settled, slot released) from
+// one that is still in flight.
+func (s *SchedulerEngine) IsExecuting(dagID, nodeID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.nodeCancel[dagID+":"+nodeID]
+	return ok
+}
+
 // CancelNode removes a node from the ready queue.
 func (s *SchedulerEngine) CancelNode(dagID, nodeID string) {
 	s.readyQueue.Remove(dagID, nodeID)
@@ -377,9 +397,9 @@ func (s *SchedulerEngine) CancelNode(dagID, nodeID string) {
 
 // CancelRunningNode cancels the context of an in-flight executor so a
 // pause/cancel actually stops the work instead of only detaching the
-// FSM state (the P7 audit finding: the executor kept running and would
-// re-execute on resume). The cancel func was registered in executeNode.
-// The orchestrator must have already transitioned the node to PAUSED /
+// FSM state, which would let the executor keep running and re-execute on
+// resume. The cancel func was registered in executeNode. The
+// orchestrator must have already transitioned the node to PAUSED /
 // CANCELLED before calling this, so the executor's cancellation result
 // is ignored by OnNodeCompleted (which only acts on RUNNING nodes).
 func (s *SchedulerEngine) CancelRunningNode(dagID, nodeID string) {
@@ -389,6 +409,30 @@ func (s *SchedulerEngine) CancelRunningNode(dagID, nodeID string) {
 		cancel()
 	}
 	s.mu.Unlock()
+}
+
+func (s *SchedulerEngine) WaitForDag(ctx context.Context, dagID string) error {
+	prefix := dagID + ":"
+	for {
+		s.mu.Lock()
+		channels := make([]<-chan struct{}, 0)
+		for holderID, done := range s.nodeDone {
+			if strings.HasPrefix(holderID, prefix) {
+				channels = append(channels, done)
+			}
+		}
+		s.mu.Unlock()
+		if len(channels) == 0 {
+			return nil
+		}
+		for _, done := range channels {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-done:
+			}
+		}
+	}
 }
 
 // UpdateNodePriority dynamically re-prioritizes a queued node. The
@@ -405,8 +449,8 @@ func (s *SchedulerEngine) UpdateNodePriority(dagID, nodeID string, newPriority i
 }
 
 // SubmitWithDelay enqueues a node after the given delay without
-// blocking the caller. This replaces blocking time.Sleep backoff in
-// retry paths: the orchestrator returns immediately while the timer
+// blocking the caller, which keeps retry backoff off the caller's
+// goroutine: the orchestrator returns immediately while the timer
 // goroutine performs the delayed submission. Submit still applies
 // drain checks and queue-capacity backpressure at fire time.
 func (s *SchedulerEngine) SubmitWithDelay(node SchedulableNodeAdapter, delay time.Duration) {
@@ -429,7 +473,6 @@ func (s *SchedulerEngine) OnSlotFreed(slotType string) {
 	s.Schedule()
 }
 
-// Schedule attempts to dispatch as many ready nodes as possible
 // to executors, given current slot availability.
 func (s *SchedulerEngine) Schedule() {
 	s.mu.Lock()
@@ -471,8 +514,8 @@ func (s *SchedulerEngine) Schedule() {
 	// as nodes are dispatched, instead of re-locking the pool on every
 	// iteration. Correctness is preserved: the pool's release callback
 	// re-enters Schedule() (guarded by the scheduling flag), and
-	// AcquireBatch remains the final arbiter — a stale fit simply loses
-	// the race and the node is requeued for a later pass.
+	// AcquireBatch remains the final arbiter; a stale fit loses the
+	// race and the node is requeued for a later pass.
 	slots := s.slotPool.GetSnapshot()
 	consume := func(reqs []slot.ResourceRequirement) {
 		for _, req := range reqs {
@@ -555,6 +598,18 @@ func (s *SchedulerEngine) Schedule() {
 // to the DAG orchestrator. The orchestrator reference is passed in
 // rather than read from the struct to avoid a data race with
 // SetDagOrchestrator.
+//
+// The executor runs on a detached worker goroutine while executeNode
+// acts as its supervisor. This guarantees the node settles even when an
+// executor blocks forever on a wait that ignores its context: the
+// supervisor settles the node as soon as the worker reports or the
+// context deadline fires, releases the slot, and detaches the stuck
+// worker — its late result is discarded because the node is terminal by
+// then. Without the supervisor, a blocked executor left the node in
+// RUNNING forever: the slot pool's stale sweep freed the slot but
+// nothing re-drove the node, wedging the DAG. The dispatch epoch guards
+// the deferred bookkeeping so a late settle can never tear down a newer
+// dispatch of the same node.
 func (s *SchedulerEngine) executeNode(entry SchedulableNodeEntry, fn ExecutorFunc, orch DagOrchestratorInterface) {
 	node := entry.orchestratorNode
 	holderID := node.DagID + ":" + node.NodeID
@@ -570,70 +625,127 @@ func (s *SchedulerEngine) executeNode(entry SchedulableNodeEntry, fn ExecutorFun
 	} else {
 		ctx, cancel = context.WithCancel(parent)
 	}
+	done := make(chan struct{})
 	s.mu.Lock()
-	s.nodeCancel[holderID] = cancel
 	s.runningWg.Add(1)
+	s.nodeEpoch[holderID]++
+	epoch := s.nodeEpoch[holderID]
+	s.nodeCancel[holderID] = cancel
+	s.nodeDone[holderID] = done
 	s.mu.Unlock()
 
-	defer func() {
+	// settle runs exactly once per dispatch (via defer). The epoch check
+	// skips the map cleanup and the slot release when a newer dispatch of
+	// the same holder has re-registered; this dispatch's done channel is
+	// still closed so its WaitForDag waiters unblock and re-collect.
+	settle := func() {
 		s.mu.Lock()
-		delete(s.nodeCancel, holderID)
+		current := s.nodeEpoch[holderID]
+		if current == epoch {
+			delete(s.nodeCancel, holderID)
+			delete(s.nodeDone, holderID)
+		}
 		s.mu.Unlock()
+		close(done)
 		cancel()
-		s.slotPool.ReleaseAll(holderID)
+		if current == epoch {
+			s.slotPool.ReleaseAll(holderID)
+		}
 		s.runningWg.Done()
-	}()
+	}
+	defer settle()
 
 	if orch != nil {
-		_ = orch.TransitionNode(
+		if err := orch.TransitionNode(
 			node.DagID,
 			node.NodeID,
 			"running",
 			"execution started",
 			"scheduler",
-		)
+		); err != nil {
+			// The node was concurrently moved (paused, preparing, retry
+			// path): whoever moved it owns its fate. The deferred settle
+			// releases the dispatch bookkeeping; the zombie sweep
+			// re-drives the node if it was stranded anyway.
+			s.logger.Warn("Node execution skipped after state transition", err, "nodeId", node.NodeID, "dagId", node.DagID)
+			return
+		}
+	}
+
+	// resultCh is buffered so a worker finishing after its supervisor has
+	// settled (timeout path) never blocks on the send.
+	type execOutcome struct {
+		result bool
+		err    error
+	}
+	resultCh := make(chan execOutcome, 1)
+	go func() {
+		defer func() {
+			// An executor panic must degrade to a node failure, not take
+			// down the whole process.
+			if r := recover(); r != nil {
+				resultCh <- execOutcome{result: false, err: fmt.Errorf("executor panic: %v", r)}
+			}
+		}()
+		result, err := fn(ctx, node)
+		resultCh <- execOutcome{result: result, err: err}
+	}()
+
+	// Supervisor: settle as soon as the worker reports or the context
+	// deadline fires. The loser's signal is discarded — the buffered
+	// channel absorbs a late worker send, and OnNodeCompleted ignores
+	// results for nodes that already reached a terminal state.
+	var outcome execOutcome
+	select {
+	case outcome = <-resultCh:
+	case <-ctx.Done():
+		outcome = execOutcome{result: false, err: ctx.Err()}
 	}
 
 	success := true
 	var errMsg string
 	var data map[string]any
 
-	result, err := fn(ctx, node)
 	// Distinguish timeout/cancel from ordinary failure so the
-	// orchestrator can drive the FAILED(TIMEOUT) retry path.
+	// orchestrator can drive the FAILED retry path. Classification stays
+	// on the context state (matching the previous behavior) even when the
+	// worker returned at the same instant the context expired.
 	timedOut := ctx.Err() == context.DeadlineExceeded
-	cancelled := ctx.Err() == context.Canceled
-	if err != nil || !result {
+	cancelled := !timedOut && ctx.Err() == context.Canceled
+	if outcome.err != nil || !outcome.result {
 		success = false
 		switch {
 		case timedOut:
 			errMsg = "node execution timeout"
 		case cancelled:
 			errMsg = "node execution cancelled"
-		case err != nil:
-			errMsg = err.Error()
+		case outcome.err != nil:
+			errMsg = outcome.err.Error()
+		default:
+			errMsg = "node execution failed"
 		}
-		// needs_retry (verify phase) is retryable, not a terminal
-		// failure: flag it via the result data so the orchestrator
-		// routes the node to NEEDS_RETRY and re-submits it instead of
-		// hard-failing (previously the retry semantics were lost).
+		// needs_retry (verify phase) is retryable, not a terminal failure:
+		// flag it via the result data so the orchestrator routes the node
+		// to NEEDS_RETRY and re-submits it instead of hard-failing.
 		var needsRetryErr *executors.NeedsRetryError
-		if errors.As(err, &needsRetryErr) {
+		if errors.As(outcome.err, &needsRetryErr) {
 			if data == nil {
 				data = map[string]any{}
 			}
 			data["needsRetry"] = true
 			data["needsRetryReason"] = needsRetryErr.Reason
 		}
-		s.logger.Error("Node execution failed", err, "nodeId", node.NodeID, "dagId", node.DagID, "timeout", timedOut, "cancelled", cancelled)
+		s.logger.Error("Node execution failed", outcome.err, "nodeId", node.NodeID, "dagId", node.DagID, "timeout", timedOut, "cancelled", cancelled)
 	} else {
 		s.logger.Info("Node execution completed", "nodeId", node.NodeID, "dagId", node.DagID)
 	}
 
+	// Report through OnNodeCompleted only: it performs the FAILED
+	// transition itself AND drives the failure cascade to dependents. (A
+	// separate TransitionNode here would settle the node first and make
+	// OnNodeCompleted discard the result, stranding successors in PENDING
+	// forever after a timeout.)
 	if orch != nil {
-		if timedOut {
-			_ = orch.TransitionNode(node.DagID, node.NodeID, "failed", "node execution timeout", "scheduler")
-		}
 		_ = orch.OnNodeCompleted(node.DagID, node.NodeID, success, data, errMsg)
 	}
 }
@@ -691,8 +803,9 @@ func (s *SchedulerEngine) StartScanTimer(interval time.Duration) {
 	}()
 }
 
-// Stop halts the scan timer and releases goroutines (legacy immediate
-// form, kept for callers that do not need drain semantics).
+// Stop halts the scan timer and the scheduling loop immediately, without
+// waiting for in-flight nodes. Callers that need drain semantics use
+// StopWithDrain.
 func (s *SchedulerEngine) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -707,11 +820,12 @@ func (s *SchedulerEngine) Stop() {
 	}
 }
 
-// StopWithDrain performs a graceful shutdown: stop accepting new
-// submissions, halt the scan timer, then wait for in-flight nodes to
-// finish until ctx's deadline. On deadline, remaining node contexts are
-// cancelled (chromedp work aborts) and the wait completes; callers are
-// expected to follow with EventStore.Flush + snapshot (see
+// StopWithDrain stops accepting new submissions, halts the scan timer,
+// then waits for in-flight nodes until ctx's deadline. On deadline,
+// remaining node contexts are cancelled (chromedp work aborts) and a
+// bounded grace period is given for them to unwind through their defers
+// (slot release, FAILED(cancelled) completion callbacks); callers are
+// expected to follow with EventStore.Flush plus a snapshot (see
 // DagOrchestrator.Shutdown). Returns true if all nodes drained in time.
 func (s *SchedulerEngine) StopWithDrain(ctx context.Context) bool {
 	s.mu.Lock()
@@ -727,7 +841,6 @@ func (s *SchedulerEngine) StopWithDrain(ctx context.Context) bool {
 	}
 	s.mu.Unlock()
 
-	// Wait for running nodes with deadline awareness.
 	done := make(chan struct{})
 	go func() {
 		s.runningWg.Wait()
@@ -762,14 +875,13 @@ func (s *SchedulerEngine) StopWithDrain(ctx context.Context) bool {
 	}
 }
 
-// IsDraining reports whether the scheduler has begun graceful shutdown.
+// IsDraining reports whether the scheduler has stopped accepting new
+// submissions and is waiting for in-flight nodes.
 func (s *SchedulerEngine) IsDraining() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.draining
 }
-
-// ── Slot introspection (API stubs — full implementation pending) ──
 
 // GetSlotSnapshot returns current slot usage per type for the dashboard API.
 func (s *SchedulerEngine) GetSlotSnapshot() map[string]slot.SlotUsage {
@@ -779,11 +891,11 @@ func (s *SchedulerEngine) GetSlotSnapshot() map[string]slot.SlotUsage {
 }
 
 // UpdateSlotMax adjusts the max concurrency for a slot type at runtime.
-// Note: this deliberately does NOT hold s.mu while calling
-// slotPool.UpdateMax. UpdateMax fires maxUpdateCallback →
-// SyncQueueCapacityFromSlotPool, which re-acquires s.mu — holding it
-// here would self-deadlock (260821 fix; the previous version froze
-// every subsequent PUT /api/slots/{type} request).
+// It deliberately does NOT hold s.mu while calling slotPool.UpdateMax.
+// UpdateMax fires maxUpdateCallback, which re-enters
+// SyncQueueCapacityFromSlotPool and re-acquires s.mu; holding it here
+// would self-deadlock and freeze every subsequent PUT /api/slots/{type}
+// request.
 func (s *SchedulerEngine) UpdateSlotMax(slotType string, max int) {
 	s.slotPool.UpdateMax(slotType, max)
 }
@@ -812,14 +924,14 @@ func (s *SchedulerEngine) GetMetrics() SchedulerMetricsSnapshot {
 
 // QueueDepth returns the number of nodes currently waiting in the ready
 // queue that require the given slot type. Used by the pressure monitor
-// to compute queue-backed pressure. Safe for concurrent use.
+// to compute queue-backed pressure.
 func (s *SchedulerEngine) QueueDepth(slotType string) int {
 	return s.readyQueue.CountBySlotType(slotType)
 }
 
 // QueueCapacity returns the configured maximum queue size for the slot
 // type. Used by the pressure monitor to normalize queue depth into a
-// ratio. Safe for concurrent use.
+// ratio.
 func (s *SchedulerEngine) QueueCapacity(slotType string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

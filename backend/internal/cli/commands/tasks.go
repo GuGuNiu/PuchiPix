@@ -11,8 +11,10 @@ import (
 
 type tasksCommand struct{}
 
-func (tasksCommand) Name() string        { return "tasks" }
-func (tasksCommand) Description() string { return "Manage video download tasks (list / detail / action / delete)" }
+func (tasksCommand) Name() string { return "tasks" }
+func (tasksCommand) Description() string {
+	return "Manage video download tasks (list / detail / action / delete)"
+}
 func (tasksCommand) Usage() string {
 	return "puchipix-cli tasks [list|detail|action|delete] [args]"
 }
@@ -263,14 +265,14 @@ func tasksDelete(ctx CommandContext) error {
 
 func taskStatusPill(status string) string {
 	colors := map[string]string{
-		"pending":   ui.Gray,
-		"queued":    ui.Yellow,
+		"pending":     ui.Gray,
+		"queued":      ui.Yellow,
 		"downloading": ui.Cyan,
-		"paused":    ui.Yellow,
-		"completed": ui.Green,
-		"failed":    ui.Red,
-		"cancelled": ui.Gray,
-		"retrying":  ui.Yellow,
+		"paused":      ui.Yellow,
+		"completed":   ui.Green,
+		"failed":      ui.Red,
+		"cancelled":   ui.Gray,
+		"retrying":    ui.Yellow,
 	}
 	color, ok := colors[status]
 	if !ok {

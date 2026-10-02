@@ -10,15 +10,12 @@ import (
 
 // timeTextLayout matches the modernc.org/sqlite driver's encoding of
 // time.Time arguments, which is Go's time.Time.String() format:
-// "2006-01-02 15:04:05.999999999 -0700 MST". The driver does NOT use
-// RFC3339, so database/sql cannot scan such TEXT values into a
-// *time.Time directly ("storing driver.Value type string into type
-// *time.Time").
+// "2006-01-02 15:04:05.999999999 -0700 MST". The driver does not use RFC3339,
+// so database/sql cannot scan such TEXT values into a *time.Time directly.
 //
-// P-TSG defect root cause (fixed 2026-08-04): every rows.Scan target for
-// SQLite time columns (*_at) must be SQLTime or string — never scan
-// directly into time.Time / *time.Time, or the Scan error is silently
-// swallowed by continue and the list API returns empty.
+// Every rows.Scan target for a SQLite time column (*_at) must be SQLTime or
+// string: scanning into time.Time or *time.Time returns a Scan error that
+// callers commonly swallow with continue, leaving list endpoints empty.
 const timeTextLayout = "2006-01-02 15:04:05.999999999 -0700 MST"
 
 // timeTextLayoutNoTZ matches bare "2006-01-02 15:04:05" datetimes
@@ -26,19 +23,17 @@ const timeTextLayout = "2006-01-02 15:04:05.999999999 -0700 MST"
 const timeTextLayoutNoTZ = "2006-01-02 15:04:05"
 
 // ParseSQLiteTime decodes a timestamp read from a SQLite TEXT datetime
-// column. It accepts three encodings found in production data:
+// column. Three encodings occur in stored data:
+//   - RFC3339Nano, from explicit writes.
+//   - The driver's time.Time.String() format, optionally carrying a
+//     monotonic " m=+..." suffix, from time.Time arguments passed through
+//     modernc.org/sqlite.
+//   - A bare "2006-01-02 15:04:05" with no timezone, from SQLite
+//     datetime('now') and legacy Go Format writes. Such rows break both a
+//     direct time.Time scan and a String()-only parser.
 //
-//  1. RFC3339Nano ("2026-08-04T12:34:56.123+08:00") — explicit writes.
-//  2. Driver String() format ("2026-08-04 12:34:56.123456789 +0800 CST",
-//     possibly with a monotonic " m=+..." suffix) — time.Time arguments
-//     passed through modernc.org/sqlite.
-//  3. Bare "2006-01-02 15:04:05" with no timezone — SQLite
-//     datetime('now') and legacy Go Format writes (P-TSG time-format
-//     pitfall #2: rows stored this way broke scan into both time.Time
-//     AND a String()-only parser).
-//
-// This is the single source of truth for SQLite time parsing; do not
-// re-implement it in other packages (event_store.go delegates here).
+// This is the single source of truth for SQLite time parsing; other packages
+// delegate here rather than re-implementing the layout fallbacks.
 func ParseSQLiteTime(s string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t, nil
@@ -73,7 +68,6 @@ type SQLTime struct {
 	Valid bool
 }
 
-// Scan implements sql.Scanner.
 func (t *SQLTime) Scan(value any) error {
 	switch v := value.(type) {
 	case nil:

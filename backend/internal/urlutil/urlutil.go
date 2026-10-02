@@ -46,26 +46,21 @@ func NormalizeURL(rawURL string) string {
 		return CleanURL(rawURL)
 	}
 
-	// Lowercase hostname.
 	parsed.Host = strings.ToLower(parsed.Hostname())
 	if parsed.Port() != "" {
 		parsed.Host = parsed.Hostname() + ":" + parsed.Port()
 	}
 
-	// Upgrade http → https.
 	if parsed.Scheme == "http" {
 		parsed.Scheme = "https"
 	}
 
-	// Remove fragment.
 	parsed.Fragment = ""
 
-	// Strip trailing slashes (except root "/").
 	if len(parsed.Path) > 1 {
 		parsed.Path = strings.TrimRight(parsed.Path, "/")
 	}
 
-	// Sort query parameters.
 	if parsed.RawQuery != "" {
 		parsed.RawQuery = sortQueryParams(parsed.RawQuery)
 	}
@@ -86,13 +81,11 @@ func GetURLSignature(rawURL string) string {
 		return CleanURL(rawURL)
 	}
 
-	// Path (strip trailing slashes except root).
 	path := parsed.Path
 	if len(path) > 1 {
 		path = strings.TrimRight(path, "/")
 	}
 
-	// Sorted query string.
 	search := ""
 	if parsed.RawQuery != "" {
 		search = "?" + sortQueryParams(parsed.RawQuery)
@@ -104,15 +97,14 @@ func GetURLSignature(rawURL string) string {
 // MirrorURLInfo holds the normalized URL and all mirror-domain variants
 // for a single source URL, enabling multi-domain dedup checks.
 type MirrorURLInfo struct {
-	Normalized string   // NormalizeURL(rawURL)
-	Signature  string   // GetURLSignature(rawURL)
-	Mirrors    []string // All mirror-domain variants (including Normalized)
+	Normalized string   // Canonical form produced by NormalizeURL
+	Signature  string   // Domain-agnostic signature produced by GetURLSignature
+	Mirrors    []string // All mirror-domain variants, including Normalized
 }
 
-// GenerateMirrorURLs builds mirror-domain URL variants by replacing the
-// hostname with each domain in the provided list while preserving the
-// path signature. If no mirror domains are provided, returns a
-// single-element slice containing the normalized URL.
+// GenerateMirrorURLs replaces the hostname of rawURL with each mirror domain
+// while keeping the path signature. Without mirror domains the result contains
+// only the normalized URL.
 func GenerateMirrorURLs(rawURL string, mirrorDomains []string) MirrorURLInfo {
 	cleaned := CleanURL(rawURL)
 	normalized := NormalizeURL(cleaned)
@@ -141,7 +133,6 @@ func GenerateMirrorURLs(rawURL string, mirrorDomains []string) MirrorURLInfo {
 		}
 	}
 
-	// Ensure the normalized URL is included.
 	if !seen[normalized] {
 		mirrors = append(mirrors, normalized)
 	}
@@ -185,9 +176,8 @@ func sortQueryParams(rawQuery string) string {
 	return b.String()
 }
 
-// ReplaceDomain swaps the domain of rawURL to baseDomain when the URL
-// starts with any of the given domain prefixes, preserving the rest of
-// the path. If no prefix matches, the original URL is returned unchanged.
+// ReplaceDomain rewrites the domain prefix of rawURL to baseDomain when it
+// starts with one of the given domain prefixes, otherwise returns it unchanged.
 func ReplaceDomain(rawURL, baseDomain string, domains []string) string {
 	if rawURL == "" || baseDomain == "" {
 		return rawURL
@@ -238,9 +228,8 @@ func IsM3U8URL(rawURL string) bool {
 	return false
 }
 
-// ReplaceHost unconditionally swaps the scheme and host of the original
-// URL to the given domain while preserving the path and query string.
-// If the URL has no scheme, it is returned unchanged.
+// ReplaceHost swaps the scheme and host of originalURL for newDomain, keeping
+// path and query. URLs without a scheme are returned unchanged.
 func ReplaceHost(originalURL, newDomain string) string {
 	newDomain = strings.TrimPrefix(newDomain, "https://")
 	newDomain = strings.TrimPrefix(newDomain, "http://")

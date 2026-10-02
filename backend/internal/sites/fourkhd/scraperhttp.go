@@ -18,7 +18,6 @@ import (
 
 var httpScraperLogger = infra.NewLogger("FourKHDProvider")
 
-// ScrapeDeps defines the callbacks the HTTP scraper needs from the provider.
 type ScrapeDeps interface {
 	ResolveURL(url, domain string) string
 	CleanTitle(rawTitle string) string
@@ -29,17 +28,15 @@ type ScrapeDeps interface {
 	GetPlaceholder() string
 }
 
-// ScrapeGalleryHTTP performs HTTP-only gallery scraping with multi-domain
-// failover, mirroring the aimeizizi scrape-gallery-http implementation.
-//
-// 4KHD uses Cloudflare cache HIT for all pages, so HTTP scraping is the
-// primary and only path — no browser fallback is needed.
+// ScrapeGalleryHTTP scrapes a gallery over HTTP, retrying across the site's
+// known domains when one of them fails.
 func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*sites.GalleryScrapeResult, error) {
 	domains := deps.GetDomains()
 	tracker := stealth.GetDomainHealthTracker()
 	orderedDomains := tracker.GetAllDomainsOrdered(domains)
 
-	// If the URL domain is known, try it first
+	// The domain embedded in the request URL is preferred over the health-ranked
+	// order because the caller's page and its paginated siblings share state.
 	urlDomain := ""
 	for _, d := range orderedDomains {
 		if strings.HasPrefix(pageURL, d) {
@@ -48,7 +45,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 		}
 	}
 	if urlDomain != "" {
-		// Move URL domain to front
 		for i, d := range orderedDomains {
 			if d == urlDomain {
 				orderedDomains = append(orderedDomains[:i], orderedDomains[i+1:]...)
@@ -63,7 +59,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 
 	for _, domain := range orderedDomains {
 		tryURL := pageURL
-		// If the URL uses a different domain, replace with current domain
 		if urlDomain != "" && urlDomain != domain {
 			tryURL = strings.Replace(pageURL, urlDomain, domain, 1)
 		}
@@ -106,7 +101,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 			continue
 		}
 
-		// Check for actual content
 		h3Text := strings.TrimSpace(result.doc.Find("h3.wp-block-post-title").First().Text())
 		titleText := strings.TrimSpace(result.doc.Find("title").First().Text())
 		if h3Text == "" && titleText == "" {
@@ -123,7 +117,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 		return nil, fmt.Errorf("all HTTP domains failed to fetch page")
 	}
 
-	// Parse first page
 	firstPageData := ParseGalleryPageHtml(doc, 0)
 	downloadInfo := ParseDownloadInfo(doc)
 
@@ -149,7 +142,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 		}
 	}
 
-	// Fetch remaining pages
 	for pageNum := 2; pageNum <= totalPages; pageNum++ {
 		select {
 		case <-ctx.Done():
@@ -159,12 +151,9 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 
 		stealth.Sleep(stealth.GalleryHTTPDelayMin, stealth.GalleryHTTPDelayMax)
 
-		// Construct page URL: base.html/{N}
 		pageURLConstructed := pageURL + "/" + fmt.Sprintf("%d", pageNum)
-		// Try with same domain as first page
 		if usedDomain != "" && !strings.HasPrefix(pageURLConstructed, usedDomain) {
 			pageURLConstructed = usedDomain + strings.TrimPrefix(pageURLConstructed, "")
-			// Replace domain in URL
 			for _, d := range orderedDomains {
 				if strings.HasPrefix(pageURLConstructed, d) {
 					break
@@ -180,14 +169,12 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 					"error": err.Error(),
 				}})
 
-			// Try fallback domains
 			fallbackDomains := tracker.GetAllDomainsOrdered(deps.GetDomains())
 			for _, fbDomain := range fallbackDomains {
 				if fbDomain == usedDomain {
 					continue
 				}
 				fbURL := fbDomain + "/content/" + firstPageData.Category + "/"
-				// Extract slug from canonical URL
 				slug := ""
 				if m := contentIDPattern.FindStringSubmatch(pageURL); len(m) >= 3 {
 					slug = m[2]
@@ -220,7 +207,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 		}
 	}
 
-	// Title processing
 	title := deps.CleanTitle(firstPageData.H1Title)
 	if title == "" {
 		title = deps.CleanTitle(firstPageData.RawTitle)
@@ -229,7 +215,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 	protagonist := deps.ExtractProtagonist(title, firstPageData.Tags)
 	description := deps.ExtractDescription(title, protagonist)
 
-	// Blocklist check
 	blockCheck, err := deps.CheckBlockedAsync(context.Background(), title, firstPageData.Category, protagonist)
 	if err != nil {
 		return nil, fmt.Errorf("check content blocked: %w", err)
@@ -238,7 +223,6 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 		return nil, fmt.Errorf("content blocked: %s", blockCheck.Reason)
 	}
 
-	// Meta keywords
 	metaKeywordsStr := doc.Find(`meta[name="keywords"]`).AttrOr("content", "")
 	metaKeywords := []string{}
 	for _, kw := range strings.Split(metaKeywordsStr, ",") {
@@ -250,11 +234,10 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 
 	allTags := xutil.UniqueStrings(append(append([]string{}, firstPageData.Tags...), metaKeywords...), true)
 
-	// ZIP info
 	var zipInfoResult *sites.GalleryZipInfo
 	if downloadInfo != nil {
 		zipInfoResult = &sites.GalleryZipInfo{
-			DownloadURL: downloadInfo.DownloadURL,
+			DownloadURL:  downloadInfo.DownloadURL,
 			Password:     downloadInfo.Password,
 			FileSizeText: downloadInfo.FileSize,
 			FileCount:    downloadInfo.FileCount,
@@ -282,12 +265,12 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 
 	httpScraperLogger.Info("HTTP scrape completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":       pageURL,
-			"images":    len(allImages),
-			"videos":    0,
-			"pages":     totalPages,
-			"domain":    usedDomain,
-			"download":  downloadInfo != nil,
+			"url":      pageURL,
+			"images":   len(allImages),
+			"videos":   0,
+			"pages":    totalPages,
+			"domain":   usedDomain,
+			"download": downloadInfo != nil,
 		}})
 
 	return result, nil

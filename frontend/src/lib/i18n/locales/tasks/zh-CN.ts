@@ -169,7 +169,6 @@ const zhCN: TranslationDict = {
   "tasks.jumpToPagePlaceholder": "页码",
 } satisfies TranslationDict;
 
-/** Union of Tasks translation keys */
 export type TasksTranslationKeys = keyof typeof zhCN;
 
 export default zhCN;

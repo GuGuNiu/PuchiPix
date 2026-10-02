@@ -12,7 +12,7 @@ type eventsCommand struct{}
 
 func (eventsCommand) Name() string        { return "events" }
 func (eventsCommand) Description() string { return "View event history for a specific DAG" }
-func (eventsCommand) Usage() string        { return "puchipix-cli events <dagId> [--limit N] [--from-seq N]" }
+func (eventsCommand) Usage() string       { return "puchipix-cli events <dagId> [--limit N] [--from-seq N]" }
 func (eventsCommand) Aliases() []string   { return nil }
 
 func (eventsCommand) Execute(ctx CommandContext) error {

@@ -8,9 +8,6 @@ import (
 	"backend/internal/orchestrator"
 )
 
-// factory := NewDagFactory()
-// def := factory.NewGalleryPipeline("https://...", "aimeizizi")
-// dagID, err := orch.SubmitDag(ctx, def)
 type DagFactory struct{}
 
 // NewDagFactory creates a DAG blueprint factory.
@@ -18,23 +15,21 @@ func NewDagFactory() *DagFactory {
 	return &DagFactory{}
 }
 
-// SelectGalleryPipeline chooses the appropriate gallery pipeline based
-// on the current gallery state. This implements context-aware pipeline
-// selection to avoid the cascade failure pattern where a full pipeline
-// (with scrape) is used on a gallery that already has data: the scrape
-// executor wipes gallery_images/gallery_videos and re-inserts every row
-// as pending, so re-running it on a partially-downloaded gallery resets
-// the checkpoint of files already on disk.
+// SelectGalleryPipeline picks the gallery pipeline for the current gallery
+// state. Context-aware selection avoids a cascade failure: a full pipeline
+// runs its scrape on a gallery that already has data, and the scrape
+// executor wipes gallery_images/gallery_videos and re-inserts every row as
+// pending, resetting the checkpoint of files already on disk.
 //
 // Selection logic (scrapeDataExists = image_count > 0 || video_count > 0):
-//   - scrape data missing  → Full pipeline (scrape → download → extract → verify)
-//   - scrape data present  → Resume pipeline (download → extract → verify)
+//   - scrape data missing: Full pipeline (scrape, download, extract, verify)
+//   - scrape data present: Resume pipeline (download, extract, verify)
 //
 // The choice is keyed on scrape data rather than the galleries.status
 // column because status labels ("failed", "partial", "completed") do not
-// reliably indicate whether gallery_images rows exist — a gallery can
-// be marked failed before scraping populated anything, or hold a full
-// image list while some files are still pending.
+// reliably indicate whether gallery_images rows exist: a gallery can be
+// marked failed before scraping populated anything, or hold a full image
+// list while some files are still pending.
 func (f *DagFactory) SelectGalleryPipeline(url, providerID string, galleryID int, scrapeDataExists bool) orchestrator.DagDefinition {
 	if scrapeDataExists {
 		return f.NewGalleryResumePipeline(galleryID)
@@ -61,7 +56,7 @@ type dagBlueprint struct {
 
 // NewGalleryPipeline builds the full 4-node gallery processing DAG:
 //
-//	scrape (scraping slot) → download (download slot) → extract → verify
+//	scrape (scraping slot), download (download slot), extract, verify
 //
 // Each node flows into the next via dependency edges. The scrape node
 // acquires a scraping slot (max 3); the download node acquires a
@@ -121,17 +116,19 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 		},
 	})
 
-	// Inject url, galleryId, and providerId into node configs so
-	// executors can look up the gallery record and scrape the page.
-	// The download node gets skipVerify=true because the gallery
-	// pipeline has a dedicated verify node (vf-{galleryId}) that
-	// checks download completeness via the database rather than the
-	// filesystem-based StateReconciler path (which requires savePath
-	// in the Config that is determined dynamically at runtime).
+	// Inject url, galleryId, providerId and siteId into node configs so
+	// executors can look up the gallery record and scrape the page, and the
+	// per-domain admission gate can resolve the site's domain pool. The
+	// download node gets skipVerify=true because the gallery pipeline has a
+	// dedicated verify node (vf-{galleryId}) that checks download
+	// completeness via the database rather than the filesystem-based
+	// StateReconciler path (which requires savePath in the Config that is
+	// determined dynamically at runtime).
 	for i := range nodes {
 		nodes[i].Config["url"] = url
 		nodes[i].Config["galleryId"] = galleryID
 		nodes[i].Config["providerId"] = providerID
+		nodes[i].Config["siteId"] = providerID
 		if nodes[i].ID == fmt.Sprintf("dl-%d", galleryID) {
 			nodes[i].Config["skipVerify"] = true
 		}
@@ -151,15 +148,15 @@ func (f *DagFactory) NewGalleryPipeline(url, providerID string, galleryID int) o
 
 // NewGalleryResumePipeline builds a 3-node download-only DAG for
 // retrying partial/failed galleries whose metadata already exists in
-// the database. Skipping the scrape phase is REQUIRED, not just
+// the database. Skipping the scrape phase is required, not merely
 // convenient: the scrape executor treats an existing gallery as a
-// re-scrape — it DELETEs all gallery_images/gallery_videos rows and
-// re-inserts them as pending — so routing a retry of a partially
+// re-scrape, DELETEs all gallery_images/gallery_videos rows and
+// re-inserts them as pending, so routing a retry of a partially
 // downloaded gallery through the full pipeline would reset the
 // checkpoint of every file already on disk and re-download the whole
 // gallery.
 //
-//	download (download slot) → extract → verify
+//	download (download slot), extract, verify
 //
 // Used by shelf retry-failed / GalleryFileRetry (via
 // SelectGalleryPipeline) when the gallery has been scraped but files
@@ -225,8 +222,8 @@ func (f *DagFactory) NewGalleryResumePipeline(galleryID int) orchestrator.DagDef
 }
 
 // NewScrapeTask builds a single-node scrape DAG for one-off gallery
-// scraping (preview/dry-run). This is the lightweight alternative to
-// the full pipeline used in the /api/scrape endpoint.
+// scraping (preview/dry-run), the lightweight alternative to the full
+// pipeline used in the /api/scrape endpoint.
 func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
@@ -244,6 +241,12 @@ func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefin
 		},
 	})
 
+	for i := range nodes {
+		nodes[i].Config["url"] = url
+		nodes[i].Config["providerId"] = providerID
+		nodes[i].Config["siteId"] = providerID
+	}
+
 	return orchestrator.DagDefinition{
 		ID:       dagID,
 		TaskType: orchestrator.TaskTypeGallery,
@@ -258,25 +261,27 @@ func (f *DagFactory) NewScrapeTask(url, providerID string) orchestrator.DagDefin
 
 // NewVideoPipeline builds the two-node video processing DAG:
 //
-//	vsc (scraping slot, M3U8 identification) → vdl (download slot, download)
+//	vsc (scraping slot, M3U8 identification), vdl (download slot, download)
 //
-// The identification node acquires a *scraping* slot so video
-// identification concurrency is bounded by the user's max scraping tasks
-// setting (maxScrapingTasks → scraping slot). Previously identification
-// ran inside the download executor and was only bounded by the download
-// slot — every submitted video task looked like it was "identifying"
-// (scraping) in the DB even when the scheduler had rejected it, which
-// is the "all tasks started identifying / full" defect fixed by this split.
+// The identification node acquires a scraping slot so video identification
+// concurrency is bounded by the user's max scraping tasks setting
+// (maxScrapingTasks). Identification inside the download executor would
+// only be bounded by the download slot, making every submitted video task
+// look like it was identifying even when the scheduler had rejected it.
 //
-// Backward compatibility: DAGs restored from snapshots that still use
-// the single-node vdl pipeline keep working — VideoDownloadExecutor's
-// task loader falls back to identifying the M3U8 URL itself when
-// m3u8_url is empty.
+// DAGs restored from snapshots that still use the single-node vdl pipeline
+// keep working: VideoDownloadExecutor's task loader falls back to
+// identifying the M3U8 URL itself when m3u8_url is empty.
 //
 // taskSeq is the canonical uppercase-alphanumeric task identifier
 // (download_tasks.seq), used as the node ID suffix for uniform
 // letter+number ID format across the whole site.
-func (f *DagFactory) NewVideoPipeline(taskSeq string, taskID int) orchestrator.DagDefinition {
+//
+// siteID resolves the site's domain pool for the per-domain admission gate.
+// It is not injected into node config as a URL because the video pipeline
+// carries no page URL; the identification node looks the task row up by
+// taskSeq instead.
+func (f *DagFactory) NewVideoPipeline(taskSeq string, taskID int, siteID string) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
@@ -312,6 +317,7 @@ func (f *DagFactory) NewVideoPipeline(taskSeq string, taskID int) orchestrator.D
 		nodes[i].Config["taskSeq"] = taskSeq
 		nodes[i].Config["taskId"] = taskID
 		nodes[i].Config["skipVerify"] = true
+		nodes[i].Config["siteId"] = siteID
 	}
 
 	return orchestrator.DagDefinition{
@@ -329,9 +335,11 @@ func (f *DagFactory) NewVideoPipeline(taskSeq string, taskID int) orchestrator.D
 // and line selection.
 //
 // taskSeq is the canonical uppercase-alphanumeric sniff task identifier
-// (sniff_tasks.seq), used as the node ID suffix for uniform letter+
-// number ID format across the whole site.
-func (f *DagFactory) NewSniffPipeline(url string, taskSeq string) orchestrator.DagDefinition {
+// (sniff_tasks.seq), used as the node ID suffix for uniform letter+number ID
+// format across the whole site.
+//
+// siteId is read by SniffExecutor to resolve the site's domain pool.
+func (f *DagFactory) NewSniffPipeline(url string, taskSeq string, siteID string) orchestrator.DagDefinition {
 	dagID := idgen.GenerateID()
 	nodes := f.buildNodes(dagID, []dagBlueprint{
 		{
@@ -351,6 +359,7 @@ func (f *DagFactory) NewSniffPipeline(url string, taskSeq string) orchestrator.D
 	for i := range nodes {
 		nodes[i].Config["url"] = url
 		nodes[i].Config["sniffSeq"] = taskSeq
+		nodes[i].Config["siteId"] = siteID
 	}
 
 	return orchestrator.DagDefinition{
@@ -359,7 +368,7 @@ func (f *DagFactory) NewSniffPipeline(url string, taskSeq string) orchestrator.D
 		Nodes:    nodes,
 		Metadata: orchestrator.DagMetadata{
 			SourceURL: url,
-			CreatedAt:  time.Now(),
+			CreatedAt: time.Now(),
 		},
 	}
 }

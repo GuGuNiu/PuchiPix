@@ -16,7 +16,6 @@ const idID: TranslationDict = {
   "api.common.internalError": "Kesalahan internal server", "api.common.missingParams": "Parameter wajib hilang: {params}",
   "api.gallery.noProviderForRescrape": "Penyedia galeri tidak ditemukan, tidak dapat mengekstrak ulang",
 
-  // DAG
   "api.dag.notFound": "DAG {dagId} tidak ditemukan",
   "api.dag.invalidAction": "Aksi tidak valid: {action}",
   "api.accounts.createFailed": "Gagal membuat akun",

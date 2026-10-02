@@ -14,11 +14,8 @@ import { useI18n } from "@/lib/i18n";
 import { formatClock } from "../video-helpers";
 
 /**
- * Custom control bar for the shelf video player — modeled after ArtPlayer's
- * bottom control layer (progress row + button row) with drag-to-seek,
- * buffered visualization, hover-expand volume, a speed menu and a playlist
- * toggle. Every interactive element stops propagation so a click never
- * reaches the video surface (which toggles play/pause).
+ * Every interactive element stops event propagation so a click on a control
+ * never reaches the video surface, which toggles play/pause.
  */
 export interface VideoControlsProps {
   playing: boolean;
@@ -167,7 +164,6 @@ export function VideoControls(props: VideoControlsProps): React.JSX.Element {
         userSelect: "none",
       }}
     >
-      {/* Progress row */}
       <div
         ref={trackRef}
         onPointerDown={handleTrackDown}
@@ -251,7 +247,6 @@ export function VideoControls(props: VideoControlsProps): React.JSX.Element {
         )}
       </div>
 
-      {/* Button row */}
       <div
         style={{
           display: "flex",
@@ -286,7 +281,6 @@ export function VideoControls(props: VideoControlsProps): React.JSX.Element {
           <SkipForward size={16} fill="white" />
         </button>
 
-        {/* Volume: icon + hover-expand slider */}
         <div
           onMouseEnter={() => setVolumeOpen(true)}
           onMouseLeave={() => setVolumeOpen(false)}
@@ -333,7 +327,6 @@ export function VideoControls(props: VideoControlsProps): React.JSX.Element {
 
         <div style={{ flex: 1 }} />
 
-        {/* Speed menu */}
         <div style={{ position: "relative" }}>
           <button
             style={{ ...btnStyle, width: "auto", padding: "0 8px", fontSize: 12, fontWeight: 600 }}

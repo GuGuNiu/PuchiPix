@@ -12,7 +12,7 @@ type nodeCommand struct{}
 
 func (nodeCommand) Name() string        { return "node" }
 func (nodeCommand) Description() string { return "View node details (with full state history)" }
-func (nodeCommand) Usage() string        { return "puchipix-cli node <dagId> <nodeId>" }
+func (nodeCommand) Usage() string       { return "puchipix-cli node <dagId> <nodeId>" }
 func (nodeCommand) Aliases() []string   { return nil }
 
 func (nodeCommand) Execute(ctx CommandContext) error {

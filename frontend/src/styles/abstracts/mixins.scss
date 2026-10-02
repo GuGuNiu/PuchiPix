@@ -1,32 +1,25 @@
-// PuchiPix — SCSS mixins (reusable style patterns)
-
-/// Flex centering
 @mixin flex-center {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/// Flex column
 @mixin flex-col {
   display: flex;
   flex-direction: column;
 }
 
-/// Single-line text ellipsis
 @mixin text-ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/// Glass blur
 @mixin glass-blur($blur: var(--glass-blur)) {
   backdrop-filter: $blur;
   -webkit-backdrop-filter: $blur;
 }
 
-/// Glass card (translucent bg + blur + glass border)
 @mixin glass-card {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
@@ -34,35 +27,29 @@
   border: 1px solid var(--glass-border);
 }
 
-/// Inset highlight shadow
 @mixin inset-highlight($shadow: var(--shadow-sm), $highlight: var(--inset-highlight)) {
   box-shadow: $shadow, 0 0 0 1px $highlight inset;
 }
 
-/// Glass card hover
 @mixin glass-card-hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-md), 0 0 0 1px var(--inset-highlight) inset;
 }
 
-/// Bouncy transition
 @mixin transition-bounce {
   transition: all var(--transition-bounce);
 }
 
-/// Monospace font
 @mixin font-mono {
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
-/// Unordered list reset
 @mixin list-reset {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-/// Responsive breakpoints
 @mixin breakpoint($size) {
   @if $size == 'sm' {
     @media (max-width: 480px) { @content; }

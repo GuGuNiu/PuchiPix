@@ -16,7 +16,6 @@ const ptBR: TranslationDict = {
   "api.common.internalError": "Erro interno do servidor", "api.common.missingParams": "Parâmetros obrigatórios ausentes: {params}",
   "api.gallery.noProviderForRescrape": "Nenhum provedor de galeria encontrado, não é possível re-raspar",
 
-  // DAG
   "api.dag.notFound": "DAG {dagId} não encontrado",
   "api.dag.invalidAction": "Ação inválida: {action}",
   "api.accounts.createFailed": "Falha ao criar conta",

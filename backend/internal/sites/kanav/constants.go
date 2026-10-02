@@ -41,20 +41,18 @@ type CategoryConfig struct {
 type SortType string
 
 const (
-	SortTypeTime      SortType = "time"       // newest
-	SortTypeHits      SortType = "hits"       // most viewed
-	SortTypeHitsWeek  SortType = "hits_week"  // weekly hot
+	SortTypeTime     SortType = "time"
+	SortTypeHits     SortType = "hits"
+	SortTypeHitsWeek SortType = "hits_week"
 )
 
-// URL patterns for KanAV site
 const (
-	BasePath           = "/index.php/vod"
-	ListingPathFormat  = BasePath + "/show/by/%s/id/%d.html"
-	ListingPathPaged   = BasePath + "/show/by/%s/id/%d/page/%d.html"
-	DetailPathFormat   = BasePath + "/play/id/%d/sid/1/nid/1.html"
+	BasePath          = "/index.php/vod"
+	ListingPathFormat = BasePath + "/show/by/%s/id/%d.html"
+	ListingPathPaged  = BasePath + "/show/by/%s/id/%d/page/%d.html"
+	DetailPathFormat  = BasePath + "/play/id/%d/sid/1/nid/1.html"
 )
 
-// CSS selectors for page extraction
 const (
 	// Listing page selectors
 	VideoItemSelector     = ".col-md-3.col-sm-6.col-xs-6"
@@ -69,22 +67,20 @@ const (
 	ActivePageSelector = ".pagination .active"
 )
 
-// Pre-compiled regex patterns
+// Pre-compiled at package init so listing scrapes do not recompile them per page
 var (
-	// Video ID extraction from URL: /vod/play/id/12345/...
 	VideoIDPattern = regexp.MustCompile(`/id/(\d+)`)
 
-	// Views extraction: "1234 Views" or "1,234 Views"
 	ViewsPattern = regexp.MustCompile(`([\d,]+)\s*Views`)
 
-	// Date extraction: "2026 / 08 / 03"
+	// Publish dates appear inside entry titles as a slash-separated
+	// YYYY / MM / DD layout rather than ISO 8601
 	DatePattern = regexp.MustCompile(`(\d{4})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})`)
 
-	// Page number extraction from URL
 	PageNumberPattern = regexp.MustCompile(`/page/(\d+)\.html`)
 )
 
-// CategoryConfigs defines all available video categories.
+// CategoryConfigs lists the site category IDs, display names, and URL slugs.
 var CategoryConfigs = []CategoryConfig{
 	{ID: 1, Name: "中文字幕", Slug: "chinese-sub"},
 	{ID: 2, Name: "日韩有码", Slug: "jav-censored"},
@@ -99,7 +95,6 @@ var CategoryConfigs = []CategoryConfig{
 	{ID: 32, Name: "主播录制", Slug: "streamer"},
 }
 
-// GetCategoryByID returns the category config by ID.
 func GetCategoryByID(id int) (CategoryConfig, bool) {
 	for _, cat := range CategoryConfigs {
 		if cat.ID == id {
@@ -109,7 +104,6 @@ func GetCategoryByID(id int) (CategoryConfig, bool) {
 	return CategoryConfig{}, false
 }
 
-// ExtractVideoID extracts the numeric video ID from a URL.
 func ExtractVideoID(url string) string {
 	m := VideoIDPattern.FindStringSubmatch(url)
 	if len(m) >= 2 {
@@ -118,7 +112,6 @@ func ExtractVideoID(url string) string {
 	return ""
 }
 
-// ExtractViews parses the views count from text like "1,234 Views".
 func ExtractViews(text string) int {
 	m := ViewsPattern.FindStringSubmatch(text)
 	if len(m) >= 2 {
@@ -131,7 +124,7 @@ func ExtractViews(text string) int {
 	return 0
 }
 
-// ExtractDate parses the date from text like "2026 / 08 / 03".
+// ExtractDate converts the slash-separated site date layout to YYYY-MM-DD.
 func ExtractDate(text string) string {
 	m := DatePattern.FindStringSubmatch(text)
 	if len(m) >= 4 {
@@ -140,7 +133,6 @@ func ExtractDate(text string) string {
 	return ""
 }
 
-// padZero ensures a number string has leading zero if single digit.
 func padZero(s string) string {
 	if len(s) == 1 {
 		return "0" + s
@@ -148,7 +140,6 @@ func padZero(s string) string {
 	return s
 }
 
-// ExtractPageNumber extracts page number from URL like /page/2.html.
 func ExtractPageNumber(url string) int {
 	m := PageNumberPattern.FindStringSubmatch(url)
 	if len(m) >= 2 {
@@ -163,7 +154,8 @@ func ExtractPageNumber(url string) int {
 	return 1
 }
 
-// BuildListingURL constructs a listing page URL.
+// BuildListingURL omits the page segment for the first page, which the site
+// serves from a different path than page 2 and later.
 func BuildListingURL(baseURL string, categoryID int, sort SortType, page int) string {
 	if page <= 1 {
 		return fmt.Sprintf("%s/index.php/vod/show/by/%s/id/%d.html", baseURL, sort, categoryID)
@@ -171,7 +163,6 @@ func BuildListingURL(baseURL string, categoryID int, sort SortType, page int) st
 	return fmt.Sprintf("%s/index.php/vod/show/by/%s/id/%d/page/%d.html", baseURL, sort, categoryID, page)
 }
 
-// BuildDetailURL constructs a detail page URL.
 func BuildDetailURL(baseURL string, videoID string) string {
 	return baseURL + "/index.php/vod/play/id/" + videoID + "/sid/1/nid/1.html"
 }

@@ -1,5 +1,6 @@
-// wiki-scraper updates game character JSON files from Bilibili Wiki
-// using chromedp (headless browser) to bypass Cloudflare anti-bot.
+// Command wiki-scraper updates game character JSON files from Bilibili Wiki
+// using a headless browser, which is required to get past the Cloudflare
+// anti-bot challenge.
 //
 // Usage:
 //
@@ -73,7 +74,6 @@ func main() {
 		}
 	}
 	if len(targets) == 0 {
-		// Default: all games
 		for k := range games {
 			targets = append(targets, k)
 		}
@@ -136,8 +136,7 @@ func scrapeWithChromeDP(cfg gameConfig) ([]charEntry, error) {
 }
 
 func parseCharListHTML(html string, cfg gameConfig) []charEntry {
-	// Extract all wiki links that look like character pages
-	// Pattern: <a href="/XX/角色名" title="角色名">角色名</a>
+	// Character pages all look like <a href="/<prefix>/<name>" title="<name>">.
 	linkRe := regexp.MustCompile(`<a[^>]*href="/[^"]*/([^"/]+)"[^>]*title="([^"]*)"[^>]*>`)
 	matches := linkRe.FindAllStringSubmatch(html, -1)
 

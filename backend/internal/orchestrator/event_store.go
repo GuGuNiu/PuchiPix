@@ -17,15 +17,14 @@ const maxInMemoryLog = 10000
 // automatic snapshot is taken, balancing recovery speed against I/O.
 const snapshotInterval = 100
 
-// EventStore persists DAG events for audit and recovery, mirroring the
-// TypeScript EventStore with an in-memory ring buffer and database
-// persistence.
+// EventStore persists DAG events for audit and recovery using an
+// in-memory ring buffer plus database persistence.
 //
-// Async writes: AppendAsync hands events to a single writer goroutine
-// via a bounded channel. A single writer preserves per-store seq
-// ordering without holding the caller's lock across DB I/O; when the
-// channel is full the caller degrades to a synchronous Append and the
-// fallback is counted (droppedAsyncFallbacks) for observability.
+// AppendAsync hands events to a single writer goroutine via a bounded
+// channel. A single writer preserves per-store seq ordering without
+// holding the caller's lock across DB I/O; when the channel is full the
+// caller degrades to a synchronous Append and the fallback is counted
+// (asyncFallbacks) for observability.
 type EventStore struct {
 	mu                  sync.Mutex
 	currentSeq          int64
@@ -87,15 +86,9 @@ func (es *EventStore) Append(ctx context.Context, event DagEvent) error {
 	snapshotFn := es.snapshotFn
 	es.mu.Unlock()
 
-	// Emit to EventBus BEFORE DB INSERT so that SSE clients receive
-	// events without waiting for DB I/O. The previous serial order
-	// (INSERT then Emit) meant every event's SSE dispatch latency
-// included the DB write latency, which under high load
-// could reach hundreds of milliseconds. DB persistence
-	// still happens synchronously right after, ensuring durability.
-	// If the DB write fails, the event has already been emitted to
-	// in-memory subscribers — the in-memory log preserves it for
-	// recovery via Replay().
+	// Emit to the bus before the DB insert so SSE clients are not held up
+	// by DB write latency. A failed DB write leaves the event in the
+	// in-memory log only, where Replay can still recover it.
 	es.eventBus.Emit(event.Type, event)
 
 	if es.db != nil {
@@ -127,7 +120,7 @@ func (es *EventStore) Append(ctx context.Context, event DagEvent) error {
 const asyncQueueCapacity = 1024
 
 // StartAsyncWriter launches the single-writer goroutine backing
-// AppendAsync. Idempotent; safe to call only once in practice.
+// AppendAsync. Repeated calls are no-ops.
 func (es *EventStore) StartAsyncWriter() {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -186,7 +179,6 @@ func (es *EventStore) AppendAsync(ctx context.Context, event DagEvent) error {
 		// without blocking the caller.
 		select {
 		case <-es.asyncCh:
-			// Drained one old event; now insert the new one.
 			es.asyncCh <- event
 			es.mu.Lock()
 			es.asyncFallbacks++
@@ -217,7 +209,7 @@ func (es *EventStore) AppendAsync(ctx context.Context, event DagEvent) error {
 }
 
 // Flush stops the async writer and waits for all queued events to be
-// persisted. Called during graceful shutdown before the final snapshot.
+// persisted. Runs during shutdown before the final snapshot.
 func (es *EventStore) Flush() {
 	es.mu.Lock()
 	if !es.asyncStarted {

@@ -85,13 +85,13 @@ func main() {
 	}
 }
 
-// openDBReadOnly opens a SQLite database in read-only mode for safe CLI querying.
 func openDBReadOnly(dbPath string) (*sql.DB, error) {
 	uri := fmt.Sprintf("file:%s?mode=ro", dbPath)
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+	// A single connection keeps concurrent CLI queries on one SQLite handle
 	db.SetMaxOpenConns(1)
 	return db, nil
 }

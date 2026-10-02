@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"database/sql"
+	"github.com/go-chi/chi/v5"
 
 	"backend/internal/db"
 	"backend/internal/downloader/video"
@@ -238,15 +238,12 @@ func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.blocklist.missingFields"))
 		return
 	}
-	// Reject invalid match modes / oversized keywords / uncompilable regexes
-	// at the boundary — a saved-but-broken rule previously matched nothing
-	// silently forever (users believed filtering was active when it wasn't).
 	if br.MatchMode == "" {
 		br.MatchMode = "includes"
 	}
-	// A rule created without an explicit enabled flag defaults to ACTIVE —
-	// the JSON zero value (false) previously created rules that were dead
-	// on arrival and silently matched nothing until manually toggled.
+	// A rule created without an explicit enabled flag defaults to ACTIVE:
+	// the JSON zero value (false) otherwise produces a rule that matches
+	// nothing until manually toggled.
 	if !br.Enabled {
 		br.Enabled = true
 	}
@@ -263,6 +260,9 @@ func (h *Handlers) BlocklistCreate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.createFailed"))
 		return
+	}
+	if h.Blocklist != nil {
+		h.Blocklist.InvalidateCache()
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
@@ -290,6 +290,9 @@ func (h *Handlers) BlocklistUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.updateFailed"))
 		return
 	}
+	if h.Blocklist != nil {
+		h.Blocklist.InvalidateCache()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
 }
 
@@ -304,10 +307,22 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 			return
 		}
-		_, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
+		result, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
 		if execErr != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
 			return
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
+			return
+		}
+		if rows == 0 {
+			writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
+			return
+		}
+		if h.Blocklist != nil {
+			h.Blocklist.InvalidateCache()
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 		return
@@ -319,23 +334,57 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		parts := strings.Split(idsStr, ",")
-		deleted := 0
+		ids := make([]int, 0, len(parts))
+		seen := make(map[int]struct{}, len(parts))
 		for _, part := range parts {
 			id, err := strconv.Atoi(strings.TrimSpace(part))
-			if err != nil {
+			if err != nil || id <= 0 {
+				writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidId"))
+				return
+			}
+			if _, exists := seen[id]; exists {
 				continue
 			}
-			_, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
-			if execErr == nil {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+		deleted := 0
+		deletedIDs := make([]int, 0, len(ids))
+		missing := 0
+		failed := 0
+		for _, id := range ids {
+			result, execErr := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
+			if execErr != nil {
+				failed++
+				continue
+			}
+			rows, rowsErr := result.RowsAffected()
+			if rowsErr != nil {
+				failed++
+				continue
+			}
+			if rows == 0 {
+				missing++
+			} else {
 				deleted++
+				deletedIDs = append(deletedIDs, id)
 			}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+		if deleted > 0 && h.Blocklist != nil {
+			h.Blocklist.InvalidateCache()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"requested":  len(ids),
+			"deleted":    deleted,
+			"deletedIds": deletedIDs,
+			"missing":    missing,
+			"failed":     failed,
+		})
 		return
 	}
 
-	// Fallback to path parameter: /api/blocklist/{id}
-	// Validate ID format BEFORE checking DB so invalid IDs get 400, not 503.
+	// The ID format is validated before the DB is touched so a malformed ID
+	// produces 400 rather than 503.
 	id, ok := parseIDParam(w, r)
 	if !ok {
 		return
@@ -344,10 +393,22 @@ func (h *Handlers) BlocklistDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
-	_, err := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
+	result, err := h.DB.Exec(r.Context(), "DELETE FROM blocklist_rules WHERE id=?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
 		return
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
+		return
+	}
+	if rows == 0 {
+		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.blocklist.deleteFailed"))
+		return
+	}
+	if h.Blocklist != nil {
+		h.Blocklist.InvalidateCache()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 }
@@ -364,14 +425,12 @@ func (h *Handlers) ConfigList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	// Flat key->value map matching the frontend contract
-	// (e.g. {chromedriver_path: "..."}); the frontend config page reads
-	// data?.<key> directly. Previously a bare array was returned, which
-	// the frontend could never consume (F6).
+	// The frontend config page reads data?.<key>, so the response is a flat
+	// key->value map rather than a row array.
 	configs := map[string]any{}
 	for rows.Next() {
-		// Scan timestamps into db.SQLTime (TEXT cannot scan into time.Time
-		// with modernc.org/sqlite — P-TSG time-column pitfall).
+		// modernc.org/sqlite stores timestamps as TEXT, which database/sql
+		// cannot scan into *time.Time.
 		var id int
 		var key, value string
 		var ca, ua db.SQLTime
@@ -429,25 +488,33 @@ func (h *Handlers) ConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.keyRequired"))
 		return
 	}
+	tx, err := h.DB.BeginTx(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+		return
+	}
 	for _, e := range entries {
 		if e.key == "" {
 			continue
 		}
-		_, err := h.DB.Exec(r.Context(),
+		if _, err := tx.ExecContext(r.Context(),
 			`INSERT INTO app_configs (key, value) VALUES (?, ?)
 			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
-			e.key, e.value, e.value)
-		if err != nil {
+			e.key, e.value, e.value); err != nil {
+			_ = tx.Rollback()
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
 			return
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+		return
+	}
 
-	// Hot-apply scheduler tuning keys to the live engine so changes take
-	// effect without a restart (260817 ticket 11). Setters validate ranges;
-	// invalid values were persisted above but are ignored here — the
-	// engine keeps its current value and the operator sees the rejection
-	// in the scheduler log.
+	// Scheduler tuning keys are hot-applied to the live engine. The setters
+	// validate ranges, so an out-of-range value stays persisted but leaves
+	// the engine at its current setting; the rejection shows up in the
+	// scheduler log.
 	if h.Sched != nil {
 		for _, e := range entries {
 			switch e.key {
@@ -487,10 +554,9 @@ func (h *Handlers) PreferencesList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	prefs := map[string]any{}
 	for rows.Next() {
-		// Scan timestamps into db.SQLTime: modernc.org/sqlite stores TEXT
-		// and database/sql cannot scan TEXT into *time.Time (P-TSG
-		// time-column pitfall). AppConfig/UserPreference model fields are
-		// time.Time, so bypass them here.
+		// The AppConfig/UserPreference model fields are time.Time, so the
+		// columns are scanned into db.SQLTime instead: modernc.org/sqlite
+		// stores TEXT and database/sql cannot scan TEXT into *time.Time.
 		var id int
 		var key, value, category string
 		var ca, ua db.SQLTime
@@ -553,26 +619,34 @@ func (h *Handlers) PreferencesUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.keyRequired"))
 		return
 	}
+	tx, err := h.DB.BeginTx(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.preferences.updateFailed"))
+		return
+	}
 	for _, e := range entries {
 		if e.key == "" {
 			continue
 		}
-		_, err := h.DB.Exec(r.Context(),
+		if _, err := tx.ExecContext(r.Context(),
 			`INSERT INTO user_preferences (key, value, category) VALUES (?, ?, ?)
 			 ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = CURRENT_TIMESTAMP`,
-			e.key, e.value, e.category, e.value, e.category)
-		if err != nil {
+			e.key, e.value, e.category, e.value, e.category); err != nil {
+			_ = tx.Rollback()
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.preferences.updateFailed"))
 			return
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.preferences.updateFailed"))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"updated": true, "count": len(entries)})
 }
 
-// TaskSettingsList returns the 5 task concurrency settings by reading
-// live runtime values from the SlotPool and DownloadManager — not stale
-// app_configs rows. This ensures the frontend always sees the effective
-// concurrency limits, even if they were changed via /api/slots/{type}.
+// TaskSettingsList reports the effective concurrency limits read from the live
+// SlotPool and DownloadManager rather than the app_configs rows, so values
+// changed through /api/slots/{type} are reflected.
 func (h *Handlers) TaskSettingsList(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
 		"maxConcurrentTasks":      5,
@@ -608,18 +682,17 @@ func (h *Handlers) TaskSettingsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// TaskSettingsUpdate parses the 5 task concurrency settings from the
-// request body, validates ranges, persists them to app_configs (so they
-// survive restarts), and applies them to the live SlotPool and
-// DownloadManager — closing the broken link where settings were written
-// to DB but never applied to the runtime concurrency controllers.
+// TaskSettingsUpdate validates the task concurrency settings from the request
+// body, persists them to app_configs, and applies them to the live SlotPool,
+// DownloadManager, and DownloadDefaults.
 //
 // Settings mapping:
-//   maxConcurrentTasks      → SlotPool "download"  type (1-50)
-//   maxScrapingTasks        → SlotPool "scraping" type (1-50)
-//   maxConcurrentSniffTasks → SlotPool "sniff"    type (1-10)
-//   tsSegmentConcurrent     → DownloadManager.maxConcurrent (1-200)
-//   galleryImageConcurrent  → DownloadDefaults.GalleryImageConcurrent (1-50)
+//
+//	maxConcurrentTasks      → SlotPool "download"  type (1-50)
+//	maxScrapingTasks        → SlotPool "scraping" type (1-50)
+//	maxConcurrentSniffTasks → SlotPool "sniff"    type (1-10)
+//	tsSegmentConcurrent     → DownloadManager.maxConcurrent (1-200)
+//	galleryImageConcurrent  → DownloadDefaults.GalleryImageConcurrent (1-50)
 func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -637,7 +710,6 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate and clamp each provided field.
 	clamp := func(v, lo, hi int) int {
 		if v < lo {
 			return lo
@@ -680,19 +752,26 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Persist to app_configs so values survive restarts.
+	tx, err := h.DB.BeginTx(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+		return
+	}
 	for _, u := range updates {
-		_, err := h.DB.Exec(r.Context(),
+		if _, err := tx.ExecContext(r.Context(),
 			`INSERT INTO app_configs (key, value) VALUES (?, ?)
 			 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
-			u.dbKey, strconv.Itoa(u.value), strconv.Itoa(u.value))
-		if err != nil {
+			u.dbKey, strconv.Itoa(u.value), strconv.Itoa(u.value)); err != nil {
+			_ = tx.Rollback()
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
 			return
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+		return
+	}
 
-	// 2. Apply to live runtime — SlotPool, DownloadManager, DownloadDefaults.
 	result := map[string]any{}
 	for _, u := range updates {
 		result[u.key] = u.value
@@ -701,21 +780,32 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			if h.Sched != nil {
 				h.Sched.UpdateSlotMax("download", u.value)
 			}
+			// Regulate running work: when the new max is lower than the
+			// current holder count, pause the newest-held excess so the
+			// pipeline converges to the new limit immediately.
+			if h.DagOrch != nil {
+				h.DagOrch.EnforceSlotMax(r.Context(), "download", u.value)
+			}
 		case "maxScrapingTasks":
 			if h.Sched != nil {
 				h.Sched.UpdateSlotMax("scraping", u.value)
+			}
+			if h.DagOrch != nil {
+				h.DagOrch.EnforceSlotMax(r.Context(), "scraping", u.value)
 			}
 		case "maxConcurrentSniffTasks":
 			if h.Sched != nil {
 				h.Sched.UpdateSlotMax("sniff", u.value)
 			}
+			if h.DagOrch != nil {
+				h.DagOrch.EnforceSlotMax(r.Context(), "sniff", u.value)
+			}
 		case "tsSegmentConcurrent":
 			if h.DownloadMgr != nil {
 				h.DownloadMgr.SetMaxConcurrent(u.value)
 			}
-			// Keep the gallery pipeline's TS-segment concurrency in sync
-			// with the independent video pipeline's setting, so both
-			// channels honor the same tsSegmentConcurrent value.
+			// The gallery pipeline honors the same tsSegmentConcurrent value
+			// as the independent video pipeline.
 			if h.DlDefaults != nil {
 				h.DlDefaults.TSegmentConcurrent = u.value
 			}
@@ -732,8 +822,8 @@ func (h *Handlers) TaskSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 
 func parseIDParam(w http.ResponseWriter, r *http.Request) (int, bool) {
 	idStr := r.PathValue("id")
-	// Fallback to chi.URLParam for Go < 1.22 compatibility or when
-	// PathValue is not available in older chi versions.
+	// chi.URLParam covers older chi versions whose router does not populate
+	// r.PathValue.
 	if idStr == "" {
 		idStr = chi.URLParam(r, "id")
 	}
@@ -755,16 +845,15 @@ func (h *Handlers) GPUInfo(w http.ResponseWriter, r *http.Request) {
 	gpuInfo := video.DetectGPU()
 
 	response := map[string]any{
-		"available":     gpuInfo.Available,
-		"type":          string(gpuInfo.Type),
-		"encoder_name":  gpuInfo.EncoderName,
-		"gpu_name":      gpuInfo.GPUName,
+		"available":      gpuInfo.Available,
+		"type":           string(gpuInfo.Type),
+		"encoder_name":   gpuInfo.EncoderName,
+		"gpu_name":       gpuInfo.GPUName,
 		"driver_version": gpuInfo.DriverVersion,
-		"cuda_support":  gpuInfo.CUDASupport,
-		"description":   gpuInfo.String(),
+		"cuda_support":   gpuInfo.CUDASupport,
+		"description":    gpuInfo.String(),
 	}
 
-	// Include current runtime setting if DownloadManager is available
 	if h.DownloadMgr != nil {
 		enabled, forceType, _ := h.DownloadMgr.GetGPUTranscodeStatus()
 		response["gpu_enabled"] = enabled
@@ -783,7 +872,7 @@ func (h *Handlers) GPUSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Enabled     bool   `json:"enabled"`
+		Enabled      bool   `json:"enabled"`
 		ForceGPUType string `json:"force_gpu_type"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -792,19 +881,17 @@ func (h *Handlers) GPUSettingUpdate(w http.ResponseWriter, r *http.Request) {
 
 	h.DownloadMgr.SetGPUTranscode(req.Enabled, req.ForceGPUType)
 
-	// Keep the gallery pipeline's GPU decision in sync so embedded gallery
-	// video merge honors the same runtime toggle as the independent video
-	// pipeline.
+	// The gallery pipeline honors the same GPU toggle for embedded gallery
+	// video merge.
 	if h.DlDefaults != nil {
 		h.DlDefaults.GPUTranscode = req.Enabled
 		h.DlDefaults.ForceGPUType = req.ForceGPUType
 	}
 
-	// Return updated status
 	enabled, forceType, gpuInfo := h.DownloadMgr.GetGPUTranscodeStatus()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"updated":       true,
-		"gpu_enabled":   enabled,
+		"updated":        true,
+		"gpu_enabled":    enabled,
 		"force_gpu_type": forceType,
 		"gpu_info": map[string]any{
 			"available":      gpuInfo.Available,

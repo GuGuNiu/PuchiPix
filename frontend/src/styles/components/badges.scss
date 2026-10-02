@@ -1,5 +1,3 @@
-// Badges & status pills
-
 .badge {
   display: inline-flex;
   align-items: center;
@@ -18,7 +16,6 @@
   &-paused { background: var(--warning-soft); color: var(--warning); }
 }
 
-// ===== Status Pills (rounded color blocks + white text) =====
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -42,9 +39,9 @@
   &-failed { background: var(--status-failed); }
   &-cancelled { background: var(--status-cancelled); }
   &-transcoding { background: var(--status-transcoding); }
+  &-probing { background: var(--status-probing, var(--status-transcoding)); }
 }
 
-// ===== Dual Capsule (minimal text + thin border) =====
 .dual-capsule {
   display: inline-flex;
   align-items: center;

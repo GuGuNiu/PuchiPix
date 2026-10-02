@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// TestValidateRule covers blocklist rule boundary validation:
-// empty / oversized keywords, invalid match modes, and invalid regexes must
-// be rejected before save, so "saved but never matches" dead rules cannot
-// reach the database (leftover item from the 260823 code audit).
+// TestValidateRule ensures invalid match modes, oversized keywords, and
+// uncompilable regexes are rejected before save, so a rule that can never
+// match does not reach the database.
 func TestValidateRule(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -39,7 +38,7 @@ func TestValidateRule(t *testing.T) {
 }
 
 // TestMatchValue verifies consistent behavior across the three match modes,
-// especially that an invalid regex rule returns false (no match) rather than panicking.
+// especially that an invalid regex rule returns false instead of panicking.
 func TestMatchValue(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -68,9 +67,9 @@ func TestMatchValue(t *testing.T) {
 	}
 }
 
-// TestCompileUserRegexCache: concurrent calls for the same pattern must reuse
-// the cached instance, and a cached-nil invalid pattern must not re-log or
-// panic on repeated calls.
+// TestCompileUserRegexCache checks that concurrent calls for the same pattern
+// reuse the cached instance, and that a cached-nil invalid pattern does not
+// re-log or panic on repeated calls.
 func TestCompileUserRegexCache(t *testing.T) {
 	valid := compileUserRegex(`example\.com`)
 	if valid == nil {
@@ -90,7 +89,6 @@ func TestCompileUserRegexCache(t *testing.T) {
 		t.Fatal("invalid pattern second call should still be nil")
 	}
 
-	// Concurrency: many goroutines compiling the same pattern at once.
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"backend/internal/api/internal/image"
+	"backend/internal/api/internal/task_compute"
 	"backend/internal/i18n"
 )
 
@@ -17,21 +18,23 @@ type videoShelfItem struct {
 	Title      string  `json:"Title"`
 	Status     string  `json:"Status"`
 	Progress   float64 `json:"Progress"`
-	Duration   float64 `json:"Duration"`
-	Resolution string  `json:"Resolution"`
-	TotalSize  int64   `json:"TotalSize"`
-	SourceURL  string  `json:"SourceURL"`
-	CreatedAt  string  `json:"CreatedAt"`
-	UpdatedAt  string  `json:"UpdatedAt"`
-	HasFile    bool    `json:"HasFile"`
+	// PhaseProgress is the raw phase-scoped percentage (merge %/transcode %)
+	// kept alongside the composite display Progress.
+	PhaseProgress float64 `json:"PhaseProgress"`
+	Duration      float64 `json:"Duration"`
+	Resolution    string  `json:"Resolution"`
+	TotalSize     int64   `json:"TotalSize"`
+	SourceURL     string  `json:"SourceURL"`
+	CreatedAt     string  `json:"CreatedAt"`
+	UpdatedAt     string  `json:"UpdatedAt"`
+	HasFile       bool    `json:"HasFile"`
 }
 
 // VideoShelfList (GET /api/videos) lists video-pipeline downloads
-// (download_tasks ⋈ video_infos) for the /shelf/videos page.
+// (download_tasks joined with video_infos) for the /shelf/videos page.
 //
-// The page previously sourced /api/shelf (galleries table), which video
-// pipeline tasks never populate — the folder showed zero cards even when
-// data/videos contained finished MP4s.
+// Video pipeline tasks never write the galleries table, so this page cannot
+// read /api/shelf.
 func (h *Handlers) VideoShelfList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
@@ -44,7 +47,7 @@ func (h *Handlers) VideoShelfList(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(vi.title, ''), COALESCE(vi.duration, 0), COALESCE(vi.resolution, ''),
 		        COALESCE(vi.file_size, 0), COALESCE(vi.source_url, '')
 		 FROM download_tasks dt
-		 JOIN video_infos vi ON vi.task_id = dt.id
+		 LEFT JOIN video_infos vi ON vi.task_id = dt.id
 		 ORDER BY dt.created_at DESC`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
@@ -59,7 +62,8 @@ func (h *Handlers) VideoShelfList(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&it.ID, &it.DisplayID, &it.Status, &it.Progress,
 			&filePath, &it.CreatedAt, &it.UpdatedAt,
 			&it.Title, &it.Duration, &it.Resolution, &it.TotalSize, &it.SourceURL); err != nil {
-			continue
+			writeError(w, http.StatusInternalServerError, "query failed")
+			return
 		}
 		if filePath != "" {
 			if info, err := os.Stat(filePath); err == nil && !info.IsDir() && info.Size() > 0 {
@@ -70,9 +74,17 @@ func (h *Handlers) VideoShelfList(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// Composite display progress so the shelf bar never regresses to 0
+		// at the download→merge→transcode phase boundaries.
+		it.PhaseProgress = it.Progress
+		it.Progress = task_compute.ComputeDisplayProgress("video", it.Status, it.Progress)
 		// Rows with neither a playable file nor an active pipeline (e.g.
 		// failed without output) are still listed so the user can retry.
 		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, items)

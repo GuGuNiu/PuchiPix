@@ -20,21 +20,6 @@ import {
 import { useVideoPlaylistStore } from "../playlist-store";
 import { VideoControls } from "./video-controls";
 
-/**
- * Full-featured playlist player for the videos shelf.
- *
- * Borrowed ideas from actively maintained OSS players:
- *  - ArtPlayer: layered overlays (video surface / bottom control layer /
- *    side playlist layer), auto-hiding controls, click-surface to toggle.
- *  - XGPlayer: centralized event lifecycle — every DOM/window listener is
- *    registered inside an effect with a full cleanup, and player media
- *    state (volume/muted/rate) is applied imperatively to the element.
- *
- * The queue lives in the persistent playlist store (survives reloads);
- * this component resolves IDs against the freshest shelf items passed in
- * via props, so "what do I want to watch" is fully self-service: browse
- * all videos, add/remove/reorder entries and switch playback at will.
- */
 export interface VideoPlayerModalProps {
   items: VideoShelfItem[];
   onClose: () => void;
@@ -85,7 +70,6 @@ export function VideoPlayerModal({
     next();
   }, [next]);
 
-  // ---- Player media state ----
   const videoRef = useRef<HTMLVideoElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -138,7 +122,7 @@ export function VideoPlayerModal({
     if (!el) return;
     const dur = Number.isFinite(el.duration) ? el.duration : 0;
     const target = Math.min(Math.max(el.currentTime + delta, 0), dur || el.currentTime + delta);
-    // Seek can fail before metadata is ready — safe to ignore.
+    // Seek can fail before metadata is ready — ignore.
     try { el.currentTime = target; } catch {}
   }, []);
 
@@ -165,8 +149,8 @@ export function VideoPlayerModal({
   toggleFullscreenRef.current = toggleFullscreen;
 
   /*
-   * Media element sync: apply volume/muted/rate imperatively and re-apply
-   * after every source switch (key={currentId} remounts the element).
+   * The currentId dependency exists because key={currentId} remounts the
+   * element, which resets its volume, muted flag and playback rate
    */
   useEffect(() => {
     const el = videoRef.current;
@@ -177,7 +161,7 @@ export function VideoPlayerModal({
     try { el.playbackRate = rate; } catch {}
   }, [volume, muted, rate, currentId]);
 
-  // Keyboard shortcuts (skip while typing in the panel search box).
+  // Skip shortcuts while typing in the panel search box
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement | null;
@@ -235,7 +219,7 @@ export function VideoPlayerModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, togglePlay, seekBy, changeVolume, volume, toggleFullscreen, goNext, goPrev]);
 
-  // Track fullscreen changes (Esc exits fullscreen natively).
+  // Esc exits fullscreen natively, so no keydown handling is needed
   useEffect(() => {
     const onFsChange = (): void => {
       setIsFullscreen(document.fullscreenElement === shellRef.current);
@@ -334,7 +318,6 @@ export function VideoPlayerModal({
           flexDirection: "column",
         }}
       >
-        {/* Header layer */}
         <div
           style={{
             display: "flex",
@@ -383,7 +366,6 @@ export function VideoPlayerModal({
           </button>
         </div>
 
-        {/* Body layer: video surface + playlist panel */}
         <div style={{ display: "flex", minHeight: 0, flex: 1 }}>
           <div
             onMouseMove={revealControls}
@@ -526,7 +508,6 @@ export function VideoPlayerModal({
                 background: "var(--bg-card)",
               }}
             >
-              {/* Tabs */}
               <div
                 style={{
                   display: "flex",

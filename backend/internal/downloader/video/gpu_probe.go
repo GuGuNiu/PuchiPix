@@ -25,11 +25,9 @@ const (
 	GPUTypeVideotoolbox GPUType = "videotoolbox"
 )
 
-// GPUKind classifies the detected GPU as discrete (dedicated) or
-// integrated (part of the CPU/chipset). Used to decide whether GPU
-// transcoding should be enabled by default: discrete GPUs are preferred
-// for hardware accelerate, while integrated GPUs are conservatively
-// disabled (users can enable them explicitly).
+// GPUKind classifies the detected GPU as discrete (dedicated) or integrated
+// (part of the CPU or chipset). Discrete GPUs are preferred for hardware
+// transcoding, while integrated GPUs stay disabled unless enabled explicitly.
 type GPUKind string
 
 const (
@@ -41,14 +39,14 @@ const (
 // GPUInfo holds detected GPU capabilities and the best available encoder.
 type GPUInfo struct {
 	Type           GPUType `json:"type"`
-	EncoderName    string  `json:"encoder_name"`          // e.g. "h264_nvenc", "h264_qsv"
-	DecoderName    string  `json:"decoder_name"`          // e.g. "h264_cuvid" for hardware decode
-	GPUName        string  `json:"gpu_name"`              // e.g. "NVIDIA GeForce RTX 4090"
-	DriverVersion  string  `json:"driver_version"`        // e.g. "535.129.03"
-	Available      bool    `json:"available"`             // true if any HW encoder was found
-	CUDASupport    bool    `json:"cuda_support"`          // true if CUDA is available (NVENC)
-	Kind           GPUKind `json:"kind"`                  // discrete / integrated / unknown
-	DetectionError string  `json:"detection_error,omitempty"` // non-empty if detection failed
+	EncoderName    string  `json:"encoder_name"` // e.g. "h264_nvenc", "h264_qsv"
+	DecoderName    string  `json:"decoder_name"` // e.g. "h264_cuvid"
+	GPUName        string  `json:"gpu_name"`     // e.g. "NVIDIA GeForce RTX 4090"
+	DriverVersion  string  `json:"driver_version"`
+	Available      bool    `json:"available"`
+	CUDASupport    bool    `json:"cuda_support"`
+	Kind           GPUKind `json:"kind"`
+	DetectionError string  `json:"detection_error,omitempty"`
 }
 
 // IsDiscrete reports whether the GPU was classified as a discrete
@@ -64,18 +62,15 @@ var (
 	ffmpegProbeMux sync.Mutex // serializes ffmpeg probe commands to avoid race
 )
 
-// DetectGPU probes the system for available hardware-accelerated encoders
-// by invoking ffmpeg -encoders and parsing the output. Results are cached
-// after the first call; subsequent calls return the cached result.
+// DetectGPU probes the system for hardware-accelerated encoders by invoking
+// ffmpeg -encoders and parsing the output. The result is cached after the
+// first call.
 //
-// GPU hardware identification uses:
-//   - github.com/jaypipes/ghw — cross-platform PCI hardware discovery
-//     (replaces PowerShell WMI on Windows, lspci/vainfo on Linux, and
-//     sysctl on macOS). ghw reads PCI device info in-process via sysfs
-//     (Linux), WMI via go-ole (Windows), or IOKit (macOS).
-//   - nvidia-smi — a SINGLE subprocess call to query NVIDIA driver version
-//     and CUDA availability. This replaces the original 3 separate calls
-//     (name, driver, CUDA). GPU name is now resolved via ghw.
+// Hardware identification relies on two external sources:
+//   - github.com/jaypipes/ghw for cross-platform PCI discovery, reading
+//     sysfs on Linux, WMI on Windows, and IOKit on macOS in-process.
+//   - A single nvidia-smi call for the NVIDIA driver version and CUDA
+//     availability, replacing separate per-attribute queries.
 func DetectGPU() *GPUInfo {
 	gpuInfoOnce.Do(func() {
 		cachedGPUInfo = probeGPU()
@@ -83,9 +78,8 @@ func DetectGPU() *GPUInfo {
 	return cachedGPUInfo
 }
 
-// ResetGPUCache clears the cached GPU info, forcing re-detection on next
-// DetectGPU call. Useful after FFmpeg path changes or GPU configuration updates.
-// Thread-safe: uses a new sync.Once for the next detection cycle.
+// ResetGPUCache clears the cached GPU info, forcing re-detection on the next
+// DetectGPU call, for example after an FFmpeg path or GPU configuration change.
 func ResetGPUCache() {
 	gpuInfoOnce = sync.Once{}
 	cachedGPUInfo = nil
@@ -93,7 +87,7 @@ func ResetGPUCache() {
 
 // SetFFmpegPathForGPU updates the ffmpeg binary path used for GPU detection.
 // Must be called before DetectGPU() if a custom FFmpeg path is needed.
-// Thread-safe: protected by mutex.
+// Protected by ffmpegProbeMux.
 func SetFFmpegPathForGPU(path string) {
 	ffmpegProbeMux.Lock()
 	defer ffmpegProbeMux.Unlock()
@@ -102,23 +96,17 @@ func SetFFmpegPathForGPU(path string) {
 	}
 }
 
-// GetFFmpegPathForGPU returns the current ffmpeg path used for GPU detection.
 func GetFFmpegPathForGPU() string {
 	ffmpegProbeMux.Lock()
 	defer ffmpegProbeMux.Unlock()
 	return ffmpegPathForProbe
 }
 
-// ffmpegPathForProbe is the ffmpeg binary used for GPU detection.
-// Protected by ffmpegProbeMux for thread-safe updates.
+// ffmpeg binary used for GPU detection, guarded by ffmpegProbeMux.
 var ffmpegPathForProbe = "ffmpeg"
 
-// probeGPU performs the actual GPU hardware detection.
-//
-// Query ffmpeg -encoders first (the only external process); if no HW encoders
-// are found, skip PCI enumeration. For NVIDIA, query driver version and CUDA
-// support via a single nvidia-smi call. For Intel/AMD/macOS, enumerate PCI
-// display controllers via ghw (cross-platform, in-process).
+// ffmpeg -encoders is the only external process involved, so PCI
+// enumeration is skipped when it reports no hardware encoder.
 func probeGPU() *GPUInfo {
 	info := &GPUInfo{
 		Type:      GPUTypeNone,
@@ -132,7 +120,7 @@ func probeGPU() *GPUInfo {
 	}
 
 	var (
-		wg                                                        sync.WaitGroup
+		wg                                                sync.WaitGroup
 		nvidiaInfo, intelInfo, amdInfo, vaapiInfo, vtInfo GPUInfo
 	)
 
@@ -205,9 +193,6 @@ func probeGPU() *GPUInfo {
 	return info
 }
 
-// detectNVIDIAGPU detects NVIDIA NVENC GPU info. GPU name comes from ghw
-// (in-process PCI lookup); driver version and CUDA support come from a
-// single nvidia-smi subprocess call.
 func detectNVIDIAGPU(info *GPUInfo) {
 	info.Type = GPUTypeNVENC
 	info.EncoderName = "h264_nvenc"
@@ -228,15 +213,12 @@ func detectNVIDIAGPU(info *GPUInfo) {
 	info.CUDASupport = cudaOK
 }
 
-// nvidiaSMICache ensures the nvidia-smi subprocess is invoked at most once.
 var nvidiaSMICache struct {
-	once    sync.Once
-	driver  string
-	cudaOK  bool
+	once   sync.Once
+	driver string
+	cudaOK bool
 }
 
-// queryNVIDIADriverAndCUDA queries NVIDIA driver version and CUDA availability
-// in a single nvidia-smi invocation, cached via sync.Once.
 func queryNVIDIADriverAndCUDA() (string, bool) {
 	nvidiaSMICache.once.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -263,16 +245,14 @@ func queryNVIDIADriverAndCUDA() (string, bool) {
 	return nvidiaSMICache.driver, nvidiaSMICache.cudaOK
 }
 
-// gpuListCache caches the ghw GPU info result so we only enumerate PCI
-// devices once per process lifetime. ghw's New() can be expensive on
-// some systems (especially Windows WMI), so caching is essential.
+// gpuListCache enumerates PCI devices once per process because ghw.New
+// can be slow, notably through WMI on Windows.
 var gpuListCache struct {
 	once  sync.Once
 	cards []*gpu.GraphicsCard
 	err   error
 }
 
-// getGraphicsCards enumerates all graphics cards via ghw and caches the result.
 func getGraphicsCards() ([]*gpu.GraphicsCard, error) {
 	gpuListCache.once.Do(func() {
 		info, err := gpu.New()
@@ -285,9 +265,6 @@ func getGraphicsCards() ([]*gpu.GraphicsCard, error) {
 	return gpuListCache.cards, gpuListCache.err
 }
 
-// findGPUByVendor searches the cached GPU list for a card matching the
-// given vendor name substring (e.g. "NVIDIA", "Intel", "AMD", "Radeon").
-// Returns the product name and true if found.
 func findGPUByVendor(vendorMatch string) (string, bool) {
 	cards, err := getGraphicsCards()
 	if err != nil || len(cards) == 0 {
@@ -320,7 +297,6 @@ func findGPUByVendor(vendorMatch string) (string, bool) {
 	return "", false
 }
 
-// detectIntelGPUWindows detects Intel QSV GPU on Windows using ghw.
 func detectIntelGPUWindows(info *GPUInfo) {
 	info.Type = GPUTypeQSV
 	info.EncoderName = "h264_qsv"
@@ -355,7 +331,6 @@ func classifyAMDKind(name string) GPUKind {
 	return GPUKindIntegrated
 }
 
-// detectAMDGPUWindows detects AMD AMF GPU on Windows using ghw.
 func detectAMDGPUWindows(info *GPUInfo) {
 	info.Type = GPUTypeAMF
 	info.EncoderName = "h264_amf"
@@ -375,7 +350,6 @@ func detectAMDGPUWindows(info *GPUInfo) {
 	}
 }
 
-// detectIntelGPULinux detects Intel QSV GPU on Linux using ghw.
 func detectIntelGPULinux(info *GPUInfo) {
 	info.Type = GPUTypeQSV
 	info.EncoderName = "h264_qsv"
@@ -391,7 +365,6 @@ func detectIntelGPULinux(info *GPUInfo) {
 	}
 }
 
-// detectVAAPIGPU detects VAAPI (Intel/AMD) on Linux using ghw.
 func detectVAAPIGPU(info *GPUInfo) {
 	info.Type = GPUTypeVAAPI
 	info.EncoderName = "h264_vaapi"
@@ -417,7 +390,6 @@ func detectVAAPIGPU(info *GPUInfo) {
 	}
 }
 
-// detectMacOSGPUVT detects VideoToolbox on macOS using ghw.
 func detectMacOSGPUVT(info *GPUInfo) {
 	info.Type = GPUTypeVideotoolbox
 	info.EncoderName = "h264_videotoolbox"
@@ -446,14 +418,12 @@ func detectMacOSGPUVT(info *GPUInfo) {
 	}
 }
 
-// getFFmpegEncoders invokes ffmpeg -encoders and returns the parsed output.
-// Thread-safe: uses mutex to prevent concurrent ffmpeg probe invocations.
 func getFFmpegEncoders() ([]string, error) {
 	ffmpegProbeMux.Lock()
 	path := ffmpegPathForProbe
 	ffmpegProbeMux.Unlock()
 
-	// Use a short timeout to prevent hanging.
+	// A hung ffmpeg would otherwise stall detection indefinitely.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -465,14 +435,10 @@ func getFFmpegEncoders() ([]string, error) {
 	return strings.Split(string(output), "\n"), nil
 }
 
-// hasExactEncoder performs precise encoder name matching.
-// Unlike strings.Contains, this checks for the exact encoder name
-// as a standalone token to avoid false positives (e.g., "h264_nvenc"
-// should not match "some_h264_nvenc_wrapper").
+// hasExactEncoder matches the encoder name as a standalone token, so
+// "h264_nvenc" does not match a hypothetical "some_h264_nvenc_wrapper".
 func hasExactEncoder(encoders []string, name string) bool {
 	for _, line := range encoders {
-		// ffmpeg encoder list format: " V..... h264_nvenc           NVIDIA NVENC H.264 encoder"
-		// We need to match the encoder name as a whole word
 		if strings.Contains(line, " "+name+" ") ||
 			strings.Contains(line, "\t"+name+"\t") ||
 			strings.Contains(line, " "+name+"\t") ||
@@ -484,7 +450,6 @@ func hasExactEncoder(encoders []string, name string) bool {
 	return false
 }
 
-// truncateLine trims a string to maxLen, appending "..." if truncated.
 func truncateLine(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
 	if len(s) > maxLen {
@@ -497,10 +462,10 @@ func truncateLine(s string, maxLen int) string {
 // based on the detected GPU type.
 //
 // Deprecated: Use GetHWInputArgs and GetHWOutputArgs instead. This method
-// returned a flat slice that mixed input options (e.g. -hwaccel) and output
-// options (e.g. -c:v), which caused ffmpeg to reject the command when all
-// args were placed between -i and the output file. The split methods allow
-// the caller to position each group on the correct side of -i / output.
+// returns a flat slice that mixes input options (e.g. -hwaccel) and output
+// options (e.g. -c:v); ffmpeg rejects the command when all args are placed
+// between -i and the output file. The split methods let the caller position
+// each group on the correct side of -i / output.
 func (gi *GPUInfo) GetHWAccelArgs() []string {
 	input := gi.GetHWInputArgs()
 	output := gi.GetHWOutputArgs()
@@ -580,7 +545,6 @@ func (gi *GPUInfo) GetHWOutputArgs() []string {
 	}
 }
 
-// getVAAPIDevice returns the first available VAAPI render device node.
 func getVAAPIDevice() string {
 	devices := []string{
 		"/dev/dri/renderD128",
@@ -596,7 +560,6 @@ func getVAAPIDevice() string {
 	return "/dev/dri/renderD128"
 }
 
-// GetDecoderArgs returns hardware-accelerated decoder arguments if available.
 func (gi *GPUInfo) GetDecoderArgs() []string {
 	switch gi.Type {
 	case GPUTypeNVENC:
@@ -611,13 +574,10 @@ func (gi *GPUInfo) GetDecoderArgs() []string {
 	return nil
 }
 
-// SupportsHWTranscode returns true if the GPU can be used for hardware-accelerated
-// transcoding (not just stream copy).
 func (gi *GPUInfo) SupportsHWTranscode() bool {
 	return gi.Available && gi.Type != GPUTypeNone
 }
 
-// String returns a human-readable description of the GPU.
 func (gi *GPUInfo) String() string {
 	if !gi.Available {
 		if gi.DetectionError != "" {

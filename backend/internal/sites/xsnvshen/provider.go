@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 
@@ -16,16 +17,15 @@ import (
 var providerLogger = infra.NewLogger("XsnvshenProvider")
 
 // Provider implements GallerySiteProvider and SiteProvider for the
-// Xsnvshen gallery site, supporting HTTP scraping with
-// anti-addiction verification and chromedp-based browser fallback.
+// Xsnvshen gallery site, handling the site's age verification interstitial
+// and falling back to a browser when HTTP scraping yields no content.
 type Provider struct {
 	dataStore sites.SiteDataStore
 	blocklist sites.BlocklistChecker
 }
 
-// NewProvider creates an Xsnvshen provider with the given data store
-// and blocklist checker, loading site configuration from the unified
-// SiteDataStore to eliminate hardcoded constants.
+// NewProvider creates a provider backed by the shared data store, which also
+// initializes the package-level site configuration.
 func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker) *Provider {
 	initData(dataStore)
 	return &Provider{dataStore: dataStore, blocklist: blocklist}
@@ -71,12 +71,15 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 	tracker := stealth.GetDomainHealthTracker()
 	orderedDomains := tracker.GetAllDomainsOrdered(SiteDomains)
 
-	searchURL := orderedDomains[0] + "/search/" + encoded
+	domain := orderedDomains[0]
+	searchURL := domain + "/search/" + encoded
 	if page > 1 {
 		searchURL = searchURL + "/" + fmt.Sprintf("%d", page)
 	}
 
-	result, _, err := fetchHTMLRaw(ctx, searchURL, orderedDomains[0])
+	started := time.Now()
+	result, _, err := fetchHTMLRaw(ctx, searchURL, domain)
+	tracker.ReportOutcome(domain, time.Since(started), err)
 	if err != nil {
 		providerLogger.Warn("Search fetch failed",
 			infra.LogContext{Extra: map[string]any{
@@ -92,10 +95,12 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 	}
 
 	if IsAgeVerificationPage(doc) {
-		if !performAgeVerification(ctx, orderedDomains[0]) {
+		if !performAgeVerification(ctx, domain) {
 			return nil, fmt.Errorf("age verification failed during search")
 		}
-		result, _, err = fetchHTMLRaw(ctx, searchURL, orderedDomains[0])
+		retryStarted := time.Now()
+		result, _, err = fetchHTMLRaw(ctx, searchURL, domain)
+		tracker.ReportOutcome(domain, time.Since(retryStarted), err)
 		if err != nil {
 			return nil, err
 		}

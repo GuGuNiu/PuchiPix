@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -21,29 +23,34 @@ import (
 	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
+	"backend/internal/taskstate"
 	"backend/internal/urlutil"
+	"backend/internal/xutil"
 )
 
-func (h *Handlers) getTaskDagID(ctx context.Context, taskID int) string {
+func (h *Handlers) getTaskDagID(ctx context.Context, taskID int) (string, error) {
 	if h.DB == nil {
-		return ""
+		return "", fmt.Errorf("database unavailable")
 	}
 	var dagID string
-	err := h.DB.QueryRow(ctx, "SELECT COALESCE(dag_id, '') FROM download_tasks WHERE id = ?", taskID).Scan(&dagID)
-	if err != nil {
-		return ""
+	if err := h.DB.QueryRow(ctx, "SELECT COALESCE(dag_id, '') FROM download_tasks WHERE id = ?", taskID).Scan(&dagID); err != nil {
+		return "", err
 	}
-	return dagID
+	return dagID, nil
 }
 
-func (h *Handlers) updateTaskDagID(ctx context.Context, taskID int, dagID string) {
-	h.DB.Exec(ctx, "UPDATE download_tasks SET dag_id = ? WHERE id = ?", dagID, taskID)
+func (h *Handlers) updateTaskDagID(ctx context.Context, taskID int, dagID string) error {
+	if h.DB == nil {
+		return fmt.Errorf("database unavailable")
+	}
+	_, err := h.DB.Exec(ctx, "UPDATE download_tasks SET dag_id = ? WHERE id = ?", dagID, taskID)
+	return err
 }
 
 var unicodeEscapeRe = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
 
 // decodeUnicodeEscapes handles legacy DB rows where the regex-based
-// scraper stored undecoded escape sequences (e.g. "\u5973\u795e" instead of "女神").
+// scraper stored undecoded \uXXXX escape sequences.
 func decodeUnicodeEscapes(s string) string {
 	return unicodeEscapeRe.ReplaceAllStringFunc(s, func(match string) string {
 		hex := match[2:]
@@ -55,20 +62,21 @@ func decodeUnicodeEscapes(s string) string {
 }
 
 // parsePersonForDisplay converts the DB-stored actors JSON string into a
-// human-readable comma-separated display string. Fixes the double-serialization
-// issue where the JSON array was re-serialized by writeJSON.
+// comma-separated display string. The array must be decoded here because
+// assigning the raw column text would be re-serialized by writeJSON as one
+// opaque string.
 func parsePersonForDisplay(raw string) string {
 	if raw == "" || raw == "null" || raw == "[]" {
 		return ""
 	}
 	var actors []string
 	if err := json.Unmarshal([]byte(raw), &actors); err == nil {
-		for i, a := range actors {
-			actors[i] = decodeUnicodeEscapes(a)
+		for i, actor := range actors {
+			actors[i] = decodeUnicodeEscapes(actor)
 		}
-		return strings.Join(actors, ", ")
+		return strings.Join(xutil.CleanActorList(actors), ", ")
 	}
-	return decodeUnicodeEscapes(raw)
+	return strings.Join(xutil.CleanActorList([]string{decodeUnicodeEscapes(raw)}), ", ")
 }
 
 func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +101,7 @@ func (h *Handlers) TaskList(w http.ResponseWriter, r *http.Request) {
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
 		 ORDER BY dt.id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
+		writeError(w, http.StatusInternalServerError, "task query failed")
 		return
 	}
 	defer rows.Close()
@@ -126,20 +134,13 @@ const unifiedFetchLimit = 2000
 
 func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, []any{})
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
 
 	ctx := r.Context()
 	tasks := make([]map[string]any, 0, unifiedFetchLimit)
 
-	// Query each table separately with LIMIT, then merge and sort.
-	// This avoids "UNION ALL + ORDER BY id DESC" which forces SQLite to
-	// materialize and sort the full cross-table result before limiting.
-	// With separate queries, each uses the primary-key rowid index scan
-	// (O(limit)), and the final merge sort is O(n log n) on 3*limit rows.
-
-	// 1) Video tasks (download_tasks + video_infos)
 	videoRows, err := h.DB.Query(ctx,
 		`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
 		        COALESCE(dt.file_path, '') AS file_path,
@@ -155,28 +156,37 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 		        false AS content_verified,
 		        COALESCE(dt.total_segments, 0) AS total_segments,
 		        COALESCE(dt.completed_segments, 0) AS completed_segments,
+		        COALESCE(dt.file_size, 0) AS file_size,
 		        COALESCE(vi.tags, '') AS tags,
 		        dt.created_at, dt.updated_at
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
 		 ORDER BY dt.id DESC LIMIT ?`, unifiedFetchLimit)
-	if err == nil {
-		for videoRows.Next() {
-			var r unifiedTaskRow
-			if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
-				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
-				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
-				&r.DownloadedSize, &r.ContentVerified,
-				&r.TotalSegments, &r.CompletedSegments,
-				&r.Tags, &r.CreatedAt, &r.UpdatedAt); err != nil {
-				continue
-			}
-			tasks = append(tasks, h.enrichUnifiedTask(r))
-		}
-		videoRows.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
 	}
+	for videoRows.Next() {
+		var r unifiedTaskRow
+		if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+			&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+			&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+			&r.DownloadedSize, &r.ContentVerified,
+			&r.TotalSegments, &r.CompletedSegments, &r.FileSize,
+			&r.Tags, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			videoRows.Close()
+			writeError(w, http.StatusInternalServerError, "task query failed")
+			return
+		}
+		tasks = append(tasks, h.enrichUnifiedTask(r))
+	}
+	if err := videoRows.Err(); err != nil {
+		videoRows.Close()
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
+	}
+	videoRows.Close()
 
-	// 2) Gallery tasks
 	galleryRows, err := h.DB.Query(ctx,
 		`SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
 		        COALESCE(status, 'pending') AS status,
@@ -201,39 +211,45 @@ func (h *Handlers) TaskListUnified(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(downloaded_size, 0) AS downloaded_size,
 		        COALESCE(content_verified, false) AS content_verified,
 		        0 AS total_segments, 0 AS completed_segments,
+		        COALESCE(total_size, 0) AS file_size,
+		        COALESCE(tags, '') AS tags,
 		        created_at, updated_at
 		 FROM galleries
 		 ORDER BY id DESC LIMIT ?`, unifiedFetchLimit)
-	if err == nil {
-		for galleryRows.Next() {
-			var r unifiedTaskRow
-			if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
-				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
-				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
-				&r.DownloadedSize, &r.ContentVerified,
-				&r.TotalSegments, &r.CompletedSegments,
-				&r.CreatedAt, &r.UpdatedAt); err != nil {
-				continue
-			}
-			tasks = append(tasks, h.enrichUnifiedTask(r))
-		}
-		galleryRows.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
 	}
+	for galleryRows.Next() {
+		var r unifiedTaskRow
+		if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+			&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+			&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+			&r.DownloadedSize, &r.ContentVerified,
+			&r.TotalSegments, &r.CompletedSegments, &r.FileSize, &r.Tags,
+			&r.CreatedAt, &r.UpdatedAt); err != nil {
+			galleryRows.Close()
+			writeError(w, http.StatusInternalServerError, "task query failed")
+			return
+		}
+		tasks = append(tasks, h.enrichUnifiedTask(r))
+	}
+	if err := galleryRows.Err(); err != nil {
+		galleryRows.Close()
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
+	}
+	galleryRows.Close()
 
-	// NOTE: Sniff tasks are intentionally excluded from the unified task
-	// list. They have their own dedicated pool (slot type "sniff", max=1)
-	// and are managed through the separate /sniff page and /api/sniff
-	// endpoints. Mixing them into the main pool would violate the
-	// historical design of an independent sniff pool.
-
-	// Merge sort by ID descending (same visual order as before)
+	// Sniff tasks are intentionally excluded: they hold their own slot
+	// (type "sniff", max 1) and are served by the separate /api/sniff
+	// endpoints.
 	sort.Slice(tasks, func(i, j int) bool {
 		idI, _ := tasks[i]["ID"].(int)
 		idJ, _ := tasks[j]["ID"].(int)
 		return idI > idJ
 	})
 
-	// Final truncation to cap response size
 	if len(tasks) > taskStreamMaxInitialTasks {
 		tasks = tasks[:taskStreamMaxInitialTasks]
 	}
@@ -265,37 +281,30 @@ func (h *Handlers) enrichUnifiedTask(r unifiedTaskRow) map[string]any {
 		"GalleryTotalSize": r.TotalSize,
 		"Segment":          r.CompletedSegments,
 		"TotalSegments":    r.TotalSegments,
+		"FileSize":         r.FileSize,
 		"Tags":             task_compute.ParseTagsColumn(r.Tags),
 		"CreatedAt":        r.CreatedAt,
 		"UpdatedAt":        r.UpdatedAt,
 	})
 }
 
-// TaskPage returns a paginated slice of unified tasks. Used by the frontend
-// infinite-scroll when the initial SSE snapshot only covers the first page.
+// TaskPage returns a paginated slice of unified tasks for the frontend
+// infinite scroll, used when the initial SSE snapshot only covers the first
+// page.
 //
 // Query params:
 //   - page     : 1-based page number (default 1)
 //   - pageSize : rows per page (default 100, max 500)
 //
-// Each table is queried separately with LIMIT/OFFSET, then results are
-// merged and re-sorted by id DESC. This is O(offset + limit) per table
-// which is acceptable for typical page sizes; for very deep pagination
-// a keyset (WHERE id < lastSeenID) would be preferable but requires
-// tracking lastSeen across tables which is more complex.
+// The two task tables have independent ID sequences, so each is read from
+// row 0 up to the end of the requested page and the results are re-sorted
+// by id DESC, making a page cost O(offset + limit) per table.
 func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"tasks":      []any{},
-			"totalCount": 0,
-			"page":       1,
-			"pageSize":   100,
-			"hasMore":    false,
-		})
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
 
-	// Parse pagination params
 	page := 1
 	pageSize := 100
 	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
@@ -310,23 +319,25 @@ func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Get total count (fast with SQLite COUNT(*))
 	var galleryCount, videoCount int
-	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries").Scan(&galleryCount)
-	h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM download_tasks").Scan(&videoCount)
+	if err := h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM galleries").Scan(&galleryCount); err != nil {
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
+	}
+	if err := h.DB.QueryRow(ctx, "SELECT COUNT(*) FROM download_tasks").Scan(&videoCount); err != nil {
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
+	}
 	totalCount := galleryCount + videoCount
 
-	// For deep pagination, fetch a generous window from each table and
-	// merge-sort. This keeps the code simple while still being fast for
-	// reasonable page depths (page * pageSize <= ~5000).
+	// Capped so a deep page number cannot pull an unbounded window into memory.
 	fetchLimit := page * pageSize
 	if fetchLimit > 2000 {
-		fetchLimit = 2000 // cap to avoid excessive memory use
+		fetchLimit = 2000
 	}
 
 	tasks := make([]map[string]any, 0, fetchLimit)
 
-	// 1) Video tasks
 	videoRows, err := h.DB.Query(ctx,
 		`SELECT 'video' AS task_type, dt.id, dt.url, dt.status, dt.progress,
 		        COALESCE(dt.file_path, '') AS file_path,
@@ -342,28 +353,37 @@ func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 		        false AS content_verified,
 		        COALESCE(dt.total_segments, 0) AS total_segments,
 		        COALESCE(dt.completed_segments, 0) AS completed_segments,
+		        COALESCE(dt.file_size, 0) AS file_size,
 		        COALESCE(vi.tags, '') AS tags,
 		        dt.created_at, dt.updated_at
 		 FROM download_tasks dt
 		 LEFT JOIN video_infos vi ON dt.id = vi.task_id
 		 ORDER BY dt.id DESC LIMIT ?`, fetchLimit)
-	if err == nil {
-		for videoRows.Next() {
-			var r unifiedTaskRow
-			if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
-				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
-				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
-				&r.DownloadedSize, &r.ContentVerified,
-				&r.TotalSegments, &r.CompletedSegments,
-				&r.Tags, &r.CreatedAt, &r.UpdatedAt); err != nil {
-				continue
-			}
-			tasks = append(tasks, h.enrichUnifiedTask(r))
-		}
-		videoRows.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
 	}
+	for videoRows.Next() {
+		var r unifiedTaskRow
+		if err := videoRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+			&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+			&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+			&r.DownloadedSize, &r.ContentVerified,
+			&r.TotalSegments, &r.CompletedSegments, &r.FileSize,
+			&r.Tags, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			videoRows.Close()
+			writeError(w, http.StatusInternalServerError, "task query failed")
+			return
+		}
+		tasks = append(tasks, h.enrichUnifiedTask(r))
+	}
+	if err := videoRows.Err(); err != nil {
+		videoRows.Close()
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
+	}
+	videoRows.Close()
 
-	// 2) Gallery tasks
 	galleryRows, err := h.DB.Query(ctx,
 		`SELECT 'gallery' AS task_type, id, COALESCE(source_url, '') AS url,
 		        COALESCE(status, 'pending') AS status,
@@ -388,35 +408,43 @@ func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(downloaded_size, 0) AS downloaded_size,
 		        COALESCE(content_verified, false) AS content_verified,
 		        0 AS total_segments, 0 AS completed_segments,
+		        COALESCE(total_size, 0) AS file_size,
+		        COALESCE(tags, '') AS tags,
 		        created_at, updated_at
 		 FROM galleries
 		 ORDER BY id DESC LIMIT ?`, fetchLimit)
-	if err == nil {
-		for galleryRows.Next() {
-			var r unifiedTaskRow
-			if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
-				&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
-				&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
-				&r.DownloadedSize, &r.ContentVerified,
-				&r.TotalSegments, &r.CompletedSegments,
-				&r.CreatedAt, &r.UpdatedAt); err != nil {
-				continue
-			}
-			tasks = append(tasks, h.enrichUnifiedTask(r))
-		}
-		galleryRows.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
 	}
+	for galleryRows.Next() {
+		var r unifiedTaskRow
+		if err := galleryRows.Scan(&r.TaskType, &r.ID, &r.URL, &r.Status, &r.Progress,
+			&r.FilePath, &r.Format, &r.Priority, &r.ErrorMsg, &r.SiteID, &r.Seq,
+			&r.Title, &r.Protagonist, &r.ImageCount, &r.VideoCount, &r.TotalSize,
+			&r.DownloadedSize, &r.ContentVerified,
+			&r.TotalSegments, &r.CompletedSegments, &r.FileSize, &r.Tags,
+			&r.CreatedAt, &r.UpdatedAt); err != nil {
+			galleryRows.Close()
+			writeError(w, http.StatusInternalServerError, "task query failed")
+			return
+		}
+		tasks = append(tasks, h.enrichUnifiedTask(r))
+	}
+	if err := galleryRows.Err(); err != nil {
+		galleryRows.Close()
+		writeError(w, http.StatusInternalServerError, "task query failed")
+		return
+	}
+	galleryRows.Close()
 
-	// NOTE: Sniff tasks excluded — independent pool via /api/sniff.
-
-	// Merge sort by ID descending
+	// NOTE: Sniff tasks are excluded here for the same reason as in TaskListUnified.
 	sort.Slice(tasks, func(i, j int) bool {
 		idI, _ := tasks[i]["ID"].(int)
 		idJ, _ := tasks[j]["ID"].(int)
 		return idI > idJ
 	})
 
-	// Slice out the requested page
 	offset := (page - 1) * pageSize
 	if offset > len(tasks) {
 		tasks = nil
@@ -428,7 +456,7 @@ func (h *Handlers) TaskPage(w http.ResponseWriter, r *http.Request) {
 		tasks = tasks[offset:end]
 	}
 
-	hasMore := (page*pageSize) < totalCount
+	hasMore := (page * pageSize) < totalCount
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tasks":      tasks,
@@ -458,12 +486,9 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run the URL through the unified preprocessing pipeline. This
-	// consolidates cleaning, normalization, M3U8 detection, site
-	// matching, page-type identification, task routing, and Referer-
-	// domain injection into a single call, eliminating the scattered
-	// logic that historically caused MacCMS encoding bugs, CDN 403
-	// failures, and misrouted tasks.
+	// A single routing call resolves URL cleaning, normalization, M3U8
+	// detection, provider matching, page-type identification, and the
+	// Referer domain to inject.
 	route := urlutil.NormalizeAndRoute(req.URL, h.SiteReg)
 	cleanedURL := urlutil.CleanURL(req.URL)
 	normalizedURL := route.NormalizedURL
@@ -478,7 +503,6 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case urlutil.RouteUnknown:
-		// URL did not match any provider and is not an M3U8 stream.
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.tasks.unrecognizedUrl"))
 		return
 	}
@@ -525,19 +549,25 @@ func (h *Handlers) TaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dagID := ""
-	if h.DagOrch != nil {
-		def := dag.NewDagFactory().NewVideoPipeline(*seqPtr, id)
-		var submitErr error
-		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
-		if submitErr != nil {
-			h.DB.Exec(r.Context(),
-				"UPDATE download_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
-				"DAG submission failed: "+submitErr.Error(), id)
+		dagID := ""
+		if h.DagOrch != nil {
+			def := dag.NewDagFactory().NewVideoPipeline(*seqPtr, id, siteID)
+			var submitErr error
+			dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
+			if submitErr != nil {
+				// pending→failed from the fresh row; a store error here can
+				// only be an I/O failure, so the 500 below is unchanged.
+				_ = h.stateStore.Transition(r.Context(), id, taskstate.Update{
+					Status: taskstate.StatusFailed,
+					Set:    map[string]any{"error_msg": "DAG submission failed: " + submitErr.Error()},
+				})
+				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+				return
+			}
+		if err := h.updateTaskDagID(r.Context(), id, dagID); err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
 		}
-		h.updateTaskDagID(r.Context(), id, dagID)
 	}
 
 	if h.EventBus != nil {
@@ -636,13 +666,16 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
 		}
-		h.updateGalleryDagID(r.Context(), galleryID, dagID)
+		if err := h.updateGalleryDagID(r.Context(), galleryID, dagID); err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+			return
+		}
 
 		if h.EventBus != nil {
 			h.EventBus.Emit("task:progress", map[string]any{
 				"taskId":   galleryID,
 				"taskType": "gallery",
-				"status":   "scraping",
+				"status":   "pending",
 			})
 		}
 	}
@@ -652,15 +685,15 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 		_ = h.DB.QueryRow(r.Context(),
 			"SELECT COALESCE(status, 'pending') FROM galleries WHERE id = ?", galleryID).Scan(&eventStatus)
 		h.EventBus.Emit("gallery:created", map[string]any{
-			"ID":         galleryID,
-			"SourceURL":  normalizedURL,
-			"SiteID":     siteID,
-			"Status":     eventStatus,
-			"DagID":      dagID,
-			"DisplayID":  *seqPtr,
-			"TaskType":   "gallery",
-			"CreatedAt":  time.Now(),
-			"UpdatedAt":  time.Now(),
+			"ID":        galleryID,
+			"SourceURL": normalizedURL,
+			"SiteID":    siteID,
+			"Status":    eventStatus,
+			"DagID":     dagID,
+			"DisplayID": *seqPtr,
+			"TaskType":  "gallery",
+			"CreatedAt": time.Now(),
+			"UpdatedAt": time.Now(),
 		})
 	}
 
@@ -683,6 +716,22 @@ func (h *Handlers) createGalleryTask(w http.ResponseWriter, r *http.Request, pag
 }
 
 func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageURL, siteID, userSeq string) {
+	if h.DagOrch == nil {
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.tasks.createFailed"))
+		return
+	}
+	h.sniffCreateMu.Lock()
+	defer h.sniffCreateMu.Unlock()
+	var active bool
+	if err := h.DB.QueryRow(r.Context(),
+		"SELECT EXISTS(SELECT 1 FROM sniff_tasks WHERE status IN ('pending', 'scraping', 'running', 'sniffing'))").Scan(&active); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+		return
+	}
+	if active {
+		writeError(w, http.StatusConflict, "A sniff task is already running")
+		return
+	}
 	var seqPtr *string
 	if userSeq != "" {
 		seqPtr = &userSeq
@@ -704,13 +753,16 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 
 	dagID := ""
 	if h.DagOrch != nil {
-		def := dag.NewDagFactory().NewSniffPipeline(pageURL, *seqPtr)
+		def := dag.NewDagFactory().NewSniffPipeline(pageURL, *seqPtr, siteID)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
-			h.DB.Exec(r.Context(),
+			_, updateErr := h.DB.Exec(r.Context(),
 				"UPDATE sniff_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
 				"DAG submission failed: "+submitErr.Error(), sniffID)
+			if updateErr != nil {
+				_, _ = h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", sniffID)
+			}
 			if h.EventBus != nil {
 				h.EventBus.Emit("task:failed", map[string]any{
 					"taskId":   sniffID,
@@ -721,20 +773,38 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
 			return
 		}
-		h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, sniffID)
+		result, updateErr := h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, sniffID)
+		if updateErr != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.DagOrch.CancelDagAndWait(cleanupCtx, dagID)
+			_ = h.DagOrch.RemoveDag(cleanupCtx, dagID)
+			cancel()
+			_, _ = h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", sniffID)
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+			return
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil || rows == 0 {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.DagOrch.CancelDagAndWait(cleanupCtx, dagID)
+			_ = h.DagOrch.RemoveDag(cleanupCtx, dagID)
+			cancel()
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.createFailed"))
+			return
+		}
 	}
 
 	if h.EventBus != nil {
 		h.EventBus.Emit("task:created", map[string]any{
-			"ID":         sniffID,
-			"DisplayID":  *seqPtr,
-			"URL":        pageURL,
-			"Status":     "pending",
-			"TaskType":   "sniff",
-			"SiteID":     siteID,
-			"DagID":      dagID,
-			"CreatedAt":  time.Now(),
-			"UpdatedAt":  time.Now(),
+			"ID":        sniffID,
+			"DisplayID": *seqPtr,
+			"URL":       pageURL,
+			"Status":    "pending",
+			"TaskType":  "sniff",
+			"SiteID":    siteID,
+			"DagID":     dagID,
+			"CreatedAt": time.Now(),
+			"UpdatedAt": time.Now(),
 		})
 	}
 
@@ -753,8 +823,9 @@ func (h *Handlers) createSniffTask(w http.ResponseWriter, r *http.Request, pageU
 	})
 }
 
-// checkVideoTaskDuplicate returns a 409 response if a duplicate video
-// task is found via exact URL, mirror-domain, or path-signature matching.
+// checkVideoTaskDuplicate returns the existing video task when the URL matches
+// a stored row exactly, a mirror domain of the same site, or the same path
+// signature; nil when no duplicate exists.
 func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string) map[string]any {
 	ctx := r.Context()
 
@@ -842,8 +913,9 @@ func (h *Handlers) checkVideoTaskDuplicate(r *http.Request, normalizedURL string
 	return nil
 }
 
-// checkGalleryDuplicate returns a 409 response if a duplicate gallery
-// is found via exact URL, mirror-domain, or path-signature matching.
+// checkGalleryDuplicate returns the existing gallery when the URL matches a
+// stored row exactly, a mirror domain of the same site, or the same path
+// signature; nil when no duplicate exists.
 func (h *Handlers) checkGalleryDuplicate(r *http.Request, normalizedURL, rawURL string) map[string]any {
 	ctx := r.Context()
 
@@ -974,18 +1046,10 @@ func (h *Handlers) TaskDetail(w http.ResponseWriter, r *http.Request) {
 	t.ProgressStage = task_compute.ComputeProgressStage(t.Status, "video", t.Progress)
 	t.AllowedActions = task_compute.ComputeAllowedActions(t.Status, "video")
 
-	// Attach the full video_infos metadata so detail consumers get
-	// Title/Duration/Resolution/FileSize/Tags/Actors without a second
-	// request. Without this the detail popover showed "—" for every
-	// metadata row even though the scrape had persisted them
-	// (2026-09-05 tags defect).
-	//
-	// Tags/Actors/Categories columns hold JSON-array strings; decode
-	// them through ParseTagsColumn so the API emits real arrays (the
-	// frontend contract is string[]). Assigning the raw column text
-	// serialized the whole `["欣欣子"]` literal into one string, which
-	// is exactly how the actor of task #HSYZH3 ended up rendered as a
-	// tag pill instead of an actor entry.
+	// Detail consumers need the joined video_infos metadata in one round trip.
+	// Tags/Actors/Categories hold JSON-array text, so they must go through
+	// ParseTagsColumn; assigning the raw column text serializes the whole
+	// array literal into a single string value.
 	t.VideoInfo = &db.VideoInfo{TaskID: id, SourceURL: t.URL}
 	var viDuration float64
 	var viResolution, viActors, viTagsRaw, viCategories string
@@ -1026,15 +1090,24 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	readDagID := func() (string, bool) {
+		dagID, err := h.getTaskDagID(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.queryFailed"))
+			return "", false
+		}
+		return dagID, true
+	}
 
 	switch req.Action {
 	case "start":
-		// Route through DAG for slot pool concurrency control. If the task
-		// already has a live DAG, resume paused nodes or retry failed ones
-		// instead of blindly submitting a brand-new DAG — a duplicate DAG
-		// made the old (paused) and new DAG download the same files
-		// concurrently, causing download anomalies after resume.
-		dagID := h.getTaskDagID(r.Context(), id)
+		// Reuse a live DAG (resume paused nodes, retry failed ones) instead
+		// of submitting a second one: two DAGs for the same task download
+		// the same files concurrently.
+		dagID, dagOK := readDagID()
+		if !dagOK {
+			return
+		}
 		if h.DagOrch != nil && dagID != "" {
 			if st := h.DagOrch.GetDagStatus(dagID); st != nil {
 				hasPaused, hasFailed := false, false
@@ -1053,8 +1126,8 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 				case hasFailed:
 					actErr = h.DagOrch.RetryDag(r.Context(), dagID, "")
 				default:
-					// Already running / finished: report live state, do not
-					// create a duplicate DAG.
+					// Nothing to resume or retry; report the live state
+					// instead of creating a duplicate DAG.
 					writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "already-running"})
 					return
 				}
@@ -1062,7 +1135,6 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.startFailed"))
 					return
 				}
-				// Transition nodes to PREPARING state for optimistic UI feedback
 				h.transitionDagNodesToPreparing(r.Context(), dagID)
 				writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "preparing"})
 				return
@@ -1073,22 +1145,37 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.startFailed"))
 			return
 		}
-		// Transition newly submitted DAG nodes to PREPARING for optimistic UI
 		h.transitionDagNodesToPreparing(r.Context(), dagID)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "preparing"})
 
 	case "pause":
-		// Route through DAG orchestrator for proper state management.
-		dagID := h.getTaskDagID(r.Context(), id)
+		dagID, dagOK := readDagID()
+		if !dagOK {
+			return
+		}
 		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
-			if err := h.DagOrch.PauseDag(r.Context(), dagID); err != nil {
+			waitCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			err := h.DagOrch.PauseDagAndWait(waitCtx, dagID)
+			cancel()
+			if err != nil {
+				writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.pauseFailed"))
+				return
+			}
+			// The store validates legality (a row that raced to a terminal
+			// status is not clobbered to paused) and emits the
+			// task:progress(paused) event itself.
+			if err := h.stateStore.Transition(r.Context(), id, taskstate.Update{Status: taskstate.StatusPaused}); err != nil {
+				var conflict *taskstate.ConflictError
+				if errors.As(err, &conflict) {
+					writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.pauseFailed"))
+					return
+				}
 				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.pauseFailed"))
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "paused"})
 			return
 		}
-		// Legacy fallback for tasks without DAG (e.g., pre-DAG tasks).
 		if err := h.DownloadMgr.PauseDownload(id); err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.pauseFailed"))
 			return
@@ -1096,8 +1183,10 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "paused"})
 
 	case "resume":
-		// Route through DAG orchestrator for proper state management.
-		dagID := h.getTaskDagID(r.Context(), id)
+		dagID, dagOK := readDagID()
+		if !dagOK {
+			return
+		}
 		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
 			if err := h.DagOrch.ResumeDag(r.Context(), dagID, ""); err != nil {
 				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.resumeFailed"))
@@ -1106,7 +1195,6 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "resumed"})
 			return
 		}
-		// Legacy fallback for tasks without DAG (e.g., pre-DAG tasks).
 		if err := h.DownloadMgr.ResumeDownload(id); err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.resumeFailed"))
 			return
@@ -1114,12 +1202,34 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "resumed"})
 
 	case "cancel":
-		// Route through DAG orchestrator for proper state management and resource cleanup.
-		dagID := h.getTaskDagID(r.Context(), id)
+		dagID, dagOK := readDagID()
+		if !dagOK {
+			return
+		}
 		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
-			if err := h.DagOrch.CancelDag(r.Context(), dagID); err != nil {
+			waitCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			err := h.DagOrch.CancelDagAndWait(waitCtx, dagID)
+			cancel()
+			if err != nil {
+				writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.cancelFailed"))
+				return
+			}
+			// Same legality guard as pause: cancelling a row that raced to
+			// completed returns 409 instead of clobbering it.
+			if err := h.stateStore.Transition(r.Context(), id, taskstate.Update{
+				Status: taskstate.StatusCancelled,
+				Set:    map[string]any{"error_msg": ""},
+			}); err != nil {
+				var conflict *taskstate.ConflictError
+				if errors.As(err, &conflict) {
+					writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.cancelFailed"))
+					return
+				}
 				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.cancelFailed"))
 				return
+			}
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:cancelled", map[string]any{"taskId": id, "taskType": "video"})
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "cancelled"})
 			return
@@ -1133,28 +1243,61 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.cleanupVideoTaskCache(r.Context(), id)
-
-		// RetryDag reuses the existing DAG instead of cancel+resubmit,
-		// avoiding a race window that can produce duplicate DAGs.
-		dagID := h.getTaskDagID(r.Context(), id)
-		if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
-			if err := h.DagOrch.RetryDag(r.Context(), dagID, ""); err != nil {
-				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+		dagID, dagOK := readDagID()
+		if !dagOK {
+			return
+		}
+		if h.DagOrch != nil && dagID != "" {
+			if st := h.DagOrch.GetDagStatus(dagID); st != nil {
+				hasPaused, hasFailed := false, false
+				for _, ns := range st.Nodes {
+					switch ns.State {
+					case orchestrator.NodeStatePaused:
+						hasPaused = true
+					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
+						hasFailed = true
+					}
+				}
+				if !hasPaused && !hasFailed {
+					writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+					return
+				}
+				if err := h.cleanupVideoTaskCache(r.Context(), id); err != nil {
+					writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+					return
+				}
+				var actionErr error
+				if hasPaused {
+					actionErr = h.DagOrch.ResumeDag(r.Context(), dagID, "")
+				} else {
+					actionErr = h.DagOrch.RetryDag(r.Context(), dagID, "")
+				}
+				if actionErr != nil {
+					writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
+		}
+		if err := h.cleanupVideoTaskCache(r.Context(), id); err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
 			return
 		}
 		if h.DownloadMgr != nil {
-			h.DownloadMgr.CancelDownload(id)
+			stopCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			err := h.DownloadMgr.StopDownloadForRestart(stopCtx, id)
+			cancel()
+			if err != nil {
+				writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+				return
+			}
 		}
 		dagID, err := h.submitVideoDag(r, id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
 			return
 		}
-		h.updateTaskDagID(r.Context(), id, dagID)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "retrying"})
 
 	default:
@@ -1162,10 +1305,9 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// transitionDagNodesToPreparing transitions all non-terminal nodes in a DAG
-// to PREPARING state, providing immediate optimistic feedback to the UI that
-// the task is being prepared. This is called after start/resume/retry operations
-// so the user sees "preparing" (准备中) instantly instead of waiting for the actual state.
+// transitionDagNodesToPreparing moves every non-terminal node of a DAG to
+// PREPARING after start/resume/retry, so the UI reflects the pending state
+// immediately instead of waiting for the scheduler to report it.
 func (h *Handlers) transitionDagNodesToPreparing(ctx context.Context, dagID string) {
 	if h.DagOrch == nil || dagID == "" {
 		return
@@ -1175,7 +1317,6 @@ func (h *Handlers) transitionDagNodesToPreparing(ctx context.Context, dagID stri
 		return
 	}
 	for _, ns := range st.Nodes {
-		// Only transition nodes that are in a state that allows PREPARING
 		switch ns.State {
 		case orchestrator.NodeStatePending, orchestrator.NodeStatePaused,
 			orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout,
@@ -1191,8 +1332,9 @@ func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 		return "", fmt.Errorf("DAG orchestrator not available")
 	}
 
-	var seq string
-	if err := h.DB.QueryRow(r.Context(), "SELECT seq FROM download_tasks WHERE id = ?", taskID).Scan(&seq); err != nil {
+	var seq, siteID string
+	if err := h.DB.QueryRow(r.Context(),
+		"SELECT seq, site_id FROM download_tasks WHERE id = ?", taskID).Scan(&seq, &siteID); err != nil {
 		return "", fmt.Errorf("query task seq: %w", err)
 	}
 	if seq == "" {
@@ -1200,27 +1342,73 @@ func (h *Handlers) submitVideoDag(r *http.Request, taskID int) (string, error) {
 		h.DB.Exec(r.Context(), "UPDATE download_tasks SET seq = ? WHERE id = ?", seq, taskID)
 	}
 
-	def := dag.NewDagFactory().NewVideoPipeline(seq, taskID)
-	return h.DagOrch.SubmitDag(r.Context(), def)
+	def := dag.NewDagFactory().NewVideoPipeline(seq, taskID, siteID)
+	dagID, err := h.DagOrch.SubmitDag(r.Context(), def)
+	if err != nil {
+		return "", err
+	}
+	if err := h.updateTaskDagID(r.Context(), taskID, dagID); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.DagOrch.CancelDagAndWait(cleanupCtx, dagID)
+		_ = h.DagOrch.RemoveDag(cleanupCtx, dagID)
+		return "", err
+	}
+	return dagID, nil
 }
 
 // cleanupVideoTaskCache deletes the output MP4 (a partial file from a
 // failed merge/transcode must be regenerated) but preserves the segments
 // directory so the retry resumes at the segment level.
-func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) {
+func (h *Handlers) cleanupVideoTaskCache(ctx context.Context, taskID int) error {
 	var filePath string
-	_ = h.DB.QueryRow(ctx,
-		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", taskID).Scan(&filePath)
-
-	if filePath != "" {
-		_ = os.Remove(filePath)
+	if err := h.DB.QueryRow(ctx,
+		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", taskID).Scan(&filePath); err != nil {
+		return err
 	}
 
-	_, _ = h.DB.Exec(ctx,
+	if filePath != "" {
+		safePath, err := h.validateDataPath("videos", filePath, false)
+		if err != nil {
+			return err
+		}
+		info, statErr := os.Stat(safePath)
+		if statErr == nil && info.IsDir() {
+			return fmt.Errorf("video output path is a directory: %s", safePath)
+		}
+		if statErr != nil && !os.IsNotExist(statErr) {
+			return statErr
+		}
+		if statErr == nil {
+			if err := os.Remove(safePath); err != nil {
+				return err
+			}
+		}
+	}
+
+	result, err := h.DB.Exec(ctx,
 		`UPDATE download_tasks
 		 SET progress = 0, completed_segments = 0, total_segments = 0,
 		     error_msg = '', m3u8_url = '', updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`, taskID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (h *Handlers) videoSegmentsDir(taskID int) string {
+	if h.DownloadMgr != nil {
+		return h.DownloadMgr.TaskSegmentsDir(taskID)
+	}
+	return filepath.Join(h.dataRoot(), "segments", fmt.Sprintf("task_%d", taskID))
 }
 
 func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
@@ -1233,35 +1421,123 @@ func (h *Handlers) TaskDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var filePath string
-	_ = h.DB.QueryRow(r.Context(),
-		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", id).Scan(&filePath)
+	ctx := r.Context()
+	var filePath, dagID string
+	if err := h.DB.QueryRow(ctx,
+		"SELECT COALESCE(file_path, ''), COALESCE(dag_id, '') FROM download_tasks WHERE id = ?", id).Scan(&filePath, &dagID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
+		} else {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+		}
+		return
+	}
 
-	if h.DagOrch != nil {
-		dagID := h.getTaskDagID(r.Context(), id)
-		if dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
-			_ = h.DagOrch.CancelDag(r.Context(), dagID)
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
+		if err := h.DagOrch.CancelDagAndWait(waitCtx, dagID); err != nil {
+			writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+			return
 		}
 	}
 
-	result, err := h.DB.Exec(r.Context(),
-		"DELETE FROM download_tasks WHERE id = ?", id)
+	deleted := false
+	if h.DownloadMgr != nil {
+		if err := h.DownloadMgr.CancelDownloadAndWait(waitCtx, id); err != nil {
+			writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+			return
+		}
+		defer func() {
+			if !deleted && h.DownloadMgr != nil {
+				h.DownloadMgr.AllowDownload(id)
+			}
+		}()
+	}
+
+	lockKey := filePath
+	if lockKey == "" {
+		lockKey = h.videoSegmentsDir(id)
+	}
+	unlock := h.lockDeletionPath(lockKey)
+	defer unlock()
+
+	var currentFilePath string
+	if err := h.DB.QueryRow(ctx,
+		"SELECT COALESCE(file_path, '') FROM download_tasks WHERE id = ?", id).Scan(&currentFilePath); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
+		} else {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+		}
+		return
+	}
+
+	segmentsDir := h.videoSegmentsDir(id)
+	if !filepath.IsAbs(segmentsDir) {
+		segmentsDir = filepath.Join(h.dataRoot(), segmentsDir)
+	}
+	safeSegmentsDir, err := h.validateDataPath("segments", segmentsDir, false)
+	if err != nil {
+		writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+		return
+	}
+	paths := []string{safeSegmentsDir}
+	if currentFilePath != "" {
+		safeFilePath, err := h.validateDataPath("videos", currentFilePath, false)
+		if err != nil {
+			writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+			return
+		}
+		if info, statErr := os.Stat(safeFilePath); statErr == nil && info.IsDir() {
+			writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+			return
+		} else if statErr != nil && !os.IsNotExist(statErr) {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+			return
+		}
+		var references int
+		if err := h.DB.QueryRow(ctx,
+			"SELECT COUNT(*) FROM download_tasks WHERE id <> ? AND file_path = ?", id, currentFilePath).Scan(&references); err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+			return
+		}
+		if references == 0 {
+			paths = append(paths, safeFilePath)
+		}
+	}
+	if err := removeAllSync(ctx, paths...); err != nil {
+		cleanupLogger.Error("Task cache cleanup failed", "taskId", id, "error", err.Error())
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+		return
+	}
+
+	result, err := h.DB.Exec(ctx, "DELETE FROM download_tasks WHERE id = ?", id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
 		return
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	rows, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.deleteFailed"))
+		return
+	}
+	if rows == 0 {
 		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.tasks.notFound"))
 		return
 	}
+	deleted = true
 
-	// Background cleanup: never block the DELETE response on file I/O
-	// (locked segments/files would stall the handler); see asyncRemoveAll.
-	segmentsDir := filepath.Join("..", "data", "segments", fmt.Sprintf("task_%d", id))
-	asyncRemoveAll(filePath, segmentsDir)
-
+	if h.VideoTracker != nil {
+		h.VideoTracker.RemoveTask(id)
+	}
+	if h.DagOrch != nil && dagID != "" {
+		if err := h.DagOrch.RemoveDag(ctx, dagID); err != nil && !errors.Is(err, orchestrator.ErrDagNotFound) {
+			cleanupLogger.Warn("Task DAG cleanup failed", "taskId", id, "dagId", dagID, "error", err.Error())
+		}
+	}
 	if h.EventBus != nil {
-		h.EventBus.Emit("task:cancelled", map[string]any{
+		h.EventBus.Emit("task:deleted", map[string]any{
 			"taskId":   id,
 			"taskType": "video",
 		})

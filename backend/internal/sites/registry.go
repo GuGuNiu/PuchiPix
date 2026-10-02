@@ -13,12 +13,11 @@ import (
 type SiteRegistry struct {
 	mu            sync.RWMutex
 	providers     map[string]SiteProvider
-	providerOrder []string // ordered list of provider IDs, maintaining registration order for deterministic lookup
+	providerOrder []string // registration order, so provider lookup is deterministic
 	modules       map[string]SiteModuleConfig
 	logger        *infra.Logger
 }
 
-// NewSiteRegistry creates an empty registry with a logger for diagnostics.
 func NewSiteRegistry() *SiteRegistry {
 	return &SiteRegistry{
 		providers: make(map[string]SiteProvider),
@@ -41,7 +40,6 @@ func (r *SiteRegistry) Register(p SiteProvider) {
 	r.providers[id] = p
 }
 
-// GetProvider returns the provider registered under the given site ID.
 func (r *SiteRegistry) GetProvider(id string) (SiteProvider, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -79,14 +77,12 @@ func (r *SiteRegistry) GetAllProviders() []SiteProvider {
 	return result
 }
 
-// RegisterModule associates a site module configuration with a site ID.
 func (r *SiteRegistry) RegisterModule(mod SiteModuleConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.modules[mod.ID] = mod
 }
 
-// GetModule returns the module configuration for a site ID.
 func (r *SiteRegistry) GetModule(id string) (SiteModuleConfig, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -94,7 +90,6 @@ func (r *SiteRegistry) GetModule(id string) (SiteModuleConfig, bool) {
 	return mod, ok
 }
 
-// GetSiteInfos builds display metadata for all registered sites.
 func (r *SiteRegistry) GetSiteInfos() []SiteInfo {
 	all := r.GetAllProviders()
 	result := make([]SiteInfo, 0, len(all))
@@ -119,7 +114,6 @@ func (r *SiteRegistry) GetSiteInfos() []SiteInfo {
 	return result
 }
 
-// GetModuleByUrl finds a module whose base URL or domains match the given URL.
 func (r *SiteRegistry) GetModuleByUrl(rawURL string) (SiteModuleConfig, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -153,8 +147,6 @@ func extractHost(rawURL string) string {
 	return strings.ToLower(parsed.Hostname())
 }
 
-// InitDefaultModules registers all site module configurations loaded
-// from the unified SiteDataStore, replacing the former hardcoded list.
 func (r *SiteRegistry) InitDefaultModules() {
 	for _, mod := range GetSiteDataStore().GetAllModuleConfigs() {
 		r.RegisterModule(mod)

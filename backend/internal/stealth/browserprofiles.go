@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// BrowserType identifies the browser family for a profile.
 type BrowserType string
 
 const (
@@ -17,7 +16,6 @@ const (
 	BrowserEdge    BrowserType = "edge"
 )
 
-// Platform identifies the operating system for a profile.
 type Platform string
 
 const (
@@ -31,21 +29,21 @@ const (
 // BrowserProfile carries the full identity used to construct stealth
 // HTTP headers and browser context configurations.
 type BrowserProfile struct {
-	UA                 string
-	Browser            BrowserType
-	Platform           Platform
-	SecChUa            string
-	SecChUaMobile      string
-	SecChUaPlatform    string
-	Accept             string
-	AcceptEncoding     string
-	ViewportWidth      int
-	ViewportHeight     int
+	UA                  string
+	Browser             BrowserType
+	Platform            Platform
+	SecChUa             string
+	SecChUaMobile       string
+	SecChUaPlatform     string
+	Accept              string
+	AcceptEncoding      string
+	ViewportWidth       int
+	ViewportHeight      int
 	HardwareConcurrency int
-	DeviceMemory       int
-	NavigatorPlatform  string
-	Vendor             string
-	MaxTouchPoints     int
+	DeviceMemory        int
+	NavigatorPlatform   string
+	Vendor              string
+	MaxTouchPoints      int
 }
 
 const defaultAcceptLanguage = "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
@@ -205,21 +203,21 @@ func genProfile(entry profileEntry) BrowserProfile {
 	platformCapitalized := platformStr
 
 	return BrowserProfile{
-		UA:                 ua,
-		Browser:            browser,
-		Platform:           platform,
-		SecChUa:            secChUa,
-		SecChUaMobile:      boolToStr(isMobile, "?1", "?0"),
-		SecChUaPlatform:    `"` + platformCapitalized + `"`,
-		Accept:             accept,
-		AcceptEncoding:     acceptEncoding,
-		ViewportWidth:      vpW,
-		ViewportHeight:     vpH,
+		UA:                  ua,
+		Browser:             browser,
+		Platform:            platform,
+		SecChUa:             secChUa,
+		SecChUaMobile:       boolToStr(isMobile, "?1", "?0"),
+		SecChUaPlatform:     `"` + platformCapitalized + `"`,
+		Accept:              accept,
+		AcceptEncoding:      acceptEncoding,
+		ViewportWidth:       vpW,
+		ViewportHeight:      vpH,
 		HardwareConcurrency: hw,
-		DeviceMemory:       mem,
-		NavigatorPlatform:  navPlatforms[platform],
-		Vendor:             vendors[browser],
-		MaxTouchPoints:     maxTouch,
+		DeviceMemory:        mem,
+		NavigatorPlatform:   navPlatforms[platform],
+		Vendor:              vendors[browser],
+		MaxTouchPoints:      maxTouch,
 	}
 }
 
@@ -259,20 +257,20 @@ var browserProfiles []BrowserProfile
 func RandomProfile() BrowserProfile {
 	if len(browserProfiles) == 0 {
 		return BrowserProfile{
-			UA:             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.126 Safari/537.36",
-			Browser:        BrowserChrome,
-			Platform:       PlatformWindows,
-			Accept:         chromeAccept,
-			AcceptEncoding: chromeEncoding,
-			SecChUa:        chromeBrands[126],
-			SecChUaMobile:  "?0",
-			SecChUaPlatform: `"Windows"`,
-			ViewportWidth:  1920,
-			ViewportHeight: 1080,
+			UA:                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.126 Safari/537.36",
+			Browser:             BrowserChrome,
+			Platform:            PlatformWindows,
+			Accept:              chromeAccept,
+			AcceptEncoding:      chromeEncoding,
+			SecChUa:             chromeBrands[126],
+			SecChUaMobile:       "?0",
+			SecChUaPlatform:     `"Windows"`,
+			ViewportWidth:       1920,
+			ViewportHeight:      1080,
 			HardwareConcurrency: 8,
-			DeviceMemory:   8,
-			NavigatorPlatform: "Win32",
-			Vendor:         "Google Inc.",
+			DeviceMemory:        8,
+			NavigatorPlatform:   "Win32",
+			Vendor:              "Google Inc.",
 		}
 	}
 	return browserProfiles[rand.Intn(len(browserProfiles))]

@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Task management page text — ja-JP
 const jaJP: TranslationDict = {
   "tasks.typeAll": "すべて",
   "tasks.typeVideo": "動画",

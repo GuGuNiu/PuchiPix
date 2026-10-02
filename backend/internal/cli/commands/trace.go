@@ -15,7 +15,7 @@ type traceCommand struct{}
 
 func (traceCommand) Name() string        { return "trace" }
 func (traceCommand) Description() string { return "View full trace logs for a traceId" }
-func (traceCommand) Usage() string        { return "puchipix-cli trace <traceId> [--follow]" }
+func (traceCommand) Usage() string       { return "puchipix-cli trace <traceId> [--follow]" }
 func (traceCommand) Aliases() []string   { return nil }
 
 func (traceCommand) Execute(ctx CommandContext) error {
@@ -128,4 +128,3 @@ func joinMapKeys(m map[string]bool) string {
 	}
 	return joinStrings(keys, ", ")
 }
-

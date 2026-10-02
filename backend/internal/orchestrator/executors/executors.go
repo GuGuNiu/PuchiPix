@@ -13,7 +13,6 @@ import (
 type Executor interface {
 	// Key returns the executor's routing key, matching DagNodeDefinition.Executor.
 	Key() string
-	// Execute runs the node's work and returns the result.
 	Execute(ctx context.Context, node ExecutorNode) (bool, error)
 }
 
@@ -43,7 +42,6 @@ func NewRegistry() *Registry {
 	}
 }
 
-// Register adds an executor to the registry.
 func (r *Registry) Register(e Executor) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -51,7 +49,6 @@ func (r *Registry) Register(e Executor) {
 	r.logger.Info("Executor registered", "key", e.Key())
 }
 
-// Get retrieves an executor by key.
 func (r *Registry) Get(key string) Executor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -61,7 +58,7 @@ func (r *Registry) Get(key string) Executor {
 // ScrapeExecutor handles the scrape phase, calling the site provider
 // to extract gallery metadata.
 type ScrapeExecutor struct {
-	logger *infra.Logger
+	logger     *infra.Logger
 	providerFn func(ctx context.Context, url string) (map[string]any, error)
 }
 
@@ -109,7 +106,7 @@ type DownloadExecutor struct {
 // download callback that supports domain fallback.
 func NewDownloadExecutor(fn func(ctx context.Context, url, savePath string, domains []string) error) *DownloadExecutor {
 	return &DownloadExecutor{
-		logger:      infra.NewLogger("DownloadExecutor"),
+		logger:     infra.NewLogger("DownloadExecutor"),
 		downloadFn: fn,
 	}
 }
@@ -123,8 +120,7 @@ func (e *DownloadExecutor) WithGalleryDownload(fn func(ctx context.Context, gall
 func (e *DownloadExecutor) Key() string { return "download" }
 
 func (e *DownloadExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
-	// Gallery batch download mode: when galleryId is present in Config,
-	// download all gallery images/videos from the database.
+	// A galleryId in Config switches to gallery batch download mode.
 	if e.galleryDownloadFn != nil {
 		if gid, ok := node.Config["galleryId"]; ok {
 			var galleryID int
@@ -148,7 +144,7 @@ func (e *DownloadExecutor) Execute(ctx context.Context, node ExecutorNode) (bool
 		}
 	}
 
-	// Single-file download mode (original behavior).
+	// Single-file download mode.
 	url, _ := node.Config["url"].(string)
 	savePath, _ := node.Config["savePath"].(string)
 	var domains []string
@@ -193,9 +189,8 @@ func NewVerifyExecutor(fn func(ctx context.Context, node ExecutorNode) (string, 
 func (e *VerifyExecutor) Key() string { return "verify" }
 
 // NeedsRetryError signals a retryable verification failure. The
-// scheduler/orchestrator recognize it and route the node to NEEDS_RETRY
-// (auto re-submit) instead of FAILED, preserving the 260720 needs_retry
-// semantics that were previously lost (verify failures hard-failed).
+// scheduler recognizes it and routes the node to NEEDS_RETRY (auto
+// re-submit) instead of FAILED.
 type NeedsRetryError struct {
 	Reason string
 }
@@ -225,8 +220,8 @@ func (e *VerifyExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, 
 
 // ExtractExecutor handles the extract phase, decompressing archives.
 type ExtractExecutor struct {
-	logger     *infra.Logger
-	extractFn  func(ctx context.Context, archivePath, destPath, password string) error
+	logger    *infra.Logger
+	extractFn func(ctx context.Context, archivePath, destPath, password string) error
 }
 
 // NewExtractExecutor creates an extract executor with the given callback.

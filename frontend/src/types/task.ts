@@ -5,14 +5,17 @@ export type TaskStatus =
   | 'preparing'
   | 'scrape_pending'
   | 'scraping'
+  | 'scraped'
   | 'download_pending'
   | 'downloading'
+  | 'merging'
   | 'paused'
   | 'completed'
   | 'partial'
   | 'failed'
   | 'cancelled'
-  | 'transcoding';
+  | 'transcoding'
+  | 'probing';
 
 export interface VideoInfo {
   ID: number;
@@ -51,6 +54,14 @@ export interface DownloadTask {
   FileSize?: number;
   DownloadedBytes?: number;
   DownloadedSize?: number;
+  /** Segment throughput string from task:progress (e.g. "12.3 seg/s"). */
+  Speed?: string;
+  /**
+   * Raw phase-scoped percentage (merge %/transcode %). `Progress` is the
+   * monotonic composite scale computed by the backend; phase text renders
+   * from this field.
+   */
+  PhaseProgress?: number;
   TaskType?: TaskType;
   GalleryTitle?: string;
   ImageCount?: number;
@@ -63,9 +74,9 @@ export interface DownloadTask {
   SniffTotalCreated?: number;
   SniffTotalSkipped?: number;
   Person?: string;
-  /** Scraped tags from video_infos.tags (video pipeline tasks). */
+  /** Populated for video pipeline tasks only. */
   Tags?: string[];
-  /** Scraped actors from video_infos.actors (video pipeline tasks). */
+  /** Populated for video pipeline tasks only. */
   Actors?: string[];
   GalleryProgressInfo?: { completed: number; total: number; failed: number };
   GalleryZipProgressInfo?: { downloaded: number; total: number; percent: number };

@@ -2,8 +2,6 @@ package taskprogress
 
 import "time"
 
-// FileStatus represents the download state of a single file within
-// a gallery task pipeline.
 type FileStatus string
 
 const (
@@ -43,13 +41,12 @@ type GalleryProgressSummary struct {
 	PendingFiles    int     `json:"pendingFiles"`
 	SkippedFiles    int     `json:"skippedFiles"`
 	Progress        float64 `json:"progress"`
-	PartialProgress float64 `json:"partialProgress"` // including skipped
+	PartialProgress float64 `json:"partialProgress"`
 	ImageCount      int     `json:"imageCount"`
 	VideoCount      int     `json:"videoCount"`
 	Status          string  `json:"status"`
 }
 
-// RetryRequest specifies which files to retry.
 type RetryRequest struct {
 	// FileIndices specifies individual files to retry. When empty and
 	// Range is nil, retries all failed files.
@@ -61,56 +58,41 @@ type RetryRequest struct {
 	Strategy RetryStrategy `json:"strategy,omitempty"`
 }
 
-// RetryRange defines a contiguous range of file indices.
 type RetryRange struct {
 	Start int `json:"start"`
 	End   int `json:"end"`
 }
 
-// RetryStrategy selects the retry behavior.
 type RetryStrategy string
 
 const (
-	// RetryFailedOnly retries only files with FileFailed status.
 	RetryFailedOnly RetryStrategy = "failed_only"
-	// RetryRegional retries a contiguous range that covers the failed
-	// files plus adjacent files that might share download dependencies.
+	// Regional retries a contiguous range covering the failed files plus
+	// adjacent files that might share download dependencies.
 	RetryRegional RetryStrategy = "regional"
-	// RetryAll retries all files regardless of current status.
-	RetryAll RetryStrategy = "all"
+	RetryAll      RetryStrategy = "all"
 )
 
-// DownloadPhase tracks the sub-state of the download phase for a
-// gallery, enabling checkpoint-based recovery on retry. The phase
-// transitions are:
-//
-//	phase_pending → phase_in_progress → phase_verifying → phase_complete
-//	                                                      → phase_failed
-//	phase_pending → phase_scanning (retry: check disk for existing files)
-//	phase_scanning → phase_in_progress (some files exist, continue)
-//	phase_scanning → phase_complete (all files already on disk)
+// DownloadPhase tracks the sub-state of a gallery's download phase so a retry
+// can resume from a checkpoint. A retry re-enters PhaseScanning to look for
+// files already on disk, and may jump straight to PhaseComplete when every
+// file is present.
 type DownloadPhase string
 
 const (
-	// PhasePending download has not started yet.
-	PhasePending DownloadPhase = "phase_pending"
-	// PhaseScanning retry is scanning disk/DB for already-downloaded files.
-	PhaseScanning DownloadPhase = "phase_scanning"
-	// PhaseInProgress actively downloading files.
+	PhasePending    DownloadPhase = "phase_pending"
+	PhaseScanning   DownloadPhase = "phase_scanning"
 	PhaseInProgress DownloadPhase = "phase_in_progress"
-	// PhaseVerifying checking downloaded files.
-	PhaseVerifying DownloadPhase = "phase_verifying"
-	// PhaseComplete all files downloaded successfully.
-	PhaseComplete DownloadPhase = "phase_complete"
-	// PhaseFailed download failed.
-	PhaseFailed DownloadPhase = "phase_failed"
+	PhaseVerifying  DownloadPhase = "phase_verifying"
+	PhaseComplete   DownloadPhase = "phase_complete"
+	PhaseFailed     DownloadPhase = "phase_failed"
 )
 
 type RetryResult struct {
-	GalleryID      int      `json:"galleryId"`
-	RetriedCount   int      `json:"retriedCount"`
-	SkippedCount   int      `json:"skippedCount"`
-	FailedIndices  []int    `json:"failedIndices"`
-	RetriedIndices []int    `json:"retriedIndices"`
-	Message        string   `json:"message"`
+	GalleryID      int    `json:"galleryId"`
+	RetriedCount   int    `json:"retriedCount"`
+	SkippedCount   int    `json:"skippedCount"`
+	FailedIndices  []int  `json:"failedIndices"`
+	RetriedIndices []int  `json:"retriedIndices"`
+	Message        string `json:"message"`
 }

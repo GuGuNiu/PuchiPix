@@ -21,8 +21,6 @@ import (
 
 var scraperLogger = infra.NewLogger("XsnvshenProvider")
 
-// ScrapeDeps defines the callbacks the scrapers need from the provider,
-// decoupling scraping logic from provider-specific concerns.
 type ScrapeDeps interface {
 	ResolveURL(rawURL, domain string) string
 	CleanTitle(rawTitle string) string
@@ -105,9 +103,9 @@ type albumFetchResult struct {
 	usedURL    string
 }
 
-// fetchAlbumHtml attempts to fetch and parse an album page across
-// candidate domains, performing age verification when the interstitial
-// is encountered and marking rate-limited domains for cooldown.
+// fetchAlbumHtml fetches an album page, trying candidate domains until one
+// returns a usable document; the age-verification interstitial is submitted
+// inline, and rate-limited domains are sent to the tracker for cooldown.
 func fetchAlbumHtml(ctx context.Context, pageURL, albumID string) (*albumFetchResult, error) {
 	tracker := stealth.GetDomainHealthTracker()
 	orderedDomains := tracker.GetAllDomainsOrdered(SiteDomains)
@@ -207,9 +205,8 @@ func fetchAlbumHtml(ctx context.Context, pageURL, albumID string) (*albumFetchRe
 	return nil, fmt.Errorf("all HTTP domains failed to fetch page")
 }
 
-// ScrapeGalleryHTTP performs HTTP-only gallery scraping with anti-addiction
-// verification and multi-domain failover, mirroring the TypeScript
-// scrape-gallery-http implementation.
+// ScrapeGalleryHTTP scrapes a gallery over HTTP, retrying across the site's
+// domains and passing the age-verification interstitial when encountered.
 func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*sites.GalleryScrapeResult, error) {
 	albumID := ExtractAlbumID(pageURL)
 
@@ -221,8 +218,8 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 	return buildScrapeResult(ctx, fetchResult.doc, pageURL, fetchResult.usedDomain, deps)
 }
 
-// ScrapeGalleryBrowser performs chromedp-based gallery scraping with
-// in-page age verification, used as a fallback when HTTP mode is blocked.
+// ScrapeGalleryBrowser scrapes a gallery through a headless browser, which
+// clears the age-verification interstitial that blocks plain HTTP requests.
 func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) (*sites.GalleryScrapeResult, error) {
 	albumID := ExtractAlbumID(pageURL)
 	tracker := stealth.GetDomainHealthTracker()
@@ -248,8 +245,11 @@ func ScrapeGalleryBrowser(ctx context.Context, pageURL string, deps ScrapeDeps) 
 			tryURL = domain + "/album/" + albumID
 		}
 
+		started := time.Now()
 		html, err := navigateWithAgeVerification(ctx, tryURL)
+		rtt := time.Since(started)
 		if err != nil {
+			tracker.ReportOutcome(domain, rtt, err)
 			scraperLogger.Debug("Browser navigation failed",
 				infra.LogContext{Extra: map[string]any{
 					"domain": domain,
@@ -312,7 +312,6 @@ func buildScrapeResult(ctx context.Context, doc *goquery.Document, pageURL, used
 		title = deps.CleanTitle(firstPageData.RawTitle)
 	}
 
-	// Prefer protagonist from meta description (xsnvshen-specific extraction)
 	protagonist := firstPageData.Protagonist
 	if protagonist == "" {
 		protagonist = deps.ExtractProtagonist(title, firstPageData.Tags)
@@ -377,9 +376,8 @@ func buildScrapeResult(ctx context.Context, doc *goquery.Document, pageURL, used
 	return result, nil
 }
 
-// navigateWithAgeVerification navigates to the URL in a headless browser,
-// detects the anti-addiction interstitial, and submits the verification
-// form via in-page fetch to obtain the session cookie.
+// The interstitial is cleared by POSTing the verification form from inside the
+// page, so the resulting cookie is issued to the browser session.
 func navigateWithAgeVerification(ctx context.Context, targetURL string) (string, error) {
 	allocCtx, cancel := chromedp.NewExecAllocator(ctx,
 		chromedp.NoFirstRun,
@@ -487,4 +485,3 @@ func fetchHTMLRaw(ctx context.Context, targetURL, domain string) (string, int, e
 
 	return string(body), resp.StatusCode, nil
 }
-

@@ -63,9 +63,9 @@ func getLocalizer(locale string) *i18n.Localizer {
 		return nil
 	}
 
-	// Build the language list: the requested locale first, then the
-	// default locale so unknown locales fall back to zh-CN. NewLocalizer
-	// silently skips unparseable locale strings.
+	// Requested locale first, then the default, so unsupported locales fall
+	// back to the default rather than yielding an empty message.
+	// NewLocalizer silently skips unparseable locale strings.
 	langs := []string{}
 	if locale != "" {
 		langs = append(langs, locale)

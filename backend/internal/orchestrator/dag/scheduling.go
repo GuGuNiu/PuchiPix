@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	"backend/internal/infra"
 	"backend/internal/orchestrator"
 	"backend/internal/orchestrator/slot"
 )
 
-// activateReadyNodes implements the three-phase node activation logic
-// from the TypeScript orchestrator, including the 260720 READY deadlock
-// fix (Phase 2 re-submission) and orphaned QUEUED recovery (Phase 3).
-// It returns the number of nodes submitted (or re-submitted) to the
-// scheduler in this pass.
+// activateReadyNodes drives the full node activation pass: nodes whose
+// dependencies are met move to READY then QUEUED and are submitted,
+// already-QUEUED nodes missing from the scheduler are recovered and
+// re-submitted, and RESUME_VERIFY nodes are re-verified. Returns the
+// number of nodes submitted (or re-submitted) in this pass.
 func (o *DagOrchestrator) activateReadyNodes(ctx context.Context, dagID string) (int, error) {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -29,31 +30,30 @@ func (o *DagOrchestrator) activateReadyNodes(ctx context.Context, dagID string) 
 	}
 	var toSubmit []pendingSubmit
 	var orphaned []pendingSubmit
-	// RESUME_VERIFY nodes (produced by restoreDag's onRestart policy when
-	// resumableVerify=true) are stranded after restart: nothing re-drives
-	// their verification. Collect them here and run the reconciler after
-	// the lock is released (runVerification re-acquires dag.mu, so it must
-	// never be called while holding it).
+	// RESUME_VERIFY nodes (produced by restoreDag's onRestart policy
+	// when resumableVerify is true) are stranded after restart: nothing
+	// re-drives their verification. Collect them here and run the
+	// reconciler after the lock is released (runVerification
+	// re-acquires dag.mu, so it must never be called while holding it).
 	var toResumeVerify []pendingSubmit
 
 	for nodeID, node := range dag.nodes {
 		state := node.fsm.State()
 
-		// Phase 4: RESUME_VERIFY recovery — re-run verification on the
-		// side effects. passed → COMPLETED, needs_retry → re-submit for
-		// retry, failed → FAILED. Previously these nodes were stranded
-		// forever with no activation path.
+		// RESUME_VERIFY recovery: re-run verification on the side effects.
+		// passed -> COMPLETED, needs_retry -> re-submit for retry,
+		// failed -> FAILED.
 		if state == orchestrator.NodeStateResumeVerify {
 			toResumeVerify = append(toResumeVerify, pendingSubmit{nodeID: nodeID, node: node})
 			continue
 		}
 
-		// Phase 3 first: a node ALREADY in QUEUED at entry is a leftover
-		// from a previous activation pass — if the scheduler lost it,
-		// recover by rolling back and re-submitting. This check must run
-		// BEFORE Phase 2 marks new QUEUED nodes, otherwise freshly-queued
-		// nodes (not yet submitted — submission happens after unlock)
-		// would be misclassified as orphans and rolled back.
+		// A node ALREADY in QUEUED at entry is a leftover from a previous
+		// activation pass. If the scheduler lost it, recover by rolling
+		// back and re-submitting. This check must run BEFORE new QUEUED
+		// transitions below, otherwise freshly-queued nodes (not yet
+		// submitted, since submission happens after unlock) would be
+		// misclassified as orphans and rolled back.
 		if state == orchestrator.NodeStateQueued && o.scheduler != nil && !o.scheduler.HasNode(dagID, nodeID) {
 			o.logger.Info("Recovering orphaned QUEUED node", "dagId", dagID, "nodeId", nodeID)
 			orphaned = append(orphaned, pendingSubmit{nodeID: nodeID, node: node})
@@ -133,10 +133,10 @@ func (o *DagOrchestrator) activateReadyNodes(ctx context.Context, dagID string) 
 				Reason: "resume verification passed", TriggeredBy: "reconciler",
 			})
 		case "needs_retry":
-			// Legal path is RESUME_VERIFY -> VERIFYING -> NEEDS_RETRY
-			// (resume_verify -> needs_retry is not in validTransitions).
-			// Then NEEDS_RETRY -> READY -> QUEUED re-enters the scheduler
-			// so the executor re-runs instead of stalling until manual
+			// The legal path is RESUME_VERIFY to VERIFYING to NEEDS_RETRY;
+			// resume_verify to needs_retry is not in validTransitions.
+			// Then NEEDS_RETRY to READY to QUEUED re-enters the scheduler
+			// so the executor re-runs instead of stalling until a manual
 			// RetryDag.
 			if err := item.node.fsm.Transition(orchestrator.NodeStateVerifying, orchestrator.TransitionContext{
 				Reason: "resume verification needs retry, re-entering verify", TriggeredBy: "reconciler",
@@ -210,6 +210,18 @@ func (o *DagOrchestrator) propagateCompletion(ctx context.Context, dagID, comple
 	}
 	dag.mu.Lock()
 
+	completedNode, exists := dag.nodes[completedNodeID]
+	if !exists {
+		dag.mu.Unlock()
+		return
+	}
+	completedState := completedNode.fsm.State()
+	if completedState != orchestrator.NodeStateCompleted &&
+		!(completedNode.definition.NonCritical && (completedState == orchestrator.NodeStateFailed || completedState == orchestrator.NodeStateTimeout)) {
+		dag.mu.Unlock()
+		return
+	}
+
 	var toSubmit []*dagNodeInstance
 	if dag.graphIdx != nil {
 		for _, succID := range dag.graphIdx.directSuccessors(completedNodeID) {
@@ -219,10 +231,10 @@ func (o *DagOrchestrator) propagateCompletion(ctx context.Context, dagID, comple
 			}
 			succ.completedDeps++
 			// Accept PENDING and PREPARING: the API's optimistic
-			// "optimistic_preparing" transition moves not-yet-run nodes
-			// to PREPARING immediately after submit. Restricting this to
-			// PENDING meant a dependent whose deps completed later was
-			// permanently skipped (stuck in PREPARING, DAG wedged).
+			// "optimistic_preparing" transition moves not-yet-run nodes to
+			// PREPARING immediately after submit, so restricting this to
+			// PENDING leaves a dependent whose deps complete later stuck in
+			// PREPARING with the DAG wedged.
 			state := succ.fsm.State()
 			if state != orchestrator.NodeStatePending && state != orchestrator.NodeStatePreparing {
 				continue
@@ -330,24 +342,32 @@ func (o *DagOrchestrator) activateSatisfiedSuccessors(ctx context.Context, dagID
 	}
 }
 
+// nodeSiteID reads the site identifier the DAG factory injected into a node's
+// config. Nodes built before the key existed, or by pipelines that have no
+// site binding, return an empty string and skip domain balancing.
+func nodeSiteID(config map[string]any) string {
+	if raw, ok := config["siteId"]; ok {
+		if s, isString := raw.(string); isString {
+			return s
+		}
+	}
+	return ""
+}
+
 // submitToScheduler builds a SchedulableNode from the definition and
 // submits it to the scheduler, rolling back to READY if rejected.
 //
 // When a flow controller is configured, Ask() is called BEFORE the
 // scheduler's Submit(). If admission is denied (the factory is under
-// high pressure), the node remains in QUEUED state and will be retried
-// by the auto-reactivation ticker. This implements the "front gate"
-// pattern: the flow controller is the security checkpoint at the
-// factory entrance, pacing tasks so the factory floor never gets
-// overwhelmed.
+// high pressure), the node remains in QUEUED state and is retried by the
+// auto-reactivation ticker. This is the "front gate" pattern: the flow
+// controller is the checkpoint at the factory entrance, pacing tasks so
+// the factory floor never gets overwhelmed.
 //
-// Note: The previous jitter (time.Sleep) was removed because:
-// 1. It blocked the caller goroutine, stalling activation pipelines.
-// 2. The cross-DAG fairness mechanism in ReadyQueue (dagDispatchCount)
-//    already prevents thundering-herd contention by alternating among
-//    DAGs at the same priority level.
-// 3. Non-blocking jitter (time.AfterFunc) caused test timing issues
-//    because tests expect synchronous submission feedback.
+// No submission jitter is applied. Blocking the caller would stall
+// activation pipelines, and cross-DAG fairness in ReadyQueue
+// (dagDispatchCount) already prevents thundering-herd contention by
+// alternating among DAGs at the same priority level.
 func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID string, node *dagNodeInstance) {
 	schedulable := orchestrator.SchedulableNode{
 		NodeID:               nodeID,
@@ -368,24 +388,46 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 	}
 
 	// Flow control: ask the admission controller for permission before
-	// entering the scheduler. If denied, leave the node in QUEUED so
-	// the auto-reactivation ticker retries it later.
+	// entering the scheduler. If denied, leave the node in QUEUED so the
+	// auto-reactivation ticker retries it later.
 	//
-	// IMPORTANT: Use TRY-mode (non-blocking) to prevent callers
-	// (especially ResumeDag which processes nodes sequentially) from
-	// blocking the entire recovery pipeline when tokens run out.
-	// The blocking Acquire() version would stall ResumeDag at the
-	// first token-deficient node, leaving all subsequent nodes stuck.
+	// TRY-mode (non-blocking) is mandatory: a blocking Acquire would stall
+	// sequential callers such as ResumeDag at the first token-deficient
+	// node, leaving every subsequent node stuck.
 	if o.flowController != nil {
 		if !o.flowController.TryAsk() {
 			// Admission denied. The node stays in QUEUED and the
 			// auto-reactivation ticker will retry. Do NOT roll back
-			// to READY — that would put it at the back of the line
-			// and cause unnecessary churn. This is the core of the
-			// "front gate" flow control pattern.
+			// to READY, that would push it to the back of the line
+			// and cause unnecessary churn.
 			o.logger.Debug("Admission denied (non-blocking), node queued for retry",
 				"nodeId", nodeID, "dagId", dagID)
 			return
+		}
+	}
+
+	// Per-domain admission: reserve capacity on one of the site's mirror
+	// domains. Same non-blocking contract as the flow controller above, and
+	// the same consequence on denial — the node stays QUEUED. Because the
+	// retry re-runs this function, the fresh attempt re-picks a domain and
+	// lands wherever capacity has since freed up.
+	//
+	// An empty reserved domain means the site has no known domains, which
+	// TryAdmit reports as admitted: there is nothing to balance against, so
+	// the node proceeds ungated.
+	if o.domainAdmission != nil {
+		domain, admitted := o.domainAdmission.TryAdmit(nodeSiteID(node.definition.Config))
+		if !admitted {
+			o.logger.Debug("Domain admission denied, node queued for retry",
+				infra.LogContext{
+					NodeID: nodeID,
+					DagID:  dagID,
+					Extra:  map[string]any{"siteId": nodeSiteID(node.definition.Config)},
+				})
+			return
+		}
+		if domain != "" {
+			o.recordDomainReservation(dagID, nodeID, domain)
 		}
 	}
 
@@ -399,10 +441,9 @@ func (o *DagOrchestrator) submitToScheduler(ctx context.Context, nodeID, dagID s
 	}
 
 	// Report the node's post-submit state to the entity tables. On a
-	// successful submit the node is QUEUED; on a rejection it just rolled
+	// successful submit the node is QUEUED; on a rejection it has rolled
 	// back to READY. Without this sync, rejected nodes left the DB status
-	// stuck at "scraping" even though they were never scheduled (the
-	// "all tasks started identifying" defect).
+	// stuck at "scraping" even though they were never scheduled.
 	if o.statusSyncFn != nil {
 		o.statusSyncFn(ctx, dagID, nodeID, node.definition, node.fsm.State())
 	}
@@ -451,9 +492,9 @@ func (o *DagOrchestrator) cascadeFailureToDependents(ctx context.Context, dagID,
 			}); err == nil {
 				toSync = append(toSync, succ)
 				// Stop an in-flight executor of the cascaded node AFTER it
-				// reached FAILED (same ordering rationale as PauseDag:
+				// reached FAILED, for the same ordering rationale as PauseDag:
 				// cancelling first could let the executor's report flip a
-				// RUNNING node via the OnNodeCompleted failure path).
+				// RUNNING node via the OnNodeCompleted failure path.
 				if o.scheduler != nil {
 					o.scheduler.CancelRunningNode(dagID, succID)
 				}
@@ -476,13 +517,12 @@ func (o *DagOrchestrator) cascadeFailureToDependents(ctx context.Context, dagID,
 }
 
 // ReactivateReadyNodes scans all DAGs for READY nodes and re-submits
-// them to the scheduler. This is the 260720 fix that prevents READY
-// nodes from deadlocking when the queue was previously full.
+// them to the scheduler, which is what keeps READY nodes from
+// deadlocking when the queue was full.
 //
-// Optimization: DAGs whose allTerminal flag is true are skipped
-// entirely, reducing the periodic scan from O(dags*nodes) to
-// O(activeDags*nodes) in the common idle case where dozens of
-// completed DAGs persist in memory.
+// DAGs whose allTerminal flag is true are skipped entirely, reducing the
+// periodic scan from O(dags*nodes) to O(activeDags*nodes) in the common
+// idle case where dozens of completed DAGs persist in memory.
 func (o *DagOrchestrator) ReactivateReadyNodes(ctx context.Context) {
 	o.dagsMu.RLock()
 	dagIDs := make([]string, 0, len(o.dags))

@@ -4,7 +4,6 @@ import (
 	"sync"
 )
 
-// EventHandler receives event payloads when a subscribed event fires.
 type EventHandler func(payload any)
 
 type subscriber struct {
@@ -23,7 +22,6 @@ type EventBus struct {
 	logger      *Logger
 }
 
-// NewEventBus creates a ready-to-use EventBus instance.
 func NewEventBus() *EventBus {
 	return &EventBus{
 		subscribers: make(map[string][]*subscriber),
@@ -38,8 +36,6 @@ func (eb *EventBus) On(event string, handler EventHandler) func() {
 	return eb.subscribe(event, handler, false)
 }
 
-// Once registers a handler that is automatically removed after the
-// first invocation.
 func (eb *EventBus) Once(event string, handler EventHandler) {
 	eb.subscribe(event, handler, true)
 }
@@ -130,7 +126,6 @@ func (eb *EventBus) GetLastEvent(event string) any {
 	return eb.lastEvents[event]
 }
 
-// Clear removes all subscribers and cached events.
 func (eb *EventBus) Clear() {
 	eb.mu.Lock()
 	eb.subscribers = make(map[string][]*subscriber)

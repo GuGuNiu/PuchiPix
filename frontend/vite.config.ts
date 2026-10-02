@@ -41,9 +41,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         /*
-         * Split vendors: the React family and other dependencies go into
-         * dedicated chunks so they stay cached across deploys while only
-         * app chunks invalidate on code updates.
+         * Split vendors so third-party chunks stay cached across deploys and
+         * only app chunks invalidate when application code changes.
          */
         manualChunks(id: string) {
           if (!id.includes("node_modules")) return;

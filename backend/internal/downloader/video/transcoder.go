@@ -14,17 +14,24 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var ffmpegPath = "ffmpeg"
 
+var (
+	cpuTranscodeSlots = make(chan struct{}, 2)
+	gpuTranscodeSlots = make(chan struct{}, 1)
+)
+
 type TranscodeOptions struct {
-	UseGPU bool
-	ForceGPUType string
+	UseGPU           bool
+	ForceGPUType     string
+	ExpectedDuration time.Duration
 	// OnProgress receives the transcoding progress as a 0-100 percentage,
 	// parsed from ffmpeg's `-progress pipe:1` machine-readable output.
 	// It is invoked from a background reader goroutine, so the callback
-	// must be cheap and goroutine-safe. Nil disables progress reporting
+	// must be cheap and tolerate concurrent calls. Nil disables progress reporting
 	// entirely (no -progress args are added, stdout behavior unchanged).
 	OnProgress func(percent float64)
 }
@@ -35,8 +42,10 @@ type TranscodeOptions struct {
 // inputDir (stale merge outputs, foreign-variant residue) are ignored. A nil
 // manifest falls back to a directory scan (legacy callers only).
 func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []string, opts ...TranscodeOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	dirPath := filepath.Clean(inputDir)
-
 	absDir, err := filepath.Abs(dirPath)
 	if err != nil {
 		absDir = dirPath
@@ -44,9 +53,6 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []st
 
 	var files []string
 	if len(manifest) > 0 {
-		// Manifest order is playlist order — never re-sorted. Missing or
-		// empty entries are skipped (callers tolerate partial downloads
-		// within the failure threshold); an empty usable set is an error.
 		for _, name := range manifest {
 			info, statErr := os.Stat(filepath.Join(absDir, name))
 			if statErr != nil || info.Size() == 0 {
@@ -55,18 +61,16 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []st
 			files = append(files, name)
 		}
 	} else {
-		entries, err := os.ReadDir(absDir)
-		if err != nil {
-			return fmt.Errorf("cannot read segment directory: %w", err)
+		entries, readErr := os.ReadDir(absDir)
+		if readErr != nil {
+			return fmt.Errorf("cannot read segment directory: %w", readErr)
 		}
-
 		for _, entry := range entries {
 			name := entry.Name()
 			if strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".tmp") {
 				files = append(files, name)
 			}
 		}
-
 		sort.Slice(files, func(i, j int) bool {
 			return extractSegmentIndex(files[i]) < extractSegmentIndex(files[j])
 		})
@@ -77,6 +81,7 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []st
 	}
 
 	concatPath := filepath.Join(absDir, "concat.txt")
+	defer os.Remove(concatPath)
 	var buf bytes.Buffer
 	for _, file := range files {
 		full := filepath.Join(absDir, file)
@@ -88,43 +93,100 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []st
 		return fmt.Errorf("cannot write concat list: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		os.Remove(concatPath)
+	concatResolved, err := filepath.Abs(concatPath)
+	if err != nil {
+		concatResolved = concatPath
+	}
+	return transcodeInput(ctx, concatResolved, outputPath, true, firstTranscodeOptions(opts))
+}
+
+func TranscodeMergedTS(ctx context.Context, inputPath, outputPath string, opts ...TranscodeOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if inputPath == "" {
+		return fmt.Errorf("merged TS input path is empty")
+	}
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("cannot stat merged TS input: %w", err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("merged TS input is empty")
+	}
+	inputResolved, err := filepath.Abs(inputPath)
+	if err != nil {
+		inputResolved = inputPath
+	}
+	return transcodeInput(ctx, inputResolved, outputPath, false, firstTranscodeOptions(opts))
+}
+
+func firstTranscodeOptions(opts []TranscodeOptions) TranscodeOptions {
+	if len(opts) == 0 {
+		return TranscodeOptions{}
+	}
+	return opts[0]
+}
+
+func acquireTranscodeSlot(ctx context.Context, useGPU bool) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	slots := cpuTranscodeSlots
+	if useGPU {
+		slots = gpuTranscodeSlots
+	}
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func transcodeInput(ctx context.Context, inputPath, outputPath string, concatInput bool, opt TranscodeOptions) error {
+	release, err := acquireTranscodeSlot(ctx, opt.UseGPU)
+	if err != nil {
 		return err
 	}
+	defer release()
 
 	outputResolved, err := filepath.Abs(outputPath)
 	if err != nil {
 		outputResolved = outputPath
 	}
-	concatResolved, err := filepath.Abs(concatPath)
+	outputDir := filepath.Dir(outputResolved)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+	ext := filepath.Ext(outputResolved)
+	if ext == "" {
+		ext = ".mp4"
+	}
+	tempFile, err := os.CreateTemp(outputDir, "."+filepath.Base(outputResolved)+"-*"+ext)
 	if err != nil {
-		concatResolved = concatPath
+		return err
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	defer os.Remove(tempPath)
+	tempResolved, err := filepath.Abs(tempPath)
+	if err != nil {
+		tempResolved = tempPath
 	}
 
-	// Determine transcoding strategy: GPU HW accel vs stream copy
 	var args []string
-	opt := TranscodeOptions{}
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
-
 	if opt.UseGPU {
-		args = buildHWAccelArgs(concatResolved, outputResolved, opt.ForceGPUType)
+		args = buildHWAccelArgsForInput(inputPath, tempResolved, opt.ForceGPUType, concatInput)
 	} else {
-		args = []string{
-			"-f", "concat",
-			"-safe", "0",
-			"-i", concatResolved,
-			"-c", "copy",
-			"-bsf:a", "aac_adtstoasc",
-			"-y",
-			outputResolved,
-		}
+		args = buildCopyArgs(inputPath, tempResolved, concatInput)
 	}
-
-	// `-progress` / `-nostats` are global ffmpeg options (position
-	// independent), prepended ahead of any input-side hwaccel args.
 	if opt.OnProgress != nil {
 		args = append([]string{"-progress", "pipe:1", "-nostats"}, args...)
 	}
@@ -133,7 +195,7 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []st
 	var runErr error
 	var stderrTail func() string
 	if opt.OnProgress != nil {
-		capture := &durationCapture{}
+		capture := &durationCapture{expected: opt.ExpectedDuration.Seconds()}
 		cmd.Stderr = capture
 		stderrTail = capture.String
 		runErr = runWithProgress(cmd, capture, opt.OnProgress)
@@ -145,16 +207,38 @@ func TranscodeTS(ctx context.Context, inputDir, outputPath string, manifest []st
 	}
 
 	if runErr != nil {
-		os.Remove(concatPath)
 		tail := stderrTail()
 		if len(tail) > 500 {
 			tail = tail[len(tail)-500:]
 		}
 		return fmt.Errorf("ffmpeg exited with error: %w: %s", runErr, tail)
 	}
-
-	os.Remove(concatPath)
+	info, err := os.Stat(tempPath)
+	if err != nil {
+		return fmt.Errorf("ffmpeg output is missing: %w", err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("ffmpeg output is empty")
+	}
+	if err := os.Rename(tempPath, outputResolved); err != nil {
+		removeErr := os.Remove(outputResolved)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return fmt.Errorf("cannot replace output: %w", err)
+		}
+		if err := os.Rename(tempPath, outputResolved); err != nil {
+			return fmt.Errorf("cannot publish output: %w", err)
+		}
+	}
 	return nil
+}
+
+func buildCopyArgs(inputPath, outputPath string, concatInput bool) []string {
+	args := make([]string, 0, 12)
+	if concatInput {
+		args = append(args, "-f", "concat", "-safe", "0")
+	}
+	args = append(args, "-i", inputPath, "-c", "copy", "-bsf:a", "aac_adtstoasc", "-y", outputPath)
+	return args
 }
 
 // outTimeRe matches the `out_time=H:MM:SS.micros` key of ffmpeg's
@@ -167,10 +251,11 @@ var outTimeRe = regexp.MustCompile(`^out_time=(\d+):(\d{2}):(\d{2})\.(\d+)`)
 // Writes arrive on exec's internal copy goroutine while Total is read
 // from the stdout parser goroutine, so access is mutex-guarded.
 type durationCapture struct {
-	mu    sync.Mutex
-	buf   bytes.Buffer
-	line  []byte
-	total float64
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	line     []byte
+	total    float64
+	expected float64
 }
 
 func (d *durationCapture) Write(p []byte) (int, error) {
@@ -198,7 +283,10 @@ func (d *durationCapture) Write(p []byte) (int, error) {
 func (d *durationCapture) Total() float64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.total
+	if d.total > 0 {
+		return d.total
+	}
+	return d.expected
 }
 
 // String returns the accumulated stderr, matching the plain-buffer
@@ -233,13 +321,13 @@ func runWithProgress(cmd *exec.Cmd, dur *durationCapture, onProgress func(percen
 
 // parseFFmpegProgress scans ffmpeg's `-progress pipe:1` key=value output
 // and invokes onProgress with the percentage derived from out_time and
-// the duration captured from stderr. Updates are throttled to 0.1% steps;
-// 100 is only reported on the terminal `progress=end` line so the value
-// stays below the frontend's probing-stage threshold while ffmpeg runs.
+// the duration captured from stderr. Updates are throttled by time and
+// percentage; 100 is only reported on the terminal `progress=end` line.
 func parseFFmpegProgress(r io.Reader, dur *durationCapture, onProgress func(percent float64)) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024)
 	var lastSent float64 = -1
+	var lastSentAt time.Time
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "progress=end" {
@@ -265,9 +353,10 @@ func parseFFmpegProgress(r io.Reader, dur *durationCapture, onProgress func(perc
 		if pct < 0 {
 			pct = 0
 		}
-		if pct-lastSent >= 0.1 {
+		if pct-lastSent >= 0.5 || lastSentAt.IsZero() || time.Since(lastSentAt) >= 250*time.Millisecond {
 			onProgress(pct)
 			lastSent = pct
+			lastSentAt = time.Now()
 		}
 	}
 }
@@ -309,16 +398,31 @@ func ProbeDuration(ctx context.Context, filePath string) (float64, error) {
 // ProbeResolution extracts the video resolution string (e.g. "1920x1080")
 // from ffmpeg's stderr output, returning an empty string when absent.
 func ProbeResolution(ctx context.Context, filePath string) (string, error) {
-	output, err := runFFmpegProbe(ctx, filePath)
+	metadata, err := ProbeVideoMetadata(ctx, filePath)
 	if err != nil {
 		return "", nil
 	}
+	return metadata.Resolution, nil
+}
 
-	match := resolutionRe.FindStringSubmatch(output)
-	if match == nil {
-		return "", nil
+type VideoMetadata struct {
+	Duration   float64
+	Resolution string
+}
+
+func ProbeVideoMetadata(ctx context.Context, filePath string) (VideoMetadata, error) {
+	output, err := runFFmpegProbe(ctx, filePath)
+	if err != nil {
+		return VideoMetadata{}, err
 	}
-	return match[1], nil
+	metadata := VideoMetadata{}
+	if match := durationRe.FindStringSubmatch(output); match != nil {
+		metadata.Duration = float64(parseIntSafe(match[1])*3600+parseIntSafe(match[2])*60+parseIntSafe(match[3])) + float64(parseIntSafe(match[4]))/100.0
+	}
+	if match := resolutionRe.FindStringSubmatch(output); match != nil {
+		metadata.Resolution = match[1]
+	}
+	return metadata, nil
 }
 
 func runFFmpegProbe(ctx context.Context, filePath string) (string, error) {
@@ -341,11 +445,8 @@ func parseIntSafe(s string) int {
 	return n
 }
 
-// buildHWAccelArgs constructs ffmpeg arguments for hardware-accelerated
-// transcoding. Falls back to stream copy if no suitable GPU is found.
 func buildHWAccelArgs(concatPath, outputPath, forceGPUType string) []string {
 	gpuInfo := DetectGPU()
-
 	if forceGPUType != "" {
 		forcedType := GPUType(forceGPUType)
 		if gpuInfo.Type == forcedType && gpuInfo.Available {
@@ -353,50 +454,75 @@ func buildHWAccelArgs(concatPath, outputPath, forceGPUType string) []string {
 		}
 		return buildForcedHWArgs(forcedType, concatPath, outputPath)
 	}
-
 	if gpuInfo.SupportsHWTranscode() {
 		return buildHWArgsForType(gpuInfo, concatPath, outputPath)
 	}
+	return buildCopyArgs(concatPath, outputPath, true)
+}
 
-	return []string{
-		"-f", "concat",
-		"-safe", "0",
-		"-i", concatPath,
-		"-c", "copy",
-		"-bsf:a", "aac_adtstoasc",
-		"-y",
-		outputPath,
+func buildHWAccelArgsForInput(inputPath, outputPath, forceGPUType string, concatInput bool) []string {
+	if concatInput {
+		return buildHWAccelArgs(inputPath, outputPath, forceGPUType)
 	}
+	gpuInfo := DetectGPU()
+	if forceGPUType != "" {
+		forcedType := GPUType(forceGPUType)
+		if gpuInfo.Type == forcedType && gpuInfo.Available {
+			return buildHWArgsForTypeForInput(gpuInfo, inputPath, outputPath, false)
+		}
+		return buildForcedHWArgsForInput(forcedType, inputPath, outputPath, false)
+	}
+	if gpuInfo.SupportsHWTranscode() {
+		return buildHWArgsForTypeForInput(gpuInfo, inputPath, outputPath, false)
+	}
+	return buildCopyArgs(inputPath, outputPath, false)
 }
 
 // TranscodeTSWithFallback attempts GPU transcoding first, then falls back to
 // CPU stream copy on failure. Returns an error only if both methods fail.
 // manifest is the ordered segment file list (see TranscodeTS).
 func TranscodeTSWithFallback(ctx context.Context, inputDir, outputPath string, manifest []string, opts TranscodeOptions) error {
-	if !opts.UseGPU {
-		return TranscodeTS(ctx, inputDir, outputPath, manifest, opts)
-	}
+	return transcodeWithFallback(ctx, opts, func(options TranscodeOptions) error {
+		if !options.UseGPU {
+			return transcodeCopyDirect(ctx, inputDir, outputPath, manifest, options)
+		}
+		return TranscodeTS(ctx, inputDir, outputPath, manifest, options)
+	})
+}
 
-	gpuErr := TranscodeTS(ctx, inputDir, outputPath, manifest, opts)
+func TranscodeMergedTSWithFallback(ctx context.Context, inputPath, outputPath string, opts TranscodeOptions) error {
+	return transcodeWithFallback(ctx, opts, func(options TranscodeOptions) error {
+		return TranscodeMergedTS(ctx, inputPath, outputPath, options)
+	})
+}
+
+func transcodeWithFallback(ctx context.Context, opts TranscodeOptions, run func(TranscodeOptions) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !opts.UseGPU {
+		return run(opts)
+	}
+	gpuErr := run(opts)
 	if gpuErr == nil {
 		return nil
 	}
-
-	// Preserve OnProgress across the CPU fallback (see transcodeCopyDirect).
-	fallbackOpts := TranscodeOptions{UseGPU: false, OnProgress: opts.OnProgress}
-	fallbackErr := transcodeCopyDirect(ctx, inputDir, outputPath, manifest, fallbackOpts)
+	if ctx.Err() != nil {
+		return gpuErr
+	}
+	fallbackOpts := opts
+	fallbackOpts.UseGPU = false
+	fallbackErr := run(fallbackOpts)
 	if fallbackErr == nil {
 		return nil
 	}
-
 	return fmt.Errorf("GPU transcoding failed (%v) and CPU fallback also failed (%v)", gpuErr, fallbackErr)
 }
 
 // transcodeCopyDirect performs a direct stream copy without GPU options.
 // OnProgress (if any) is preserved so the CPU fallback keeps reporting
-// progress instead of silently going indeterminate mid-task.
+// progress instead of going indeterminate mid-task.
 func transcodeCopyDirect(ctx context.Context, inputDir, outputPath string, manifest []string, opts TranscodeOptions) error {
-	// Reuse TranscodeTS with UseGPU=false
 	opts.UseGPU = false
 	return TranscodeTS(ctx, inputDir, outputPath, manifest, opts)
 }
@@ -406,25 +532,28 @@ func transcodeCopyDirect(ctx context.Context, inputDir, outputPath string, manif
 // must follow -i but precede the output path. Swapping the order causes
 // ffmpeg to reject the command with an input/output option mismatch error.
 func buildHWArgsForType(gpu *GPUInfo, concatPath, outputPath string) []string {
+	return buildHWArgsForTypeForInput(gpu, concatPath, outputPath, true)
+}
+
+func buildHWArgsForTypeForInput(gpu *GPUInfo, inputPath, outputPath string, concatInput bool) []string {
 	inputArgs := gpu.GetHWInputArgs()
 	outputArgs := gpu.GetHWOutputArgs()
-
-	args := make([]string, 0, len(inputArgs)+len(outputArgs)+6)
+	args := make([]string, 0, len(inputArgs)+len(outputArgs)+8)
 	args = append(args, inputArgs...)
-	args = append(args,
-		"-f", "concat",
-		"-safe", "0",
-		"-i", concatPath,
-	)
+	if concatInput {
+		args = append(args, "-f", "concat", "-safe", "0")
+	}
+	args = append(args, "-i", inputPath)
 	args = append(args, outputArgs...)
 	args = append(args, "-y", outputPath)
-
 	return args
 }
 
-// buildForcedHWArgs builds ffmpeg args for a user-specified GPU encoder type
-// that may not have been auto-detected.
 func buildForcedHWArgs(forceType GPUType, concatPath, outputPath string) []string {
+	return buildForcedHWArgsForInput(forceType, concatPath, outputPath, true)
+}
+
+func buildForcedHWArgsForInput(forceType GPUType, inputPath, outputPath string, concatInput bool) []string {
 	tempInfo := &GPUInfo{Type: forceType, Available: true}
 	switch forceType {
 	case GPUTypeNVENC:
@@ -438,12 +567,7 @@ func buildForcedHWArgs(forceType GPUType, concatPath, outputPath string) []strin
 	case GPUTypeVideotoolbox:
 		tempInfo.EncoderName = "h264_videotoolbox"
 	default:
-		return []string{
-			"-f", "concat", "-safe", "0",
-			"-i", concatPath,
-			"-c", "copy", "-bsf:a", "aac_adtstoasc",
-			"-y", outputPath,
-		}
+		return buildCopyArgs(inputPath, outputPath, concatInput)
 	}
-	return buildHWArgsForType(tempInfo, concatPath, outputPath)
+	return buildHWArgsForTypeForInput(tempInfo, inputPath, outputPath, concatInput)
 }

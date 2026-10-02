@@ -128,12 +128,12 @@ func (t *stealthTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			t.h2Transport = &http2.Transport{
 				AllowHTTP: false,
 				DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-					_ = cfg // We use uTLS's own config, not the standard tls.Config
+					_ = cfg // uTLS's own config is used, not the standard tls.Config
 					return dialUTLS(ctx, network, addr)
 				},
 			}
 		})
-		// Close our manually-dialed connection — http2.Transport
+		// Close the manually-dialed connection — http2.Transport
 		// will create its own via DialTLSContext.
 		tlsConn.Close()
 		return t.h2Transport.RoundTrip(req)

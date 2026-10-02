@@ -1,63 +1,152 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"backend/internal/infra"
 )
 
-// cleanupLogger is a package-level logger for background file cleanup.
 var cleanupLogger = infra.NewLogger("Cleanup")
 
-// asyncRemoveAll removes the given paths (files or directory trees) in a
-// background goroutine so DELETE handlers can respond immediately instead of
-// blocking on slow or locked file I/O (Windows: files may still be held open
-// by in-flight download/merge executors right after CancelDag).
-//
-// Retry policy: up to 5 attempts, 2s apart. This rides out the window where
-// a just-cancelled executor still holds file handles; after the final attempt
-// any survivors are logged (never silently swallowed) so orphaned leftovers
-// remain visible and diagnosable.
-//
-// Motivation (2026-09-05 batch-delete stall): synchronous os.RemoveAll inside
-// ShelfDelete/TaskDelete blocked responses on locked files, and errors were
-// discarded with `_ =`, leaving half-deleted folders with no trace in logs.
-func asyncRemoveAll(paths ...string) {
-	go func() {
-		const attempts = 5
-		const interval = 2 * time.Second
+func resolveExistingPath(path string) (string, error) {
+	current := filepath.Clean(path)
+	var suffix []string
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
+}
 
-		pending := make([]string, 0, len(paths))
-		for _, p := range paths {
-			if p != "" {
-				pending = append(pending, p)
-			}
+func containedPath(root, target string, allowRoot bool) (string, error) {
+	if root == "" || target == "" {
+		return "", fmt.Errorf("empty deletion root or target")
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot, err := resolveExistingPath(absRoot)
+	if err != nil {
+		return "", err
+	}
+	resolvedTarget, err := resolveExistingPath(absTarget)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedTarget)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		if allowRoot {
+			return absTarget, nil
 		}
-		if len(pending) == 0 {
-			return
-		}
+		return "", fmt.Errorf("deletion target %q is the root %q", absTarget, absRoot)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("deletion target %q is outside root %q", absTarget, absRoot)
+	}
+	return absTarget, nil
+}
 
-		for i := 1; i <= attempts; i++ {
-			remaining := pending[:0]
-			for _, p := range pending {
-				if err := os.RemoveAll(p); err != nil {
-					remaining = append(remaining, p)
-					if i == attempts {
-						cleanupLogger.Error("Background cleanup failed after retries",
-							"path", p,
-							"attempts", attempts,
-							"error", err.Error())
-					}
-				}
-			}
-			if len(remaining) == 0 {
-				return
-			}
-			pending = remaining
-			if i < attempts {
-				time.Sleep(interval)
+func (h *Handlers) dataRoot() string {
+	if h.DataDir != "" {
+		return h.DataDir
+	}
+	if h.DownloadMgr != nil {
+		return h.DownloadMgr.DataRoot()
+	}
+	return ""
+}
+
+func (h *Handlers) validateDataPath(rootDir, target string, allowRoot bool) (string, error) {
+	dataDir := h.dataRoot()
+	if dataDir == "" {
+		return "", fmt.Errorf("data directory is not configured")
+	}
+	if !filepath.IsAbs(target) {
+		if strings.EqualFold(filepath.Base(dataDir), "data") && (target == "data" || strings.HasPrefix(target, "data"+string(filepath.Separator))) {
+			target = filepath.Join(filepath.Dir(dataDir), target)
+		} else {
+			target = filepath.Join(dataDir, target)
+		}
+	}
+	return containedPath(filepath.Join(dataDir, rootDir), target, allowRoot)
+}
+
+func removeAllSync(ctx context.Context, paths ...string) error {
+	pending := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		clean := filepath.Clean(path)
+		key := clean
+		if resolved, err := resolveExistingPath(clean); err == nil {
+			key = resolved
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		pending = append(pending, clean)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	const attempts = 5
+	const interval = time.Second
+	var lastErr error
+	var lastPath string
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		remaining := pending[:0]
+		for _, path := range pending {
+			if err := os.RemoveAll(path); err != nil {
+				remaining = append(remaining, path)
+				lastErr = err
+				lastPath = path
 			}
 		}
-	}()
+		if len(remaining) == 0 {
+			return nil
+		}
+		pending = remaining
+		if attempt < attempts {
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("remove cache path %s: %w", lastPath, ctx.Err())
+			case <-timer.C:
+			}
+		}
+	}
+
+	return fmt.Errorf("remove cache path %s: %w", lastPath, lastErr)
 }

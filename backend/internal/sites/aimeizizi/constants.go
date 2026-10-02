@@ -5,21 +5,19 @@ import (
 	"strings"
 )
 
-// GalleryPageMetadata holds parsed data from a single gallery page.
 type GalleryPageMetadata struct {
-	H1Title      string
-	RawTitle     string
-	Tags         []string
-	Category     string
-	CoverURL     string
-	PublishTime  string
-	CurrentPage  int
-	TotalPages   int
-	Images       []GalleryImageEntry
-	Videos       []string
+	H1Title     string
+	RawTitle    string
+	Tags        []string
+	Category    string
+	CoverURL    string
+	PublishTime string
+	CurrentPage int
+	TotalPages  int
+	Images      []GalleryImageEntry
+	Videos      []string
 }
 
-// GalleryImageEntry represents a single image URL with its page index.
 type GalleryImageEntry struct {
 	URL       string
 	PageIndex int
@@ -46,7 +44,6 @@ type ArticlePageConfig struct {
 
 var articleIDPattern = regexp.MustCompile(`/article/(\d+)`)
 
-// ExtractArticleID extracts the numeric article ID from a URL.
 func ExtractArticleID(url string) string {
 	m := articleIDPattern.FindStringSubmatch(url)
 	if len(m) >= 2 {
@@ -55,8 +52,6 @@ func ExtractArticleID(url string) string {
 	return ""
 }
 
-// ExtractDomainFromUrl extracts the scheme+host portion of a URL,
-// matching against the provided domain list.
 func ExtractDomainFromUrl(rawURL string, domains []string) string {
 	for _, domain := range domains {
 		if strings.HasPrefix(rawURL, domain) {
@@ -66,7 +61,6 @@ func ExtractDomainFromUrl(rawURL string, domains []string) string {
 	return ""
 }
 
-// removePublisherPrefix strips known publisher prefixes from a title.
 func removePublisherPrefix(title string, prefixes []string) string {
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(title, prefix) {
@@ -76,8 +70,6 @@ func removePublisherPrefix(title string, prefixes []string) string {
 	return title
 }
 
-// cleanTitleImpl removes publisher prefixes and site suffix patterns
-// from a raw title string, using the provided compiled patterns.
 func cleanTitleImpl(rawTitle string, suffixPatterns []*regexp.Regexp, prefixes []string) string {
 	if rawTitle == "" {
 		return ""

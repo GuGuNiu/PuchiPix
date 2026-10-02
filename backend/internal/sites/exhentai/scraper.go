@@ -18,9 +18,8 @@ import (
 
 var scraperLogger = infra.NewLogger("ExhentaiProvider")
 
-// ScrapeGalleryHTTP performs HTTP-only gallery scraping with cookie
-// authentication, mirroring the TypeScript scrapeGallery flow but
-// using goquery instead of browser page evaluation.
+// ScrapeGalleryHTTP scrapes a gallery over HTTP, attaching authentication
+// cookies when they are configured.
 func ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	cookies := GetExhentaiCookies()
 	cookieStr := ""
@@ -79,8 +78,9 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*sites.GalleryScrap
 	return buildScrapeResult(ctx, doc, usedURL, cookieStr)
 }
 
-// ScrapeGalleryBrowser performs chromedp-based gallery scraping with
-// cookie injection, used as a fallback when HTTP mode is blocked.
+// ScrapeGalleryBrowser scrapes a gallery through a headless browser, injecting
+// the authentication cookies via the DevTools protocol so they are sent on the
+// first navigation.
 func ScrapeGalleryBrowser(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	cookies := GetExhentaiCookies()
 	cookieStr := ""

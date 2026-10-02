@@ -2,12 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
 /**
- * Stabilize the defaults reference. Callers usually pass an object
- * literal (e.g. { status: "all" }), which is a fresh reference on every
- * render. Using it directly as a useCallback dependency would rebuild
- * `update` on each render, which cascades into rebuilding every callback
- * derived from it (setStatusFilter etc.) and causes needless child
- * re-renders. The reference only changes when the content actually does.
+ * Callers pass an object literal, a fresh reference on every render. Without
+ * identity stabilization it becomes a useCallback dependency and cascades into
+ * rebuilding every derived callback.
  */
 function useStableDefaults<T extends Record<string, string>>(defaults: T): T {
   const ref = useRef(defaults);

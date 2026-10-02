@@ -11,37 +11,37 @@ import (
 
 // Governor is the control loop that samples pressure and adjusts the
 // admission rate. AIMD: additive increase when idle/normal, multiplicative
-// decrease when overloaded. Mirrors TCP congestion control to probe gently
-// and back off fast under stress.
+// decrease when overloaded, mirroring TCP congestion control to probe
+// gently and back off fast under stress.
 type Governor struct {
 	mu sync.Mutex
 
 	admission *AdmissionController
 	monitor   *PressureMonitor
 
-	aimdAdditive          float64
-	aimdMultiplicative    float64
-	tickInterval          time.Duration
+	aimdAdditive           float64
+	aimdMultiplicative     float64
+	tickInterval           time.Duration
 	minPressureForIncrease float64
 
-	sampleCount   atomicCounter
-	lastDecision  string
-	runningCh     chan struct{}
-	stopOnce      sync.Once
-	logger        *infra.Logger
+	sampleCount  atomicCounter
+	lastDecision string
+	runningCh    chan struct{}
+	stopOnce     sync.Once
+	logger       *infra.Logger
 }
 
 // NewGovernor creates a governor. Defaults: additive 0.5/s, multiplicative
 // 0.5, tick 2s, probe threshold 0.5.
 func NewGovernor(ac *AdmissionController, pm *PressureMonitor) *Governor {
 	return &Governor{
-		admission:             ac,
-		monitor:               pm,
-		aimdAdditive:          0.5,
-		aimdMultiplicative:    0.5,
-		tickInterval:          2 * time.Second,
+		admission:              ac,
+		monitor:                pm,
+		aimdAdditive:           0.5,
+		aimdMultiplicative:     0.5,
+		tickInterval:           2 * time.Second,
 		minPressureForIncrease: 0.5,
-		logger:                infra.NewLogger("Governor"),
+		logger:                 infra.NewLogger("Governor"),
 	}
 }
 
@@ -172,10 +172,10 @@ func (g *Governor) Stats() GovernorStats {
 }
 
 type GovernorStats struct {
-	SampleCount   int64            `json:"sampleCount"`
-	LastDecision  string           `json:"lastDecision"`
-	TickInterval  time.Duration    `json:"tickInterval"`
-	Admission     AdmissionStats   `json:"admission"`
-	Pressure      PressureSnapshot `json:"pressure"`
-	Trend         string           `json:"trend"`
+	SampleCount  int64            `json:"sampleCount"`
+	LastDecision string           `json:"lastDecision"`
+	TickInterval time.Duration    `json:"tickInterval"`
+	Admission    AdmissionStats   `json:"admission"`
+	Pressure     PressureSnapshot `json:"pressure"`
+	Trend        string           `json:"trend"`
 }

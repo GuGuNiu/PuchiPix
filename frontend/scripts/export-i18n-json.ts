@@ -1,7 +1,4 @@
-/**
- * Exports frontend i18n dictionaries to JSON files for Go embed.
- * Run: npx tsx scripts/export-i18n-json.ts
- */
+// Exports the frontend i18n dictionaries to JSON files for the Go embed.
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

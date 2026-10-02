@@ -11,8 +11,6 @@ import (
 // while still catching genuinely hung connections.
 const DefaultHTTPTimeout = 120 * time.Second
 
-// NewHTTPClient returns an *http.Client configured for connection reuse
-// and sane timeouts.
 func NewHTTPClient(timeout time.Duration) *http.Client {
 	if timeout <= 0 {
 		timeout = DefaultHTTPTimeout

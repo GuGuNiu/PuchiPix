@@ -1,13 +1,11 @@
 import type { TranslationDict } from "../../types";
 
 const koKR: TranslationDict = {
-  // Safe delete
   "log.safeDelete.fileFailed": "파일 삭제 실패 ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.fileFinalFailed": "파일 삭제 최종 실패: {path} — {msg}",
   "log.safeDelete.dirFailed": "디렉토리 삭제 실패 ({retry}/{max}): {path} — {msg}",
   "log.safeDelete.dirFinalFailed": "디렉토리 삭제 최종 실패: {path} — {msg}",
 
-  // Gallery handler
   "log.galleryHandler.cancelledInQueue": "갤러리 #{id} 대기열에서 취소됨",
   "log.galleryHandler.cancelledInScrapeQueue": "갤러리 #{id} 식별 대기열에서 취소됨",
   "log.galleryHandler.domainRateLimited": "도메인 {url}이(가) {status} 반환 (속도 제한), 빠른 전환",
@@ -16,7 +14,6 @@ const koKR: TranslationDict = {
   "log.galleryHandler.downloadFailed": "다운로드 실패: {msg}",
   "log.galleryHandler.downloadComplete": "다운로드 완료: 성공 {success}, 실패 {failed}, 건너뜀 {skipped}",
 
-  // SJS site
   "log.sjs.noAccount": "사용 가능한 계정 없음, 게스트 모드로 접근 (전체 콘텐츠가 보이지 않을 수 있음)",
   "log.sjs.cookieInjected": "계정 #{id} Cookie 주입됨 ({count}개)",
   "log.sjs.cookieInjectionFailed": "Cookie 주입 실패, 재로그인 시도",
@@ -39,13 +36,10 @@ const koKR: TranslationDict = {
   "log.sjs.buyFormParams": "구매 폼 파라미터: formhash={formhash}, tid={tid}",
   "log.sjs.startSign": "출석 시작: {username}",
 
-  // Site registry
   "log.siteRegistry.providerNotFound": "사이트 \"{id}\"의 Provider 구현을 찾을 수 없음",
 
-  // Site account management
   "log.siteAccountManager.cookieSaved": "계정 #{id} Cookie 저장됨 ({count}개)",
 
-  // ExHentai
   "log.exhentai.scrapePageFailed": "갤러리 {page}페이지 크롤링 실패",
   "log.exhentai.pageNewLinks": "갤러리 {page}페이지: 이미지 페이지 링크 {count}개 수집 (누적 {total})",
   "log.exhentai.batchFailed": "이미지 URL 배치 가져오기 실패 (배치 {batch})",
@@ -54,7 +48,6 @@ const koKR: TranslationDict = {
   "log.exhentai.listPageNoNext": "목록 페이지에 다음 페이지 링크 없음, 종료",
   "log.exhentai.navNextFailed": "다음 페이지 탐색 실패",
 
-  // Aimeizizi
   "log.aimeizizi.learnPersonFailed": "learnPerson 실패",
   "log.aimeizizi.blockedSearchResult": "검색 결과 차단: \"{title}...\", 사유: {reason}",
   "log.aimeizizi.domainRateLimited": "{page}페이지 {status} 발생, 도메인 {domain}을(를) 속도 제한으로 표시",
@@ -65,29 +58,22 @@ const koKR: TranslationDict = {
   "log.aimeizizi.gameCharDetected": "게임 캐릭터 감지: {chars}",
   "log.aimeizizi.listPageFailed": "목록 페이지 {page} 크롤링 실패",
 
-  // Common scraping
   "log.scrape.capturedM3u8": "{url} — M3U8 URL {count}개 캡처: {urls}",
 
-  // Protagonist service
   "log.protagonist.personCacheInitFailed": "Person 캐시 초기화 실패",
 
-  // Search engine
   "log.search.batchComplete": "배치 크롤링 완료! 성공 {ok}, 실패 {fail}",
   "log.search.terminated": "검색 작업 비정상 종료: {msg}",
   "log.search.batchTerminated": "배치 검색 작업 비정상 종료: {msg}",
 
-  // Task creator
   "log.taskCreator.downloadStartFailed": "다운로드 작업 #{taskId} 시작 실패: {msg}",
 
-  // Parallel downloader
   "log.parallelDL.writeFailed": "[ParallelDL] 쓰기 실패: {msg}",
   "log.parallelDL.requestFailed": "[ParallelDL] 요청 실패: {msg}",
 
-  // Download manager
   "log.downloadManager.segmentFailed": "  세그먼트 #{idx}: {msg}",
   "log.downloadManager.incomplete": "다운로드 불완전: {failedCount}개 세그먼트 실패 (총 {totalSegments}개 중)\n{details}",
 
-  // Task queue manager
   "log.taskQueue.slotAllocated": "슬롯 할당됨: {key} (실행 중: 일반={normal}/{maxNormal}, 탐색={sniff}/{maxSniff})",
   "log.taskQueue.slotReleased": "슬롯 해제됨: {key} (실행 중: 일반={normal}/{maxNormal}, 탐색={sniff}/{maxSniff})",
   "log.taskQueue.scrapingAllocated": "식별 슬롯 할당됨: {key} (식별 중: {scraping}/{maxScraping})",
@@ -106,23 +92,19 @@ const koKR: TranslationDict = {
   "log.taskQueue.startupRecovery": "시작 복구: {count}개 작업 재큐됨",
   "log.taskQueue.configLoadFailed": "설정 로드 실패, 기본값 사용: {error}",
 
-  // Server lifecycle
   "log.server.taskStateReset": "시작 시 작업 상태 재설정 완료",
   "log.server.downloadManagerInit": "다운로드 관리자 초기화됨",
   "log.server.eventBusBridgeInit": "EventBus 브리지 초기화됨",
   "log.server.ouoOrchestratorStart": "OUO 오케스트레이터 시작됨",
 
-  // Task state reset
   "log.taskStateReset.started": "실행 중 작업 상태 재설정 시작...",
   "log.taskStateReset.cleanupSlots": "잔여 슬롯 정리: 일반={normal}, 탐색={sniff}, 식별={scraping}",
   "log.taskStateReset.completed": "재설정 완료: 동영상 {videoTasks}, 갤러리 {galleries}, 이미지 {galleryImages}, 동영상 {galleryVideos}, 탐색 {sniffTasks}, ZIP 정보 {galleryDownloadInfos}, 총 {total}개 작업 대기 상태로 재설정됨",
   "log.taskStateReset.noop": "실행 중 작업 없음, 재설정 불필요",
   "log.taskStateReset.suspended": "서버 재시작, 작업 일시 중단됨",
 
-  // Preset data seed
   "log.seed.presetDataSeeded": "사전 데이터가 데이터베이스에 기록됨: 사용자 설정 {prefs}개, 차단 단어 {blocklists}개",
 
-  // DAG Orchestrator
   "log.dagOrchestrator.initComplete": "[DagOrchestrator] 초기화 완료",
   "log.dagOrchestrator.dagCompleted": "[DagOrchestrator] DAG {dagId} 전체 완료",
   "log.dagOrchestrator.dagEndedWithFailure": "[DagOrchestrator] DAG {dagId} 종료됨 (실패/취소 있음)",
@@ -138,7 +120,6 @@ const koKR: TranslationDict = {
   "log.dagOrchestrator.nodeSubmitFailedQueueFull": "[DagOrchestrator] 노드 {nodeId} 제출 실패, 대기열 가득 참, READY 상태 유지, 재시도 대기",
   "log.dagOrchestrator.nodeNotFoundCannotTransition": "[DagOrchestrator] 노드 {nodeId}를 찾을 수 없어 상태 전환 불가",
 
-  // DAG Init
   "log.dagSystem.alreadyInitialized": "[DagSystem] 이미 초기화됨, 건너뜀",
   "log.dagSystem.initComplete": "[DagSystem] 초기화 완료 (기능 스위치: {status})",
   "log.dagSystem.initFailed": "[DagSystem] 초기화 실패",
@@ -146,7 +127,6 @@ const koKR: TranslationDict = {
   "log.dagSystem.stopped": "[DagSystem] 중지됨",
   "log.dagSystem.gracefulShutdownComplete": "[DagSystem] 우아한 종료 완료",
 
-  // Orchestrator Base
   "log.orchestratorBase.alreadyRunning": "[{name}] 이미 실행 중, 건너뜀",
   "log.orchestratorBase.started": "[{name}] 오케스트레이터 시작됨",
   "log.orchestratorBase.stopping": "[{name}] 오케스트레이터 중지 중...",
@@ -176,7 +156,6 @@ const koKR: TranslationDict = {
   "log.orchestratorBase.ipRateLimitExhausted": "IP 속도 제한 (재시도 소진)",
   "log.orchestratorBase.cooldownEndExhausted": "[{name}] 쿨다운 종료되었으나 재시도 소진: ID={id}",
 
-  // DAG Config
   "log.dagConfig.schedulerToggle": "[DagConfig] DAG 스케줄러 {status}",
   "log.dagConfig.taskTypesUpdated": "[DagConfig] DAG 작업 유형 업데이트: [{value}]",
   "log.dagConfig.configLoadComplete": "[DagConfig] 설정 로드 완료: enabled={enabled}, taskTypes=[{taskTypes}]",

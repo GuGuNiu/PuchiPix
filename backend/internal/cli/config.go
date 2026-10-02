@@ -8,11 +8,11 @@ import (
 )
 
 type Config struct {
-	Host    string
-	Port    string
-	BaseURL string
-	DBPath  string
-	JSON    bool
+	Host     string
+	Port     string
+	BaseURL  string
+	DBPath   string
+	JSON     bool
 	ShowHelp bool
 }
 

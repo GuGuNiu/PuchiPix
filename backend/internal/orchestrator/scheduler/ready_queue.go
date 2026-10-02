@@ -7,9 +7,9 @@ import (
 )
 
 // readyItem is a single entry in the priority ready queue. The ordering
-// is: priority desc -> dagDispatchCount asc -> submittedAt asc -> seq
-// asc (FIFO within the same priority and submission instant, preventing
-// comparison instability).
+// is: priority descending, then dagDispatchCount ascending, then
+// submittedAt ascending, then seq ascending (FIFO within the same
+// priority and submission instant, preventing comparison instability).
 //
 // dagDispatchCount provides cross-DAG fairness: when multiple DAGs
 // have nodes at the same priority level, the queue alternates between
@@ -17,12 +17,12 @@ import (
 // The count is sourced from the ReadyQueue's per-DAG dispatch tracker
 // at Push time and does not change while the item is queued.
 type readyItem struct {
-	node              SchedulableNodeAdapter
-	priority          int
-	dagDispatchCount  int
-	submittedAt       time.Time
-	seq               uint64
-	heapIndex         int
+	node             SchedulableNodeAdapter
+	priority         int
+	dagDispatchCount int
+	submittedAt      time.Time
+	seq              uint64
+	heapIndex        int
 }
 
 // readyItemHeap implements heap.Interface as a max-priority queue.
@@ -69,10 +69,10 @@ func (h *readyItemHeap) Pop() any {
 	return item
 }
 
-// ReadyQueue is a concurrent-safe priority queue for schedulable nodes,
-// replacing the previous map + O(n) SelectNext scan with O(log n)
-// push/pop. The starvation-lottery promotion scans the index only when
-// the lottery fires, keeping the common path allocation-free.
+// ReadyQueue is a priority queue for schedulable nodes with O(log n)
+// push/pop that tolerates concurrent use. The starvation-lottery
+// promotion scans the index only when the lottery fires, keeping the
+// common path allocation-free.
 //
 // Cross-DAG fairness: a dagDispatch map tracks how many nodes from
 // each DAG have been dispatched (popped) recently. When a node is
@@ -81,11 +81,11 @@ func (h *readyItemHeap) Pop() any {
 // is bumped on PopBest and reset when a DAG has no queued nodes left,
 // preventing stale counts from penalizing re-submissions.
 type ReadyQueue struct {
-	mu            sync.Mutex
-	h             readyItemHeap
-	index         map[string]*readyItem // key: dagID + ":" + nodeID
-	seq           uint64
-	dagDispatch   map[string]int       // dagID -> cumulative dispatch count
+	mu          sync.Mutex
+	h           readyItemHeap
+	index       map[string]*readyItem // key: dagID + ":" + nodeID
+	seq         uint64
+	dagDispatch map[string]int // dagID to cumulative dispatch count
 }
 
 // NewReadyQueue creates an empty ready queue.
@@ -110,11 +110,11 @@ func (q *ReadyQueue) Push(node SchedulableNodeAdapter) bool {
 	}
 	q.seq++
 	item := &readyItem{
-		node:              node,
-		priority:          node.Priority,
-		dagDispatchCount:  q.dagDispatch[node.DagID],
-		submittedAt:       node.SubmittedAt,
-		seq:               q.seq,
+		node:             node,
+		priority:         node.Priority,
+		dagDispatchCount: q.dagDispatch[node.DagID],
+		submittedAt:      node.SubmittedAt,
+		seq:              q.seq,
 	}
 	heap.Push(&q.h, item)
 	q.index[key] = item
@@ -164,9 +164,8 @@ func (q *ReadyQueue) PopBest(fits func(SchedulableNodeAdapter) bool) *Schedulabl
 
 // UpdatePriority dynamically re-prioritizes a queued node, restoring
 // heap order via heap.Fix at the item's current index. Returns false
-// when the node is not queued (callers should treat it as a no-op).
-// This backs the dynamic priority adjustment feature: a node's priority
-// is no longer frozen at submission time.
+// when the node is not queued, which callers should treat as a no-op.
+// A node's priority is therefore not frozen at submission time.
 func (q *ReadyQueue) UpdatePriority(dagID, nodeID string, newPriority int) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -180,7 +179,6 @@ func (q *ReadyQueue) UpdatePriority(dagID, nodeID string, newPriority int) bool 
 	return true
 }
 
-// Remove deletes a node from the queue. Returns true if it was present.
 func (q *ReadyQueue) Remove(dagID, nodeID string) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -212,10 +210,7 @@ func (q *ReadyQueue) Len() int {
 }
 
 // CountBySlotType counts queued nodes that require the given slot type.
-// This preserves the queue-capacity accounting semantics of the previous
-// map-based implementation (a node with multiple requirements counts
-// once per relevant type... matching the old getQueuedCountBySlotTypeLocked
-// behavior of counting the node under each type it requires).
+// A node with multiple requirements counts once per relevant type.
 func (q *ReadyQueue) CountBySlotType(slotType string) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()

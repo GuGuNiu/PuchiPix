@@ -10,7 +10,8 @@ import (
 	"golang.org/x/text/language"
 )
 
-// Supported locales must match src/lib/i18n/types.ts Locale union.
+// Locale codes must match the frontend Locale union so both sides agree on
+// the set of supported tags.
 const (
 	DefaultLocale = "zh-CN"
 )
@@ -58,7 +59,8 @@ var (
 	bundleErr  error
 )
 
-// loadBundle builds the go-i18n bundle once from embedded locale files.
+// loadBundle builds the go-i18n bundle from the embedded locale files and
+// caches it; every caller sees the same result, including the parse error.
 func loadBundle() (*i18n.Bundle, error) {
 	bundleOnce.Do(func() {
 		b := i18n.NewBundle(language.MustParse(DefaultLocale))

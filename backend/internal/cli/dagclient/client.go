@@ -208,9 +208,7 @@ func (c *Client) QueryLogs(filter LogQueryFilter) ([]LogEntry, error) {
 	return resp, nil
 }
 
-// ── Health / System / Stats ──
-
-// GetHealth checks server health and database connectivity.
+// GetHealth reports server health and database connectivity.
 func (c *Client) GetHealth() (*HealthResponse, error) {
 	var resp HealthResponse
 	if err := c.get("/api/health", &resp); err != nil {
@@ -219,7 +217,6 @@ func (c *Client) GetHealth() (*HealthResponse, error) {
 	return &resp, nil
 }
 
-// GetSystem returns runtime system information.
 func (c *Client) GetSystem() (*SystemResponse, error) {
 	var resp SystemResponse
 	if err := c.get("/api/system", &resp); err != nil {
@@ -228,7 +225,6 @@ func (c *Client) GetSystem() (*SystemResponse, error) {
 	return &resp, nil
 }
 
-// GetStats returns aggregate dashboard statistics.
 func (c *Client) GetStats() (*StatsResponse, error) {
 	var resp StatsResponse
 	if err := c.get("/api/stats", &resp); err != nil {
@@ -237,9 +233,6 @@ func (c *Client) GetStats() (*StatsResponse, error) {
 	return &resp, nil
 }
 
-// ── Sites ──
-
-// GetSites returns the list of supported site providers.
 func (c *Client) GetSites() ([]SiteInfo, error) {
 	var resp []SiteInfo
 	if err := c.get("/api/sites", &resp); err != nil {
@@ -248,9 +241,6 @@ func (c *Client) GetSites() ([]SiteInfo, error) {
 	return resp, nil
 }
 
-// ── Download Tasks (video) ──
-
-// GetTasks returns a paginated list of download tasks.
 func (c *Client) GetTasks(limit, offset int) ([]DownloadTask, error) {
 	params := url.Values{}
 	if limit > 0 {
@@ -271,7 +261,6 @@ func (c *Client) GetTasks(limit, offset int) ([]DownloadTask, error) {
 	return resp, nil
 }
 
-// GetTask returns a single download task by ID.
 func (c *Client) GetTask(id int) (*DownloadTask, error) {
 	var resp DownloadTask
 	path := fmt.Sprintf("/api/tasks/%d", id)
@@ -281,7 +270,7 @@ func (c *Client) GetTask(id int) (*DownloadTask, error) {
 	return &resp, nil
 }
 
-// TaskAction performs an action (start/pause/resume/cancel/retry) on a task.
+// TaskAction sends a start/pause/resume/cancel/retry action to a task.
 func (c *Client) TaskAction(id int, action string) (*TaskActionResponse, error) {
 	body := TaskActionRequest{Action: action}
 	var resp TaskActionResponse
@@ -292,15 +281,11 @@ func (c *Client) TaskAction(id int, action string) (*TaskActionResponse, error) 
 	return &resp, nil
 }
 
-// DeleteTask removes a download task by ID.
 func (c *Client) DeleteTask(id int) error {
 	path := fmt.Sprintf("/api/tasks/%d", id)
 	return c.delete(path, nil)
 }
 
-// ── Galleries ──
-
-// GetGalleries returns a paginated list of galleries, optionally filtered by status.
 func (c *Client) GetGalleries(limit, offset int, status string) ([]GallerySummary, error) {
 	params := url.Values{}
 	if limit > 0 {
@@ -324,7 +309,6 @@ func (c *Client) GetGalleries(limit, offset int, status string) ([]GallerySummar
 	return resp, nil
 }
 
-// GetGallery returns a single gallery by ID.
 func (c *Client) GetGallery(id int) (*GalleryDetail, error) {
 	var resp GalleryDetail
 	path := fmt.Sprintf("/api/shelf/%d", id)
@@ -334,7 +318,7 @@ func (c *Client) GetGallery(id int) (*GalleryDetail, error) {
 	return &resp, nil
 }
 
-// GalleryAction performs an action (retry-failed/pause/resume/download) on a gallery.
+// GalleryAction sends a retry-failed/pause/resume/download action to a gallery.
 func (c *Client) GalleryAction(id int, action string) (*GalleryActionResponse, error) {
 	body := GalleryActionRequest{Action: action}
 	var resp GalleryActionResponse
@@ -345,13 +329,11 @@ func (c *Client) GalleryAction(id int, action string) (*GalleryActionResponse, e
 	return &resp, nil
 }
 
-// DeleteGallery removes a gallery and its associated images/videos.
 func (c *Client) DeleteGallery(id int) error {
 	path := fmt.Sprintf("/api/shelf/%d", id)
 	return c.delete(path, nil)
 }
 
-// GetGalleryFileProgress returns per-file progress for a gallery.
 func (c *Client) GetGalleryFileProgress(id int) (*GalleryFileProgressResponse, error) {
 	var resp GalleryFileProgressResponse
 	path := fmt.Sprintf("/api/shelf/%d/files/progress", id)
@@ -361,9 +343,6 @@ func (c *Client) GetGalleryFileProgress(id int) (*GalleryFileProgressResponse, e
 	return &resp, nil
 }
 
-// ── Slot Holders / Slot Detail / Slot Update ──
-
-// GetSlotHolders returns active holder IDs for all slot types.
 func (c *Client) GetSlotHolders() (*SlotHoldersResponse, error) {
 	var resp SlotHoldersResponse
 	if err := c.get("/api/slots/holders", &resp); err != nil {
@@ -372,7 +351,6 @@ func (c *Client) GetSlotHolders() (*SlotHoldersResponse, error) {
 	return &resp, nil
 }
 
-// GetSlotDetail returns detailed info for a single slot type.
 func (c *Client) GetSlotDetail(slotType string) (*SlotDetailResponse, error) {
 	var resp SlotDetailResponse
 	path := fmt.Sprintf("/api/slots/%s", url.PathEscape(slotType))
@@ -382,7 +360,6 @@ func (c *Client) GetSlotDetail(slotType string) (*SlotDetailResponse, error) {
 	return &resp, nil
 }
 
-// UpdateSlotMax dynamically adjusts the max concurrency for a slot type.
 func (c *Client) UpdateSlotMax(slotType string, max int) (*SlotUpdateResponse, error) {
 	body := SlotUpdateRequest{Max: max}
 	var resp SlotUpdateResponse
@@ -393,8 +370,8 @@ func (c *Client) UpdateSlotMax(slotType string, max int) (*SlotUpdateResponse, e
 	return &resp, nil
 }
 
-// ResetSlot clears all usage for a single slot type (emergency ghost-slot
-// recovery via DELETE /api/slots/{type}).
+// ResetSlot clears all usage of a slot type, the recovery path for slots left
+// occupied by a crashed worker.
 func (c *Client) ResetSlot(slotType string) (*SlotResetResponse, error) {
 	var resp SlotResetResponse
 	path := fmt.Sprintf("/api/slots/%s", url.PathEscape(slotType))
@@ -404,13 +381,10 @@ func (c *Client) ResetSlot(slotType string) (*SlotResetResponse, error) {
 	return &resp, nil
 }
 
-// GetStreamURL returns the SSE endpoint URL for real-time DAG events.
 func (c *Client) GetStreamURL() string {
 	return c.baseURL + "/api/dag/stream"
 }
 
-// GetLogStreamURL returns the SSE endpoint URL for real-time log entries,
-// with optional query filters appended.
 func (c *Client) GetLogStreamURL(filter LogQueryFilter) string {
 	base := c.baseURL + "/api/logs"
 	params := url.Values{}

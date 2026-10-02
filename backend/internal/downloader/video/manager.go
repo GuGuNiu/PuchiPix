@@ -3,46 +3,37 @@ package video
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"backend/internal/db"
 	"backend/internal/downloader"
 	"backend/internal/infra"
 	"backend/internal/taskprogress"
+	"backend/internal/taskstate"
 	"backend/internal/urlutil"
 )
-
-// ProgressMessage is the wire format for download progress updates
-// sent to SSE/WebSocket clients.
-type ProgressMessage struct {
-	Type     string  `json:"type"`
-	TaskID   int     `json:"task_id"`
-	Progress float64 `json:"progress"`
-	Speed    string  `json:"speed,omitempty"`
-	Segment  int     `json:"segment"`
-	Total    int     `json:"total"`
-	Status   string  `json:"status"`
-}
 
 // DownloadTaskInput carries the data needed to start a video download,
 // decoupled from the database model so callers can construct it from
 // any source.
 type DownloadTaskInput struct {
-ID             int
-M3U8URL        string
-PageURL        string
-Title          string
-Tags           []string
-Actors         []string
-Categories     []string
-Director       string
-RefererDomains []string // candidate referer domains for CDN anti-hotlink bypass
+	ID             int
+	M3U8URL        string
+	PageURL        string
+	Title          string
+	Tags           []string
+	Actors         []string
+	Categories     []string
+	Director       string
+	RefererDomains []string // candidate referer domains for CDN anti-hotlink bypass
 }
 
 // ManagerConfig holds the tunable parameters for a DownloadManager.
@@ -60,7 +51,6 @@ type ManagerConfig struct {
 	StreamingMergeThreshold int64
 }
 
-// DefaultManagerConfig returns sensible defaults.
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
 		MaxRetries:              5,
@@ -69,33 +59,39 @@ func DefaultManagerConfig() ManagerConfig {
 		MaxConcurrent:           3,
 		GPUTranscode:            false,
 		ForceGPUType:            "",
-		UseStreamingMerge:       false, // off by default; enable progressively
-		StreamingMergeThreshold: 100 * 1024 * 1024, // 100MB
+		UseStreamingMerge:       false,
+		StreamingMergeThreshold: 100 * 1024 * 1024,
 	}
 }
 
 const maxTaskRetries = 2
 
-type DownloadManager struct {
-	mu              sync.Mutex
-	cond            *sync.Cond
-	callbackMu      sync.RWMutex
-	progressCallback func(ProgressMessage)
+type taskRun struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
+}
 
-	db          *db.Database
-	eventBus    *infra.EventBus
-	maxRetries  int
-	downloadPath string
-	segmentsPath string
-	maxConcurrent int
-	gpuTranscode bool
-	forceGPUType string
-	tracker       *taskprogress.VideoProgressTracker
-	// streaming merge config
+type DownloadManager struct {
+	mu    sync.Mutex
+	cond  *sync.Cond
+	state *taskstate.Store
+
+	db                      *db.Database
+	eventBus                *infra.EventBus
+	maxRetries              int
+	downloadPath            string
+	segmentsPath            string
+	maxConcurrent           atomic.Int64
+	gpuTranscode            bool
+	forceGPUType            string
+	tracker                 *taskprogress.VideoProgressTracker
 	useStreamingMerge       bool
 	streamingMergeThreshold int64
 
 	activeDownloads map[int]*ActiveDownload
+	runningTasks    map[int]*taskRun
+	forbiddenTasks  map[int]struct{}
 	taskRetries     map[int]int
 	segQueue        *SegmentQueue
 	logger          *infra.Logger
@@ -116,32 +112,36 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 	}
 
 	m := &DownloadManager{
-		db:             database,
-		eventBus:       eventBus,
-		maxRetries:     cfg.MaxRetries,
-		downloadPath:   cfg.DownloadPath,
-		segmentsPath:   cfg.SegmentsPath,
-		maxConcurrent:  cfg.MaxConcurrent,
-		gpuTranscode:   cfg.GPUTranscode,
-		forceGPUType:   cfg.ForceGPUType,
-		activeDownloads: make(map[int]*ActiveDownload),
-		taskRetries:    make(map[int]int),
-		logger:         m3u8Logger,
+		mu:                      sync.Mutex{},
+		state:                   taskstate.NewStore(database, eventBus),
+		db:                      database,
+		eventBus:                eventBus,
+		maxRetries:              cfg.MaxRetries,
+		downloadPath:            cfg.DownloadPath,
+		segmentsPath:            cfg.SegmentsPath,
+		gpuTranscode:            cfg.GPUTranscode,
+		forceGPUType:            cfg.ForceGPUType,
+		activeDownloads:         make(map[int]*ActiveDownload),
+		runningTasks:            make(map[int]*taskRun),
+		forbiddenTasks:          make(map[int]struct{}),
+		taskRetries:             make(map[int]int),
+		logger:                  m3u8Logger,
 		useStreamingMerge:       cfg.UseStreamingMerge,
 		streamingMergeThreshold: cfg.StreamingMergeThreshold,
 	}
+	m.maxConcurrent.Store(int64(cfg.MaxConcurrent))
 	m.cond = sync.NewCond(&m.mu)
 
 	m.segQueue = NewSegmentQueue(&m.mu, m.cond, m.activeDownloads, SegmentQueueConfig{
 		MaxRetries: cfg.MaxRetries,
 		GetMaxConcurrent: func() int {
-			return m.maxConcurrent
+			return int(m.maxConcurrent.Load())
 		},
-		OnProgress: m.emitProgress,
+		OnProgress:      m.emitProgress,
 		OnSegmentUpdate: m.handleSegmentUpdate,
-		OnSegmentReady: m.handleSegmentReady,
-		DB:         database,
-		Logger:     m.logger,
+		OnSegmentReady:  m.handleSegmentReady,
+		DB:              database,
+		Logger:          m.logger,
 	})
 
 	// DB values override ManagerConfig defaults.
@@ -150,12 +150,17 @@ func NewDownloadManager(database *db.Database, eventBus *infra.EventBus, cfg Man
 	return m
 }
 
-// SetProgressCallback registers a callback invoked on every progress
-// update, typically wired to an SSE or WebSocket sender.
-func (m *DownloadManager) SetProgressCallback(cb func(ProgressMessage)) {
-	m.callbackMu.Lock()
-	m.progressCallback = cb
-	m.callbackMu.Unlock()
+func (m *DownloadManager) TaskSegmentsDir(taskID int) string {
+	return filepath.Join(m.segmentsPath, fmt.Sprintf("task_%d", taskID))
+}
+
+func (m *DownloadManager) DataRoot() string {
+	downloadRoot := filepath.Clean(m.downloadPath)
+	segmentsRoot := filepath.Clean(m.segmentsPath)
+	if filepath.Base(downloadRoot) == "videos" && filepath.Base(segmentsRoot) == "segments" && filepath.Dir(downloadRoot) == filepath.Dir(segmentsRoot) {
+		return filepath.Dir(downloadRoot)
+	}
+	return filepath.Dir(downloadRoot)
 }
 
 // SetMaxConcurrent updates the TS segment download concurrency limit at
@@ -168,17 +173,16 @@ func (m *DownloadManager) SetMaxConcurrent(n int) {
 	if n > 200 {
 		n = 200
 	}
-	m.mu.Lock()
-	m.maxConcurrent = n
-	m.mu.Unlock()
+	m.maxConcurrent.Store(int64(n))
+	if m.segQueue != nil {
+		m.segQueue.ProcessQueue()
+	}
 	m.logger.Info("TS segment concurrency updated", "newMax", n)
 }
 
 // GetMaxConcurrent returns the current TS segment concurrency limit.
 func (m *DownloadManager) GetMaxConcurrent() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.maxConcurrent
+	return int(m.maxConcurrent.Load())
 }
 
 func (m *DownloadManager) SetGPUTranscode(enabled bool, forceType string) {
@@ -288,17 +292,12 @@ func boolToStr(b bool) string {
 }
 
 // SetTracker injects the VideoProgressTracker for segment-level tracking.
-// This bridges the pipeline gap where the tracker was initialized but
-// never connected to the download pipeline.
 func (m *DownloadManager) SetTracker(t *taskprogress.VideoProgressTracker) {
 	m.mu.Lock()
 	m.tracker = t
 	m.mu.Unlock()
 }
 
-// handleSegmentUpdate is the callback from SegmentQueue that bridges
-// to VideoProgressTracker.UpdateSegment. It translates the
-// completed/failed boolean into the tracker's status enum.
 func (m *DownloadManager) handleSegmentUpdate(taskID, segmentIdx int, completed bool, localPath string, fileSize int64, errMsg string) {
 	if m.tracker == nil {
 		return
@@ -310,9 +309,6 @@ func (m *DownloadManager) handleSegmentUpdate(taskID, segmentIdx int, completed 
 	m.tracker.UpdateSegment(taskID, segmentIdx, status, localPath, fileSize, errMsg)
 }
 
-// handleSegmentReady is invoked when a segment finishes downloading and is
-// ready for streaming merge. With UseStreamingMerge enabled, the segment is
-// stored to the task's StreamMerger.
 func (m *DownloadManager) handleSegmentReady(taskID, index int, filePath string, size int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -322,9 +318,12 @@ func (m *DownloadManager) handleSegmentReady(taskID, index int, filePath string,
 		return
 	}
 
-	// Store the segment if streaming merge is on and this task has a StreamMerger
 	if download.streamMerger != nil {
-		if err := download.streamMerger.StoreSegmentDisk(index, filePath, size); err != nil {
+		position, ok := download.SegmentPositions[index]
+		if !ok {
+			position = index
+		}
+		if err := download.streamMerger.StoreSegmentDisk(position, filePath, size); err != nil {
 			m.logger.Warn("Failed to store segment to stream merger",
 				infra.LogContext{Extra: map[string]any{
 					"taskId": taskID,
@@ -339,27 +338,10 @@ func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, to
 	rounded := math.Round(progress*100) / 100
 
 	// Aggregate downloaded bytes from the segment tracker so the SSE
-	// size column shows a live partial size during download (previously
-	// only appeared after the MP4 merge via video_infos.file_size).
+	// size column shows a live partial size during download.
 	var downloadedBytes int64
-	if m.tracker != nil {
+	if m.tracker != nil && status != "transcoding" && status != "merging" {
 		downloadedBytes = m.tracker.GetSummary(taskID).DownloadedBytes
-	}
-
-	m.callbackMu.RLock()
-	cb := m.progressCallback
-	m.callbackMu.RUnlock()
-
-	if cb != nil {
-		cb(ProgressMessage{
-			Type:     "progress",
-			TaskID:   taskID,
-			Progress: rounded,
-			Speed:    speed,
-			Segment:  segment,
-			Total:    total,
-			Status:   status,
-		})
 	}
 
 	if m.eventBus != nil {
@@ -379,30 +361,56 @@ func (m *DownloadManager) emitProgress(taskID int, progress float64, segment, to
 // the download completes, fails, or is scheduled for auto-retry. The caller
 // must invoke this in a dedicated goroutine.
 func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskInput) (err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m.useStreamingMerge {
+		return fmt.Errorf("streaming merge is not available in the production pipeline")
+	}
 	m.mu.Lock()
-	if _, exists := m.activeDownloads[task.ID]; exists {
+	if _, forbidden := m.forbiddenTasks[task.ID]; forbidden {
+		m.mu.Unlock()
+		return fmt.Errorf("task %d was deleted", task.ID)
+	}
+	if _, exists := m.runningTasks[task.ID]; exists {
 		m.mu.Unlock()
 		return fmt.Errorf("task %d is already being downloaded", task.ID)
 	}
+	runCtx, runCancel := context.WithCancel(ctx)
+	run := &taskRun{ctx: runCtx, cancel: runCancel, done: make(chan struct{})}
+	m.runningTasks[task.ID] = run
 	m.mu.Unlock()
+	defer func() {
+		runCancel()
+		m.mu.Lock()
+		if m.runningTasks[task.ID] == run {
+			delete(m.runningTasks, task.ID)
+		}
+		m.mu.Unlock()
+		close(run.done)
+	}()
+	ctx = runCtx
 
 	if task.M3U8URL == "" {
 		return fmt.Errorf("no M3U8 URL for task %d", task.ID)
 	}
 
-	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer dbCancel()
-	_, _ = m.db.Exec(dbCtx,
-		"UPDATE download_tasks SET status = 'downloading', progress = 0, error_msg = '', completed_segments = 0 WHERE id = ?",
-		task.ID)
+	zero := 0.0
+	if err := m.state.Transition(ctx, task.ID, taskstate.Update{
+		Status:   taskstate.StatusDownloading,
+		Progress: &zero,
+		Set:      map[string]any{"error_msg": "", "completed_segments": 0},
+	}); err != nil {
+		return fmt.Errorf("activate download: %w", err)
+	}
 
 	safeTitle := downloader.SanitizeFilename(task.Title)
 	if safeTitle == "" {
 		safeTitle = "untitled"
 	}
 
-	segDir := filepath.Join(m.segmentsPath, fmt.Sprintf("task_%d", task.ID))
-	mp4OutputPath := filepath.Join(m.downloadPath, safeTitle+".mp4")
+	segDir := m.TaskSegmentsDir(task.ID)
+	mp4OutputPath := filepath.Join(m.downloadPath, fmt.Sprintf("%s_%d.mp4", safeTitle, task.ID))
 	// The merged TS output must live OUTSIDE the segment directory root:
 	// scan-based consumers (merge/transcode) read *.ts from that root, so
 	// an output placed there gets swallowed into the next merge input set
@@ -423,14 +431,12 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 	}
 
 	// Build a list of fallback referer domains for CDN anti-hotlink bypass.
-	// Many CDNs (e.g. 11yun.space used by Kanav) check the Referer header
-	// and reject requests with a Referer from a non-whitelisted domain.
-	// When the original page URL's domain is blocked by the CDN, we try
-	// other known mirror domains from the site's configuration.
+	// Many CDNs check the Referer header and reject requests carrying a
+	// Referer from a non-whitelisted domain, so the site's other known
+	// mirror domains are tried in turn.
 	var refererDomains []string
 	if len(task.RefererDomains) > 0 {
 		for _, d := range task.RefererDomains {
-			// Skip the domain already used as the primary referer.
 			if referer != "" && strings.Contains(referer, d) {
 				continue
 			}
@@ -449,7 +455,6 @@ func (m *DownloadManager) StartDownload(ctx context.Context, task DownloadTaskIn
 		return perr
 	}
 
-	// Clear the retry counter so a future task with the same ID starts fresh.
 	m.mu.Lock()
 	delete(m.taskRetries, task.ID)
 	m.mu.Unlock()
@@ -476,7 +481,8 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	// Task retries reuse the segment directory. If the playlist changed
 	// (variant switch / source re-slice), stale segments would otherwise
 	// be merged together with the new ones — reset the cache instead.
-	if EnsurePlaylistFingerprint(segDir, segments) {
+	playlistChanged := EnsurePlaylistFingerprint(segDir, segments)
+	if playlistChanged {
 		m.logger.Warn("Playlist fingerprint mismatch, segment cache reset",
 			infra.LogContext{Extra: map[string]any{"taskId": task.ID}})
 	}
@@ -496,7 +502,14 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		}})
 
 	if m.tracker != nil {
-		m.tracker.RegisterSegments(task.ID, len(segments))
+		if playlistChanged {
+			m.tracker.RemoveTask(task.ID)
+		}
+		indices := make([]int, len(segments))
+		for i, seg := range segments {
+			indices[i] = seg.Index
+		}
+		m.tracker.RegisterSegmentIndices(task.ID, indices)
 	}
 
 	// Persist total_segments so SSE clients can query it without a live connection.
@@ -509,12 +522,17 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	}
 
 	downloadCtx, downloadCancel := context.WithCancel(ctx)
+	segmentPositions := make(map[int]int, len(segments))
+	for i, segment := range segments {
+		segmentPositions[segment.Index] = i
+	}
 	download := &ActiveDownload{
 		TaskID:            task.ID,
 		Status:            StatusActive,
 		ctx:               downloadCtx,
 		cancel:            downloadCancel,
 		Segments:          segments,
+		SegmentPositions:  segmentPositions,
 		CompletedSegments: make(map[int]bool),
 		FailedSegments:    make(map[int]error),
 		TotalSegments:     len(segments),
@@ -523,22 +541,23 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		StartTime:         time.Now(),
 		LastProgressTime:  time.Now(),
 		Referer:           referer,
+		done:              make(chan struct{}),
 	}
+	defer close(download.done)
 
-	// Initialize the streaming merger when configured. Picks memory or disk
-	// mode from the estimated total segment size:
-	//   - estimate < streamingMergeThreshold → MemoryMode (zero disk I/O)
-	//   - estimate ≥ streamingMergeThreshold → DiskMode (constant memory)
-	// Estimate = segment count × average segment size (from M3U8 metadata).
+	// Streaming merge picks memory or disk mode from the estimated total
+	// segment size (segment count × average segment size from M3U8
+	// metadata): below the threshold MemoryMode avoids disk I/O, at or
+	// above it DiskMode keeps memory constant.
 	if m.useStreamingMerge {
 		avgSegSize := estimateAvgSegmentSize(segments)
 		bufMode := DetermineBufferMode(len(segments), avgSegSize)
 		download.streamMerger = CreateStreamMergerForTask(task.ID, len(segments), segDir, bufMode)
 		m.logger.Info("Streaming merge enabled for task",
 			infra.LogContext{Extra: map[string]any{
-				"taskId":  task.ID,
-				"mode":    bufMode,
-				"segs":    len(segments),
+				"taskId": task.ID,
+				"mode":   bufMode,
+				"segs":   len(segments),
 			}})
 	}
 
@@ -546,31 +565,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	m.activeDownloads[task.ID] = download
 	m.mu.Unlock()
 
-	firstScreenCount := max(2, int(math.Ceil(float64(len(segments))*0.1)))
-	if firstScreenCount > len(segments) {
-		firstScreenCount = len(segments)
-	}
-
-	firstScreen := segments[:firstScreenCount]
-	remaining := segments[firstScreenCount:]
-
-	for _, seg := range firstScreen {
-		m.segQueue.Push(QueueItem{TaskID: task.ID, Segment: seg, Referer: referer})
-	}
-	m.segQueue.ProcessQueue()
-
-	if err := m.segQueue.WaitForSegments(downloadCtx, task.ID, firstScreenCount); err != nil {
-		return err
-	}
-
-	m.mu.Lock()
-	if download.Status == StatusCancelled || download.Status == StatusPaused {
-		m.mu.Unlock()
-		return fmt.Errorf("download %s before remaining segments pushed", download.Status)
-	}
-	m.mu.Unlock()
-
-	for _, seg := range remaining {
+	for _, seg := range segments {
 		m.segQueue.Push(QueueItem{TaskID: task.ID, Segment: seg, Referer: referer})
 	}
 	m.segQueue.ProcessQueue()
@@ -593,10 +588,10 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 
 	m.logger.Info("Download phase completed",
 		infra.LogContext{Extra: map[string]any{
-			"taskId":   task.ID,
-			"success":  completedCount,
-			"failed":   failedCount,
-			"total":    totalSegments,
+			"taskId":  task.ID,
+			"success": completedCount,
+			"failed":  failedCount,
+			"total":   totalSegments,
 		}})
 
 	if failedCount > 0 {
@@ -615,13 +610,52 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 		successSet[idx] = true
 	}
 
+	zero := 0.0
 	retryOpts := DefaultMergeRetryOptions(tsOutputPath, segDir)
 	retryOpts.BatchOpts = SegmentBatchOptions{
-		Concurrency: m.maxConcurrent,
+		Concurrency: m.GetMaxConcurrent(),
 		MaxRetries:  m.maxRetries,
+		SegDir:      segDir,
 		Referer:     referer,
 	}
 	retryOpts.ExpectedDuration = SumSegmentDurations(segments)
+	// Persist the accumulated downloaded size now: SSE downloadedBytes is
+	// memory-only, so REST refetches during merge/transcode would otherwise
+	// read a zero size column.
+	var downloadedBytes int64
+	if m.tracker != nil {
+		downloadedBytes = m.tracker.GetSummary(task.ID).DownloadedBytes
+	}
+	if err := m.state.Transition(downloadCtx, task.ID, taskstate.Update{
+		Status:   taskstate.StatusMerging,
+		Progress: &zero,
+		Set:      map[string]any{"file_size": downloadedBytes},
+	}); err != nil {
+		return fmt.Errorf("enter merge phase: %w", err)
+	}
+	var mergeEmitMu sync.Mutex
+	var lastMergeEmit time.Time
+	retryOpts.OnProgress = func(done, total int) {
+		if total <= 0 {
+			return
+		}
+		pct := float64(done) / float64(total) * 100
+		// Persist the merge percentage (throttled inside the store) so a
+		// page refresh reads real progress instead of a stale 0.
+		m.state.SetPhaseProgress(task.ID, taskstate.StatusMerging, pct)
+		mergeEmitMu.Lock()
+		now := time.Now()
+		if done < total && now.Sub(lastMergeEmit) < 200*time.Millisecond {
+			mergeEmitMu.Unlock()
+			return
+		}
+		lastMergeEmit = now
+		mergeEmitMu.Unlock()
+		// The segment field must keep reporting DOWNLOADED segments: the
+		// frontend renders it as the x/y capsule, which would otherwise
+		// reset while the merge loop reuses it as a merged-file counter.
+		m.emitProgress(task.ID, pct, completedCount, totalSegments, "merging", "")
+	}
 	retryOpts.OnRetry = func(attempt, count int, reason string) {
 		m.logger.Info("Merge retry triggered",
 			infra.LogContext{Extra: map[string]any{
@@ -630,12 +664,7 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 				"count":   count,
 				"reason":  reason,
 			}})
-		// The SSE status field must stay within the task-status enum:
-		// emitting "retry #N" leaked straight into the frontend status
-		// pill as a raw string. The retry marker rides the (unused for
-		// video) speed field instead; merge is still the download stage.
-		m.emitProgress(task.ID, 100, completedCount, totalSegments,
-			"downloading", fmt.Sprintf("merge retry #%d", attempt))
+		m.emitProgress(task.ID, 0, completedCount, totalSegments, "merging", "")
 	}
 
 	if err := MergeRetryLoop(downloadCtx, segments, successSet, retryOpts); err != nil {
@@ -648,30 +677,19 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"segments": len(segments),
 		}})
 
-	// Phase progress resets at the transcode boundary: from here on the
-	// SSE `progress` field carries the TRANSCODE percentage (0→100), not
-	// the download percentage, so the frontend can restart its progress
-	// bar in the transcoding stage instead of showing a stale 100%.
-	// The old emitProgress(...,100,...) here raced with the frontend's
-	// progress>=99 probing heuristic and mislabeled the whole transcode
-	// phase as "probing" (探测中) before ffmpeg even started.
-	//
-	// The transcode phase must ALSO be persisted to download_tasks:
-	// SSE is live-only, so a page refresh during a long transcode used to
-	// read the stale DB row (status='downloading', progress=100) and
-	// render a green "done" bar while ffmpeg was still running — the
-	// purple merge-progress style never came back until the task
-	// finished. Writing status='transcoding' here lets the REST path
-	// (ComputeEffectiveStatus passes it through verbatim) restore the
-	// same purple state the SSE stream showed.
-	if m.db != nil {
-		transcodeDbCtx, transcodeDbCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, _ = m.db.Exec(transcodeDbCtx,
-			"UPDATE download_tasks SET status = 'transcoding', progress = 0, error_msg = '' WHERE id = ?",
-			task.ID)
-		transcodeDbCancel()
+	// From the transcode boundary on, the `progress` field carries the
+	// TRANSCODE percentage rather than the download percentage, so the
+	// frontend restarts its progress bar instead of showing a stale 100%.
+	// The transition also emits the status event; SetPhaseProgress keeps
+	// the row's progress column fresh (throttled) so refreshes and REST
+	// polls read live transcode percentage instead of a stale 0.
+	if err := m.state.Transition(downloadCtx, task.ID, taskstate.Update{
+		Status:   taskstate.StatusTranscoding,
+		Progress: &zero,
+		Set:      map[string]any{"error_msg": ""},
+	}); err != nil {
+		return fmt.Errorf("enter transcode phase: %w", err)
 	}
-	m.emitProgress(task.ID, 0, completedCount, totalSegments, "transcoding", "")
 
 	m.logger.Info("Transcoding to MP4",
 		infra.LogContext{Extra: map[string]any{
@@ -679,23 +697,32 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 			"gpu":    m.gpuTranscode,
 		}})
 
-	// Run post-processing through the pluggable Pipeline.
-	// Default pipeline: concat → transcode, same behavior as the old logic.
-	// Future steps (WatermarkStep / MetadataStep) can be inserted via
-	// Pipeline.Use() without changing this call site.
-	// If streaming merge is on and StreamMerger still holds unconsumed
-	// segments, feed them to the pipeline; otherwise read downloaded
-	// segments from segDir.
-	transcodeCtx, transcodeCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	transcodeCtx, transcodeCancel := context.WithTimeout(downloadCtx, 30*time.Minute)
 	defer transcodeCancel()
 
 	pipeline := NewDefaultPipeline(m.gpuTranscode, m.forceGPUType)
 	pipelineData := NewPipelineData(transcodeCtx, segDir, mp4OutputPath, segments)
+	pipelineData.MergedInputPath = tsOutputPath
+	pipelineData.ExpectedDuration = retryOpts.ExpectedDuration
 	pipelineData.OnProgress = func(pct float64) {
+		m.state.SetPhaseProgress(task.ID, taskstate.StatusTranscoding, pct)
 		m.emitProgress(task.ID, pct, completedCount, totalSegments, "transcoding", "")
 	}
 	if _, err := pipeline.ExecuteWithCleanup(transcodeCtx, pipelineData); err != nil {
+		if ctxErr := transcodeCtx.Err(); ctxErr != nil {
+			// A child deadline with a live parent is the 30-minute transcode
+			// cap: surface it as a real failure (handleDownloadError
+			// classifies by error identity, so the message must wrap
+			// DeadlineExceeded without the parent being cancelled).
+			if errors.Is(ctxErr, context.DeadlineExceeded) && downloadCtx.Err() == nil {
+				return fmt.Errorf("transcode timed out: %w", ctxErr)
+			}
+			return ctxErr
+		}
 		return fmt.Errorf("transcode pipeline: %w", err)
+	}
+	if err := downloadCtx.Err(); err != nil {
+		return err
 	}
 
 	m.logger.Info("MP4 transcoding completed",
@@ -706,12 +733,39 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 
 	os.Remove(tsOutputPath)
 
-	m.emitProgress(task.ID, 100, completedCount, totalSegments, "transcoding", "")
+	// Enter the probe window as a real persisted status instead of the old
+	// transcoding+progress>=100 convention, so every consumer (SSE, REST,
+	// page refresh) sees it without deriving it.
+	complete := 100.0
+	// The final MP4 replaces the segment sum in file_size once it exists.
+	probeSet := map[string]any{}
+	if info, err := os.Stat(mp4OutputPath); err == nil && info.Size() > 0 {
+		probeSet["file_size"] = info.Size()
+	}
+	if err := m.state.Transition(downloadCtx, task.ID, taskstate.Update{
+		Status:   taskstate.StatusProbing,
+		Progress: &complete,
+		Set:      probeSet,
+	}); err != nil {
+		return fmt.Errorf("enter probe phase: %w", err)
+	}
+	// A pause or cancel that landed during the transcode/probe window must
+	// abort here — the completion write below is otherwise unconditional.
+	if err := downloadCtx.Err(); err != nil {
+		return err
+	}
 
-	probeCtx, probeCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	durationSeconds, _ := ProbeDuration(probeCtx, mp4OutputPath)
-	resolution, _ := ProbeResolution(probeCtx, mp4OutputPath)
+	probeCtx, probeCancel := context.WithTimeout(downloadCtx, 15*time.Second)
+	metadata, _ := ProbeVideoMetadata(probeCtx, mp4OutputPath)
 	probeCancel()
+	// A pause or cancel landing INSIDE the probe window must abort before
+	// the completion write — otherwise the user's paused/cancelled status
+	// is silently overwritten by 'completed'.
+	if err := downloadCtx.Err(); err != nil {
+		return err
+	}
+	durationSeconds := metadata.Duration
+	resolution := metadata.Resolution
 
 	fileSize := int64(0)
 	if info, err := os.Stat(mp4OutputPath); err == nil {
@@ -721,10 +775,10 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 
 	m.logger.Info("Video info probed",
 		infra.LogContext{Extra: map[string]any{
-			"taskId":    task.ID,
+			"taskId":     task.ID,
 			"resolution": resolution,
 			"duration":   durationMinutes,
-			"fileSize":  fileSize,
+			"fileSize":   fileSize,
 		}})
 
 	if err := m.upsertVideoInfo(task, mp4OutputPath, fileSize, durationMinutes, resolution); err != nil {
@@ -736,31 +790,36 @@ func (m *DownloadManager) runDownload(ctx context.Context, task DownloadTaskInpu
 	}
 
 	// Emit task:metadata so SSE clients receive the final title and
-	// actors as soon as the download completes, without waiting for
-	// the 10s polling fallback.
+	// actors as soon as the download completes, without waiting for the
+	// polling fallback.
 	if m.eventBus != nil {
 		m.eventBus.Emit("task:metadata", map[string]any{
 			"taskId":       task.ID,
 			"taskType":     "video",
 			"GalleryTitle": task.Title,
 			"Person":       strings.Join(task.Actors, ", "),
+			"Tags":         task.Tags,
+			"Actors":       task.Actors,
 		})
 	}
 
 	completeCtx, completeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer completeCancel()
-	_, _ = m.db.Exec(completeCtx,
-		"UPDATE download_tasks SET status = 'completed', progress = 100, file_path = ?, format = 'mp4' WHERE id = ?",
-		mp4OutputPath, task.ID)
+	if err := m.state.Transition(completeCtx, task.ID, taskstate.Update{
+		Status:   taskstate.StatusCompleted,
+		Progress: &complete,
+		Set:      map[string]any{"file_path": mp4OutputPath, "format": "mp4"},
+	}); err != nil {
+		return fmt.Errorf("persist completed download: %w", err)
+	}
 
 	CleanupSegments(segDir)
 
-	m.emitProgress(task.ID, 100, totalSegments, totalSegments, "completed", "")
-
 	if m.eventBus != nil {
 		m.eventBus.Emit("task:completed", map[string]any{
-			"taskId": task.ID,
-			"title":  task.Title,
+			"taskId":   task.ID,
+			"taskType": "video",
+			"title":    task.Title,
 		})
 	}
 
@@ -778,12 +837,39 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 			"error":  errMsg,
 		}})
 
+	// A conflict means another writer (user pause/cancel, DAG status sync)
+	// took the row over while the pipeline was running: that writer owns
+	// the outcome, so neither the retry scheduler nor a failed write may
+	// fight it.
+	var conflict *taskstate.ConflictError
+	if errors.As(dlErr, &conflict) {
+		m.logger.Info("Pipeline error dropped: row taken over by another status writer",
+			infra.LogContext{Extra: map[string]any{
+				"taskId": task.ID,
+				"row":    conflict.Current,
+			}})
+		return
+	}
+
 	m.segQueue.RemoveByTask(task.ID)
 
 	m.mu.Lock()
 	retryCount := m.taskRetries[task.ID]
-	canRetry := retryCount < maxTaskRetries && !strings.Contains(errMsg, "cancelled")
+	// Only a cancellation of the pipeline's own context is a user/pause/stop
+	// action. A child-context deadline (the 30-minute transcode cap) with a
+	// live parent is a genuine failure and must reach the retry/failed paths
+	// below — treating DeadlineExceeded as "cancelled" here used to swallow
+	// the timeout and strand the row in transcoding forever.
+	cancelled := ctx.Err() != nil || errors.Is(dlErr, context.Canceled)
+	canRetry := retryCount < maxTaskRetries && !cancelled && !strings.Contains(errMsg, "cancelled")
 	m.mu.Unlock()
+
+	if cancelled {
+		m.mu.Lock()
+		delete(m.taskRetries, task.ID)
+		m.mu.Unlock()
+		return
+	}
 
 	if canRetry {
 		m.mu.Lock()
@@ -793,10 +879,10 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 		delayMs := time.Duration(retryCount+1) * 10 * time.Second
 		m.logger.Info("Auto-retry scheduled",
 			infra.LogContext{Extra: map[string]any{
-				"taskId":  task.ID,
-				"delay":   delayMs.String(),
-				"retry":   retryCount + 1,
-				"max":     maxTaskRetries,
+				"taskId": task.ID,
+				"delay":  delayMs.String(),
+				"retry":  retryCount + 1,
+				"max":    maxTaskRetries,
 			}})
 
 		shortErr := errMsg
@@ -805,12 +891,23 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 		}
 
 		retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, _ = m.db.Exec(retryCtx,
-			"UPDATE download_tasks SET status = 'pending', progress = 0, error_msg = ? WHERE id = ?",
-			fmt.Sprintf("Auto-retrying (%d/%d): %s", retryCount+1, maxTaskRetries, shortErr), task.ID)
+		zero := 0.0
+		err := m.state.Transition(retryCtx, task.ID, taskstate.Update{
+			Status:   taskstate.StatusPending,
+			Progress: &zero,
+			Set: map[string]any{
+				"error_msg": fmt.Sprintf("Auto-retrying (%d/%d): %s", retryCount+1, maxTaskRetries, shortErr),
+			},
+		})
 		retryCancel()
-
-		m.emitProgress(task.ID, 0, 0, 0, "pending", "")
+		if err != nil {
+			m.logger.Warn("Auto-retry status write skipped",
+				infra.LogContext{Extra: map[string]any{
+					"taskId": task.ID,
+					"error":  err.Error(),
+				}})
+			return
+		}
 
 		go func() {
 			time.Sleep(delayMs)
@@ -863,11 +960,16 @@ func (m *DownloadManager) handleDownloadError(ctx context.Context, task Download
 
 	failCtx, failCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer failCancel()
-	_, _ = m.db.Exec(failCtx,
-		"UPDATE download_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
-		errMsg, task.ID)
-
-	m.emitProgress(task.ID, 0, 0, 0, "failed", "")
+	if err := m.state.Transition(failCtx, task.ID, taskstate.Update{
+		Status: taskstate.StatusFailed,
+		Set:    map[string]any{"error_msg": errMsg},
+	}); err != nil {
+		m.logger.Warn("Failed-status write skipped",
+			infra.LogContext{Extra: map[string]any{
+				"taskId": task.ID,
+				"error":  err.Error(),
+			}})
+	}
 }
 
 // PauseDownload pauses an active download by setting its status and
@@ -890,8 +992,16 @@ func (m *DownloadManager) PauseDownload(taskID int) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = m.db.Exec(ctx,
-			"UPDATE download_tasks SET status = 'paused' WHERE id = ?", taskID)
+		// The row may already be terminal (the pipeline finished between the
+		// active-download check and here); a conflict just means the finish
+		// won and is logged by the store.
+		if err := m.state.Transition(ctx, taskID, taskstate.Update{Status: taskstate.StatusPaused}); err != nil {
+			m.logger.Warn("Pause status write skipped",
+				infra.LogContext{Extra: map[string]any{
+					"taskId": taskID,
+					"error":  err.Error(),
+				}})
+		}
 	}()
 
 	progress := float64(completedCount) / float64(totalSegments) * 100
@@ -927,8 +1037,13 @@ func (m *DownloadManager) ResumeDownload(taskID int) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = m.db.Exec(ctx,
-			"UPDATE download_tasks SET status = 'downloading' WHERE id = ?", taskID)
+		if err := m.state.Transition(ctx, taskID, taskstate.Update{Status: taskstate.StatusDownloading}); err != nil {
+			m.logger.Warn("Resume status write skipped",
+				infra.LogContext{Extra: map[string]any{
+					"taskId": taskID,
+					"error":  err.Error(),
+				}})
+		}
 	}()
 
 	m.segQueue.ProcessQueue()
@@ -938,45 +1053,96 @@ func (m *DownloadManager) ResumeDownload(taskID int) error {
 	return nil
 }
 
-// CancelDownload marks a download as cancelled, cleans up its segments,
-// and removes it from active tracking.
-func (m *DownloadManager) CancelDownload(taskID int) {
+func (m *DownloadManager) cancelDownload(ctx context.Context, taskID int, persist, forbid bool) error {
 	m.mu.Lock()
-	download, ok := m.activeDownloads[taskID]
-	if ok {
+	run := m.runningTasks[taskID]
+	download := m.activeDownloads[taskID]
+	if forbid {
+		m.forbiddenTasks[taskID] = struct{}{}
+	}
+	if run != nil {
+		run.cancel()
+	}
+	if download != nil {
 		download.Status = StatusCancelled
 		download.Cancel()
 	}
-	m.mu.Unlock()
-
-	m.mu.Lock()
 	delete(m.taskRetries, taskID)
 	m.mu.Unlock()
 
 	m.segQueue.RemoveByTask(taskID)
+	if run != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-run.done:
+		}
+	} else if download != nil && download.done != nil {
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-download.done:
+			timer.Stop()
+		case <-timer.C:
+			return fmt.Errorf("task %d did not stop in time", taskID)
+		}
+	}
 
+	m.mu.Lock()
+	if m.activeDownloads[taskID] == download {
+		delete(m.activeDownloads, taskID)
+	}
+	m.mu.Unlock()
 	if download != nil {
 		CleanupSegments(download.SegDir)
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, _ = m.db.Exec(ctx,
-			"UPDATE download_tasks SET status = 'cancelled' WHERE id = ?", taskID)
-	}()
-
-	m.emitProgress(taskID, 0, 0, 0, "cancelled", "")
-
+	if !persist {
+		return nil
+	}
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.state.Transition(updateCtx, taskID, taskstate.Update{
+		Status: taskstate.StatusCancelled,
+		Set:    map[string]any{"error_msg": ""},
+	}); err != nil {
+		// The row moved on its own (finished / already terminal): not a
+		// cancel failure worth reporting.
+		m.logger.Warn("Cancel status write skipped",
+			infra.LogContext{Extra: map[string]any{
+				"taskId": taskID,
+				"error":  err.Error(),
+			}})
+		return nil
+	}
 	if m.eventBus != nil {
 		m.eventBus.Emit("task:cancelled", map[string]any{
 			"taskId":   taskID,
 			"taskType": "video",
 		})
 	}
+	return nil
+}
 
+func (m *DownloadManager) CancelDownload(taskID int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = m.cancelDownload(ctx, taskID, true, false)
+}
+
+func (m *DownloadManager) CancelDownloadAndWait(ctx context.Context, taskID int) error {
+	return m.cancelDownload(ctx, taskID, false, true)
+}
+
+func (m *DownloadManager) StopDownloadForRestart(ctx context.Context, taskID int) error {
+	return m.cancelDownload(ctx, taskID, false, false)
+}
+
+func (m *DownloadManager) AllowDownload(taskID int) {
 	m.mu.Lock()
-	delete(m.activeDownloads, taskID)
+	delete(m.forbiddenTasks, taskID)
 	m.mu.Unlock()
 }
 
@@ -989,18 +1155,26 @@ func (m *DownloadManager) IsDownloading(taskID int) bool {
 	return ok
 }
 
-// GetQueueLength returns the number of segments pending in the queue.
 func (m *DownloadManager) GetQueueLength() int {
 	return m.segQueue.GetQueueLength()
 }
 
-// GetConcurrentCount returns the number of goroutines currently
-// downloading segments.
 func (m *DownloadManager) GetConcurrentCount() int {
 	return m.segQueue.GetConcurrentCount()
 }
 
-// Stop halts all downloads, cleans up segment directories, and marks
+func waitForDownloadDone(download *ActiveDownload, timeout time.Duration) {
+	if download == nil || download.done == nil {
+		return
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-download.done:
+	case <-timer.C:
+	}
+}
+
 // all active tasks as cancelled in the database.
 func (m *DownloadManager) Stop() {
 	m.segQueue.Stop()
@@ -1023,12 +1197,20 @@ func (m *DownloadManager) Stop() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			waitForDownloadDone(download, 5*time.Second)
 			CleanupSegments(download.SegDir)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_, _ = m.db.Exec(ctx,
-				"UPDATE download_tasks SET status = 'cancelled', error_msg = 'Service shutdown, task cancelled' WHERE id = ?",
-				download.TaskID)
+			if err := m.state.Transition(ctx, download.TaskID, taskstate.Update{
+				Status: taskstate.StatusCancelled,
+				Set:    map[string]any{"error_msg": "Service shutdown, task cancelled"},
+			}); err != nil {
+				m.logger.Warn("Shutdown cancel status write skipped",
+					infra.LogContext{Extra: map[string]any{
+						"taskId": download.TaskID,
+						"error":  err.Error(),
+					}})
+			}
 		}()
 	}
 	wg.Wait()
@@ -1059,7 +1241,7 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET
 			title = CASE WHEN COALESCE(EXCLUDED.title, '') != '' THEN EXCLUDED.title ELSE video_infos.title END,
-			source_url = EXCLUDED.source_url,
+			source_url = CASE WHEN COALESCE(EXCLUDED.source_url, '') != '' THEN EXCLUDED.source_url ELSE video_infos.source_url END,
 			file_size = EXCLUDED.file_size,
 			duration = EXCLUDED.duration,
 			tags = CASE WHEN EXCLUDED.tags != '[]' AND EXCLUDED.tags != '' THEN EXCLUDED.tags ELSE video_infos.tags END,
@@ -1076,7 +1258,7 @@ func (m *DownloadManager) upsertVideoInfo(task DownloadTaskInput, outputPath str
 
 // estimateAvgSegmentSize estimates the average byte size of M3U8 segments.
 // Segments are typically 2–10 seconds of stream; at typical HLS bitrates
-// of 1–5 Mbps we use the midpoint ~2 Mbps (250 KB/s) as the default.
+// of 1–5 Mbps the midpoint ~2 Mbps (250 KB/s) is used as the default.
 // This estimate only selects the IndexBuffer storage mode (memory vs
 // disk) — it does not affect downloads or file-size accuracy.
 func estimateAvgSegmentSize(segments []M3U8Segment) int64 {
@@ -1096,6 +1278,3 @@ func estimateAvgSegmentSize(segments []M3U8Segment) int64 {
 	avgDuration := totalDuration / float64(len(segments))
 	return int64(avgDuration * defaultBitrateBytesPerSec)
 }
-
-
-

@@ -43,10 +43,10 @@ func (h *Handlers) SlotList(w http.ResponseWriter, r *http.Request) {
 
 	schedStats := h.Sched.GetStats()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"slots":         slots,
-		"queueSize":     schedStats.QueueSize,
-		"byPriority":    schedStats.ByPriority,
-		"byTaskType":    schedStats.ByTaskType,
+		"slots":             slots,
+		"queueSize":         schedStats.QueueSize,
+		"byPriority":        schedStats.ByPriority,
+		"byTaskType":        schedStats.ByTaskType,
 		"schedulerStrategy": schedStats.Strategy,
 	})
 }
@@ -74,7 +74,12 @@ func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.Sched.UpdateSlotMax(slotType, req.Max)
+	stats := h.Sched.GetSlotSnapshot()
+	usage, ok := stats[slotType]
+	if !ok {
+		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.slots.slotTypeNotFound")+" "+slotType)
+		return
+	}
 
 	if h.DB != nil {
 		dbKey := ""
@@ -87,19 +92,24 @@ func (h *Handlers) SlotUpdate(w http.ResponseWriter, r *http.Request) {
 			dbKey = "max_concurrent_sniff_tasks"
 		}
 		if dbKey != "" {
-			_, _ = h.DB.Exec(r.Context(),
+			if _, err := h.DB.Exec(r.Context(),
 				`INSERT INTO app_configs (key, value) VALUES (?, ?)
 				 ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP`,
-				dbKey, strconv.Itoa(req.Max), strconv.Itoa(req.Max))
+				dbKey, strconv.Itoa(req.Max), strconv.Itoa(req.Max)); err != nil {
+				writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.config.updateFailed"))
+				return
+			}
 		}
 	}
 
-	stats := h.Sched.GetSlotSnapshot()
-	usage, ok := stats[slotType]
-	if !ok {
-		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.slots.slotTypeNotFound")+" "+slotType)
-		return
+	h.Sched.UpdateSlotMax(slotType, req.Max)
+	// Regulate running work: when the new max is lower than the current
+	// holder count, pause the newest-held excess (progress-preserving) so
+	// the pipeline converges to the new limit immediately.
+	if h.DagOrch != nil {
+		h.DagOrch.EnforceSlotMax(r.Context(), slotType, req.Max)
 	}
+	usage = h.Sched.GetSlotSnapshot()[slotType]
 	writeJSON(w, http.StatusOK, map[string]any{
 		"slotType":  usage.SlotType,
 		"current":   usage.Current,
@@ -181,15 +191,22 @@ func (h *Handlers) SlotReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	holders := h.Sched.GetActiveSlotHolders()[slotType]
+	force := r.URL.Query().Get("force") == "true"
+	if len(holders) > 0 && !force {
+		writeError(w, http.StatusConflict, "slot has active holders")
+		return
+	}
 	if !h.Sched.ResetSlot(slotType) {
 		writeError(w, http.StatusNotFound, "slot type not found: "+slotType)
 		return
 	}
 
+	usage := h.Sched.GetSlotSnapshot()[slotType]
 	writeJSON(w, http.StatusOK, map[string]any{
 		"slotType":  slotType,
 		"reset":     true,
-		"current":   0,
-		"available": 0,
+		"current":   usage.Current,
+		"available": usage.Available,
 	})
 }

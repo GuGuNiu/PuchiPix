@@ -14,32 +14,26 @@ import (
 // domainFetchTimeout is the HTTP timeout for fetching publisher pages.
 const domainFetchTimeout = 30 * time.Second
 
-// urlPattern matches http(s) URLs in text content.
 var urlPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
 // DomainScraper provides shared HTML fetching and URL extraction utilities
-// for dynamic domain discovery across all site providers.
+// for dynamic domain discovery.
 type DomainScraper struct{}
 
-// NewDomainScraper creates a DomainScraper instance.
 func NewDomainScraper() *DomainScraper {
 	return &DomainScraper{}
 }
 
-// FetchResult holds the result of fetching a publisher page.
 type FetchResult struct {
-	HTML        string
+	HTML       string
 	StatusCode int
-	Error       error
+	Error      error
 }
 
-// FetchPublisherPage fetches a publisher page using stealth headers
-// to mimic a real browser.
 func (s *DomainScraper) FetchPublisherPage(publisherURL string) FetchResult {
 	return s.FetchPublisherPageWithTimeout(publisherURL, domainFetchTimeout)
 }
 
-// FetchPublisherPageWithTimeout fetches a publisher page with a custom timeout.
 func (s *DomainScraper) FetchPublisherPageWithTimeout(publisherURL string, timeout time.Duration) FetchResult {
 	client := NewStealthClient(timeout)
 
@@ -67,18 +61,14 @@ func (s *DomainScraper) FetchPublisherPageWithTimeout(publisherURL string, timeo
 	}
 
 	return FetchResult{
-		HTML:        string(body),
+		HTML:       string(body),
 		StatusCode: resp.StatusCode,
 	}
 }
 
-// ExtractDomainsFromHTML parses HTML content and extracts all unique
-// domain base URLs (scheme + host) from anchor href attributes and
-// plain text URLs.
 func (s *DomainScraper) ExtractDomainsFromHTML(html string) []string {
 	domainSet := make(map[string]bool)
 
-	// Parse HTML to extract href attributes from anchor tags
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err == nil {
 		doc.Find("a[href]").Each(func(_ int, s *goquery.Selection) {
@@ -92,7 +82,7 @@ func (s *DomainScraper) ExtractDomainsFromHTML(html string) []string {
 		})
 	}
 
-	// Also extract URLs from plain text (catches URLs not in anchor tags)
+	// Plain-text URLs catch links that are not wrapped in anchor tags
 	textMatches := urlPattern.FindAllString(html, -1)
 	for _, match := range textMatches {
 		if domain := NormalizeAndExtractDomain(match); domain != "" {
@@ -100,7 +90,6 @@ func (s *DomainScraper) ExtractDomainsFromHTML(html string) []string {
 		}
 	}
 
-	// Convert set to slice
 	domains := make([]string, 0, len(domainSet))
 	for domain := range domainSet {
 		domains = append(domains, domain)
@@ -116,7 +105,6 @@ func NormalizeAndExtractDomain(rawURL string) string {
 		return ""
 	}
 
-	// Skip relative URLs, javascript:, mailto:, tel:, etc.
 	lower := strings.ToLower(strings.TrimSpace(rawURL))
 	if strings.HasPrefix(lower, "javascript:") ||
 		strings.HasPrefix(lower, "mailto:") ||
@@ -143,7 +131,6 @@ func NormalizeAndExtractDomain(rawURL string) string {
 	return parsed.Scheme + "://" + host
 }
 
-// ExtractHostname extracts the hostname from a URL string.
 func ExtractHostname(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

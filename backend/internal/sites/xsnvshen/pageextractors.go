@@ -7,7 +7,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// SearchEntry represents a single result from a listing or search page.
 type SearchEntry struct {
 	URL      string
 	Title    string
@@ -15,18 +14,10 @@ type SearchEntry struct {
 	Date     string
 }
 
-// thumbPattern matches the thumbnail size prefix in image URLs.
-// e.g. "thumb_600x900/" should be stripped to get the original image URL.
+// thumbPattern strips the thumbnail size directory (e.g. "thumb_600x900/")
+// that the site inserts into listing-page image URLs.
 var thumbPattern = regexp.MustCompile(`thumb_\d+x\d+/`)
 
-// ParseGalleryPageHtml extracts gallery metadata from a parsed album page,
-// collecting image URLs from data-original attributes and deriving
-// model/album identifiers from the first image path segment.
-//
-// Upgrade: Uses more precise selector ".gallery .swi-hd img" to capture
-// ALL images including the cover (class="nolazy"), and normalizes
-// thumbnail URLs back to original quality. Also extracts protagonist
-// name from meta description for cleaner model identification.
 func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 	result := GalleryPageMetadata{
 		Tags:   []string{},
@@ -36,8 +27,7 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 	result.H1Title = strings.TrimSpace(doc.Find("h1").First().Text())
 	result.RawTitle = strings.TrimSpace(doc.Find("title").First().Text())
 
-	// Extract protagonist from meta description (most reliable source)
-	// Pattern: "模特@模特名" or "模特:模特名"
+	// The meta description is the only place the site exposes the model name.
 	if metaDesc := doc.Find(`meta[name="description"]`).First(); metaDesc.Length() > 0 {
 		descContent := metaDesc.AttrOr("content", "")
 		if modelName := ExtractModelFromDescription(descContent); modelName != "" {
@@ -62,11 +52,11 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 		}
 	}
 
-	// Primary: use .gallery .swi-hd selector which captures all images
-	// including the cover (class="nolazy") and lazy-loaded ones.
+	// ".gallery .swi-hd img" also matches the cover element, which carries
+	// class="nolazy" instead of a lazy-load marker.
 	seenURLs := make(map[string]bool)
 	doc.Find(".gallery .swi-hd img").Each(func(index int, img *goquery.Selection) {
-		// Prefer data-original (contains the real image URL)
+		// data-original holds the full-size URL; src holds the lazy-load placeholder.
 		dataOriginal := img.AttrOr("data-original", "")
 		src := img.AttrOr("src", "")
 
@@ -76,7 +66,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 		}
 		seenURLs[fullURL] = true
 
-		// Set cover if not yet set (first image is always the cover)
 		if result.CoverURL == "" {
 			result.CoverURL = fullURL
 		}
@@ -93,7 +82,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 		}
 	})
 
-	// Fallback: if .gallery selector found nothing, try old selectors
 	if len(result.Images) == 0 {
 		fallbackExtractImages(doc, &result)
 	}
@@ -101,10 +89,8 @@ func ParseGalleryPageHtml(doc *goquery.Document, _ int) GalleryPageMetadata {
 	return result
 }
 
-// normalizeImageURL converts thumbnail URLs to original quality URLs.
-// Handles the following cases:
-//   - Protocol-relative URLs (//img.xsnvshen.co/...) → add https: prefix
-//   - Thumbnail URLs (...thumb_600x900/album/...) → strip thumb prefix for original
+// normalizeImageURL promotes a lazy-loaded image URL to its full-size form by
+// adding the missing protocol and removing the thumbnail size directory.
 func normalizeImageURL(dataOriginal, src string) string {
 	raw := dataOriginal
 	if raw == "" {
@@ -114,28 +100,22 @@ func normalizeImageURL(dataOriginal, src string) string {
 		return ""
 	}
 
-	// Skip loading GIFs and data URIs
 	if strings.Contains(raw, "loading.gif") || strings.HasPrefix(raw, "data:") {
 		return ""
 	}
 
-	// Add protocol if missing
 	if strings.HasPrefix(raw, "//") {
 		raw = "https:" + raw
 	}
 
-	// Strip thumbnail size prefix to get original image URL
-	// e.g. https://img.xsnvshen.co/thumb_600x900/album/0/45373/001.jpg
-	//   → https://img.xsnvshen.co/album/0/45373/001.jpg
 	raw = thumbPattern.ReplaceAllString(raw, "")
 
 	return raw
 }
 
-// fallbackExtractImages provides backward-compatible extraction when
-// the primary .gallery selector fails to find images.
+// fallbackExtractImages covers gallery pages that predate the .gallery
+// container and expose images through legacy selectors instead.
 func fallbackExtractImages(doc *goquery.Document, result *GalleryPageMetadata) {
-	// Try old selector: img.origin_image.lazy
 	doc.Find("img.origin_image.lazy").Each(func(index int, img *goquery.Selection) {
 		dataOriginal := img.AttrOr("data-original", "")
 		src := img.AttrOr("src", "")
@@ -161,7 +141,7 @@ func fallbackExtractImages(doc *goquery.Document, result *GalleryPageMetadata) {
 		}
 	})
 
-	// If still no images, try #bigImg src and #viewbigimg href from cover
+	// Last resort: the cover-only pages expose the image directly.
 	if len(result.Images) == 0 {
 		bigImg := doc.Find("#bigImg").First()
 		if bigImg.Length() > 0 {
@@ -176,8 +156,6 @@ func fallbackExtractImages(doc *goquery.Document, result *GalleryPageMetadata) {
 	}
 }
 
-// ParseSearchResults extracts album entries from listing or search pages,
-// resolving relative URLs against the provided base URL.
 func ParseSearchResults(doc *goquery.Document, baseURL string) []SearchEntry {
 	var results []SearchEntry
 	seen := make(map[string]bool)
@@ -243,14 +221,13 @@ func ParseSearchResults(doc *goquery.Document, baseURL string) []SearchEntry {
 	return results
 }
 
-// IsAgeVerificationPage checks whether the document represents the
-// anti-addiction interstitial that blocks access to real content.
+// IsAgeVerificationPage reports whether the document is the site's
+// age-verification interstitial rather than real content.
 func IsAgeVerificationPage(doc *goquery.Document) bool {
 	title := strings.TrimSpace(doc.Find("title").First().Text())
 	return title == "防沉迷提示"
 }
 
-// Is404Page detects whether the page is a 404 error page.
 func Is404Page(doc *goquery.Document) bool {
 	title := strings.TrimSpace(doc.Find("title").First().Text())
 	return strings.Contains(title, "404")

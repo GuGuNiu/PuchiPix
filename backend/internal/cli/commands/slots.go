@@ -11,8 +11,10 @@ import (
 
 type slotsCommand struct{}
 
-func (slotsCommand) Name() string        { return "slots" }
-func (slotsCommand) Description() string { return "View slot pool usage, holders, and adjust concurrency" }
+func (slotsCommand) Name() string { return "slots" }
+func (slotsCommand) Description() string {
+	return "View slot pool usage, holders, and adjust concurrency"
+}
 func (slotsCommand) Usage() string {
 	return "puchipix-cli slots [holders|update <type> <max>|reset <type>|detail <type>]"
 }

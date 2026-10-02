@@ -18,12 +18,11 @@ import (
 type VideoScrapeFn func(ctx context.Context, taskSeq string) error
 
 // VideoScrapeExecutor owns the identification phase of a video task.
-// It is a first-class DAG node that acquires the *scraping* slot
-// (the same pool the user controls via maxScrapingTasks),
-// so identification concurrency is strictly bounded — previously the
-// identification ran inside the download executor and was only bounded
-// by the download slot, making the scraping-slot setting meaningless
-// for video tasks (the root cause of "all tasks started identifying, none held back").
+// It is a first-class DAG node that acquires the scraping slot (the same
+// pool the user controls via maxScrapingTasks), so identification
+// concurrency is strictly bounded. Identification running inside the
+// download executor would only be bounded by the download slot, which
+// makes the scraping-slot setting meaningless for video tasks.
 type VideoScrapeExecutor struct {
 	logger   *infra.Logger
 	scrapeFn VideoScrapeFn

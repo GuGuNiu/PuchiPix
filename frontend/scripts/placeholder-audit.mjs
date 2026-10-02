@@ -1,7 +1,7 @@
-/**
- * Deep placeholder consistency audit:
- * Type A: translation contains placeholders zh-CN lacks (real bug; runtime renders literal {xxx}).
- * Type B: translation is missing placeholders present in zh-CN (information loss).
+/*
+ * Reports two placeholder mismatches against zh-CN: a translation carrying
+ * placeholders zh-CN lacks (renders a literal {xxx}) and a translation missing
+ * placeholders zh-CN has (information loss).
  */
 import fs from "node:fs";
 import path from "node:path";

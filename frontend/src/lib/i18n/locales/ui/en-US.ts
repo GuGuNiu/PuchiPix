@@ -1,8 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-/** Frontend UI text — en-US */
 const enUS: TranslationDict = {
-  /* ─── Common ─── */
   "common.refresh": "Refresh",
   "common.delete": "Delete",
   "common.cancel": "Cancel",
@@ -21,6 +19,7 @@ const enUS: TranslationDict = {
   "common.success": "Success",
   "common.failed": "Failed",
   "common.pending": "Pending",
+  "common.preparing": "Preparing",
   "common.completed": "Completed",
   "common.downloading": "Downloading",
   "common.scraping": "Identifying",
@@ -37,7 +36,6 @@ const enUS: TranslationDict = {
   "common.adding": "Adding...",
   "common.pages": "pages",
 
-  /* ─── Navigation ─── */
   "nav.dashboard": "Puchi Hall",
   "nav.tasks": "Tasks",
   "nav.shelf": "Resource Shelf",
@@ -60,11 +58,9 @@ const enUS: TranslationDict = {
   "nav.videos": "Videos",
   "nav.sjs": "SJS",
 
-  /* ─── SJS ─── */
   "sjs.comingSoon": "SJS Coming Soon",
   "sjs.underConstruction": "Under construction, stay tuned",
 
-  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "Batch Import",
   "sjs.shelf.searchPlaceholder": "Search title, author, URL...",
   "sjs.shelf.allForums": "All Forums",
@@ -102,7 +98,6 @@ const enUS: TranslationDict = {
   "sjs.shelf.refreshed": "Refreshed",
   "sjs.shelf.refreshNetworkError": "Refresh request failed, please check network",
 
-  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "Live",
   "dashboard.offline": "Offline",
   "dashboard.totalTasks": "Total Tasks",
@@ -132,7 +127,6 @@ const enUS: TranslationDict = {
   "dashboard.addLinkToStart": "Add a link to start downloading",
   "dashboard.identifying": "Identifying",
 
-  /* ─── Gallery ─── */
   "gallery.statusScraping": "Scraping",
 "gallery.statusScrapePending": "Queued (Identify)",
 "gallery.statusDownloadPending": "Queued (Download)",
@@ -202,7 +196,6 @@ const enUS: TranslationDict = {
   "gallery.zipExtractLabel": "Extract: ",
   "gallery.clickToCopy": "Click to copy",
 
-  /* ─── Videos ─── */
   "video.statusScraping": "Scraping",
   "video.statusScrapePending": "Pending scrape",
   "video.statusDownloadPending": "Pending download",
@@ -260,7 +253,6 @@ const enUS: TranslationDict = {
   "video.nextVideo": "Next",
   "video.noPlayableSelected": "None of the selected videos has a playable file",
 
-  /* ─── Search ─── */
   "search.placeholderGallery": "Enter keywords or paste full URL (e.g. /article/ /tag/ pages)...",
   "search.placeholderVideo": "Enter search keywords, separated by commas or spaces...",
   "search.searching": "Searching...",
@@ -306,7 +298,6 @@ const enUS: TranslationDict = {
   "search.statusCancelled": "Cancelled",
   "search.statusScraping": "Scraping",
 
-  /* ─── Settings ─── */
   "config.title": "System Settings",
   "config.pathSettings": "Path Settings",
   "config.chromeDriverPath": "ChromeDriver Path",
@@ -334,7 +325,6 @@ const enUS: TranslationDict = {
   "config.gpuEncoder": "Encoder",
   "config.gpuNotAvailable": "No compatible GPU detected, will use CPU transcoding",
 
-  /* ─── Sniff ─── */
   "sniff.title": "Sniff M3U8 Links",
   "sniff.control": "Sniff Control",
   "sniff.targetUrl": "Target URL",
@@ -353,7 +343,6 @@ const enUS: TranslationDict = {
   "sniff.addedToDownload": "Added to download tasks",
   "sniff.untitled": "Untitled",
 
-  /* ─── Characters ─── */
   "protagonists.title": "Character Gallery",
   "protagonists.subtitle": "Normalized character list — click to view all galleries for that character",
   "protagonists.searchPlaceholder": "Search character name...",
@@ -369,7 +358,6 @@ const enUS: TranslationDict = {
   "protagonists.statGalleries": "{count} galleries",
   "protagonists.statAliases": "{count} aliases",
 
-  /* ─── Ops Panel ─── */
   "ops.online": "Online",
   "ops.offline": "Offline",
   "ops.todayTasks": "Today's Tasks",
@@ -387,7 +375,6 @@ const enUS: TranslationDict = {
   "ops.noLogs": "No logs",
   "ops.pausedBuffer": "Paused — {count} new logs in buffer",
 
-  /* ─── Create Task ─── */
   "createTask.title": "Create Download Task",
   "createTask.pleaseFillLink": "Please enter a link",
   "createTask.exactMatch": "Exact match",
@@ -410,7 +397,6 @@ const enUS: TranslationDict = {
   "createTask.creating": "Creating...",
   "createTask.createTask": "Create Task",
 
-  /* ─── Search (Supplements) ─── */
   "search.scrape": "Scrape",
   "search.scrapeThisVideo": "Scrape this video",
   "search.loadingData": "Loading data...",
@@ -437,7 +423,6 @@ const enUS: TranslationDict = {
   "search.estimatedSizeValue": "Estimating",
   "search.bitrate": "Bitrate",
 
-  /* ─── Batch Search ─── */
   "batchSearch.title": "Batch Search",
   "batchSearch.titleLabel": "Title",
   "batchSearch.siteLabel": "Site",
@@ -474,7 +459,6 @@ const enUS: TranslationDict = {
   "batchSearch.refilled": "Failed titles filled into input",
   "batchSearch.inputHint": "Detected {count} titles · Auto fuzzy search and download matching videos · 3-5s interval between titles to prevent blocking",
 
-  /* ─── Task Settings ─── */
   "taskSettings.title": "Task Settings",
   "taskSettings.maxConcurrentTasks": "Max Concurrent Tasks",
   "taskSettings.maxConcurrentTasksDesc": "Maximum concurrent video/gallery download tasks",
@@ -496,11 +480,9 @@ const enUS: TranslationDict = {
   "taskSettings.saveFailed": "Failed to save settings",
   "taskSettings.saved": "Settings saved",
 
-  /* ─── Console Log ─── */
   "console.noTaskLogs": "No task logs",
   "console.fetchFailed": "Failed to fetch logs",
 
-  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "Pending",
   "dag.nodeState.ready": "Ready",
   "dag.nodeState.queued": "Queued",

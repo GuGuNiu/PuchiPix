@@ -152,24 +152,42 @@ func TestComputeGalleryTerminalStatus(t *testing.T) {
 	})
 }
 
-// TestValidateDatabaseSchema verifies startup schema validation detects
-// missing core tables (the guard gate after the 260821 silently-created empty DB incident).
+// TestValidateDatabaseSchema verifies startup schema validation reports
+// missing core tables instead of letting the server serve 404s from an
+// empty database.
 func TestValidateDatabaseSchema(t *testing.T) {
 	t.Run("健康库校验通过", func(t *testing.T) {
 		d := newGuardTestDB(t)
-		// Should not panic; passing counts as normal (only the error branch needs assertions)
 		validateDatabaseSchema(infra.NewLogger("GuardTest"), d)
 	})
 
 	t.Run("核心表缺失被检出", func(t *testing.T) {
 		d := newGuardTestDB(t)
 		for _, table := range []string{"galleries", "download_tasks", "sniff_tasks"} {
-			if _, err := d.Exec(context.Background(), "DROP TABLE " + table); err != nil {
+			if _, err := d.Exec(context.Background(), "DROP TABLE "+table); err != nil {
 				t.Fatalf("drop %s: %v", table, err)
 			}
 		}
-		// validateDatabaseSchema only logs and returns no error; here we verify it does not panic
-		// and completes the missing-table branch (error logs go to the global sink, out of assertion scope).
+		// validateDatabaseSchema only logs and returns no error, so the test
+		// asserts the missing-table branch does not panic; error logs go to
+		// the global sink and are out of assertion scope.
 		validateDatabaseSchema(infra.NewLogger("GuardTest"), d)
 	})
+}
+
+func TestConfigInt(t *testing.T) {
+	cases := []struct {
+		value any
+		want  int
+	}{
+		{value: 7, want: 7},
+		{value: int64(8), want: 8},
+		{value: float64(9), want: 9},
+		{value: "10", want: 10},
+	}
+	for _, tc := range cases {
+		if got := configInt(tc.value); got != tc.want {
+			t.Fatalf("configInt(%v) = %d, want %d", tc.value, got, tc.want)
+		}
+	}
 }

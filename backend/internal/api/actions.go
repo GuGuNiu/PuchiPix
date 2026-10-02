@@ -1,19 +1,26 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
-	"backend/internal/db"
 	"backend/internal/api/internal/image"
+	"backend/internal/api/internal/task_compute"
+	"backend/internal/db"
 	"backend/internal/i18n"
 	"backend/internal/idgen"
 	"backend/internal/infra"
 	"backend/internal/orchestrator/dag"
 	"backend/internal/sites"
+	"backend/internal/sites/sjs"
 )
 
 type searchResult struct {
@@ -82,7 +89,7 @@ func (h *Handlers) submitScrapeDag(r *http.Request, url, siteID string) (string,
 
 func (h *Handlers) SniffList(w http.ResponseWriter, r *http.Request) {
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, []any{})
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
 	rows, err := h.DB.Query(r.Context(),
@@ -98,9 +105,14 @@ func (h *Handlers) SniffList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t db.SniffTask
 		if err := rows.Scan(&t.ID, &t.Seq, &t.URL, &t.SiteID, &t.Status, &t.TotalFound, &t.TotalCreated, &t.TotalSkipped, &t.ErrorMsg, &completedAt, &ca, &ua); err != nil {
-			continue
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.queryFailed"))
+			return
 		}
 		tasks = append(tasks, t)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.queryFailed"))
+		return
 	}
 	writeJSON(w, http.StatusOK, tasks)
 }
@@ -121,9 +133,30 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.sniff.missingUrl"))
 		return
 	}
+	parsedURL, err := url.Parse(req.URL)
+	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.sniff.missingUrl"))
+		return
+	}
+	if h.DagOrch == nil {
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.sniff.createFailed"))
+		return
+	}
+	h.sniffCreateMu.Lock()
+	defer h.sniffCreateMu.Unlock()
+	var active bool
+	if err := h.DB.QueryRow(r.Context(),
+		"SELECT EXISTS(SELECT 1 FROM sniff_tasks WHERE status IN ('pending', 'scraping', 'running', 'sniffing'))").Scan(&active); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.queryFailed"))
+		return
+	}
+	if active {
+		writeError(w, http.StatusConflict, "A sniff task is already running")
+		return
+	}
 	var id int
 	seq := idgen.GenerateID()
-	err := h.DB.QueryRow(r.Context(),
+	err = h.DB.QueryRow(r.Context(),
 		`INSERT INTO sniff_tasks (seq, url, site_id, status) VALUES (?, ?, ?, 'pending') RETURNING id`,
 		seq, req.URL, req.SiteID).Scan(&id)
 	if err != nil {
@@ -133,24 +166,45 @@ func (h *Handlers) SniffCreate(w http.ResponseWriter, r *http.Request) {
 
 	dagID := ""
 	if h.DagOrch != nil {
-		def := dag.NewDagFactory().NewSniffPipeline(req.URL, seq)
+		def := dag.NewDagFactory().NewSniffPipeline(req.URL, seq, req.SiteID)
 		var submitErr error
 		dagID, submitErr = h.DagOrch.SubmitDag(r.Context(), def)
 		if submitErr != nil {
-		h.DB.Exec(r.Context(),
-			"UPDATE sniff_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
-			"DAG submission failed: "+submitErr.Error(), id)
-		if h.EventBus != nil {
-			h.EventBus.Emit("task:failed", map[string]any{
-				"taskId":   id,
-				"taskType": "sniff",
-				"error":    "DAG submission failed: " + submitErr.Error(),
-			})
-		}
-		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
+			_, updateErr := h.DB.Exec(r.Context(),
+				"UPDATE sniff_tasks SET status = 'failed', error_msg = ? WHERE id = ?",
+				"DAG submission failed: "+submitErr.Error(), id)
+			if updateErr != nil {
+				_, _ = h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", id)
+			}
+			if h.EventBus != nil {
+				h.EventBus.Emit("task:failed", map[string]any{
+					"taskId":   id,
+					"taskType": "sniff",
+					"error":    "DAG submission failed: " + submitErr.Error(),
+				})
+			}
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
 			return
 		}
-		h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, id)
+		result, updateErr := h.DB.Exec(r.Context(), "UPDATE sniff_tasks SET dag_id = ? WHERE id = ?", dagID, id)
+		if updateErr != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.DagOrch.CancelDagAndWait(cleanupCtx, dagID)
+			_ = h.DagOrch.RemoveDag(cleanupCtx, dagID)
+			cancel()
+			_, _ = h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", id)
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
+			return
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil || rows == 0 {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.DagOrch.CancelDagAndWait(cleanupCtx, dagID)
+			_ = h.DagOrch.RemoveDag(cleanupCtx, dagID)
+			cancel()
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.createFailed"))
+			return
+		}
 	}
 
 	if h.EventBus != nil {
@@ -194,8 +248,8 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.DB.Query(r.Context(),
 		`SELECT id, title, protagonist, tags, cover_url, site_id, image_count, status
-		 FROM galleries WHERE title LIKE ? OR protagonist LIKE ? OR tags LIKE ?
-		 ORDER BY id DESC LIMIT 50`, "%"+keywords+"%", "%"+keywords+"%", "%"+keywords+"%")
+		 FROM galleries WHERE (title LIKE ? ESCAPE '\' OR protagonist LIKE ? ESCAPE '\' OR tags LIKE ? ESCAPE '\')
+		 ORDER BY id DESC LIMIT 50`, "%"+escapeLikePattern(keywords)+"%", "%"+escapeLikePattern(keywords)+"%", "%"+escapeLikePattern(keywords)+"%")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.search.failed"))
 		return
@@ -205,17 +259,32 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	results := []searchResult{}
 	for rows.Next() {
 		var sr searchResult
-		if err := rows.Scan(&sr.ID, &sr.Title, &sr.Protagonist, &sr.Tags, &sr.CoverURL, &sr.SiteID, &sr.ImageCount, &sr.Status); err != nil {
-			continue
+		var tagsRaw string
+		if err := rows.Scan(&sr.ID, &sr.Title, &sr.Protagonist, &tagsRaw, &sr.CoverURL, &sr.SiteID, &sr.ImageCount, &sr.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.search.failed"))
+			return
 		}
+		sr.Tags = strings.Join(task_compute.ParseTagsColumn(tagsRaw), ", ")
 		results = append(results, sr)
 	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.search.failed"))
+		return
+	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+func escapeLikePattern(value string) string {
+	value = strings.ReplaceAll(value, "\\", "\\\\")
+	value = strings.ReplaceAll(value, "%", "\\%")
+	value = strings.ReplaceAll(value, "_", "\\_")
+	return value
 }
 
 func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Keywords []string `json:"keywords"`
+		SiteID   string   `json:"siteId"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -224,21 +293,43 @@ func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.searchBatch.missingKeywords"))
 		return
 	}
+	if len(req.Keywords) > 100 {
+		writeError(w, http.StatusBadRequest, "too many search keywords")
+		return
+	}
 	if h.DB == nil {
-		writeJSON(w, http.StatusOK, []any{})
+		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
 
-	args := make([]any, 0, len(req.Keywords)*3)
-	conditions := make([]string, len(req.Keywords))
-	for i, kw := range req.Keywords {
-		pat := "%" + kw + "%"
+	args := make([]any, 0, len(req.Keywords)*3+1)
+	conditions := make([]string, 0, len(req.Keywords))
+	seen := make(map[string]struct{}, len(req.Keywords))
+	for _, rawKeyword := range req.Keywords {
+		kw := strings.TrimSpace(rawKeyword)
+		if kw == "" {
+			continue
+		}
+		if _, exists := seen[kw]; exists {
+			continue
+		}
+		seen[kw] = struct{}{}
+		pat := "%" + escapeLikePattern(kw) + "%"
 		args = append(args, pat, pat, pat)
-		conditions[i] = "(title LIKE ? OR protagonist LIKE ? OR tags LIKE ?)"
+		conditions = append(conditions, "(title LIKE ? ESCAPE '\\' OR protagonist LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')")
+	}
+	if len(conditions) == 0 {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.searchBatch.missingKeywords"))
+		return
+	}
+	where := strings.Join(conditions, " OR ")
+	if req.SiteID != "" {
+		where = "(" + where + ") AND site_id = ?"
+		args = append(args, req.SiteID)
 	}
 
 	query := fmt.Sprintf(`SELECT id, title, protagonist, tags, cover_url, site_id, image_count, status
-		FROM galleries WHERE %s ORDER BY id DESC LIMIT 100`, strings.Join(conditions, " OR "))
+		 FROM galleries WHERE %s ORDER BY id DESC LIMIT 100`, where)
 
 	rows, err := h.DB.Query(r.Context(), query, args...)
 	if err != nil {
@@ -250,10 +341,17 @@ func (h *Handlers) SearchBatch(w http.ResponseWriter, r *http.Request) {
 	allResults := []searchResult{}
 	for rows.Next() {
 		var sr searchResult
-		if err := rows.Scan(&sr.ID, &sr.Title, &sr.Protagonist, &sr.Tags, &sr.CoverURL, &sr.SiteID, &sr.ImageCount, &sr.Status); err != nil {
-			continue
+		var tagsRaw string
+		if err := rows.Scan(&sr.ID, &sr.Title, &sr.Protagonist, &tagsRaw, &sr.CoverURL, &sr.SiteID, &sr.ImageCount, &sr.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.searchBatch.failed"))
+			return
 		}
+		sr.Tags = strings.Join(task_compute.ParseTagsColumn(tagsRaw), ", ")
 		allResults = append(allResults, sr)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.searchBatch.failed"))
+		return
 	}
 	writeJSON(w, http.StatusOK, allResults)
 }
@@ -300,15 +398,35 @@ func (h *Handlers) Sjs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Action {
-	case "checkin":
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": i18n.TFromRequest(r, "api.sjs.checkinHandled")})
-	case "buy":
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": i18n.TFromRequest(r, "api.sjs.buyHandled")})
-	case "hide":
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": i18n.TFromRequest(r, "api.sjs.hideHandled")})
+	case "checkin", "buy", "hide":
+		writeError(w, http.StatusNotImplemented, "SJS account actions are not implemented")
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"provider": provider.SiteID(), "actions": []string{"checkin", "buy", "hide"}})
 	}
+}
+
+func validateProxyTarget(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("unsupported proxy URL scheme")
+	}
+	host := parsed.Hostname()
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("proxy target host is not allowed")
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("proxy target resolves to a private address")
+		}
+	}
+	return nil
 }
 
 func (h *Handlers) Proxy(w http.ResponseWriter, r *http.Request) {
@@ -325,17 +443,27 @@ func (h *Handlers) Proxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.proxy.missingUrl"))
 		return
 	}
+	if err := validateProxyTarget(req.URL); err != nil {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.proxy.invalidUrl"))
+		return
+	}
 	method := req.Method
 	if method == "" {
 		method = "GET"
 	}
 
 	client := infra.NewHTTPClient(30_000_000_000)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := validateProxyTarget(req.URL.String()); err != nil {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
 	var bodyReader io.Reader
 	if req.Body != "" {
 		bodyReader = strings.NewReader(req.Body)
 	}
-	proxyReq, err := http.NewRequest(method, req.URL, bodyReader)
+	proxyReq, err := http.NewRequestWithContext(r.Context(), method, req.URL, bodyReader)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.proxy.invalidUrl"))
 		return
@@ -481,22 +609,45 @@ func (h *Handlers) SniffDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, i18n.TFromRequest(r, "api.common.databaseUnavailable"))
 		return
 	}
-	idStr := r.URL.Query().Get("id")
-	if idStr == "" {
-		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.sniff.missingId"))
+	id, err := strconv.Atoi(r.URL.Query().Get("id"))
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidId"))
 		return
 	}
-	if _, err := h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", idStr); err != nil {
+	var dagID string
+	if err := h.DB.QueryRow(r.Context(),
+		"SELECT COALESCE(dag_id, '') FROM sniff_tasks WHERE id = ?", id).Scan(&dagID); err != nil {
+		writeError(w, http.StatusNotFound, i18n.TFromRequest(r, "api.sniff.deleteFailed"))
+		return
+	}
+	if h.DagOrch != nil && dagID != "" && h.DagOrch.GetDagStatus(dagID) != nil {
+		waitCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		err := h.DagOrch.CancelDagAndWait(waitCtx, dagID)
+		cancel()
+		if err != nil {
+			writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.sniff.deleteFailed"))
+			return
+		}
+	}
+	result, err := h.DB.Exec(r.Context(), "DELETE FROM sniff_tasks WHERE id = ?", id)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.deleteFailed"))
 		return
 	}
-	if h.EventBus != nil {
-		h.EventBus.Emit("task:cancelled", map[string]any{
-			"taskId":   idStr,
-			"taskType": "sniff",
-		})
+	rows, err := result.RowsAffected()
+	if err != nil || rows == 0 {
+		writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.sniff.deleteFailed"))
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	if h.DagOrch != nil && dagID != "" {
+		if err := h.DagOrch.RemoveDag(r.Context(), dagID); err != nil {
+			cleanupLogger.Warn("Sniff DAG cleanup failed", "sniffId", id, "dagId", dagID, "error", err.Error())
+		}
+	}
+	if h.EventBus != nil {
+		h.EventBus.Emit("task:deleted", map[string]any{"taskId": id, "taskType": "sniff"})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "deleted"})
 }
 
 func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
@@ -513,34 +664,52 @@ func (h *Handlers) SjsShelfCreate(w http.ResponseWriter, r *http.Request) {
 	type sjsImportResult struct {
 		URL    string `json:"url"`
 		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
 	}
 	results := make([]sjsImportResult, 0, len(req.URLs))
-	created, skipped := 0, 0
-	for _, u := range req.URLs {
-		if u == "" {
+	created, skipped, failed := 0, 0, 0
+	for _, rawURL := range req.URLs {
+		rawURL = strings.TrimSpace(rawURL)
+		normalizedURL := sjs.NormalizeSjsUrl(rawURL)
+		threadID := sjs.ExtractThreadID(rawURL)
+		if rawURL == "" || normalizedURL == "" || threadID == "" || sjs.IsListingPage(normalizedURL) {
+			failed++
+			results = append(results, sjsImportResult{URL: rawURL, Status: "failed", Error: "invalid SJS thread URL"})
 			continue
 		}
 		res, err := h.DB.Exec(r.Context(),
-			"INSERT INTO sjs_bookmarks (url, title) VALUES (?, '') ON CONFLICT (url) DO NOTHING", u)
+			"INSERT INTO sjs_bookmarks (url, thread_id, title) VALUES (?, ?, '') ON CONFLICT (url) DO NOTHING",
+			normalizedURL, threadID)
 		if err != nil {
+			failed++
+			results = append(results, sjsImportResult{URL: rawURL, Status: "failed", Error: err.Error()})
 			continue
 		}
-		n, _ := res.RowsAffected()
+		n, err := res.RowsAffected()
+		if err != nil {
+			failed++
+			results = append(results, sjsImportResult{URL: rawURL, Status: "failed", Error: err.Error()})
+			continue
+		}
 		if n > 0 {
 			created++
-			results = append(results, sjsImportResult{URL: u, Status: "created"})
+			results = append(results, sjsImportResult{URL: normalizedURL, Status: "created"})
 		} else {
 			skipped++
-			results = append(results, sjsImportResult{URL: u, Status: "skipped"})
+			results = append(results, sjsImportResult{URL: normalizedURL, Status: "skipped"})
 		}
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	status := http.StatusCreated
+	if failed > 0 {
+		status = http.StatusMultiStatus
+	}
+	writeJSON(w, status, map[string]any{
 		"results": results,
 		"summary": map[string]int{
-			"total":   len(results),
+			"total":   len(req.URLs),
 			"created": created,
 			"skipped": skipped,
-			"failed":  0,
+			"failed":  failed,
 		},
 	})
 }
@@ -557,16 +726,23 @@ func (h *Handlers) SjsShelfDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if idStr != "" {
-		if _, err := h.DB.Exec(r.Context(), "DELETE FROM sjs_bookmarks WHERE id = ?", idStr); err != nil {
+		result, err := h.DB.Exec(r.Context(), "DELETE FROM sjs_bookmarks WHERE id = ?", idStr)
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, "delete failed")
 			return
 		}
-		if h.EventBus != nil {
-			h.EventBus.Emit("task:cancelled", map[string]any{
-				"taskId":   idStr,
-				"taskType": "sjs",
-			})
+		rows, err := result.RowsAffected()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "delete failed")
+			return
 		}
+		if rows == 0 {
+			writeError(w, http.StatusNotFound, "bookmark not found")
+			return
+		}
+	} else {
+		writeError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidId"))
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

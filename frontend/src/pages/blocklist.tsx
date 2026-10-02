@@ -20,6 +20,7 @@ export default function BlocklistPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [filterSite, setFilterSite] = useState("all");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newRule, setNewRule] = useState({
     siteId: "all",
     fieldType: "title",
@@ -53,6 +54,7 @@ export default function BlocklistPage(): React.JSX.Element {
     setLoading(true);
     try {
       const res = await fetch("/api/blocklist");
+      if (!res.ok) throw new Error(t("blocklist.loadFailed"));
       const data = await res.json();
       setRules(Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []));
     } catch {
@@ -60,7 +62,7 @@ export default function BlocklistPage(): React.JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchRules();
@@ -128,21 +130,39 @@ export default function BlocklistPage(): React.JSX.Element {
   };
 
   const handleBatchDelete = async (): Promise<void> => {
+    if (deleting) return;
     const selectedIds = selectedIdsSet;
     if (selectedIds.size === 0) {
       toast.error("blocklist.pleaseSelectRules");
       return;
     }
     const ids = Array.from(selectedIds).join(",");
+    setDeleting(true);
     try {
       const res = await fetch(`/api/blocklist?ids=${ids}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(t("blocklist.deleteFailed"));
-      toast.success("blocklist.deleted", { count: selectedIds.size });
-      setSelectedIdsSet(new Set());
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || t("blocklist.deleteFailed"));
+      const deleted = Number(data.deleted) || 0;
+      const missing = Number(data.missing) || 0;
+      const failed = Number(data.failed) || 0;
+      if (failed + missing > 0) {
+        toast.warning("tasks.batchResult", { ok: deleted, fail: failed + missing });
+      } else {
+        toast.success("blocklist.deleted", { count: deleted });
+      }
+      const remaining = new Set(selectedIds);
+      const deletedSet = new Set<number>();
+      for (const id of selectedIds) {
+        if (data.deletedIds?.includes?.(id)) deletedSet.add(id);
+      }
+      for (const id of deletedSet) remaining.delete(id);
+      setSelectedIdsSet(remaining);
       fetchRules();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -200,7 +220,7 @@ export default function BlocklistPage(): React.JSX.Element {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {selectedIdsSet.size > 0 && (
-              <button className="btn btn-danger" onClick={handleBatchDelete}>
+               <button className="btn btn-danger" onClick={handleBatchDelete} disabled={deleting}>
                 <Trash2 size={16} />
                 {t("blocklist.deleteSelected", { count: selectedIdsSet.size })}
               </button>

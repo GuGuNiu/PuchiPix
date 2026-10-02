@@ -11,8 +11,10 @@ import (
 
 type dagCreateCommand struct{}
 
-func (c dagCreateCommand) Name() string        { return "create" }
-func (c dagCreateCommand) Description() string { return "Create a new task from a URL (gallery / video / sniff auto-detected by backend)" }
+func (c dagCreateCommand) Name() string { return "create" }
+func (c dagCreateCommand) Description() string {
+	return "Create a new task from a URL (gallery / video / sniff auto-detected by backend)"
+}
 func (c dagCreateCommand) Usage() string {
 	return "puchipix-cli create <url> [--format=mp4] [--priority=1]"
 }
@@ -85,7 +87,6 @@ func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
-// extractFlagValue extracts the value from a --key=value argument.
 func extractFlagValue(arg, prefix string) (string, bool) {
 	if len(arg) > len(prefix) && arg[:len(prefix)] == prefix {
 		return arg[len(prefix):], true

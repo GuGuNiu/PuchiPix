@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-// PlayButtonSelectors lists CSS selectors for common video play button
-// patterns, tried in order to initiate playback and trigger M3U8 loading.
+// PlayButtonSelectors is tried in order, because generic video pages expose
+// playback under a wide range of markup and clicking a button is what
+// triggers the M3U8 request.
 var PlayButtonSelectors = []string{
 	".play-btn", ".player-play", ".video-play",
 	"[onclick*=\"play\"]", ".play-button", ".start-btn",
@@ -19,16 +20,12 @@ var PlayButtonSelectors = []string{
 	"[data-player]", ".player-container video",
 }
 
-// M3U8ExcludePatterns filters out M3U8 URLs that match advertising,
-// analytics, or statistics endpoints to avoid false positives.
+// M3U8ExcludePatterns drops advertising and analytics endpoints, which
+// otherwise surface as M3U8 candidates.
 var M3U8ExcludePatterns = []string{"ad", "stat", "analytics"}
 
-// TagSelectors targets anchor elements within tag-like containers for
-// metadata extraction from generic video pages.
 const TagSelectors = ".category a, .tag a, .tags a, [class*=\"tag\"] a"
 
-// ActorSelectors lists CSS selectors for extracting actor names from
-// various common video page layouts.
 var ActorSelectors = []string{
 	".actor a", ".actors a", ".star a", ".stars a",
 	".cast a", ".performer a", ".model a",
@@ -47,16 +44,14 @@ var (
 		regexp.MustCompile(`(?i)\s*[-—丨]\s*免费.*$`),
 		regexp.MustCompile(`(?i)\s*[-—丨]\s*高清.*$`),
 	}
-	// Kanav (MacCMS) title patterns. Kanav titles follow the format
-	// "在线播放 - {title} - KanAV-免费高清中文AV在线看". We strip the
-	// leading "在线播放 - " and the trailing " - {site-name}..." suffix.
-	// NOTE: kanavSuffixPattern uses .* (not [^-]*) to match the full suffix
-	// including "KanAV-免费高清中文AV在线看" (hyphen inside the suffix).
+	// MacCMS titles are wrapped in a leading "watch online" segment and a
+	// trailing site-name segment, so both are stripped. The suffix pattern
+	// uses .* rather than [^-]* because the suffix itself contains hyphens.
 	kanavPrefixPattern = regexp.MustCompile(`^在线播放\s*[-—丨]\s*`)
 	kanavSuffixPattern = regexp.MustCompile(`\s*[-—丨]\s*KanAV.*$`)
-	m3u8ExtPattern       = regexp.MustCompile(`\.m3u8|\.m3u`)
-	resolutionPattern    = regexp.MustCompile(`(?i)(\d{3,4})x(\d{3,4})`)
-	resKeywordPatterns   = []struct {
+	m3u8ExtPattern     = regexp.MustCompile(`\.m3u8|\.m3u`)
+	resolutionPattern  = regexp.MustCompile(`(?i)(\d{3,4})x(\d{3,4})`)
+	resKeywordPatterns = []struct {
 		Pattern *regexp.Regexp
 		Label   string
 	}{
@@ -66,56 +61,64 @@ var (
 		{regexp.MustCompile(`(?i)360p|360`), "360p"},
 		{regexp.MustCompile(`(?i)4k|2160`), "4K"},
 	}
-	bitratePattern = regexp.MustCompile(`(?i)(\d{3,5})\s*kbps|(\d)M\b`)
-epPattern      = regexp.MustCompile(`(?i)(?:ep|episode|part|第)(\d{1,3})`)
-	highQualityPat = regexp.MustCompile(`(?i)1080|1920|2160|4k|high`)
-	m3u8FileExtPat = regexp.MustCompile(`(?i)\.(m3u8|m3u)$`)
-	queryFragPat   = regexp.MustCompile(`[?#].*$`)
+	bitratePattern        = regexp.MustCompile(`(?i)(\d{3,5})\s*kbps|(\d)M\b`)
+	epPattern             = regexp.MustCompile(`(?i)(?:ep|episode|part|第)(\d{1,3})`)
+	highQualityPat        = regexp.MustCompile(`(?i)1080|1920|2160|4k|high`)
+	m3u8FileExtPat        = regexp.MustCompile(`(?i)\.(m3u8|m3u)$`)
+	queryFragPat          = regexp.MustCompile(`[?#].*$`)
+	invalidTitleFragments = []string{
+		"attention required",
+		"just a moment",
+		"access denied",
+		"checking your browser",
+		"请稍候",
+		"安全检查",
+		"访问被拒绝",
+	}
 )
 
-// CleanTitle removes publisher prefixes, Kanav-style wrappers, and
-// common streaming-site suffixes from a raw page title to produce a
-// clean video name.
+// CleanTitle strips MacCMS-style title wrappers, publisher prefixes, and
+// streaming-site suffixes, returning an empty title when the page title
+// carries a known anti-bot interstitial marker.
 func CleanTitle(rawTitle string) string {
 	if rawTitle == "" {
 		return ""
 	}
-	// Strip Kanav (MacCMS) wrappers: "在线播放 - {title} - KanAV..."
 	title := kanavPrefixPattern.ReplaceAllString(rawTitle, "")
 	title = kanavSuffixPattern.ReplaceAllString(title, "")
-	// Generic publisher prefix: "某某站: title"
 	title = publisherPrefixPattern.ReplaceAllString(title, "")
 	for _, pat := range onlineSuffixPatterns {
 		title = pat.ReplaceAllString(title, "")
 	}
+	title = strings.TrimSpace(title)
+	lower := strings.ToLower(title)
+	for _, fragment := range invalidTitleFragments {
+		if strings.Contains(lower, fragment) {
+			return ""
+		}
+	}
 	return title
 }
 
-// base64CharsetPattern matches strings that look like base64-encoded data.
 var base64CharsetPattern = regexp.MustCompile(`^[A-Za-z0-9+/=]{20,}$`)
 
-// DecodeMacCMSURL decodes MacCMS-style encoded M3U8 URLs.
-// MacCMS (used by Kanav and similar sites) encodes URLs as
-// base64(url_encode(actual_url)). This function detects and decodes
-// that pattern, returning the original URL. If the input is not
-// encoded, it returns the input unchanged.
+// DecodeMacCMSURL returns the input unchanged unless it is a base64 token,
+// which some MacCMS themes emit in place of a plain stream URL; the decoded
+// payload is URL-unescaped before being returned.
 func DecodeMacCMSURL(rawURL string) string {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return rawURL
 	}
 
-	// Already a valid HTTP(S) URL — no decoding needed.
 	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
 		return rawURL
 	}
 
-	// Check if it looks like base64.
 	if !base64CharsetPattern.MatchString(rawURL) {
 		return rawURL
 	}
 
-	// Try base64 decode.
 	decoded, err := base64.StdEncoding.DecodeString(rawURL)
 	if err != nil {
 		return rawURL
@@ -123,15 +126,12 @@ func DecodeMacCMSURL(rawURL string) string {
 
 	decodedStr := string(decoded)
 
-	// If the base64-decoded result contains URL-encoded characters,
-	// URL-decode it to get the actual URL.
 	if strings.Contains(decodedStr, "%") {
 		if unescaped, err := url.QueryUnescape(decodedStr); err == nil {
 			return unescaped
 		}
 	}
 
-	// If the decoded result is already a valid URL, return it.
 	if strings.HasPrefix(decodedStr, "http://") || strings.HasPrefix(decodedStr, "https://") {
 		return decodedStr
 	}
@@ -242,7 +242,7 @@ func GuessM3U8Title(m3u8URL, pageTitle string) string {
 		if base == "" {
 			base = pageTitle
 		}
-	return base + " (EP" + m[1] + ")"
+		return base + " (EP" + m[1] + ")"
 	}
 
 	if len(name) > 2 {

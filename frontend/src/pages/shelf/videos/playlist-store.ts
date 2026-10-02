@@ -2,13 +2,9 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 /**
- * Persistent video playlist for the shelf player.
- *
- * Queue IDs survive page reloads (zustand persist → localStorage) so the
- * user can curate a "watch later" list over multiple sessions. The modal
- * resolves IDs against the freshest /api/videos payload at render time,
- * so deleted or unfinished entries are skipped gracefully instead of
- * stale item snapshots living in storage.
+ * Only queue ids are persisted, never item snapshots, so the player resolves
+ * each id against the freshest /api/videos payload at render time and skips
+ * entries that were deleted or never finished.
  */
 interface PlaylistState {
   queueIds: number[];

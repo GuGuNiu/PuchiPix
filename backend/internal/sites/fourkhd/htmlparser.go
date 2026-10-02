@@ -8,28 +8,24 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// ParseGalleryPageHtml extracts gallery metadata from a goquery document.
 func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetadata {
 	result := GalleryPageMetadata{
 		CurrentPage: 1,
 		TotalPages:  1,
 	}
 
-	// Title from h3.wp-block-post-title
 	result.H1Title = strings.TrimSpace(doc.Find("h3.wp-block-post-title").First().Text())
 	if result.H1Title == "" {
 		result.H1Title = strings.TrimSpace(doc.Find("h1").First().Text())
 	}
 	result.RawTitle = strings.TrimSpace(doc.Find("title").First().Text())
 
-	// Canonical URL for category extraction
 	canonical, exists := doc.Find(`link[rel="canonical"]`).First().Attr("href")
 	if exists {
 		cat, _ := ExtractContentID(canonical)
 		result.Category = cat
 	}
 
-	// Pagination — parse .page-links
 	pageLinks := doc.Find(".page-links .numpages")
 	pageLinks.Each(func(_ int, s *goquery.Selection) {
 		href, exists := s.Find("a").Attr("href")
@@ -41,7 +37,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 		}
 	})
 
-	// Also check current page
 	currentSpan := doc.Find(".page-links .numpages.current span").First()
 	if currentSpan.Length() > 0 {
 		text := strings.TrimSpace(currentSpan.Text())
@@ -50,8 +45,8 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 		}
 	}
 
-	// Images — extract from entry-content area
-	// 4KHD images are in <a href="...4khd.com...webp"><img src="..."></a> pattern
+	// Images sit in <a href="...4khd.com...webp"><img src="..."></a> pairs
+	// inside .entry-content, which also holds related-post thumbnails.
 	contentArea := doc.Find(".entry-content").First()
 	if contentArea.Length() == 0 {
 		contentArea = doc.Find("main").First()
@@ -62,7 +57,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 		if !exists || !strings.Contains(href, "4khd.com") {
 			return
 		}
-		// Check if href ends with image extension
 		lowerHref := strings.ToLower(href)
 		if !strings.Contains(lowerHref, ".webp") &&
 			!strings.Contains(lowerHref, ".jpg") &&
@@ -81,7 +75,8 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 			src, _ = img.Attr("data-src")
 		}
 
-		// Skip related post thumbnails
+		// Related-post thumbnails reuse the same CDN and extension set, so
+		// they must be filtered out by class or filename marker.
 		if strings.Contains(src, "4KHD-beautifulGirls") ||
 			strings.Contains(src, "wp-post-image") ||
 			img.HasClass("wp-post-image") ||
@@ -97,12 +92,10 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 		}
 	})
 
-	// Cover = first image
 	if len(result.Images) > 0 {
 		result.CoverURL = result.Images[0].URL
 	}
 
-	// Publish time from meta tag
 	doc.Find(`meta[property="article:published_time"]`).Each(func(_ int, s *goquery.Selection) {
 		if result.PublishTime != "" {
 			return
@@ -113,7 +106,8 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 		}
 	})
 
-	// Fallback: JSON-LD datePublished
+	// Pages without the article:published_time meta tag still expose the date
+	// through JSON-LD.
 	if result.PublishTime == "" {
 		doc.Find(`script[type="application/ld+json"]`).Each(func(_ int, s *goquery.Selection) {
 			if result.PublishTime != "" {
@@ -122,7 +116,7 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 			content := s.Text()
 			var data struct {
 				Graph []struct {
-					Type        string `json:"@type"`
+					Type          string `json:"@type"`
 					DatePublished string `json:"datePublished"`
 				} `json:"@graph"`
 			}
@@ -141,16 +135,14 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int) GalleryPageMetad
 	return result
 }
 
-// ParseDownloadInfo extracts TeraBox download info from the document.
 func ParseDownloadInfo(doc *goquery.Document) *DownloadInfo {
 	info := &DownloadInfo{Provider: "TeraBox"}
 
-	// Password — format: "Extracting passwords: </p><p>4KHD</p>"
-	// In goquery, we need to find the text after "Extracting passwords:"
+	// goquery discards the raw HTML, so the password value is read from the
+	// <p> that follows the "Extracting passwords:" paragraph.
 	doc.Find(".entry-content p").Each(func(_ int, p *goquery.Selection) {
 		text := strings.TrimSpace(p.Text())
 		if strings.Contains(text, "Extracting passwords") {
-			// The password is in the next <p> sibling
 			next := p.Next()
 			if next.Length() > 0 {
 				info.Password = strings.TrimSpace(next.Text())
@@ -158,7 +150,6 @@ func ParseDownloadInfo(doc *goquery.Document) *DownloadInfo {
 		}
 	})
 
-	// Download link
 	doc.Find(`a[href*="m.4khd.com"]`).Each(func(_ int, a *goquery.Selection) {
 		if info.DownloadURL != "" {
 			return
@@ -169,7 +160,6 @@ func ParseDownloadInfo(doc *goquery.Document) *DownloadInfo {
 		}
 	})
 
-	// File size and count from title
 	titleText := strings.TrimSpace(doc.Find("h3.wp-block-post-title").First().Text())
 	if titleText == "" {
 		titleText = strings.TrimSpace(doc.Find("title").First().Text())
@@ -187,7 +177,6 @@ func ParseDownloadInfo(doc *goquery.Document) *DownloadInfo {
 	return info
 }
 
-// SearchEntry represents a single search result from a listing page.
 type SearchEntry struct {
 	URL      string
 	Title    string
@@ -195,12 +184,10 @@ type SearchEntry struct {
 	Date     string
 }
 
-// ParseSearchResults extracts gallery links from a listing/search page.
 func ParseSearchResults(doc *goquery.Document, baseURL string) []SearchEntry {
 	var results []SearchEntry
 	seen := make(map[string]bool)
 
-	// 4KHD listing pages use #basicE or .wp-block-latest-posts
 	doc.Find("#basicE a, .wp-block-latest-posts a").Each(func(_ int, a *goquery.Selection) {
 		href, exists := a.Attr("href")
 		if !exists || !strings.Contains(href, "/content/") {
@@ -234,7 +221,6 @@ func ParseSearchResults(doc *goquery.Document, baseURL string) []SearchEntry {
 	return results
 }
 
-// ParseRelatedGalleries extracts related gallery links from a detail page.
 func ParseRelatedGalleries(doc *goquery.Document) []SearchEntry {
 	var results []SearchEntry
 
@@ -258,35 +244,27 @@ func ParseRelatedGalleries(doc *goquery.Document) []SearchEntry {
 	return results
 }
 
-// cleanTitle removes the file size/photo count suffix from a title.
-// Example: "屿鱼 欧根亲王 兔女郎[258MB-81photos]" → "屿鱼 欧根亲王 兔女郎"
 func cleanTitle(rawTitle string) string {
 	title := strings.TrimSpace(rawTitle)
-	// Remove [size-count] suffix
 	title = titleSizePattern.ReplaceAllString(title, "")
-	// Remove (size)(count) suffix for variant format
 	title = regexp.MustCompile(`\(\d+(?:\.\d+)?(?:MB|GB)\)\(\d+photos\)$`).ReplaceAllString(title, "")
-	// Remove site suffix
 	title = regexp.MustCompile(`\s*[-–—]\s*4KHD\s*$`).ReplaceAllString(title, "")
 	return strings.TrimSpace(title)
 }
 
-// extractProtagonist extracts the model/cosplayer name from a gallery title.
-// 4KHD format: "protagonist description[size-count]"
-// The protagonist is the first segment before double-space or separator.
+// Double space is the most common 4KHD title separator, so it is tried
+// before the dash variants and a bare first word.
 func extractProtagonist(title string) string {
 	cleaned := cleanTitle(title)
 	if cleaned == "" {
 		return ""
 	}
 
-	// Try double-space separator first (4KHD common pattern)
 	parts := strings.Split(cleaned, "  ")
 	if len(parts) >= 2 {
 		return strings.TrimSpace(parts[0])
 	}
 
-	// Try en-dash / em-dash separator
 	separators := []string{" – ", " — ", " - "}
 	for _, sep := range separators {
 		if idx := strings.Index(cleaned, sep); idx > 0 {
@@ -297,7 +275,6 @@ func extractProtagonist(title string) string {
 		}
 	}
 
-	// Fallback: first word
 	words := strings.Fields(cleaned)
 	if len(words) > 0 {
 		return words[0]
@@ -306,7 +283,6 @@ func extractProtagonist(title string) string {
 	return ""
 }
 
-// extractDescription extracts the description part from a gallery title.
 func extractDescription(title, protagonist string) string {
 	cleaned := cleanTitle(title)
 	if cleaned == "" {

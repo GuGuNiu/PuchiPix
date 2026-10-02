@@ -7,7 +7,6 @@ import (
 	"sync"
 )
 
-// BufferMode selects the storage mode of an IndexBuffer.
 type BufferMode int
 
 const (
@@ -17,31 +16,28 @@ const (
 	DiskMode
 )
 
-// SegmentEntry is a single downloaded segment.
 type SegmentEntry struct {
 	Index    int
-	Data     []byte // memory mode: raw data
-	FilePath string // disk mode: temp file path
-	Ready    bool   // download finished
-	Size     int64  // segment size
-	IsDisk   bool   // disk mode flag
+	Data     []byte
+	FilePath string
+	Ready    bool
+	Size     int64
+	IsDisk   bool
 }
 
-// IndexBuffer stores segments by index, supporting out-of-order arrival
-// and in-order consumption. Follows cat-catch's buffer[index] design
-// (see design doc §2.5.1).
+// IndexBuffer stores segments by index so they can arrive out of order and
+// still be consumed in order.
 type IndexBuffer struct {
 	segments  []*SegmentEntry
 	pushIndex int
 	totalSize int64
 	mu        sync.Mutex
 	cond      *sync.Cond
+	pushMu    sync.Mutex
 	mode      BufferMode
-	cancelled bool // cancellation flag; wakes blocked goroutines
+	cancelled bool
 }
 
-// NewIndexBuffer creates an IndexBuffer.
-// count: total segment count; mode: MemoryMode or DiskMode.
 func NewIndexBuffer(count int, mode BufferMode) *IndexBuffer {
 	buf := &IndexBuffer{
 		segments: make([]*SegmentEntry, count),
@@ -51,24 +47,22 @@ func NewIndexBuffer(count int, mode BufferMode) *IndexBuffer {
 	return buf
 }
 
-// Cancel aborts buffer operations and wakes all blocked goroutines,
-// preventing goroutine leaks when the caller must stop.
+// Cancel unblocks every waiting goroutine, preventing leaks when the
+// caller must abort the download.
 func (b *IndexBuffer) Cancel() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.cancelled = true
-	b.cond.Broadcast() // wake all waiters
+	b.cond.Broadcast()
 }
 
-// IsCancelled reports whether Cancel was called.
 func (b *IndexBuffer) IsCancelled() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.cancelled
 }
 
-// Store saves a downloaded segment; returns an error if index is out of range.
 func (b *IndexBuffer) Store(index int, data []byte) error {
 	if index < 0 || index >= len(b.segments) {
 		return fmt.Errorf("index %d out of range [0, %d)", index, len(b.segments))
@@ -87,12 +81,10 @@ func (b *IndexBuffer) Store(index int, data []byte) error {
 	b.segments[index] = entry
 	b.totalSize += entry.Size
 
-	b.cond.Broadcast() // wake any blocked sequential pusher
+	b.cond.Broadcast()
 	return nil
 }
 
-// StoreDisk saves a downloaded segment in disk mode.
-// filePath: on-disk path of the segment file.
 func (b *IndexBuffer) StoreDisk(index int, filePath string, size int64) error {
 	if index < 0 || index >= len(b.segments) {
 		return fmt.Errorf("index %d out of range [0, %d)", index, len(b.segments))
@@ -111,90 +103,75 @@ func (b *IndexBuffer) StoreDisk(index int, filePath string, size int64) error {
 	b.segments[index] = entry
 	b.totalSize += size
 
-	b.cond.Broadcast() // wake any blocked sequential pusher
+	b.cond.Broadcast()
 	return nil
 }
 
-// SequentialPush writes segments to w in order, blocking on not-yet-ready
-// indices. Returns total bytes written and any error; returns an error if
-// Cancel() is called.
+// SequentialPush writes segments to w in order, blocking on indices that
+// are not ready yet. Reports an error once Cancel has been called.
 func (b *IndexBuffer) SequentialPush(w io.Writer) (int64, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	var written int64
-	for b.pushIndex < len(b.segments) {
-		if b.cancelled {
-			return written, fmt.Errorf("index buffer cancelled")
-		}
-
-		entry := b.segments[b.pushIndex]
-		if entry == nil || !entry.Ready {
-			b.cond.Wait()
-			if b.cancelled {
-				return written, fmt.Errorf("index buffer cancelled")
-			}
-			continue
-		}
-
-		n, err := b.writeEntry(w, entry)
-		if err != nil {
-			return written, fmt.Errorf("write segment %d: %w", b.pushIndex, err)
-		}
-		written += n
-
-		b.cleanupEntry(entry) // free memory / delete temp file
-
-		b.pushIndex++
-		b.cond.Broadcast()
-	}
-
-	return written, nil
+	return b.sequentialPush(w, nil)
 }
 
-// SequentialPushWithCallback pushes segments in order, invoking onSegment
-// after each write. Returns an error if Cancel() is called.
 func (b *IndexBuffer) SequentialPushWithCallback(w io.Writer, onSegment func(index int, size int64)) (int64, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	return b.sequentialPush(w, onSegment)
+}
+
+func (b *IndexBuffer) sequentialPush(w io.Writer, onSegment func(index int, size int64)) (int64, error) {
+	b.pushMu.Lock()
+	defer b.pushMu.Unlock()
 
 	var written int64
-	for b.pushIndex < len(b.segments) {
+	for {
+		b.mu.Lock()
 		if b.cancelled {
+			b.mu.Unlock()
 			return written, fmt.Errorf("index buffer cancelled")
+		}
+		if b.pushIndex >= len(b.segments) {
+			b.mu.Unlock()
+			return written, nil
 		}
 
 		entry := b.segments[b.pushIndex]
 		if entry == nil || !entry.Ready {
 			b.cond.Wait()
-			if b.cancelled {
-				return written, fmt.Errorf("index buffer cancelled")
-			}
+			b.mu.Unlock()
 			continue
 		}
+		index := b.pushIndex
+		entryCopy := *entry
+		b.mu.Unlock()
 
-		n, err := b.writeEntry(w, entry)
+		n, err := b.writeEntry(w, &entryCopy)
 		if err != nil {
-			return written, fmt.Errorf("write segment %d: %w", b.pushIndex, err)
+			return written, fmt.Errorf("write segment %d: %w", index, err)
 		}
 		written += n
 
 		if onSegment != nil {
-			onSegment(b.pushIndex, n)
+			onSegment(index, n)
 		}
 
-		b.cleanupEntry(entry)
-		b.pushIndex++
+		b.mu.Lock()
+		if b.cancelled {
+			if b.segments[index] == entry {
+				b.cleanupEntry(entry)
+			}
+			b.mu.Unlock()
+			return written, fmt.Errorf("index buffer cancelled")
+		}
+		if b.segments[index] == entry {
+			b.cleanupEntry(entry)
+		}
+		b.pushIndex = index + 1
 		b.cond.Broadcast()
+		b.mu.Unlock()
 	}
-
-	return written, nil
 }
 
-// writeEntry writes a single segment to w.
 func (b *IndexBuffer) writeEntry(w io.Writer, entry *SegmentEntry) (int64, error) {
 	if entry.IsDisk {
-		// Disk mode: stream from file
 		f, err := os.Open(entry.FilePath)
 		if err != nil {
 			return 0, fmt.Errorf("open segment file: %w", err)
@@ -206,16 +183,16 @@ func (b *IndexBuffer) writeEntry(w io.Writer, entry *SegmentEntry) (int64, error
 	return int64(n), err
 }
 
-// cleanupEntry releases a consumed segment.
 func (b *IndexBuffer) cleanupEntry(entry *SegmentEntry) {
 	if entry.IsDisk && entry.FilePath != "" {
-		_ = os.Remove(entry.FilePath) // delete temp file
+		_ = os.Remove(entry.FilePath)
 	}
-	entry.Data = nil // memory mode: let GC reclaim
+	// Dropping the reference lets the GC reclaim the segment buffer.
+	entry.Data = nil
 }
 
-// WaitForIndex blocks until the segment at index is ready, or returns
-// immediately if Cancel() was called.
+// WaitForIndex blocks until the segment at index is ready, returning
+// immediately once Cancel has been called.
 func (b *IndexBuffer) WaitForIndex(index int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -235,7 +212,6 @@ func (b *IndexBuffer) WaitForIndex(index int) {
 	}
 }
 
-// IsComplete reports whether all segments are ready.
 func (b *IndexBuffer) IsComplete() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -248,7 +224,6 @@ func (b *IndexBuffer) IsComplete() bool {
 	return true
 }
 
-// GetProgress returns ready segments / total segments.
 func (b *IndexBuffer) GetProgress() (ready, total int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -262,7 +237,6 @@ func (b *IndexBuffer) GetProgress() (ready, total int) {
 	return ready, total
 }
 
-// GetPushProgress returns sequential-push progress (pushed, total).
 func (b *IndexBuffer) GetPushProgress() (pushed, total int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -270,19 +244,18 @@ func (b *IndexBuffer) GetPushProgress() (pushed, total int) {
 	return b.pushIndex, len(b.segments)
 }
 
-// TotalSize returns the total size of all segments.
 func (b *IndexBuffer) TotalSize() int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.totalSize
 }
 
-// Reset clears push/size state for retry scenarios.
+// Reset clears push and size state so a retry can start over.
 func (b *IndexBuffer) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.pushIndex = 0
 	b.totalSize = 0
-	// Do NOT clear segments: valid entries may still be present.
+	// Segments are kept: valid entries may still be present.
 }

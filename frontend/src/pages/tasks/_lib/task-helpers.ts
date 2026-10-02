@@ -32,7 +32,7 @@ export const STATUS_FILTER_GROUPS: Record<string, TaskStatus[]> = {
    * and must show as waiting, not as actively identifying.
    */
   scraping: ["scraping", "scrape_pending"],
-  downloading: ["downloading", "download_pending", "transcoding"],
+  downloading: ["downloading", "download_pending", "merging", "transcoding", "probing"],
 };
 
 export const SORT_OPTION_KEYS = [
@@ -46,16 +46,19 @@ export const SORT_OPTION_KEYS = [
 export const STATUS_ORDER: Record<TaskStatus, number> = {
   preparing: 0,
   scraping: 1,
-  scrape_pending: 2,
-  downloading: 3,
-  download_pending: 4,
-  pending: 5,
-  paused: 6,
-  transcoding: 7,
-  failed: 8,
-  cancelled: 9,
-  partial: 10,
-  completed: 11,
+  scraped: 2,
+  scrape_pending: 3,
+  downloading: 4,
+  merging: 5,
+  download_pending: 6,
+  pending: 7,
+  paused: 8,
+  transcoding: 9,
+  probing: 10,
+  failed: 11,
+  cancelled: 12,
+  partial: 13,
+  completed: 14,
 };
 
 export function useStatusLabel(t: TranslateFunction): Record<TaskStatus, string> {
@@ -64,14 +67,17 @@ export function useStatusLabel(t: TranslateFunction): Record<TaskStatus, string>
     preparing: t("common.preparing"),
     scrape_pending: t("common.scrapePending"),
     scraping: t("common.scraping"),
+    scraped: t("common.downloadPending"),
     download_pending: t("common.downloadPending"),
     downloading: t("common.downloading"),
+    merging: t("tasks.progressStageMerging"),
     paused: t("common.paused"),
     completed: t("common.completed"),
     partial: t("common.partial"),
     failed: t("common.failed"),
     cancelled: t("common.cancelled"),
     transcoding: t("common.transcoding"),
+    probing: t("tasks.progressStageProbing"),
   };
 }
 
@@ -93,24 +99,74 @@ export function getProgressStage(task: DownloadTask, t: TranslateFunction): stri
   if (task.Status === "cancelled") return t("tasks.progressStageCancelled");
   if (task.Status === "paused") return t("tasks.progressStagePaused");
   if (task.TaskType === "gallery") return t("tasks.progressStageDownloading");
+  if (task.Status === "merging") return t("tasks.progressStageMerging");
+  if (task.Status === "probing") return t("tasks.progressStageProbing");
   /*
    * Post-processing phases are identified by the status field rather
    * than progress thresholds, matching the backend ComputeProgressStage.
-   * Note: backend "merging" is surfaced via task.ProgressStage labels,
-   * not as a frontend TaskStatus union member.
    */
   if (task.Status === "transcoding") {
     /*
-     * The manager emits exactly one progress=100 event after the ffmpeg
-     * transcode completes and before probing duration/resolution; live
-     * transcode events are clamped to <100 by the backend parser. So
-     * 100 is the precise "probe window" signal, while any value below
-     * it is real transcode percentage.
+     * Fallback for rows persisted before "probing" became a real status:
+     * the manager emitted exactly one progress=100 event after the ffmpeg
+     * transcode completed and before probing duration/resolution; live
+     * transcode events are clamped to <100 by the backend parser.
      */
     if (task.Progress >= 100) return t("tasks.progressStageProbing");
     return t("tasks.progressStageTranscoding");
   }
   return t("tasks.progressStageDownloading");
+}
+
+export function getAllowedActions(status: TaskStatus, taskType: DownloadTask["TaskType"]): string[] {
+  if (taskType === "sniff") return ["delete"];
+  if (taskType === "gallery") {
+    switch (status) {
+      case "pending":
+      case "scrape_pending":
+      case "scraped":
+      case "download_pending":
+        return ["start", "pause", "delete"];
+      case "scraping":
+      case "downloading":
+        return ["pause", "cancel", "delete"];
+      case "paused":
+        return ["start", "resume", "delete"];
+      case "failed":
+      case "partial":
+        return ["retry", "delete"];
+      case "completed":
+        return ["delete"];
+      case "cancelled":
+        return ["retry", "delete"];
+      default:
+        return ["delete"];
+    }
+  }
+  switch (status) {
+    case "pending":
+      return ["start", "delete"];
+    case "scraping":
+    case "downloading":
+      return ["pause", "cancel", "delete"];
+    case "paused":
+      return ["resume", "cancel", "delete"];
+    case "failed":
+    case "cancelled":
+      return ["retry", "delete"];
+    case "completed":
+    case "partial":
+      return ["delete"];
+    case "scrape_pending":
+    case "download_pending":
+      return ["pause", "delete"];
+    case "transcoding":
+    case "merging":
+    case "probing":
+      return ["cancel", "delete"];
+    default:
+      return ["delete"];
+  }
 }
 
 export function actionLabel(action: string, t: TranslateFunction): string {
@@ -126,18 +182,28 @@ export function actionLabel(action: string, t: TranslateFunction): string {
 }
 
 /**
- * Defensive string-array decoder for scraped metadata fields.
- *
- * Backend rows store tags/actors as JSON-array strings; every API layer
- * is expected to decode them already, but SSE payloads and older
- * deployments may still deliver the raw `["a","b"]` literal (or a
- * plain comma-separated string). Treating such a value as string[]
- * rendered the whole JSON literal as one giant "tag pill" — this is
- * how the actor of task #HSYZH3 ended up displayed as a tag.
+ * Backend rows store tags and actors as JSON-array strings, but SSE payloads
+ * and older deployments may still deliver the raw `["a","b"]` literal or a
+ * plain comma-separated string; both are decoded here.
  */
 export function normalizeStringArray(value: unknown): string[] {
+  const cleanValues = (values: unknown[]): string[] => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const item of values) {
+      if (typeof item !== 'string') continue;
+      const normalized = item.normalize('NFKC').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!normalized) continue;
+      const key = normalized.toLocaleLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(normalized);
+    }
+    return result;
+  };
+
   if (Array.isArray(value)) {
-    return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+    return cleanValues(value);
   }
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -146,17 +212,14 @@ export function normalizeStringArray(value: unknown): string[] {
       try {
         const parsed: unknown = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
-          return parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+          return cleanValues(parsed);
         }
       }
       // Malformed JSON: fall through to the delimited split below.
       catch {
       }
     }
-    return trimmed
-      .split(/[,、|;]/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    return cleanValues(trimmed.split(/[,，、|；;｜/／]/));
   }
   return [];
 }
@@ -169,9 +232,8 @@ export function resolveTaskTags(task: DownloadTask): string[] {
 }
 
 /**
- * Resolve the actor list for the detail popover: VideoInfo → top-level
- * Actors passthrough (SSE task:metadata) → Person column string last,
- * so the actors row still renders for tasks scraped before this field existed.
+ * VideoInfo.Actors first, then the top-level Actors field fed by SSE
+ * task:metadata, then the Person column.
  */
 export function resolveTaskActors(task: DownloadTask): string[] {
   const fromVideoInfo = normalizeStringArray(task.VideoInfo?.Actors);

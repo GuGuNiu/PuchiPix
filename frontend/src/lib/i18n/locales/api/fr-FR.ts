@@ -16,7 +16,6 @@ const frFR: TranslationDict = {
   "api.common.internalError": "Erreur interne du serveur", "api.common.missingParams": "Paramètres obligatoires manquants: {params}",
   "api.gallery.noProviderForRescrape": "Aucun fournisseur de galerie trouvé, impossible de re-scrapr",
 
-  // DAG
   "api.dag.notFound": "DAG {dagId} introuvable",
   "api.dag.invalidAction": "Action invalide: {action}",
   "api.accounts.createFailed": "Échec de la création du compte",

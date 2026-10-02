@@ -9,6 +9,8 @@ import (
 type VideoMetadata struct {
 	ID            string   `json:"id"`
 	EncodedID     string   `json:"encodedId"`
+	VideoID       string   `json:"videoId,omitempty"`
+	CDNID         string   `json:"cdnId,omitempty"`
 	Title         string   `json:"title"`
 	TitleOriginal string   `json:"titleOriginal,omitempty"`
 	PageURL       string   `json:"pageUrl"`
@@ -21,6 +23,8 @@ type VideoMetadata struct {
 	Uploader      string   `json:"uploader"`
 	UploaderID    string   `json:"uploaderId,omitempty"`
 	Tags          []string `json:"tags,omitempty"`
+	Categories    []string `json:"categories,omitempty"`
+	Pornstars     []string `json:"pornstars,omitempty"`
 }
 
 // ListingPageResult holds the parsed data from a video listing page.
@@ -36,93 +40,102 @@ type ListingPageResult struct {
 // including the HLS M3U8 URL and MP4 direct link extracted from inline scripts.
 type VideoDetailResult struct {
 	VideoMetadata
-	M3U8URL    string `json:"m3u8Url"`
-	MP4URL     string `json:"mp4Url,omitempty"`
-	VideoUUID  string `json:"videoUuid,omitempty"`
-	CDNID      string `json:"cdnId,omitempty"`
+	M3U8URL   string `json:"m3u8Url"`
+	MP4URL    string `json:"mp4Url,omitempty"`
+	VideoUUID string `json:"videoUuid,omitempty"`
+	CDNID     string `json:"cdnId,omitempty"`
 }
 
 // SortType represents the available sorting options on XVIDEOS.
 type SortType string
 
 const (
-	SortTypeLatest  SortType = "latest"   // newest
-	SortTypeHottest SortType = "hottest"  // hottest
-	SortTypeRated   SortType = "rated"    // top rated
-	SortTypeLongest SortType = "longest"  // longest duration
+	SortTypeLatest  SortType = "latest"
+	SortTypeHottest SortType = "hottest"
+	SortTypeRated   SortType = "rated"
+	SortTypeLongest SortType = "longest"
 )
 
-// URL patterns for XVIDEOS site.
-// The site uses the following URL structure:
-//   - Detail page:  /video.{encodedId}/{slug}
-//   - Listing page: /{sort} (e.g. /latest, /hottest)
-//   - Search page:  /?k={keyword}&p={page}
+// Detail pages live at /video.{encodedId}/{slug}, listing pages at /{sort},
+// and search at /?k={keyword}&p={page}
 const (
-	// DetailPathPattern matches /video.oobhaop4b5e/_cos_
 	DetailPathPattern = `/video\.([a-zA-Z0-9]+)`
 )
 
-// Pre-compiled regex patterns.
+// Pre-compiled at package init so listing scrapes do not recompile them per page
 var (
-	// EncodedID extraction from URL: /video.oobhaop4b5e/...
-	EncodedIDPattern = regexp.MustCompile(`/video\.([a-zA-Z0-9]+)`)
+	// All three detail URL shapes are in use: /video.{encodedId}/{slug},
+	// the older /video{numericId}/{slug}, and the embed frame. The two
+	// alternatives capture into separate groups so the caller can pick
+	// whichever matched.
+	EncodedIDPattern = regexp.MustCompile(`/video\.?([a-zA-Z0-9]+)|/embedframe/([a-zA-Z0-9]+)`)
 
-	// HLS M3U8 URL from html5player.setVideoHLS('...')
+	// The player config object is the third constructor argument of
+	// new HTML5Player and carries the site's own categories and keyword
+	// tags, which is the only structured source for both.
+	PlayerConfigPattern = regexp.MustCompile(`(?s)new\s+HTML5Player\s*\([^,]+,\s*['"]?\d+['"]?\s*,\s*(\{.*?\})\s*\)`)
+
 	HLSURLPattern = regexp.MustCompile(`setVideoHLS\(\s*['"]([^'"]+)['"]\s*\)`)
 
-	// MP4 URL from html5player.setVideoUrlLow('...') or setVideoUrlHigh('...')
 	MP4URLPattern = regexp.MustCompile(`setVideoUrl(?:Low|High)\(\s*['"]([^'"]+)['"]\s*\)`)
 
-	// Video title from html5player.setVideoTitle('...')
+	// flv_url appears in a legacy query-string based player configuration.
+	LegacyFLVURLPattern = regexp.MustCompile(`flv_url=([^&'"]+)`)
+
 	VideoTitlePattern = regexp.MustCompile(`setVideoTitle\(\s*'(?:<\?[^>]+>\s*)?([^']+)'\s*\)`)
 
-	// Encoded ID from html5player.setEncodedIdVideo('...')
 	EncodedIDScriptPattern = regexp.MustCompile(`setEncodedIdVideo\(\s*['"]([^'"]+)['"]\s*\)`)
 
-	// CDN ID from html5player.setIdCDN('...')
 	CDNIDPattern = regexp.MustCompile(`setIdCDN\(\s*['"]([^'"]+)['"]\s*\)`)
 
-	// Uploader name from html5player.setUploaderName('...')
 	UploaderPattern = regexp.MustCompile(`setUploaderName\(\s*['"]([^'"]+)['"]\s*\)`)
 
-	// Video UUID extraction from HLS URL: /{uuid}/{cdn_id}/hls.m3u8
+	// HLS playlist URLs are laid out as /{uuid}/{cdn_id}/hls.m3u8
 	VideoUUIDPattern = regexp.MustCompile(`/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/\d+/hls\.m3u8`)
 
-	// Thumbnail/poster URL from meta tag or html5player
 	ThumbnailPattern = regexp.MustCompile(`(?:setVideoThumbUrl|setThumbUrl)\(\s*['"]([^'"]+)['"]\s*\)`)
 
-	// Views extraction from text like "539,480" or "539480 views"
-	ViewsPattern = regexp.MustCompile(`([\d,]+)\s*(?:views|次观看)?`)
+	// og:duration is published in whole seconds.
+	OGDurationPattern = regexp.MustCompile(`<meta\s+property="og:duration"\s+content="([^"]*)"`)
 
-	// Duration extraction: ISO 8601 "PT00H11M44S"
+	// Listing cards render the duration as "7 min" / "1 h 12 min" rather
+	// than a clock value, so the two forms are matched separately.
+	CardDurationClockPattern = regexp.MustCompile(`(\d{1,2}:\d{2}(?::\d{2})?)`)
+	CardDurationHoursPattern = regexp.MustCompile(`(\d+)\s*h`)
+	CardDurationMinsPattern  = regexp.MustCompile(`(\d+)\s*min`)
+
+	// Upload date is published as a JS string in the page payload.
+	UploadDateScriptPattern = regexp.MustCompile(`uploadDate"?\s*[:=]\s*"([^"]+)"`)
+
+	// Views live in the action bar as a comma-grouped number, published
+	// twice: an exact value for desktop and an abbreviated one for mobile.
+	// Only the exact form is read, otherwise the two would be concatenated
+	// into a wrong count.
+	ViewsBlockPattern    = regexp.MustCompile(`(?s)id="v-views"[^>]*>(.*?)</div>`)
+	ViewsExactPattern    = regexp.MustCompile(`class="[^"]*mobile-hide[^"]*"[^>]*>([\d,.]+)<`)
+	ViewsFallbackPattern = regexp.MustCompile(`([\d,.]+)`)
+
+	// The page heading carries the title, the rounded duration and the
+	// resolution mark as sibling spans.
+	PageTitlePattern = regexp.MustCompile(`(?s)<h2[^>]*class="page-title"[^>]*>(.*?)</h2>`)
+
+	// Pornstar entries are the label-list items flagged is-pornstar.
+	PornstarNamePattern = regexp.MustCompile(`(?s)class="name">(.*?)</span>`)
+	// A removed, private or region-blocked video renders this banner.
+	InlineErrorPattern = regexp.MustCompile(`<h1[^>]*class="inlineError"[^>]*>(.+?)</h1>`)
+
+	// ISO 8601 duration, e.g. PT11M30S
 	ISODurationPattern = regexp.MustCompile(`PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?`)
 
-	// JSON-LD script block detection
 	JSONLDVideoObjectPattern = regexp.MustCompile(`(?s)<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>`)
 
-	// OG title meta tag
 	OGTitlePattern = regexp.MustCompile(`<meta\s+property="og:title"\s+content="([^"]*)"`)
 
-	// OG image meta tag
 	OGImagePattern = regexp.MustCompile(`<meta\s+property="og:image"\s+content="([^"]*)"`)
 
-	// Upload date from JSON-LD: "2026-05-19T22:00:00+00:00"
-	UploadDatePattern = regexp.MustCompile(`"uploadDate"\s*:\s*"([^"]+)"`)
-
-	// Duration from JSON-LD: "PT00H11M44S"
-	JSONLDDurationPattern = regexp.MustCompile(`"duration"\s*:\s*"([^"]+)"`)
-
-	// Interaction count from JSON-LD
-	InteractionCountPattern = regexp.MustCompile(`"userInteractionCount"\s*:\s*(\d+)`)
-
-	// Name from JSON-LD
 	JSONLDNamePattern = regexp.MustCompile(`"name"\s*:\s*"([^"]*)"`)
 
-	// Thumbnail URL from JSON-LD
 	JSONLDThumbnailPattern = regexp.MustCompile(`"thumbnailUrl"\s*:\s*\[?"([^"]+)"\]?`)
-
-	// Content URL from JSON-LD (MP4 direct link)
-	JSONLDContentURLPattern = regexp.MustCompile(`"contentUrl"\s*:\s*"([^"]+)"`)
 )
 
 // parseISODuration converts an ISO 8601 duration string (e.g. "PT00H11M44S")
@@ -141,7 +154,6 @@ func parseISODuration(iso string) (string, int) {
 	return fmtDuration(hours, minutes, seconds), total
 }
 
-// atoiSafe converts a numeric string to int, returning 0 on error.
 func atoiSafe(s string) int {
 	n := 0
 	for _, c := range s {
@@ -152,7 +164,6 @@ func atoiSafe(s string) int {
 	return n
 }
 
-// fmtDuration formats hours, minutes, seconds into "HH:MM:SS" or "MM:SS".
 func fmtDuration(h, m, s int) string {
 	if h > 0 {
 		return pad2(h) + ":" + pad2(m) + ":" + pad2(s)
@@ -160,7 +171,6 @@ func fmtDuration(h, m, s int) string {
 	return pad2(m) + ":" + pad2(s)
 }
 
-// pad2 ensures a number string has leading zero if single digit.
 func pad2(n int) string {
 	if n < 10 {
 		return "0" + string(rune('0'+n))
@@ -174,7 +184,6 @@ func pad2(n int) string {
 	return string(b)
 }
 
-// parseUploadDate converts an ISO 8601 date string to "YYYY-MM-DD" format.
 func parseUploadDate(dateStr string) string {
 	t, err := time.Parse(time.RFC3339, dateStr)
 	if err != nil {
@@ -183,16 +192,17 @@ func parseUploadDate(dateStr string) string {
 	return t.Format("2006-01-02")
 }
 
-// ExtractEncodedID extracts the encoded video ID from a URL like /video.oobhaop4b5e/...
 func ExtractEncodedID(rawURL string) string {
 	m := EncodedIDPattern.FindStringSubmatch(rawURL)
-	if len(m) >= 2 {
-		return m[1]
+	if len(m) >= 3 {
+		if m[1] != "" {
+			return m[1]
+		}
+		return m[2]
 	}
 	return ""
 }
 
-// ExtractViews parses the views count from text like "539,480".
 func ExtractViews(text string) int {
 	cleaned := ""
 	for _, c := range text {

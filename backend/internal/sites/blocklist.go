@@ -19,7 +19,6 @@ const blocklistCacheTTL = 60 * time.Second
 // user-supplied regexes from becoming a CPU amplification vector.
 const maxKeywordLength = 256
 
-// validMatchModes is the closed set of supported match modes.
 var validMatchModes = map[string]bool{
 	"exact":    true,
 	"includes": true,
@@ -28,10 +27,8 @@ var validMatchModes = map[string]bool{
 
 // regexCache caches compiled user regexes so hot content checks do not
 // recompile the same pattern on every call (CheckUserRules runs per
-// scraped item). A failed compile is cached as nil and logged once per
-// distinct pattern — previously an invalid rule silently matched nothing
-// forever with no trace (the "silent failure" pattern from the 260823
-// code review).
+// scraped item). A failed compile is cached as nil so an invalid rule
+// cannot silently match forever while recompiling on every check.
 var regexCache sync.Map // map[string]*regexp.Regexp (nil = invalid pattern)
 
 // compileUserRegex returns the cached compiled form of a user-supplied
@@ -47,14 +44,13 @@ func compileUserRegex(keyword string) *regexp.Regexp {
 			"Blocklist regex rule failed to compile and will never match",
 			map[string]any{"keywordLength": len(keyword), "error": err.Error()})
 	}
-	regexCache.Store(keyword, re) // re == nil marks the pattern invalid
+	regexCache.Store(keyword, re)
 	return re
 }
 
 // ValidateRule checks a rule's fields before persisting so invalid
-// match modes / oversized keywords / uncompilable regexes are rejected
-// with a 400 at the API boundary instead of silently never matching
-// after being saved.
+// match modes, oversized keywords, and uncompilable regexes are rejected
+// at the API boundary instead of being saved as rules that never match.
 func ValidateRule(keyword, matchMode string) error {
 	if keyword == "" {
 		return fmt.Errorf("keyword must not be empty")
@@ -73,8 +69,8 @@ func ValidateRule(keyword, matchMode string) error {
 	return nil
 }
 
-// blocklistRule mirrors a subset of the BlocklistRule model for in-memory
-// matching, avoiding full-row scans on every content check.
+// blocklistRule is the subset of the BlocklistRule model needed for
+// in-memory matching, avoiding full-row scans on every content check.
 type blocklistRule struct {
 	SiteID    string
 	FieldType string
@@ -82,9 +78,8 @@ type blocklistRule struct {
 	MatchMode string
 }
 
-// cachedRules holds the fetched rule set with its retrieval timestamp.
 type cachedRules struct {
-	rules    []blocklistRule
+	rules     []blocklistRule
 	fetchedAt time.Time
 }
 
@@ -94,11 +89,11 @@ type BlocklistService struct {
 	db     *db.Database
 	logger *infra.Logger
 
-	mu    sync.Mutex
-	cache *cachedRules
+	mu         sync.Mutex
+	cache      *cachedRules
+	generation uint64
 }
 
-// NewBlocklistService creates a service bound to the given database.
 func NewBlocklistService(database *db.Database) *BlocklistService {
 	return &BlocklistService{
 		db:     database,
@@ -121,6 +116,9 @@ func (s *BlocklistService) GetRules(ctx context.Context) ([]blocklistRule, error
 }
 
 func (s *BlocklistService) fetchRules(ctx context.Context) ([]blocklistRule, error) {
+	s.mu.Lock()
+	generation := s.generation
+	s.mu.Unlock()
 	rows, err := s.db.Query(ctx, `
 		SELECT site_id, field_type, keyword, match_mode
 		FROM blocklist_rules WHERE enabled = true`)
@@ -137,9 +135,14 @@ func (s *BlocklistService) fetchRules(ctx context.Context) ([]blocklistRule, err
 		}
 		rules = append(rules, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate blocklist rules: %w", err)
+	}
 
 	s.mu.Lock()
-	s.cache = &cachedRules{rules: rules, fetchedAt: time.Now()}
+	if generation == s.generation {
+		s.cache = &cachedRules{rules: rules, fetchedAt: time.Now()}
+	}
 	s.mu.Unlock()
 
 	return rules, nil
@@ -151,10 +154,12 @@ func (s *BlocklistService) InvalidateCache() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cache = nil
+	s.generation++
 }
 
-// CheckUserRules evaluates all applicable blocklist rules against the given
-// content fields, returning the first match as a BlockCheckResult.
+// CheckUserRules evaluates the applicable rules against the given content
+// fields and returns on the first match, so rules are ordered by cost of
+// evaluation rather than by specificity.
 func (s *BlocklistService) CheckUserRules(ctx context.Context, siteID string, fields map[string]string) (BlockCheckResult, error) {
 	rules, err := s.GetRules(ctx)
 	if err != nil {
@@ -202,7 +207,6 @@ func matchValue(value, keyword, mode string) bool {
 	}
 }
 
-// GetAll returns all blocklist rules for administrative views.
 func (s *BlocklistService) GetAll(ctx context.Context) ([]db.BlocklistRule, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, site_id, field_type, keyword, match_mode, enabled, remark, created_at, updated_at
@@ -226,7 +230,6 @@ func (s *BlocklistService) GetAll(ctx context.Context) ([]db.BlocklistRule, erro
 	return result, nil
 }
 
-// Create inserts a new blocklist rule and invalidates the cache.
 func (s *BlocklistService) Create(ctx context.Context, siteID, fieldType, keyword, matchMode, remark string) error {
 	if matchMode == "" {
 		matchMode = "includes"
@@ -242,7 +245,6 @@ func (s *BlocklistService) Create(ctx context.Context, siteID, fieldType, keywor
 	return nil
 }
 
-// Update modifies an existing blocklist rule and invalidates the cache.
 func (s *BlocklistService) Update(ctx context.Context, id int, fields map[string]any) error {
 	setParts := []string{}
 	args := []any{}
@@ -299,7 +301,6 @@ func (s *BlocklistService) Update(ctx context.Context, id int, fields map[string
 	return nil
 }
 
-// Delete removes a single blocklist rule by ID.
 func (s *BlocklistService) Delete(ctx context.Context, id int) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM blocklist_rules WHERE id = ?`, id)
 	if err != nil {
@@ -309,7 +310,6 @@ func (s *BlocklistService) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-// BatchDelete removes multiple blocklist rules by IDs.
 func (s *BlocklistService) BatchDelete(ctx context.Context, ids []int) error {
 	if len(ids) == 0 {
 		return nil
@@ -328,9 +328,8 @@ func (s *BlocklistService) BatchDelete(ctx context.Context, ids []int) error {
 	return nil
 }
 
-// CheckBlockedDefault performs site-agnostic content blocking checks
-// against keyword lists for titles, categories, and protagonists.
-// It is used by site providers to avoid duplicating iteration logic.
+// CheckBlockedDefault runs the site-agnostic keyword checks shared by every
+// provider, so each site does not reimplement the same iteration logic.
 func CheckBlockedDefault(
 	title, category, protagonist string,
 	blockedKeywords, blockedCategories, blockedProtagonists []string,

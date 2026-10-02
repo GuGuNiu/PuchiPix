@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"runtime"
 	"time"
+
+	"backend/internal/infra"
 )
 
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
@@ -43,14 +45,9 @@ var startTime = time.Now()
 
 func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
-		"galleries":         0,
-		"tasks":             0,
-		"downloadHistory":   0,
-		"current_speed_str": "0 B/s",
-		"disk_io_str":       "--",
-		"avg_speed":       0,
-		"avg_speed_str":   "0 B/task",
-		"current_speed":   0,
+		"galleries":       0,
+		"tasks":           0,
+		"downloadHistory": 0,
 		"speed_rating":    0,
 	}
 
@@ -64,6 +61,17 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 		result["tasks"] = taskCount
 		result["downloadHistory"] = historyCount
 	}
+
+	// Live throughput: diff the global download/write byte counters over
+	// the window since the previous /api/stats request, so the window
+	// tracks the client's polling interval.
+	netBps, diskBps := infra.ThroughputSnapshot()
+	avgBps := infra.AvgNetBps()
+	result["current_speed"] = roundTo2(netBps)
+	result["current_speed_str"] = infra.FormatBytesPerSec(netBps)
+	result["disk_io_str"] = infra.FormatBytesPerSec(diskBps)
+	result["avg_speed"] = roundTo2(avgBps)
+	result["avg_speed_str"] = infra.FormatBytesPerSec(avgBps)
 
 	if h.Sched != nil {
 		slotSnapshot := h.Sched.GetSlotSnapshot()
@@ -90,8 +98,8 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 	if h.DagOrch != nil {
 		dagStats := h.DagOrch.GetStats()
 		result["dagTotal"] = dagStats.TotalDags
-		// dagActive counts only truly-running DAGs; paused ones are broken
-		// out separately so the dashboard no longer overstates concurrency.
+		// dagActive counts only truly-running DAGs; paused ones are reported
+		// separately so the dashboard does not overstate concurrency.
 		result["dagActive"] = dagStats.ActiveDags
 		result["dagPaused"] = dagStats.PausedDags
 	}

@@ -13,11 +13,11 @@ type SseHandler func(event SseEvent)
 type SseErrorHandler func(err error)
 
 type SSEClient struct {
-	url       string
-	onEvent   SseHandler
-	onError   SseErrorHandler
+	url        string
+	onEvent    SseHandler
+	onError    SseErrorHandler
 	httpClient *http.Client
-	cancel    context.CancelFunc
+	cancel     context.CancelFunc
 }
 
 func NewSSEClient(url string, onEvent SseHandler, onError SseErrorHandler) *SSEClient {

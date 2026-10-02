@@ -5,31 +5,17 @@ import (
 	"sync"
 )
 
-// Global download concurrency governor.
-//
-// The DAG scheduler's slot pool already bounds concurrency at the TASK
-// level (scraping / download slots), which prevents a large batch import
-// from starting 100 tasks at once. This limiter is a second, coarser
-// pressure valve at the I/O level: it caps the TOTAL number of
-// simultaneous HTTP download requests (images, files, and video TS
-// segments) across the whole process, regardless of how many tasks,
-// galleries, or videos are active. This protects device memory/CPU from
-// the pathological aggregate fan-out of many concurrent downloads while
-// staying generous enough not to throttle normal operation.
-
 const (
-	// DefaultGlobalDownloadConcurrent is the default aggregate cap. It is
-	// set above the worst-case fan-out governed by the slot pool (5
-	// download slots × ~5 images + ~10 segments ≈ 75) so it does not
-	// throttle normal operation, while still blocking pathological
-	// bursts (e.g. a 100+ URL import).
+	// DefaultGlobalDownloadConcurrent caps simultaneous HTTP requests
+	// process-wide, set above the worst-case fan-out of the scheduler slot
+	// pool (5 download slots × ~5 images + ~10 segments ≈ 75) so ordinary
+	// batches are not throttled while large imports are still bounded.
 	DefaultGlobalDownloadConcurrent = 64
 )
 
-// globalDownloadSem is a resize-safe semaphore implemented with
-// sync.Cond + counter. Unlike the previous channel-based approach,
-// resizing does not orphan in-flight releases or create transient
-// over-capacity windows.
+// globalDownloadSem lets the capacity change at runtime. Built from
+// sync.Cond and a counter so a resize neither orphans in-flight releases
+// nor opens a transient over-capacity window.
 var globalDownloadSem = struct {
 	sync.Mutex
 	cond    *sync.Cond
@@ -53,7 +39,7 @@ func SetGlobalDownloadConcurrent(n int) {
 	globalDownloadSem.Lock()
 	globalDownloadSem.max = n
 	globalDownloadSem.version++
-	globalDownloadSem.cond.Broadcast() // wake waiters to re-check capacity
+	globalDownloadSem.cond.Broadcast()
 	globalDownloadSem.Unlock()
 }
 
@@ -91,11 +77,7 @@ func AcquireGlobalDownloadCtx(ctx context.Context) (func(), error) {
 	}, nil
 }
 
-// waitForSlot blocks until a slot is available or ctx is done. Returns
-// nil when a slot has been acquired (inUse already incremented), or
-// ctx.Err() if the context fires before a slot is obtained.
 func waitForSlot(ctx context.Context) error {
-	// Fast path: slot available and ctx not done.
 	globalDownloadSem.Lock()
 	if globalDownloadSem.inUse < globalDownloadSem.max && ctx.Err() == nil {
 		globalDownloadSem.inUse++
@@ -104,27 +86,29 @@ func waitForSlot(ctx context.Context) error {
 	}
 	globalDownloadSem.Unlock()
 
-	// Slow path: we cannot make sync.Cond.Wait() context-aware
-	// directly, so we race a cond-wait against ctx.Done via a helper
-	// goroutine that broadcasts when the context fires.
+	// sync.Cond.Wait is not context-aware, so a helper goroutine
+	// broadcasts on ctx.Done and every waiter re-checks the context
+	// after waking.
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
-		<-ctx.Done()
 		select {
-		case <-stop:
-		default:
+		case <-ctx.Done():
 			globalDownloadSem.Lock()
 			globalDownloadSem.cond.Broadcast()
 			globalDownloadSem.Unlock()
+		case <-stop:
 		}
 	}()
 
 	globalDownloadSem.Lock()
+	if err := ctx.Err(); err != nil {
+		globalDownloadSem.Unlock()
+		return err
+	}
 	for globalDownloadSem.inUse >= globalDownloadSem.max {
 		globalDownloadSem.cond.Wait()
-		// Check context after waking — Broadcast may have been
-		// triggered by ctx.Done() rather than a slot release.
+		// The broadcast may come from ctx.Done rather than a slot release.
 		if ctx.Err() != nil {
 			globalDownloadSem.Unlock()
 			return ctx.Err()

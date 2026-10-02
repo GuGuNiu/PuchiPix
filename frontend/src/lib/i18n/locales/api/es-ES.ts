@@ -1,22 +1,18 @@
 import type { TranslationDict } from "../../types";
 
-// API error messages — es-ES
 const esES: TranslationDict = {
-  // Task settings validation
   "api.validation.maxConcurrentTasks": "El máximo de tareas simultáneas debe estar entre 1 y 50",
   "api.validation.maxSniffConcurrent": "El máximo de concurrencia de sniffing debe estar entre 1 y 10",
   "api.validation.maxScrapingSlots": "El máximo de ranuras de raspado debe estar entre 1 y 50",
   "api.validation.tsSegmentConcurrent": "La concurrencia de segmentos TS debe estar entre 1 y 200",
   "api.validation.galleryImageConcurrent": "La concurrencia de imágenes de galería debe estar entre 1 y 50",
 
-  // SJS forum actions
   "api.sjs.missingAction": "Falta el parámetro action",
   "api.sjs.signMissingAccountId": "El inicio de sesión requiere el parámetro accountId",
   "api.sjs.buyMissingAccountId": "La compra de publicación requiere el parámetro accountId",
   "api.sjs.buyMissingTid": "La compra de publicación requiere el parámetro tid (ID de publicación)",
   "api.sjs.loginMissingAccountId": "El inicio de sesión requiere el parámetro accountId",
 
-  // SJS Shelf
   "api.sjsShelf.noUrls": "Proporcione una lista de URL",
   "api.sjsShelf.emptyUrl": "URL vacía",
   "api.sjsShelf.invalidSjsUrl": "No es una URL SJS válida",
@@ -26,7 +22,6 @@ const esES: TranslationDict = {
   "api.sjsShelf.refreshFailed": "Error al actualizar metadatos",
   "api.sjsShelf.unknownAction": "Acción desconocida",
 
-  // Search
   "api.search.missingJobId": "Por favor, proporciona jobId",
   "api.search.batchScrapeStarted": "Raspado por lotes iniciado",
   "api.search.missingPageUrl": "Por favor, proporciona pageUrl",
@@ -34,15 +29,12 @@ const esES: TranslationDict = {
   "api.search.missingKeyword": "Por favor, proporciona palabras clave de búsqueda",
   "api.search.missingVideoTitle": "Por favor, proporciona el título del video",
 
-  // Protagonist
   "api.protagonist.galleryNotFound": "No se encontraron galerías para este personaje",
   "api.protagonist.fetchFailed": "Error al obtener información del personaje",
 
-  // OUO orchestration
   "api.ouo.missingParams": "Faltan parámetros obligatorios: galleryId, ouoUrl",
   "api.ouo.missingGalleryId": "Falta el parámetro obligatorio: galleryId",
 
-  // Gallery
   "api.gallery.notFound": "Galería no encontrada",
   "api.gallery.noProviderMatch": "No se encontró un proveedor de sitio coincidente, no se puede volver a raspar",
   "api.gallery.rescrapeStarted": "Re-raspado de galería iniciado",
@@ -62,31 +54,24 @@ const esES: TranslationDict = {
   "api.gallery.batchEmptyUrl": "URL vacía",
   "api.gallery.noProviderForRescrape": "No se encontró proveedor de galería, no se puede volver a rastrear",
 
-  // Tasks
   "api.tasks.noM3u8Extracted": "No se puede extraer el enlace M3U8 de la página",
 
-  // Blocklist
   "api.blocklist.addFailed": "Error al añadir",
 
-  // Logs
   "api.logs.systemReady": "Sistema listo, esperando tareas...",
   "api.logs.taskNumber": "Tarea #{id}",
   "api.logs.fetchFailed": "Error al obtener registros",
 
-  // Gallery (supplement)
   "api.gallery.unsupportedScrape": "El sitio {site} no admite el raspado de galerías",
   "api.gallery.allDomainsFailed": "Todos los dominios fallaron al raspar",
 
-  // Tasks (supplement)
   "api.tasks.multipleM3u8Detected": "Se detectaron {count} direcciones M3U8, seleccione",
   "api.tasks.unsupportedListScrape": "El proveedor no admite el raspado de páginas de lista",
 
-  // Common
   "api.characterDb.syncRunning": "La tarea de sincronización ya está en ejecución",
   "api.common.internalError": "Error interno del servidor",
   "api.common.missingParams": "Faltan parámetros obligatorios: {params}",
 
-  // DAG
   "api.dag.notFound": "DAG {dagId} no encontrado",
   "api.dag.invalidAction": "Acción no válida: {action}",
   "api.accounts.createFailed": "Error al crear cuenta",

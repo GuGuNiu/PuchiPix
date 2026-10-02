@@ -1,6 +1,6 @@
-/**
- * I18n audit script: compare all language files against zh-CN (authoritative key source).
- * Output: missing keys / extra keys / placeholder mismatches per language.
+/*
+ * Compares every locale file against zh-CN (the authoritative key source) and
+ * reports missing keys, extra keys, and placeholder mismatches per language.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -115,7 +115,6 @@ for (const lang of LANGS) {
   }
 }
 
-// Detailed missing-key listing per language (for translation follow-up).
 console.log();
 console.log("=".repeat(90));
 console.log("[4] Missing key details (by language)");

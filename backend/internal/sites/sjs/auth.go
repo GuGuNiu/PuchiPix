@@ -16,26 +16,21 @@ import (
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
 
-// CookieJar manages cookies across multiple HTTP requests, mirroring
-// the TypeScript CookieJar class for Discuz! session handling.
+// CookieJar holds the Discuz! session cookies sent with every request.
 type CookieJar struct {
 	cookies map[string]string
 }
 
-// NewCookieJar creates an empty cookie jar.
 func NewCookieJar() *CookieJar {
 	return &CookieJar{cookies: make(map[string]string)}
 }
 
-// LoadFromCookieData populates the jar from CookieData slices stored
-// in the SiteAccountManager.
 func (j *CookieJar) LoadFromCookieData(cookies []sites.CookieData) {
 	for _, c := range cookies {
 		j.cookies[c.Name] = c.Value
 	}
 }
 
-// ParseSetCookie extracts name=value pairs from Set-Cookie headers.
 func (j *CookieJar) ParseSetCookie(headers []string) {
 	for _, header := range headers {
 		if m := regexp.MustCompile(`^([^=]+)=([^;]*)`).FindStringSubmatch(header); len(m) >= 3 {
@@ -44,7 +39,6 @@ func (j *CookieJar) ParseSetCookie(headers []string) {
 	}
 }
 
-// ToHeader formats the cookies as a Cookie request header value.
 func (j *CookieJar) ToHeader() string {
 	if len(j.cookies) == 0 {
 		return ""
@@ -56,8 +50,8 @@ func (j *CookieJar) ToHeader() string {
 	return strings.Join(parts, "; ")
 }
 
-// GetAuthCookieString retrieves stored cookies from the account manager
-// and returns them as a Cookie header string, along with the account ID.
+// GetAuthCookieString returns the cookie header and the ID of the account the
+// cookies came from, or empty values when no account is available.
 func GetAuthCookieString(ctx context.Context, am *sites.SiteAccountManager) (string, int) {
 	if am == nil {
 		return "", 0

@@ -14,23 +14,24 @@ import (
 type BackpressureLayer string
 
 const (
-	LayerAPIGate       BackpressureLayer = "api_gate"        // FlowController token bucket
-	LayerScheduler     BackpressureLayer = "scheduler"       // scheduler queue
-	LayerSlotPool      BackpressureLayer = "slot_pool"       // execution slots
+	LayerAPIGate        BackpressureLayer = "api_gate"        // FlowController token bucket
+	LayerScheduler      BackpressureLayer = "scheduler"       // scheduler queue
+	LayerSlotPool       BackpressureLayer = "slot_pool"       // execution slots
 	LayerGlobalDownload BackpressureLayer = "global_download" // global download concurrency
-	LayerSSE           BackpressureLayer = "sse"             // SSE traffic shaping
-	LayerExecutor      BackpressureLayer = "executor"        // executor cooperative pause
+	LayerSSE            BackpressureLayer = "sse"             // SSE traffic shaping
+	LayerExecutor       BackpressureLayer = "executor"        // executor cooperative pause
+	LayerDomainPool     BackpressureLayer = "domain_pool"     // per-domain admission saturation
 )
 
 // LayerStatus captures the instantaneous load of one backpressure layer.
 type LayerStatus struct {
-	Layer     BackpressureLayer `json:"layer"`
-	Load      float64           `json:"load"`      // 0.0 = idle, 1.0 = full
-	Current   int               `json:"current"`  // current in-flight count
-	Capacity  int               `json:"capacity"`  // maximum capacity
-	QueueLen  int               `json:"queueLen"`  // pending items in queue
-	Healthy   bool              `json:"healthy"`   // false = overloaded/critical
-	Trend     string           `json:"trend"`      // "rising", "falling", "stable"
+	Layer    BackpressureLayer `json:"layer"`
+	Load     float64           `json:"load"`     // 0.0 = idle, 1.0 = full
+	Current  int               `json:"current"`  // current in-flight count
+	Capacity int               `json:"capacity"` // maximum capacity
+	QueueLen int               `json:"queueLen"` // pending items in queue
+	Healthy  bool              `json:"healthy"`  // false = overloaded/critical
+	Trend    string            `json:"trend"`    // "rising", "falling", "stable"
 }
 
 // BackpressureSnapshot is a point-in-time reading of all six layers.
@@ -49,7 +50,7 @@ type BackpressureSnapshot struct {
 
 // LayerSampler is implemented by each backpressure layer to report its
 // current load. The monitor calls Sample() periodically to build a
-// composite snapshot. Implementations must be safe for concurrent use.
+// composite snapshot. Implementations must tolerate concurrent use.
 type LayerSampler interface {
 	Layer() BackpressureLayer
 	Sample() LayerStatus
@@ -57,15 +58,13 @@ type LayerSampler interface {
 
 // BackpressureMonitor periodically samples all registered layers and
 // computes a composite pressure index. It is the "dashboard" for the
-// multi-layer backpressure coordination mechanism — callers (API, SSE, scheduler)
-// consult it to make shedding decisions when the system is under stress.
+// multi-layer backpressure coordination mechanism: callers (API, SSE,
+// scheduler) consult it to make shedding decisions under stress.
 //
-// The monitor itself does NOT enforce backpressure; it only observes and
-// reports. Enforcement is the responsibility of each layer (e.g., the
+// The monitor does NOT enforce backpressure; it only observes and
+// reports. Enforcement is the responsibility of each layer (e.g. the
 // FlowController adjusts its rate, the SSE aggregator starts coalescing
-// events). This separation follows the "monitor vs. controller" pattern
-// from control theory: monitoring is side-effect-free, control is
-// domain-specific.
+// events), keeping sampling side-effect-free and control domain-specific.
 type BackpressureMonitor struct {
 	mu sync.RWMutex
 
@@ -82,15 +81,15 @@ type BackpressureMonitor struct {
 
 // NewBackpressureMonitor creates a monitor with the given sampling
 // interval. A shorter interval means more responsive alerting but
-// more overhead. 5–10s is recommended for production.
+// more overhead. 5-10s is recommended for production.
 func NewBackpressureMonitor(interval time.Duration) *BackpressureMonitor {
 	return &BackpressureMonitor{
-		samplers:       make([]LayerSampler, 0, 6),
-		sampleHistory:  make([]BackpressureSnapshot, 0, 120),
-		historyCap:     120,
-		interval:       interval,
-		alertCounters:  make(map[BackpressureLayer]*int64),
-		logger:         infra.NewLogger("BackpressureMon"),
+		samplers:      make([]LayerSampler, 0, 6),
+		sampleHistory: make([]BackpressureSnapshot, 0, 120),
+		historyCap:    120,
+		interval:      interval,
+		alertCounters: make(map[BackpressureLayer]*int64),
+		logger:        infra.NewLogger("BackpressureMon"),
 	}
 }
 
@@ -108,7 +107,6 @@ func (m *BackpressureMonitor) Register(s LayerSampler) {
 	m.alertCounters[s.Layer()] = new(int64)
 }
 
-// Start begins periodic sampling in a background goroutine.
 // Idempotent: calling it twice starts only one goroutine.
 // The goroutine stops when ctx is cancelled.
 func (m *BackpressureMonitor) Start(ctx <-chan struct{}) {
@@ -138,8 +136,7 @@ func (m *BackpressureMonitor) Start(ctx <-chan struct{}) {
 }
 
 // sample takes a reading from all registered layers and stores it
-// in the history. It also logs warnings for any layer that enters
-// a critical state.
+// in the history, logging a warning for any layer in a critical state.
 func (m *BackpressureMonitor) sample() {
 	m.mu.RLock()
 	samplers := make([]LayerSampler, len(m.samplers))

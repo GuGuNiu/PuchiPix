@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/mozillazg/go-pinyin"
+
+	"backend/internal/xutil"
 )
 
 // Scoring matrix for model name matching. Base scores decrease from exact
@@ -43,12 +45,8 @@ const (
 // scoredMatch runs the similarity-matrix pipeline for a single segment
 // against all loaded models. Returns the best candidate exceeding
 // matchThreshold, or ("", false) if none qualify.
-//
-// When a short alias (≤2 runes) is the primary match source, cross-validation
-// requires the main name or another alias to also appear in the segment,
-// preventing false positives from generic short aliases.
 func (p *Parser) scoredMatch(seg string) (string, bool) {
-	lower := strings.ToLower(seg)
+	lower := xutil.MetadataKey(seg)
 	var best matchCandidate
 
 	p.evalExactMatch(lower, &best)
@@ -59,22 +57,18 @@ func (p *Parser) scoredMatch(seg string) (string, bool) {
 		return "", false
 	}
 
-	// Cross-validation for alias matches prevents false positives from
-	// generic aliases like "SU", "Sally", "Yuki" matching as substrings
-	// in unrelated names. Two cases require corroboration:
-	//   1. Substring/pinyin alias matches (score < scoreExactAlias)
-	//   2. Exact alias matches for very short aliases (≤2 runes)
-	// Longer exact alias matches (e.g. "NAGISA", "shimo") are trusted.
+	// Alias matches need corroboration to avoid false positives from
+	// generic aliases such as "SU", "Sally" or "Yuki" appearing inside
+	// unrelated names. Substring and pinyin alias matches always require
+	// it, and exact matches require it when the alias is at most 2 runes
+	// and the segment is longer than the alias itself. Longer exact
+	// alias matches ("NAGISA", "shimo") are trusted as-is.
 	if best.sourceType == matchSourceAlias {
 		if best.score < scoreExactAlias {
 			if !p.crossValidate(seg, best.name, best.sourceKey) {
 				return "", false
 			}
 		}
-		// For short exact-alias matches (2 runes) where the segment
-		// is LONGER than the alias, also cross-validate. This catches
-		// cases like "su" matching inside "晚苏susu". When the segment
-		// equals the alias (e.g. "奶桃" == "奶桃"), trust the match.
 		if best.score >= scoreExactAlias && utf8.RuneCountInString(best.sourceKey) == 2 && len(lower) > len(best.sourceKey) {
 			if !p.crossValidate(seg, best.name, best.sourceKey) {
 				return "", false
@@ -85,12 +79,10 @@ func (p *Parser) scoredMatch(seg string) (string, bool) {
 	return best.name, true
 }
 
-// crossValidate confirms an alias-driven match by checking whether the main
-// name or another alias (≥2 runes) also appears in the segment.
 func (p *Parser) crossValidate(seg, modelName, matchedAlias string) bool {
-	lower := strings.ToLower(seg)
+	lower := xutil.MetadataKey(seg)
 
-	m, ok := p.models[strings.ToLower(modelName)]
+	m, ok := p.models[xutil.MetadataKey(modelName)]
 	if !ok {
 		return false
 	}
@@ -123,8 +115,7 @@ func (p *Parser) evalExactMatch(segLower string, best *matchCandidate) {
 		return
 	}
 	if name, ok := p.modelAliasIndex[segLower]; ok {
-		// Reject single-character alias exact matches (e.g. "w",
-		// "M") — too generic to identify a person.
+		// Reject single-character aliases, they are too generic to identify a person.
 		if utf8.RuneCountInString(segLower) >= 2 {
 			updateBest(best, matchCandidate{name, scoreExactAlias, segLower, matchSourceAlias})
 		}
@@ -132,8 +123,8 @@ func (p *Parser) evalExactMatch(segLower string, best *matchCandidate) {
 }
 
 func (p *Parser) evalSubMatch(segLower string, best *matchCandidate) {
-	// Inverted index lookup: extract 2-rune substrings to find candidate
-	// keys, then verify with strings.Contains.
+	// The prefix index narrows candidates to keys sharing a 2-rune window
+	// with the segment, avoiding a full scan over every loaded model.
 	candidateSet := make(map[string]bool)
 	substrings := extractPrefixes(segLower, 2)
 	for _, sub := range substrings {
@@ -204,8 +195,6 @@ func (p *Parser) evalPinyinMatch(segLower, segOriginal string, best *matchCandid
 	}
 }
 
-// positionBonus returns a position-based adjustment for substring matches:
-// head matches get a bonus, tail matches get a penalty.
 func positionBonus(seg, sub string) float64 {
 	idx := strings.Index(seg, sub)
 	if idx < 0 {
@@ -231,7 +220,7 @@ func pinyinPosBonus(pos, segLen, matchLen int) float64 {
 }
 
 func updateBest(best *matchCandidate, c matchCandidate) {
-	if c.score > best.score {
+	if c.score > best.score || (c.score == best.score && best.name != "" && c.name < best.name) {
 		best.name = c.name
 		best.score = c.score
 		best.sourceKey = c.sourceKey
@@ -290,9 +279,6 @@ var cosplaySubTerms = []string{"私拍", "合集", "写真", "图包", "套图",
 // underscore-hash, or photo/video count suffixes that rarely appear in model names.
 var metadataMarkerRE = regexp.MustCompile(`[_\s]\d+|_\s*#\d+|(?i)_\d*[pPvV]`)
 
-// matchesCosplayPreamble rejects segments that start with a cosplay-preamble
-// word (e.g. "Cos福利", "JK制服") followed by a non-letter character, or
-// segments containing cosplay keywords alongside metadata markers.
 func matchesCosplayPreamble(seg string) bool {
 	lower := strings.ToLower(seg)
 	preambles := []string{"cosplay", "coser", "cos", "jk", "jk制服", "cos福利", "福利", "写真", "私拍", "合集", "图包", "同人", "套图"}
@@ -308,8 +294,9 @@ func matchesCosplayPreamble(seg string) bool {
 		}
 	}
 
-	// Reject description-like segments containing cosplay keywords AND
-	// metadata markers, even when the keyword appears mid-segment.
+	// A cosplay keyword only marks a description segment when the segment
+	// also carries an auto-generated metadata marker, otherwise real model
+	// names containing the keyword would be discarded.
 	if metadataMarkerRE.MatchString(lower) {
 		for _, term := range cosplaySubTerms {
 			if strings.Contains(lower, term) {

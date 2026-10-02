@@ -9,13 +9,13 @@ import (
 )
 
 type controlCommand struct {
-	action   dagclient.DagControlAction
-	cmdName  string
-	cmdDesc  string
-	label    string
-	icon     string
-	color    string
-	hasNode  bool
+	action  dagclient.DagControlAction
+	cmdName string
+	cmdDesc string
+	label   string
+	icon    string
+	color   string
+	hasNode bool
 }
 
 func (c controlCommand) Name() string        { return c.cmdName }

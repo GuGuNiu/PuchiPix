@@ -18,7 +18,7 @@ export interface SniffTask {
   UpdatedAt: string;
 }
 
-export const SNIFF_ACTIVE_STATUSES = ['pending', 'scraping', 'running'] as const;
+export const SNIFF_ACTIVE_STATUSES = ['pending', 'scraping', 'running', 'sniffing'] as const;
 
 interface SniffStore {
   tasks: SniffTask[];

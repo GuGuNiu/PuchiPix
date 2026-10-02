@@ -32,6 +32,7 @@ interface GalleryStore {
   fetchGalleryDetail: (id: number) => Promise<GalleryData | null>;
   deleteGallery: (id: number) => Promise<boolean>;
   retryDownload: (id: number) => Promise<boolean>;
+  retryFailedFiles: (id: number) => Promise<boolean>;
   downloadZip: (id: number, manualUrl?: string) => Promise<boolean>;
   updateGallery: (id: number, updates: Partial<GalleryData>) => void;
   setProgress: (p: GalleryProgress) => void;
@@ -47,6 +48,12 @@ function mapTaskStatusToGallery(status: string): string {
       return 'completed';
     case 'partial':
       return 'partial';
+    case 'preparing':
+    case 'paused':
+    case 'cancelled':
+    case 'merging':
+    case 'transcoding':
+      return status;
     case 'downloading':
       return 'downloading';
     case 'download_pending':
@@ -78,9 +85,15 @@ function normalizeGallery(raw: Record<string, unknown>): GalleryData {
     tags = rawTags;
   } else if (typeof rawTags === 'string') {
     try {
-      tags = JSON.parse(rawTags);
+      const parsed: unknown = JSON.parse(rawTags);
+      tags = Array.isArray(parsed)
+        ? parsed.filter((tag): tag is string => typeof tag === 'string')
+        : [];
     } catch {
-      tags = [];
+      tags = rawTags
+        .split(/[,，、;；|｜/／]/)
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0);
     }
   }
 
@@ -272,6 +285,9 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     try {
       const res = await fetch('/api/shelf?limit=500');
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`);
+      }
       const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
       const list: GalleryData[] = raw.map(normalizeGallery);
 
@@ -373,6 +389,22 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     }
   },
 
+  retryFailedFiles: async (id: number) => {
+    try {
+      const res = await fetch(`/api/shelf/${id}/files/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy: 'failed_only' }),
+      });
+      if (res.ok) {
+        get().fetchGalleryDetail(id);
+      }
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
   retryDownload: async (id: number) => {
     try {
       const res = await fetch(`/api/shelf/${id}`, {
@@ -392,17 +424,14 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       zipProgressMap: { ...s.zipProgressMap, [id]: { galleryId: id, downloaded: 0, total: 0, percent: 0 } },
     }));
     try {
-      /*
-       * The backend has no dedicated download-zip action (ShelfAction
-       * returns 501 for it): ZIP download runs INSIDE the download node
-       * (TryDownloadGalleryZip) which is part of every pipeline run.
-       * Trigger the pipeline via the standard download action; if the
-       * gallery already holds a pending ZIP row, the download node
-       * fetches and extracts it.
-       * manualUrl: a user-supplied direct link is persisted by the
-       * gallery-zip-info panel path; here it simply re-triggers the same
-       * pipeline.
-       */
+  /*
+   * No dedicated download-zip action exists (ShelfAction answers 501 for it),
+   * so the standard download action is used instead: ZIP download runs inside
+   * the download node of every pipeline run, and that node fetches and extracts
+   * a pending ZIP row on the gallery. A user-supplied manualUrl is already
+   * persisted by the caller's panel path, so it only re-triggers the same
+   * pipeline.
+   */
       const res = await fetch(`/api/shelf/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -468,10 +497,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
           /*
-           * The backend's initial event (task_stream.go) is an object
-           * {tasks, totalCount, page, pageSize, hasMore}; legacy
-           * snapshots sent a bare array. Accept both shapes — same
-           * double-format pattern as task-store.
+           * The initial event payload is an object holding a `tasks` array;
+           * older backends sent a bare array, so both shapes are accepted.
            */
           const raw: unknown = JSON.parse(e.data);
           const list = Array.isArray(raw)
@@ -534,8 +561,8 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
             taskType?: string;
             status?: string;
           };
-          if (payload.taskType && payload.taskType !== 'gallery') return;
-          set((s) => {
+           if (payload.taskType !== 'gallery') return;
+           set((s) => {
             const next = updateGalleryStatuses(s.galleries, (g) =>
               g.ID === payload.taskId ? { status: payload.status || 'completed' } : null,
             );
@@ -550,8 +577,9 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
     unsubs.push(
       subscribeSseEvent('task:failed', (e: MessageEvent) => {
         try {
-          const payload = JSON.parse(e.data) as { taskId: number; error?: string };
-          set((s) => {
+           const payload = JSON.parse(e.data) as { taskId: number; taskType?: string; error?: string };
+           if (payload.taskType !== 'gallery') return;
+           set((s) => {
             const next = updateGalleryStatuses(s.galleries, (g) =>
               g.ID === payload.taskId ? { status: 'failed' } : null,
             );
@@ -604,26 +632,38 @@ export const useGalleryStore = create<GalleryStore>((set, get) => ({
       subscribeSseEvent('task:cancelled', (e: MessageEvent) => {
         try {
           const raw = JSON.parse(e.data) as { taskId: number; taskType?: string };
-          if (raw.taskType && raw.taskType !== 'gallery') return;
-          const { taskId } = raw;
+          if (raw.taskType !== 'gallery') return;
           set((s) => {
-            if (!s.galleries.some((g) => g.ID === taskId)) return s;
-            return {
-              galleries: s.galleries.filter((g) => g.ID !== taskId),
-              progressMap: (() => {
-                const next = { ...s.progressMap };
-                delete next[taskId];
-                return next;
-              })(),
-              zipStatusMap: (() => {
-                const next = { ...s.zipStatusMap };
-                delete next[taskId];
-                return next;
-              })(),
-            };
+            const next = updateGalleryStatuses(s.galleries, (g) =>
+              g.ID === raw.taskId ? { status: 'cancelled' } : null,
+            );
+            return next === s.galleries ? s : { galleries: next };
           });
         } catch (err) {
           logger.warn('SSE task:cancelled parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      subscribeSseEvent('task:deleted', (e: MessageEvent) => {
+        try {
+          const raw = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          if (raw.taskType !== 'gallery') return;
+          set((s) => {
+            if (!s.galleries.some((g) => g.ID === raw.taskId)) return s;
+            const progressMap = { ...s.progressMap };
+            const zipStatusMap = { ...s.zipStatusMap };
+            delete progressMap[raw.taskId];
+            delete zipStatusMap[raw.taskId];
+            return {
+              galleries: s.galleries.filter((g) => g.ID !== raw.taskId),
+              progressMap,
+              zipStatusMap,
+            };
+          });
+        } catch (err) {
+          logger.warn('SSE task:deleted parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );

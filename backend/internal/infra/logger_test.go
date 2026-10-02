@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// Regression lock for the varargs trap (260905): log() used to keep only
-// data[0], silently dropping every structured field past the first. Multi-arg
-// calls must now be normalized into a complete key-value map.
+// log() used to keep only data[0], silently dropping every structured field
+// past the first. Multi-arg calls must be normalized into a complete key-value
+// map.
 func TestNormalizeLogArgsKeepsAllFields(t *testing.T) {
 	out := normalizeLogArgs([]any{
 		"slotType", "download",

@@ -1,5 +1,3 @@
-// Tables — table-wrapper / data-table
-
 .table-wrapper {
   overflow-x: auto;
 
@@ -65,7 +63,6 @@
   }
 }
 
-// ===== Data Table (compact) =====
 .data-table {
   width: 100%;
   border-collapse: separate;
@@ -127,7 +124,6 @@
   }
 }
 
-// ===== Page Header =====
 .page-header {
   display: flex;
   align-items: center;

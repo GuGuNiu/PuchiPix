@@ -13,25 +13,21 @@ import (
 // OnNodeCompleted is called by the executor when a node finishes,
 // recording the result and triggering downstream activation.
 //
-// Strategy layer (M5): on success, the orchestrator drives the
-// VERIFYING/COMPLETED transition based on the node's policy:
-//   - shouldVerify (default): RUNNING → VERIFYING → StateReconciler →
-//     COMPLETED (passed) / FAILED (verify failed) / NEEDS_RETRY (data
+// On success the orchestrator drives the VERIFYING/COMPLETED transition
+// based on the node's policy:
+//   - shouldVerify (default): RUNNING, then VERIFYING, then StateReconciler,
+//     then COMPLETED (passed) / FAILED (verify failed) / NEEDS_RETRY (data
 //     missing, auto-retryable)
-//   - skipVerify: RUNNING → COMPLETED directly
-// On failure, the node transitions to FAILED (or TIMEOUT when the
-// scheduler already detected a deadline). Previously the success path
-// skipped VERIFYING entirely and left the node in RUNNING, which is the
-// P7 audit defect — verify executors were registered but never invoked.
+//   - skipVerify: RUNNING straight to COMPLETED
 //
-// Idempotency guard (260823): if the node is already in a terminal state
-// when this callback fires, the result is a late arrival (executor sent
-// a second completion event after a pause/cancel/restart drove the node
-// to COMPLETED/FAILED/CANCELLED). Processing it would re-activate
-// successors or double-transition, so we return ErrNodeAlreadyTerminal
-// and let the caller log-and-forget. This replaces the previous
-// per-branch "currentState == RUNNING" check with a single top-level
-// guard that covers all terminal states uniformly.
+// On failure the node transitions to FAILED, or to TIMEOUT when the
+// scheduler already detected a deadline.
+//
+// A node already in a terminal state when this callback fires received a
+// late event (the executor sent a second completion after a pause, cancel
+// or restart drove the node to a terminal state). Processing it would
+// re-activate successors or double-transition, so ErrNodeAlreadyTerminal
+// is returned for the caller to log and discard.
 func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID string, result orchestrator.NodeExecutionResult) error {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -49,9 +45,9 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 	currentState := fsm.State()
 	// Idempotent short-circuit: discard late-arriving events for nodes
 	// that already reached a terminal state via another path.
-	if orchestrator.IsTerminalState(currentState) {
+	if orchestrator.IsDeletableState(currentState) {
 		dag.mu.Unlock()
-		o.logger.Info("OnNodeCompleted discarded: node already terminal",
+		o.logger.Info("OnNodeCompleted discarded: node already settled",
 			"dagId", dagID, "nodeId", nodeID, "state", currentState)
 		return orchestrator.ErrNodeAlreadyTerminal
 	}
@@ -59,24 +55,26 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 	policy := fsm.Policy()
 	dag.mu.Unlock()
 
+	// Return the node's domain reservation before driving transitions. A
+	// needs_retry verdict below re-submits the node, which reserves again —
+	// releasing afterwards would withdraw the fresh reservation instead.
+	o.releaseDomainReservation(dagID, nodeID)
+
 	// Drive the post-execution transition on success. On failure the
-	// scheduler has already transitioned to FAILED/TIMEOUT (or we do it
-	// here as a safety net).
+	// scheduler has already transitioned to FAILED/TIMEOUT, or this
+	// function does it as a fallback.
 	if result.Success {
 		switch currentState {
 		case orchestrator.NodeStateRunning:
-			// Decide VERIFYING vs COMPLETED via policy guards.
 			shouldVerify := true
 			if policy != nil {
-				// Evaluate the galleryNodePolicy guards directly. A nil
-				// policy means "always verify" (the pre-strategy default).
+				// A nil policy means "always verify".
 				shouldVerify = !policyGuardSkipVerify(fsm.Context())
 			}
 			if shouldVerify {
 				if err := fsm.Transition(orchestrator.NodeStateVerifying, orchestrator.TransitionContext{
 					Reason: "execution completed, verifying side effects", TriggeredBy: "scheduler",
 				}); err == nil {
-					// Run the StateReconciler to check side effects.
 					verdict := o.runVerification(ctx, dagID, nodeID, fsm)
 					switch verdict {
 					case "passed":
@@ -84,9 +82,15 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 							Reason: "verification passed", TriggeredBy: "reconciler",
 						})
 					case "needs_retry":
-						_ = fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
+						if err := fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
 							Reason: "verification needs retry", TriggeredBy: "reconciler",
-						})
+						}); err == nil {
+							if err = fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
+								Reason: "retry after verification needs retry", TriggeredBy: "system",
+							}); err == nil {
+								o.submitRetry(ctx, dagID, nodeID, node, 0)
+							}
+						}
 					default:
 						_ = fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
 							Reason: "verification failed", TriggeredBy: "reconciler",
@@ -107,14 +111,20 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 					Reason: "resume verification passed", TriggeredBy: "reconciler",
 				})
 			case "needs_retry":
-				// Legal path: RESUME_VERIFY -> VERIFYING -> NEEDS_RETRY
-				// (direct resume_verify -> needs_retry is not allowed).
+				// Legal path: RESUME_VERIFY to VERIFYING to NEEDS_RETRY; a direct
+				// resume_verify to needs_retry is not in validTransitions.
 				if err := fsm.Transition(orchestrator.NodeStateVerifying, orchestrator.TransitionContext{
 					Reason: "resume verification needs retry, re-entering verify", TriggeredBy: "reconciler",
 				}); err == nil {
-					_ = fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
+					if err := fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
 						Reason: "resume verification needs retry", TriggeredBy: "reconciler",
-					})
+					}); err == nil {
+						if err := fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
+							Reason: "retry after resume verification", TriggeredBy: "system",
+						}); err == nil {
+							o.submitRetry(ctx, dagID, nodeID, node, 0)
+						}
+					}
 				}
 			default:
 				_ = fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
@@ -123,11 +133,11 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 			}
 		}
 	} else {
-		// Failure safety net: ensure the node reaches a terminal state.
+		// Safety net: ensure the node reaches a terminal state.
 		if currentState == orchestrator.NodeStateRunning {
-			// needs_retry (verify phase) is retryable: route to
-			// NEEDS_RETRY and re-submit instead of hard-failing. The
-			// scheduler flags it via result.Data["needsRetry"].
+			// needs_retry (verify phase) is retryable: route to NEEDS_RETRY
+			// and re-submit instead of hard-failing. The scheduler flags it
+			// via result.Data["needsRetry"].
 			if needsRetry, _ := result.Data["needsRetry"].(bool); needsRetry {
 				reason := "verification needs retry"
 				if r, _ := result.Data["needsRetryReason"].(string); r != "" {
@@ -165,10 +175,9 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 	// progress in real-time without polling. Count terminal vs total
 	// nodes to compute a progress percentage on the frontend.
 	if o.eventBus != nil {
-		// Snapshot node states under lock, then compute counts after
-		// unlocking to minimize critical section. Previously the entire
-		// counting loop ran under dag.mu, blocking scheduler callbacks
-		// when a DAG had many nodes (600+ active DAGs scenario).
+		// Snapshot node states under lock, then compute the counts after
+		// unlocking: counting under the lock would block scheduler
+		// callbacks for DAGs with many nodes.
 		dag.mu.Lock()
 		nodeCount := len(dag.nodes)
 		states := make([]orchestrator.NodeState, 0, nodeCount)
@@ -181,7 +190,7 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 		terminalCount := 0
 		failedCount := 0
 		for _, state := range states {
-			if orchestrator.IsTerminalState(state) {
+			if orchestrator.IsDeletableState(state) {
 				terminalCount++
 				if state == orchestrator.NodeStateFailed {
 					failedCount++
@@ -199,12 +208,9 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 			"taskType": taskType,
 		}
 		// Carry the business entity ID (galleryId/taskId/sniffId) so the
-		// frontend can map this DAG event back to the task WITHOUT parsing
-		// the DAG ID format. Previously the frontend parsed "gallery-<id>"
-		// prefixes from dagId — that implicit contract broke when DAG IDs
-		// were unified to 6-char random codes (260804), silently killing
-		// real-time gallery progress. The entity ID comes from the node
-		// configs injected by DagFactory (galleryId/taskId/sniffId).
+		// frontend can map this DAG event back to the task without parsing
+		// the DAG ID format, whose encoding carries no entity information.
+		// The entity ID comes from the node configs injected by DagFactory.
 		if key, id, ok := extractEntityID(dag.definition); ok {
 			payload[key] = id
 		}
@@ -212,13 +218,13 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 		o.eventBus.Emit("dag:nodeProgress", payload)
 	}
 
-	// Sync the node's terminal FSM state to the entity tables. This
-	// covers paths that bypass TransitionNode (executor failure lands
-	// directly on fsm.Transition here), which previously left the DB
-	// stuck at an in-progress status after a failure — e.g. a failed
-	// video:scrape left download_tasks.status at "scraping"/"downloading"
-	// forever. The injected callback maps the state (StatusReporter) and
-	// skips completed (executors write richer data).
+	// Sync the node's terminal FSM state to the entity tables. This covers
+	// paths that bypass TransitionNode (an executor failure lands directly
+	// on fsm.Transition here), which would otherwise leave the DB stuck at
+	// an in-progress status, e.g. a failed video:scrape leaving
+	// download_tasks.status at "scraping"/"downloading" forever. The
+	// injected callback maps the state (StatusReporter) and skips
+	// completed, because executors write richer data.
 	if o.statusSyncFn != nil {
 		dag.mu.Lock()
 		finalState := fsm.State()
@@ -227,23 +233,16 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 	}
 
 	// Activate direct successors incrementally (O(d)) rather than
-	// rescanning the whole graph (O(n*d)). A critically-failed node
-	// cascades failure to its not-yet-executed successors instead of
-	// activating them (260821 fix: previously every completion — success
-	// or failure — activated successors, so a failed video:scrape node
-	// still launched the download node, which re-identified the M3U8 URL,
-	// failed again, and left the DB showing "downloading"). Nodes on the
-	// needs_retry path keep their successors PENDING (the node is being
-	// re-submitted, not dead); non-critical failures propagate so
-	// dependents can still activate (their dep counts as satisfied).
-	needsRetryFlag := false
-	if v, _ := result.Data["needsRetry"].(bool); v {
-		needsRetryFlag = true
-	}
-	if !result.Success && !needsRetryFlag && !node.definition.NonCritical {
-		o.cascadeFailureToDependents(ctx, dagID, nodeID)
-	} else {
+	// rescanning the whole graph (O(n*d)). Only a completed node, or a
+	// non-critical node that reached a settled failure state, satisfies
+	// dependencies. Needs-retry and paused nodes must keep successors
+	// waiting.
+	finalState := fsm.State()
+	if finalState == orchestrator.NodeStateCompleted ||
+		(node.definition.NonCritical && (finalState == orchestrator.NodeStateFailed || finalState == orchestrator.NodeStateTimeout)) {
 		o.propagateCompletion(ctx, dagID, nodeID)
+	} else if finalState == orchestrator.NodeStateFailed || finalState == orchestrator.NodeStateTimeout {
+		o.cascadeFailureToDependents(ctx, dagID, nodeID)
 	}
 
 	// COMPLETED may have arrived before this callback (e.g. VERIFYING ->
@@ -255,11 +254,10 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 }
 
 // policyGuardSkipVerify mirrors the policies.skipVerify guard without
-// importing the policies package (which would create a dependency from
-// dag → policies → orchestrator, a cycle). It reads the same Config key.
-// This keeps the guard logic co-located with the orchestrator's
-// verification driver while the policy package owns the declarative
-// rule table.
+// importing the policies package, which would create a dependency cycle
+// (dag to policies to orchestrator). It reads the same Config key, keeping
+// the guard co-located with the verification driver while the policy
+// package owns the declarative rule table.
 func policyGuardSkipVerify(ctx orchestrator.StateMachineContext) bool {
 	v, ok := ctx.Definition.Config["skipVerify"]
 	if !ok {
@@ -270,9 +268,9 @@ func policyGuardSkipVerify(ctx orchestrator.StateMachineContext) bool {
 }
 
 // runVerification invokes the StateReconciler on the node and returns
-// its verdict ("passed", "needs_retry", "failed", "skipped"). When no
-// reconciler is installed the verdict defaults to "passed" so nodes are
-// not blocked by a missing reconciler (backward compatible).
+// its verdict ("passed", "needs_retry", "failed", "skipped"). With no
+// reconciler installed the verdict defaults to "passed" so a missing
+// reconciler never blocks nodes.
 func (o *DagOrchestrator) runVerification(ctx context.Context, dagID, nodeID string, fsm *orchestrator.TaskStateMachine) string {
 	o.dagsMu.RLock()
 	reconciler := o.reconciler
@@ -288,7 +286,6 @@ func (o *DagOrchestrator) runVerification(ctx context.Context, dagID, nodeID str
 	return result.Status
 }
 
-// TransitionNode delegates a state transition to the node's FSM.
 func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID string, toState orchestrator.NodeState, tctx orchestrator.TransitionContext) error {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -305,6 +302,7 @@ func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID stri
 		return orchestrator.ErrNodeNotFound
 	}
 	fsm := node.fsm
+	fromState := fsm.State()
 	dag.mu.Unlock()
 
 	if err := fsm.Transition(toState, tctx); err != nil {
@@ -312,15 +310,13 @@ func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID stri
 	}
 
 	// Push the FSM state back to the entity tables so the DB and the
-	// in-memory state machine never diverge. Previously only terminal
-	// states (and RUNNING) triggered the sync, so a node that the
-	// scheduler rejected (rolled back to READY) left the DB stuck at
-	// "scraping" — the "all tasks started identifying / full" false-status defect.
-	// Now every user-observable state is reported: QUEUED/ALLOCATED/RUNNING maps
-	// to in-progress, READY maps to pending, terminal maps to terminal status.
-	// callback decides whether a state maps to a DB write (see
-	// orchestrator.StatusReporter) and is best-effort — failures are
-	// logged, never block the transition.
+	// in-memory state machine never diverge. Every user-observable state
+	// is reported: QUEUED/ALLOCATED/RUNNING map to in-progress, READY maps
+	// to pending, terminal states map to the terminal status. Without the
+	// READY/QUEUED writes a node the scheduler rejected left the DB stuck
+	// at "scraping". The callback decides whether a state maps to a DB
+	// write (see orchestrator.StatusReporter) and is best-effort: failures
+	// are logged and never block the transition.
 	switch fsm.State() {
 	case orchestrator.NodeStateQueued,
 		orchestrator.NodeStateAllocated,
@@ -347,7 +343,7 @@ func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID stri
 		NodeID:    nodeID,
 		Timestamp: time.Now(),
 		Payload: map[string]any{
-			"from":    string(fsm.State()),
+			"from":    string(fromState),
 			"to":      string(toState),
 			"context": tctx,
 		},
@@ -358,11 +354,10 @@ func (o *DagOrchestrator) TransitionNode(ctx context.Context, dagID, nodeID stri
 
 // PauseDag pauses all non-terminal nodes in a DAG.
 //
-// Strategy layer (M6): when a node's policy defines onPause, the
-// returned state is used instead of the default PAUSED. This lets
-// scrape nodes (no side effects) go to READY for immediate
-// re-scheduling while download nodes (partial files) go to PAUSED to
-// preserve progress.
+// When a node's policy defines onPause, the returned state is used
+// instead of the default PAUSED. This lets scrape nodes (no side effects)
+// go to READY for immediate re-scheduling while download nodes (partial
+// files) go to PAUSED to preserve progress.
 func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -373,10 +368,15 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 	}
 
 	pausedCount := 0
+	type pausedNode struct {
+		nodeID string
+		node   *dagNodeInstance
+	}
+	transitioned := make([]pausedNode, 0)
 	dag.mu.Lock()
 	for nodeID, node := range dag.nodes {
 		state := node.fsm.State()
-		if orchestrator.IsTerminalState(state) || state == orchestrator.NodeStatePaused {
+		if orchestrator.IsDeletableState(state) || state == orchestrator.NodeStatePaused {
 			continue
 		}
 		if o.scheduler != nil {
@@ -386,7 +386,7 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 		if sp, ok := o.slotPool.(*slot.SlotPool); ok {
 			sp.ReleaseAll(holderID)
 		}
-		// Strategy layer: ask the policy where this node should land.
+		// Ask the policy where this node should land.
 		targetState := orchestrator.NodeStatePaused
 		if p := node.fsm.Policy(); p != nil && p.OnPause != nil {
 			if s := p.OnPause(node.fsm.Context()); s != "" {
@@ -394,7 +394,7 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 			}
 		}
 		// A policy may return READY for scrape nodes (no side effects), but
-		// RUNNING→READY is not a legal transition — fall back to PAUSED so
+		// RUNNING to READY is not a legal transition. Fall back to PAUSED so
 		// an in-flight scrape node is still paused (and its executor
 		// cancelled below) instead of being left running.
 		if !node.fsm.CanTransitionTo(targetState) {
@@ -406,6 +406,7 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 				TriggeredBy: "user",
 			})
 			pausedCount++
+			transitioned = append(transitioned, pausedNode{nodeID: nodeID, node: node})
 			// Cancel the in-flight executor AFTER the node reached its
 			// paused target state. Cancelling first would race the
 			// executor's failure report against the transition:
@@ -419,6 +420,12 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 	}
 	dag.mu.Unlock()
 
+	if o.statusSyncFn != nil {
+		for _, transitionedNode := range transitioned {
+			o.statusSyncFn(ctx, dagID, transitionedNode.nodeID, transitionedNode.node.definition, orchestrator.NodeStatePaused)
+		}
+	}
+
 	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
 		Type:      "dag:paused",
 		DagID:     dagID,
@@ -427,6 +434,10 @@ func (o *DagOrchestrator) PauseDag(ctx context.Context, dagID string) error {
 	})
 
 	o.logger.Info("DAG paused", "dagId", dagID, "pausedCount", pausedCount)
+	// A paused DAG stops occupying slots (PauseDag releases them above), so
+	// its domain reservations are returned too. ResumeDag re-submits the
+	// nodes and reserves again.
+	o.releaseDomainReservationsForDag(dagID)
 	return nil
 }
 
@@ -439,9 +450,14 @@ func (o *DagOrchestrator) CancelDag(ctx context.Context, dagID string) error {
 		return orchestrator.ErrDagNotFound
 	}
 
+	type cancelledNode struct {
+		nodeID string
+		node   *dagNodeInstance
+	}
+	transitioned := make([]cancelledNode, 0)
 	dag.mu.Lock()
 	for nodeID, node := range dag.nodes {
-		if !orchestrator.IsTerminalState(node.fsm.State()) {
+		if !orchestrator.IsDeletableState(node.fsm.State()) {
 			if o.scheduler != nil {
 				o.scheduler.CancelNode(dagID, nodeID)
 			}
@@ -454,6 +470,7 @@ func (o *DagOrchestrator) CancelDag(ctx context.Context, dagID string) error {
 					Reason:      "user cancelled",
 					TriggeredBy: "user",
 				})
+				transitioned = append(transitioned, cancelledNode{nodeID: nodeID, node: node})
 			}
 			// Stop the in-flight executor after the CANCELLED transition
 			// (see PauseDag for the race rationale: cancel first would let
@@ -465,6 +482,12 @@ func (o *DagOrchestrator) CancelDag(ctx context.Context, dagID string) error {
 	}
 	dag.mu.Unlock()
 
+	if o.statusSyncFn != nil {
+		for _, transitionedNode := range transitioned {
+			o.statusSyncFn(ctx, dagID, transitionedNode.nodeID, transitionedNode.node.definition, orchestrator.NodeStateCancelled)
+		}
+	}
+
 	_ = o.eventStore.AppendAsync(ctx, orchestrator.DagEvent{
 		Type:      "dag:cancelled",
 		DagID:     dagID,
@@ -473,7 +496,28 @@ func (o *DagOrchestrator) CancelDag(ctx context.Context, dagID string) error {
 	})
 
 	o.logger.Info("DAG cancelled", "dagId", dagID)
+	o.releaseDomainReservationsForDag(dagID)
 	return nil
+}
+
+func (o *DagOrchestrator) PauseDagAndWait(ctx context.Context, dagID string) error {
+	if err := o.PauseDag(ctx, dagID); err != nil {
+		return err
+	}
+	if o.scheduler == nil {
+		return nil
+	}
+	return o.scheduler.WaitForDag(ctx, dagID)
+}
+
+func (o *DagOrchestrator) CancelDagAndWait(ctx context.Context, dagID string) error {
+	if err := o.CancelDag(ctx, dagID); err != nil {
+		return err
+	}
+	if o.scheduler == nil {
+		return nil
+	}
+	return o.scheduler.WaitForDag(ctx, dagID)
 }
 
 // ResumeDag resumes all paused nodes in a DAG, re-submitting them
@@ -573,14 +617,12 @@ func (o *DagOrchestrator) RetryDag(ctx context.Context, dagID string, nodeID str
 	dag.mu.Unlock()
 
 	for _, node := range nodesToRetry {
-		// Strategy layer (M6): honor the policy's retryPolicy. When
-		// retryCount >= maxAttempts, skip the retry and leave the node
-		// in FAILED so the user is notified that the retry budget is
-		// exhausted. When a backoff is configured, the re-submission is
-		// scheduled asynchronously (SubmitWithDelay) so the caller is
-		// never blocked by backoff sleeps. Without a policy, fall back
-		// to the existing behavior (ResetRetryCount + immediate
-		// re-schedule).
+		// Honor the policy's retryPolicy. When retryCount >= maxAttempts,
+		// skip the retry and leave the node in FAILED so the user is
+		// notified that the retry budget is exhausted. When a backoff is
+		// configured, the re-submission is scheduled asynchronously
+		// (SubmitWithDelay) so the caller never blocks on a backoff sleep.
+		// Without a policy, fall back to an immediate re-schedule.
 		fsmCtx := node.fsm.Context()
 		policy := node.fsm.Policy()
 		delayMs := int64(0)
@@ -736,12 +778,10 @@ func (o *DagOrchestrator) UpdateNodePriority(ctx context.Context, dagID, nodeID 
 
 // checkDagCompletion checks whether all nodes in a DAG are terminal and
 // emits completion or failure events accordingly. The aggregate status is
-// computed via orchestrator.AggregateTaskStatus (the single source of truth
-// for DAG-level state), and its return value drives event emission so the
-// event log stays consistent with the aggregate computation (fixes A2:
-// previously the return value was discarded and a separate local
-// allCompleted/anyCriticalFailure check was used, which could diverge from
-// AggregateTaskStatus on NonCritical + Cancelled mixtures).
+// computed via orchestrator.AggregateTaskStatus, the single source of truth
+// for DAG-level state, and its return value drives event emission so the
+// event log cannot diverge from the aggregate computation on NonCritical
+// and Cancelled mixtures.
 func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) error {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -755,7 +795,7 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 
 	for _, node := range dag.nodes {
 		state := node.fsm.State()
-		if !orchestrator.IsTerminalState(state) {
+		if !orchestrator.IsDeletableState(state) {
 			allTerminal = false
 		}
 		nodeInfos = append(nodeInfos, orchestrator.NodeSnapshotInfo{
@@ -805,10 +845,8 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 		})
 		o.logger.Info("DAG ended with failure", "dagId", dagID, "aggregateStatus", aggregateStatus)
 		// Sync the DB-side status so the frontend shows the failure even
-		// though the executors wrote a local completed/partial earlier
-		// (previously the FSM reached failed while galleries.status stayed
-		// 'completed' — a silent divergence). Only gallery DAGs map to a
-		// galleries row by dagID.
+		// though the executors wrote a local completed/partial earlier.
+		// Only gallery DAGs map to a galleries row by dagID.
 		if o.eventBus != nil {
 			ev := map[string]any{
 				"dagId":  dagID,
@@ -845,23 +883,17 @@ func (o *DagOrchestrator) checkDagCompletion(ctx context.Context, dagID string) 
 
 // extractEntityID reads the business entity ID (galleryId / taskSeq /
 // sniffSeq) that DagFactory injects into node configs, so SSE/WS event
-// payloads can reference the owning task WITHOUT parsing the DAG ID
-// format. Returns the config key ("galleryId"/"taskSeq"/"sniffSeq"),
-// the ID value (int for galleryId, string for seq-based keys), and
-// true when found.
+// payloads can reference the owning task without parsing the DAG ID
+// format, which carries no entity information. Returns the config key
+// ("galleryId"/"taskSeq"/"sniffSeq"), the ID value (int for galleryId,
+// string for seq-based keys), and true when found.
 //
-// Motivation: after DAG IDs were unified to 6-char random codes
-// (260804), the frontend's previous "gallery-<id>" prefix parsing of
-// dagId could no longer resolve the entity — silently breaking
-// real-time gallery progress/status updates. Carrying the entity ID in
-// the event payload decouples the frontend from the DAG ID encoding.
-//
-// Note: taskSeq/sniffSeq are string-based canonical identifiers
-// (download_tasks.seq / sniff_tasks.seq). The frontend can resolve
-// them to numeric IDs via the seq column if needed.
+// taskSeq/sniffSeq are string-based canonical identifiers
+// (download_tasks.seq / sniff_tasks.seq). The frontend can resolve them
+// to numeric IDs via the seq column if needed.
 func extractEntityID(def orchestrator.DagDefinition) (string, any, bool) {
 	for _, node := range def.Nodes {
-		// Gallery uses numeric ID
+		// Gallery uses a numeric ID.
 		if v, ok := node.Config["galleryId"]; ok {
 			switch t := v.(type) {
 			case int:
@@ -870,11 +902,11 @@ func extractEntityID(def orchestrator.DagDefinition) (string, any, bool) {
 				return "galleryId", int(t), true
 			}
 		}
-		// Video uses canonical seq string
+		// Video uses a canonical seq string.
 		if v, ok := node.Config["taskSeq"].(string); ok && v != "" {
 			return "taskSeq", v, true
 		}
-		// Sniff uses canonical seq string
+		// Sniff uses a canonical seq string.
 		if v, ok := node.Config["sniffSeq"].(string); ok && v != "" {
 			return "sniffSeq", v, true
 		}

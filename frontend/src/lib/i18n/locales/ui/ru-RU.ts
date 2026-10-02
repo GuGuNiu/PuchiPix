@@ -1,8 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-/** Frontend UI text — ru-RU */
 const ruRU: TranslationDict = {
-  /* ─── Common ─── */
   "common.refresh": "Обновить",
   "common.delete": "Удалить",
   "common.cancel": "Отмена",
@@ -21,6 +19,7 @@ const ruRU: TranslationDict = {
   "common.success": "Успешно",
   "common.failed": "Ошибка",
   "common.pending": "Ожидание",
+  "common.preparing": "Подготовка",
   "common.completed": "Завершено",
   "common.downloading": "Скачивание",
   "common.scraping": "Идентификация",
@@ -37,7 +36,6 @@ const ruRU: TranslationDict = {
   "common.adding": "Добавление...",
   "common.pages": "стр.",
 
-  /* ─── Navigation ─── */
   "nav.dashboard": "Зал Пучи",
   "nav.tasks": "Задачи",
   "nav.shelf": "Полка ресурсов",
@@ -57,13 +55,12 @@ const ruRU: TranslationDict = {
   "nav.collapse": "Свернуть боковую панель",
   "nav.language": "Язык",
   "nav.photos": "Фото-пакеты",
+  "nav.videos": "Видео",
   "nav.sjs": "SJS",
 
-  /* ─── SJS ─── */
   "sjs.comingSoon": "SJS скоро будет доступно",
   "sjs.underConstruction": "В разработке, следите за обновлениями",
 
-  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "Batch Import",
   "sjs.shelf.searchPlaceholder": "Search title, author, URL...",
   "sjs.shelf.allForums": "All Forums",
@@ -101,7 +98,6 @@ const ruRU: TranslationDict = {
   "sjs.shelf.refreshed": "Refreshed",
   "sjs.shelf.refreshNetworkError": "Refresh request failed, please check network",
 
-  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "Подключено",
   "dashboard.offline": "Не в сети",
   "dashboard.totalTasks": "Всего задач",
@@ -131,7 +127,6 @@ const ruRU: TranslationDict = {
   "dashboard.addLinkToStart": "Добавьте ссылку, чтобы начать скачивание",
   "dashboard.identifying": "Идентификация",
 
-  /* ─── Gallery ─── */
   "gallery.statusScraping": "Сканирование",
 "gallery.statusScrapePending": "Очередь (Идентиф.)",
 "gallery.statusDownloadPending": "Очередь (Скачивание)",
@@ -201,7 +196,6 @@ const ruRU: TranslationDict = {
   "gallery.zipExtractLabel": "Распаковка: ",
   "gallery.clickToCopy": "Нажмите для копирования",
 
-  /* ─── Search ─── */
   "search.placeholderGallery": "Введите ключевые слова или вставьте полный URL (напр. /article/ /tag/ страницы)...",
   "search.placeholderVideo": "Введите ключевые слова поиска, разделяя запятыми или пробелами...",
   "search.searching": "Поиск...",
@@ -247,7 +241,6 @@ const ruRU: TranslationDict = {
   "search.statusCancelled": "Отменено",
   "search.statusScraping": "Сканирование",
 
-  /* ─── Settings ─── */
   "config.title": "Системные настройки",
   "config.pathSettings": "Настройки путей",
   "config.chromeDriverPath": "Путь к ChromeDriver",
@@ -268,7 +261,13 @@ const ruRU: TranslationDict = {
   "config.downloadMaxSpeed": "Ограничение скорости (МБ/с, 0=без ограничений)",
   "config.downloadMinFileSize": "Минимальный размер файла (МБ)",
 
-  /* ─── Sniff ─── */
+  "config.gpuTranscodeSettings": "GPU-транскодирование",
+  "config.enableGPUTranscode": "Включить GPU-ускоренное транскодирование",
+  "config.gpuDetecting": "Определение GPU...",
+  "config.gpuDetected": "GPU обнаружен",
+  "config.gpuDriver": "Версия драйвера",
+  "config.gpuEncoder": "Кодировщик",
+  "config.gpuNotAvailable": "Совместимый GPU не обнаружен, будет использовано CPU-транскодирование",
   "sniff.title": "Сниффинг M3U8 ссылок",
   "sniff.control": "Управление сниффингом",
   "sniff.targetUrl": "Целевой URL",
@@ -287,7 +286,6 @@ const ruRU: TranslationDict = {
   "sniff.addedToDownload": "Добавлено в задачи загрузки",
   "sniff.untitled": "Без названия",
 
-  /* ─── Characters ─── */
   "protagonists.title": "Галерея персонажей",
   "protagonists.subtitle": "Нормализованный список персонажей — нажмите, чтобы просмотреть все галереи персонажа",
   "protagonists.searchPlaceholder": "Поиск по имени персонажа...",
@@ -303,18 +301,12 @@ const ruRU: TranslationDict = {
   "protagonists.statGalleries": "Галерей: {count}",
   "protagonists.statAliases": "Псевдонимов: {count}",
 
-  /* ─── Ops Panel ─── */
   "ops.online": "Онлайн", "ops.offline": "Офлайн", "ops.todayTasks": "Сегодня задач", "ops.avgSpeed": "Средняя скорость", "ops.uptime": "Аптайм", "ops.lastChecked": "Последняя проверка", "ops.loadingSites": "Загрузка данных мониторинга сайтов...", "ops.systemConsole": "Системная консоль", "ops.realtimeConnected": "Подключено", "ops.disconnected": "Отключено", "ops.all": "Все", "ops.resume": "Возобновить", "ops.pause": "Пауза", "ops.clear": "Очистить", "ops.noLogs": "Нет логов", "ops.pausedBuffer": "Приостановлено — {count} новых логов в буфере",
-  /* ─── Create Task ─── */
   "createTask.title": "Создать задачу загрузки", "createTask.pleaseFillLink": "Введите ссылку", "createTask.exactMatch": "Точное совпадение", "createTask.mirrorMatch": "Совпадение зеркального домена", "createTask.pathMatch": "Совпадение пути", "createTask.matchFallback": "Совпадение", "createTask.galleryLabel": "Галерея #{id}", "createTask.taskLabel": "Задача #{id}", "createTask.duplicateRecord": "⚠ Эта запись уже существует в базе данных ({matchLabel})\n{idLabel}, статус: {status}\n{urlInfo}", "createTask.unknownStatus": "Неизвестно", "createTask.existingUrl": "Существующий URL: {url}", "createTask.createFailed": "Ошибка создания задачи", "createTask.created": "Задача создана", "createTask.close": "Закрыть", "createTask.videoLinkLabel": "Ссылка на видео", "createTask.linkHint": "Поддерживаются прямые M3U8 ссылки или веб-страницы с видео", "createTask.outputFormatLabel": "Формат вывода", "createTask.autoStart": "Автозапуск загрузки после создания", "createTask.autoStartHint": "При отключении задача будет ожидать, запустить можно вручную из списка задач", "createTask.creating": "Создание...", "createTask.createTask": "Создать задачу",
-  /* ─── Search (Supplements) ─── */
   "search.scrape": "Сканировать", "search.scrapeThisVideo": "Сканировать это видео", "search.loadingData": "Загрузка данных...", "search.statusDownloaded": "Скачано", "search.taskId": "Задача #{id}", "search.tags": "Теги", "search.noDetailData": "Нет подробных данных. {scrape} или скачайте сначала.", "search.videoData": "Данные видео", "search.fieldTitle": "Название", "search.fieldDate": "Дата", "search.fieldResolution": "Разрешение", "search.fieldDuration": "Длительность", "search.fieldStatus": "Статус", "search.categories": "Категории", "search.actors": "Актёры", "search.director": "Режиссёр", "search.segmentData": "Данные сегментов", "search.segmentCount": "Кол-во сегментов", "search.totalDuration": "Общая длительность", "search.avgSegmentDuration": "Средняя длительность сегмента", "search.sizeData": "Данные размера", "search.fieldFileSize": "Размер файла", "search.estimatedSize": "Оценочный размер", "search.estimatedSizeValue": "Оценка", "search.bitrate": "Битрейт",
-  /* ─── Batch Search ─── */
   "batchSearch.title": "Пакетный поиск", "batchSearch.titleLabel": "Название", "batchSearch.siteLabel": "Сайт", "batchSearch.startSearch": "Начать поиск", "batchSearch.searching": "Поиск...", "batchSearch.collapse": "Свернуть", "batchSearch.expand": "Развернуть", "batchSearch.downloaded": "Скачано", "batchSearch.notFound": "Не найдено", "batchSearch.failed": "Ошибки", "batchSearch.total": "Всего", "batchSearch.all": "Все", "batchSearch.candidates": "{count} кандидатов", "batchSearch.progress": "Прогресс: ", "batchSearch.copyNotFound": "Копировать ненайденные", "batchSearch.retryFailed": "Повторить ошибки", "batchSearch.hideLogs": "Скрыть логи", "batchSearch.showLogs": "Показать логи", "batchSearch.colInputTitle": "Введённое название", "batchSearch.colMatchResult": "Результат", "batchSearch.colScore": "Оценка", "batchSearch.colStatus": "Статус", "batchSearch.colTask": "Задача", "batchSearch.complete": "Пакетный поиск завершён: скачано {downloaded}, не найдено {notFound}, ошибок {failed}", "batchSearch.started": "Пакетный поиск начат, {count} названий", "batchSearch.copied": "Скопировано {count} названий в буфер обмена", "batchSearch.placeholder": "Вставьте названия видео, по одному на строку, например:\nТайная жизнь красивой горничной\nИскушение ангела\nДневник воспитания", "batchSearch.pleaseInputTitle": "Введите название", "batchSearch.noValidTitle": "Действительных названий не найдено", "batchSearch.cancelled": "Пакетный поиск отменён", "batchSearch.cancelFailed": "Ошибка отмены", "batchSearch.noNotFound": "Нет ненайденных названий", "batchSearch.noRetry": "Нет названий для повтора", "batchSearch.refilled": "Ошибочные названия заполнены в поле ввода", "batchSearch.inputHint": "Обнаружено {count} названий · Авто-нечёткий поиск и загрузка совпадающих видео · Интервал 3-5 сек между названиями для защиты от блокировки",
-  /* ─── Task Settings ─── */
   "taskSettings.title": "Настройки задач", "taskSettings.maxConcurrentTasks": "Макс. одновременных задач", "taskSettings.maxConcurrentTasksDesc": "Лимит одновременных задач загрузки видео/галерей", "taskSettings.maxScrapingTasks": "Макс. задач сканирования", "taskSettings.maxScrapingTasksDesc": "Лимит одновременных задач сканирования (идентификации)", "taskSettings.sniffMaxConcurrentTasks": "Макс. одновременных сниффинг-задач", "taskSettings.maxSniffTasksDesc": "Лимит одновременных задач сниффинга", "taskSettings.tsSegmentConcurrent": "Параллельность TS-сегментов", "taskSettings.tsSegmentConcurrentDesc": "Количество параллельных запросов TS-сегментов при загрузке видео", "taskSettings.galleryImageConcurrent": "Параллельность изображений галереи", "taskSettings.galleryImageConcurrentDesc": "Количество параллельных запросов изображений при загрузке галереи", "taskSettings.unitTasks": "задач", "taskSettings.unitSegments": "сегм.", "taskSettings.unitFiles": "файл.", "taskSettings.note": "Изменения вступают в силу немедленно, перезапуск не требуется", "taskSettings.refresh": "Обновить", "taskSettings.save": "Сохранить", "taskSettings.loadFailed": "Ошибка загрузки настроек", "taskSettings.saveFailed": "Ошибка сохранения настроек", "taskSettings.saved": "Настройки сохранены", "console.noTaskLogs": "Нет журналов задач", "console.fetchFailed": "Не удалось получить журналы",
 
-  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "Ожидание",
   "dag.nodeState.ready": "Готов",
   "dag.nodeState.queued": "В очереди",
@@ -336,7 +328,36 @@ const ruRU: TranslationDict = {
   "modelstage.comingSoon": "Скоро появится, следите за обновлениями",
   "modelstage.title": "Сцена моделей",
 
-  /* ─── Videos ─── */
+  "video.statusScraping": "Сканирование",
+  "video.statusScrapePending": "Очередь (Идентиф.)",
+  "video.statusDownloadPending": "Очередь (Скачивание)",
+  "video.statusCompleted": "Завершено",
+  "video.statusDownloading": "Скачивание",
+  "video.statusPartial": "Частично",
+  "video.statusFailed": "Ошибка",
+  "video.statusPending": "Ожидание",
+  "video.filterAll": "Все",
+  "video.filterScraping": "Сканирование",
+  "video.filterDownloading": "Скачивание",
+  "video.filterCompleted": "Завершено",
+  "video.filterFailed": "Ошибка",
+  "video.sortDateDesc": "Сначала новые",
+  "video.sortDateAsc": "Сначала старые",
+  "video.sortVideosDesc": "Больше видео",
+  "video.sortSizeDesc": "Больший размер",
+  "video.searchPlaceholder": "Поиск по названию, модели или URL...",
+  "video.noVideos": "Видео нет",
+  "video.noMatchingVideos": "Подходящих видео не найдено",
+  "video.emptyHintNew": "Введите URL видео сайта на странице задач для начала сканирования",
+  "video.emptyHintFilter": "Попробуйте изменить фильтры или ключевые слова поиска",
+  "video.videoTitle": "Видео #{id}",
+  "video.model": "Модель",
+  "video.confirmDelete": "Удалить видео #{id}?",
+  "video.deleted": "Видео #{id} удалено",
+  "video.deleteFailed": "Ошибка удаления",
+  "video.retryStarted": "Скачивание видео #{id} перезапущено",
+  "video.retryFailed": "Не удалось запустить скачивание",
+  "video.previewError": "Предпросмотр недоступен",
   "video.play": "Воспроизвести",
   "video.pause": "Пауза",
   "video.mute": "Без звука",

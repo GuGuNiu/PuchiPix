@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Task management page text — es-ES
 const esES: TranslationDict = {
   "tasks.typeAll": "Todos",
   "tasks.typeVideo": "Video",

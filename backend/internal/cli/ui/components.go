@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// PrintDivider prints a section divider line, optionally with a title.
 func PrintDivider(title string) {
 	if title == "" {
 		fmt.Printf("%s%s%s\n", Dim, strings.Repeat("\u2500", 64), Reset)
@@ -15,8 +14,8 @@ func PrintDivider(title string) {
 	fmt.Printf("%s\u2500\u2500 %s %s%s\n", Bold, title, line, Reset)
 }
 
-// RenderProgressBar returns a string with a colored progress bar,
-// matching the TypeScript renderProgressBar function.
+// RenderProgressBar renders a bar that turns red at 100% and yellow from 80%
+// on, so a saturated bar is distinguishable from a stalled one.
 func RenderProgressBar(current, max, barWidth int) string {
 	if barWidth <= 0 {
 		barWidth = 20

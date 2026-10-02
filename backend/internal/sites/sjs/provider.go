@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 
@@ -14,18 +15,15 @@ import (
 
 var providerLogger = infra.NewLogger("SjsProvider")
 
-// Provider implements GallerySiteProvider and SiteProvider for the
-// SJS Discuz! forum, supporting multi-domain failover,
-// cookie-based authentication, and multi-page thread traversal.
+// Provider implements GallerySiteProvider and SiteProvider for the SJS
+// Discuz! forum, which requires cookie-based authentication and multi-page
+// thread traversal across rotating domains.
 type Provider struct {
 	dataStore      sites.SiteDataStore
 	accountManager *sites.SiteAccountManager
 	domainPool     *stealth.DomainPool
 }
 
-// NewProvider creates an SJS provider with the given data store and
-// account manager, loading site configuration from the unified
-// SiteDataStore to eliminate hardcoded constants.
 func NewProvider(dataStore sites.SiteDataStore, am *sites.SiteAccountManager) *Provider {
 	initData(dataStore)
 
@@ -41,7 +39,6 @@ func NewProvider(dataStore sites.SiteDataStore, am *sites.SiteAccountManager) *P
 }
 
 // GetDomains returns the merged domain list (static + dynamically discovered).
-// Also updates the package-level SiteDomains for backward compatibility.
 func (p *Provider) GetDomains() []string {
 	if p.domainPool != nil {
 		return p.domainPool.GetDomains()
@@ -85,8 +82,11 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 			searchURL = searchURL + "&page=" + intToStr(page)
 		}
 
+		started := time.Now()
 		html, err := fetchHTMLWithCookies(ctx, searchURL, cookieStr, domain+"/")
+		rtt := time.Since(started)
 		if err != nil {
+			tracker.ReportOutcome(domain, rtt, err)
 			providerLogger.Debug("Search fetch failed",
 				infra.LogContext{Extra: map[string]any{
 					"domain": domain,
@@ -94,6 +94,7 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 				}})
 			continue
 		}
+		tracker.ReportOutcome(domain, rtt, nil)
 
 		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 		if err != nil {

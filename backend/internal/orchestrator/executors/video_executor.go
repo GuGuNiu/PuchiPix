@@ -30,6 +30,7 @@ type VideoDownloadExecutor struct {
 	statusQueryFn StatusQueryFn
 	taskLoaderFn  TaskLoaderFn
 	tracker       *taskprogress.VideoProgressTracker
+	eventBus      *infra.EventBus
 }
 
 // NewVideoDownloadExecutor creates a video download executor that
@@ -38,13 +39,17 @@ type VideoDownloadExecutor struct {
 // taskLoaderFn is called at the start of Execute to load the full
 // DownloadTaskInput (M3U8URL, Title, PageURL, etc.) from the database.
 // If M3U8URL is empty, the loader should scrape the page to discover it.
-func NewVideoDownloadExecutor(dm *video.DownloadManager, statusFn StatusQueryFn, taskLoaderFn TaskLoaderFn, tracker *taskprogress.VideoProgressTracker) *VideoDownloadExecutor {
+// eventBus carries the DownloadManager's terminal task:completed /
+// task:failed / task:cancelled events; when nil the executor falls back to
+// database polling only.
+func NewVideoDownloadExecutor(dm *video.DownloadManager, statusFn StatusQueryFn, taskLoaderFn TaskLoaderFn, tracker *taskprogress.VideoProgressTracker, eventBus *infra.EventBus) *VideoDownloadExecutor {
 	return &VideoDownloadExecutor{
 		logger:        infra.NewLogger("VideoDownloadExecutor"),
 		downloadMgr:   dm,
 		statusQueryFn: statusFn,
 		taskLoaderFn:  taskLoaderFn,
 		tracker:       tracker,
+		eventBus:      eventBus,
 	}
 }
 
@@ -53,8 +58,8 @@ func NewVideoDownloadExecutor(dm *video.DownloadManager, statusFn StatusQueryFn,
 func (e *VideoDownloadExecutor) Key() string { return "video:download" }
 
 // Execute loads the task details, starts the download via DownloadManager
-// (in a goroutine since StartDownload is blocking), and polls the database
-// for terminal status.
+// (in a goroutine since StartDownload is blocking), and waits for the
+// terminal outcome via EventBus events with a slow DB poll as the safety net.
 func (e *VideoDownloadExecutor) Execute(ctx context.Context, node ExecutorNode) (bool, error) {
 	taskID, ok := getIntFromConfig(node.Config, "taskId")
 	if !ok {
@@ -86,7 +91,7 @@ func (e *VideoDownloadExecutor) Execute(ctx context.Context, node ExecutorNode) 
 		"m3u8Url", task.M3U8URL, "title", task.Title)
 
 	// StartDownload blocks until the download completes or fails.
-	// Run it in a goroutine and poll the DB for status.
+	// Run it in a goroutine and wait for the outcome.
 	go func() {
 		if err := e.downloadMgr.StartDownload(ctx, task); err != nil {
 			e.logger.Error("StartDownload returned error", err,
@@ -94,87 +99,141 @@ func (e *VideoDownloadExecutor) Execute(ctx context.Context, node ExecutorNode) 
 		}
 	}()
 
-	// Give the download a brief moment to set status to "downloading".
-	time.Sleep(500 * time.Millisecond)
+	return e.waitTerminal(ctx, taskID)
+}
 
-	// Poll for terminal status with adaptive polling interval.
-	pollInterval := 1 * time.Second
-	maxInterval := 10 * time.Second
-	consecutivePending := 0
+// waitTerminal resolves the task's terminal status. Terminal EventBus events
+// from the DownloadManager resolve promptly (the old design busy-polled the
+// DB every second); a slow DB poll remains as the safety net for terminal
+// writes that bypass the EventBus — notably the DAG terminal guard rail,
+// which heals the row via raw SQL without emitting an event.
+func (e *VideoDownloadExecutor) waitTerminal(ctx context.Context, taskID int) (bool, error) {
+	type terminalEvent struct{ status, errMsg string }
+	events := make(chan terminalEvent, 8)
 
-	ticker := time.NewTicker(pollInterval)
+	var unsubs []func()
+	if e.eventBus != nil {
+		// Subscribed BEFORE the download goroutine starts, so no terminal
+		// event can slip past. Payloads carry taskId as int and taskType;
+		// gallery/sniff completions are a different ID space and skipped.
+		onEvent := func(payload any, status string) {
+			m, ok := payload.(map[string]any)
+			if !ok {
+				return
+			}
+			switch tt, _ := m["taskType"].(string); tt {
+			case "gallery", "sniff":
+				return
+			}
+			id, ok := payloadTaskID(m["taskId"])
+			if !ok || id != taskID {
+				return
+			}
+			errMsg, _ := m["error"].(string)
+			select {
+			case events <- terminalEvent{status: status, errMsg: errMsg}:
+			default: // buffer full: the fallback poll re-syncs within 5s
+			}
+		}
+		unsubs = append(unsubs,
+			e.eventBus.On("task:completed", func(p any) { onEvent(p, "completed") }),
+			e.eventBus.On("task:failed", func(p any) { onEvent(p, "failed") }),
+			e.eventBus.On("task:cancelled", func(p any) { onEvent(p, "cancelled") }),
+		)
+	}
+	for _, unsub := range unsubs {
+		defer unsub()
+	}
+
+	// Without a bus there is no push path at all: poll at the old 1s cadence.
+	fallbackInterval := 5 * time.Second
+	if e.eventBus == nil {
+		fallbackInterval = 1 * time.Second
+	}
+	ticker := time.NewTicker(fallbackInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
-		case <-ticker.C:
-			var status string
-			var errMsg string
-			var found bool
-
-			if e.statusQueryFn != nil {
-				status, errMsg, found = e.statusQueryFn(ctx, taskID)
-			} else if e.tracker != nil {
-				// When no DB status query is available, check the
-				// VideoProgressTracker for segment-level status.
-				vps := e.tracker.GetSummary(taskID)
-				if vps.TotalSegments > 0 {
-					status = vps.Status
-					found = true
-					if status == "failed" {
-						errMsg = fmt.Sprintf("%d/%d segments failed", vps.FailedSegments, vps.TotalSegments)
-					}
-				} else if !e.downloadMgr.IsDownloading(taskID) {
-					// Not downloading and no tracker data; verify via DB
-					// before assuming completion.
-					status = "completed"
-					found = true
-				} else {
-					status = "downloading"
-					found = true
-				}
-			} else {
-				// Fallback: check isDownloading via DownloadManager.
-				if !e.downloadMgr.IsDownloading(taskID) {
-					// Not downloading; assume completed or was never started.
-					status = "completed"
-					found = true
-				} else {
-					status = "downloading"
-					found = true
-				}
+		case ev := <-events:
+			switch ev.status {
+			case "completed":
+				e.logger.Info("Video download completed via DAG", "taskId", taskID)
+				return true, nil
+			case "failed", "error":
+				e.logger.Error("Video download failed via DAG", fmt.Errorf("%s", ev.errMsg), "taskId", taskID)
+				return false, fmt.Errorf("video download failed: %s", ev.errMsg)
+			case "cancelled":
+				e.logger.Warn("Video download cancelled via DAG", "taskId", taskID)
+				return false, fmt.Errorf("video download cancelled")
 			}
-
+		case <-ticker.C:
+			status, errMsg, found := e.pollStatus(ctx, taskID)
 			if !found {
 				return false, fmt.Errorf("video task %d not found", taskID)
 			}
-
 			switch status {
 			case "completed":
-				e.logger.Info("Video download completed via DAG", "nodeId", node.NodeID, "taskId", taskID)
+				e.logger.Info("Video download completed via DAG (fallback poll)", "taskId", taskID)
 				return true, nil
 			case "failed", "error":
-				e.logger.Error("Video download failed via DAG", fmt.Errorf("%s", errMsg), "nodeId", node.NodeID, "taskId", taskID)
+				e.logger.Error("Video download failed via DAG", fmt.Errorf("%s", errMsg), "taskId", taskID)
 				return false, fmt.Errorf("video download failed: %s", errMsg)
 			case "cancelled":
-				e.logger.Warn("Video download cancelled via DAG", "nodeId", node.NodeID, "taskId", taskID)
+				e.logger.Warn("Video download cancelled via DAG", "taskId", taskID)
 				return false, fmt.Errorf("video download cancelled")
-			case "pending", "queued", "paused":
-				consecutivePending++
-				if consecutivePending > 10 {
-					consecutivePending = 0
-					pollInterval *= 2
-					if pollInterval > maxInterval {
-						pollInterval = maxInterval
-					}
-					ticker.Reset(pollInterval)
-				}
-			default:
-				consecutivePending = 0
 			}
+			// pending/queued/paused/downloading/merging/transcoding: keep
+			// waiting — terminal events or a later poll will resolve.
 		}
+	}
+}
+
+// pollStatus reads the task's current status from the DB, falling back to
+// the tracker / download-manager views when no DB query is wired.
+func (e *VideoDownloadExecutor) pollStatus(ctx context.Context, taskID int) (status, errMsg string, found bool) {
+	if e.statusQueryFn != nil {
+		return e.statusQueryFn(ctx, taskID)
+	}
+	if e.tracker != nil {
+		// When no DB status query is available, check the
+		// VideoProgressTracker for segment-level status.
+		vps := e.tracker.GetSummary(taskID)
+		if vps.TotalSegments > 0 {
+			errMsg = ""
+			if vps.Status == "failed" {
+				errMsg = fmt.Sprintf("%d/%d segments failed", vps.FailedSegments, vps.TotalSegments)
+			}
+			return vps.Status, errMsg, true
+		}
+		if !e.downloadMgr.IsDownloading(taskID) {
+			// Not downloading and no tracker data; verify via DB
+			// before assuming completion.
+			return "completed", "", true
+		}
+		return "downloading", "", true
+	}
+	// Fallback: check isDownloading via DownloadManager.
+	if !e.downloadMgr.IsDownloading(taskID) {
+		// Not downloading; assume completed or was never started.
+		return "completed", "", true
+	}
+	return "downloading", "", true
+}
+
+// payloadTaskID extracts a numeric task ID from an event payload field.
+func payloadTaskID(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
 	}
 }
 

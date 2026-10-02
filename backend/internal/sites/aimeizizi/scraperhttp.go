@@ -19,8 +19,6 @@ import (
 
 var httpScraperLogger = infra.NewLogger("AimeiziziProvider")
 
-// ScrapeDeps defines the callbacks the HTTP scraper needs from the
-// provider, decoupling scraping logic from provider-specific concerns.
 type ScrapeDeps interface {
 	ResolveURL(url, domain string) string
 	CleanTitle(rawTitle string) string
@@ -31,8 +29,8 @@ type ScrapeDeps interface {
 	GetPlaceholder() string
 }
 
-// ScrapeGalleryHTTP performs HTTP-only gallery scraping with multi-domain
-// failover, mirroring the TypeScript scrape-gallery-http implementation.
+// ScrapeGalleryHTTP scrapes a gallery over HTTP, retrying across the site's
+// mirrors when one of them fails.
 func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*sites.GalleryScrapeResult, error) {
 	articleID := ExtractArticleID(pageURL)
 	domains := deps.GetDomains()
@@ -223,8 +221,8 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 	protagonist := deps.ExtractProtagonist(title, firstPageData.Tags)
 	description := deps.ExtractDescription(title, protagonist)
 
-	// Use a fresh context for blocklist check to avoid timeout when
-	// the scrape context has expired after long HTTP fetch attempts.
+	// A fresh context keeps the blocklist check alive after repeated HTTP
+	// fetch attempts have consumed the scrape context budget.
 	blockCheck, err := deps.CheckBlockedAsync(context.Background(), title, firstPageData.Category, protagonist)
 	if err != nil {
 		return nil, fmt.Errorf("check content blocked: %w", err)
@@ -266,11 +264,11 @@ func ScrapeGalleryHTTP(ctx context.Context, pageURL string, deps ScrapeDeps) (*s
 
 	httpScraperLogger.Info("HTTP scrape completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":       pageURL,
-			"images":    len(allImages),
-			"videos":    len(allVideos),
-			"pages":     totalPages,
-			"domain":    usedDomain,
+			"url":    pageURL,
+			"images": len(allImages),
+			"videos": len(allVideos),
+			"pages":  totalPages,
+			"domain": usedDomain,
 		}})
 
 	return result, nil
@@ -292,10 +290,9 @@ func fetchAndParse(ctx context.Context, url, domain string) (*fetchResult, error
 		return nil, err
 	}
 	req.Header = headers
-	// Remove Accept-Encoding so the HTTP transport can use gzip (which Go
-	// supports) instead of zstd/br (which Go doesn't support natively).
-	// The stealth headers request "gzip, deflate, br, zstd" to mimic Chrome,
-	// but Go can't decompress zstd/br, resulting in unreadable HTML.
+	// The stealth headers advertise "gzip, deflate, br, zstd" to mimic Chrome,
+	// but Go's transport cannot decompress br/zstd, so the header is dropped
+	// and gzip is negotiated instead.
 	req.Header.Del("Accept-Encoding")
 
 	client := stealth.NewStealthClient(15 * time.Second)

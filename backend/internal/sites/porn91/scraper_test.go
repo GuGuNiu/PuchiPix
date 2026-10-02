@@ -4,12 +4,11 @@ import (
 	"testing"
 )
 
-// TestExtractVideoID verifies extraction of video IDs from 91porn.plus URLs.
 func TestExtractVideoID(t *testing.T) {
 	tests := []struct {
-		name    string
-		url     string
-		want    string
+		name string
+		url  string
+		want string
 	}{
 		{
 			name: "standard detail URL",
@@ -48,7 +47,6 @@ func TestExtractVideoID(t *testing.T) {
 	}
 }
 
-// TestExtractViews verifies parsing of view counts from text.
 func TestExtractViews(t *testing.T) {
 	tests := []struct {
 		name string
@@ -72,7 +70,6 @@ func TestExtractViews(t *testing.T) {
 	}
 }
 
-// TestParseISODuration verifies conversion of ISO 8601 durations.
 func TestParseISODuration(t *testing.T) {
 	tests := []struct {
 		name string
@@ -98,7 +95,6 @@ func TestParseISODuration(t *testing.T) {
 	}
 }
 
-// TestParseUploadDate verifies parsing of ISO 8601 date strings.
 func TestParseUploadDate(t *testing.T) {
 	tests := []struct {
 		name string
@@ -132,9 +128,6 @@ func TestParseUploadDate(t *testing.T) {
 	}
 }
 
-// TestExtractJSONLDVideoObject verifies extraction of M3U8 URL from
-// JSON-LD structured data, matching the real page structure from the
-// 91porn.plus reverse engineering report.
 func TestExtractJSONLDVideoObject(t *testing.T) {
 	html := `<html><head>
 <script type="application/ld+json">
@@ -184,11 +177,7 @@ func TestExtractJSONLDVideoObject(t *testing.T) {
 	}
 }
 
-// TestExtractJSONLDVideoObject_NoJSONLD verifies the fallback regex extraction
-// when no proper JSON-LD script block is found but the contentUrl is present
-// in the raw HTML.
 func TestExtractJSONLDVideoObject_NoJSONLD(t *testing.T) {
-	// No proper JSON-LD script block, but contentUrl pattern exists in raw JS.
 	html := `<html><body>
 <script>var data = {"@type":"VideoObject","contentUrl":"https://cdn.example.com/video.m3u8","name":"Test Video"}</script>
 </body></html>`
@@ -206,8 +195,6 @@ func TestExtractJSONLDVideoObject_NoJSONLD(t *testing.T) {
 	}
 }
 
-// TestExtractJSONLDVideoObject_NoContentURL verifies error when no contentUrl
-// is found anywhere in the HTML.
 func TestExtractJSONLDVideoObject_NoContentURL(t *testing.T) {
 	html := `<html><head><script type="application/ld+json">{"@type":"WebPage"}</script></head></html>`
 
@@ -217,7 +204,6 @@ func TestExtractJSONLDVideoObject_NoContentURL(t *testing.T) {
 	}
 }
 
-// TestResolveURL verifies URL resolution from relative to absolute.
 func TestResolveURL(t *testing.T) {
 	base := "https://91porn.plus"
 
@@ -242,7 +228,6 @@ func TestResolveURL(t *testing.T) {
 	}
 }
 
-// TestExtractBaseURL verifies extraction of the scheme://host from a URL.
 func TestExtractBaseURL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -264,7 +249,6 @@ func TestExtractBaseURL(t *testing.T) {
 	}
 }
 
-// TestPad2 verifies the pad2 helper function.
 func TestPad2(t *testing.T) {
 	tests := []struct {
 		name string

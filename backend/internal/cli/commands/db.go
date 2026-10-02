@@ -13,8 +13,10 @@ import (
 
 type dbCommand struct{}
 
-func (dbCommand) Name() string        { return "db" }
-func (dbCommand) Description() string { return "Direct database access (tables / schema / query / count / dump)" }
+func (dbCommand) Name() string { return "db" }
+func (dbCommand) Description() string {
+	return "Direct database access (tables / schema / query / count / dump)"
+}
 func (dbCommand) Usage() string {
 	return "puchipix-cli db <tables|schema|query|count|dump> [args]"
 }
@@ -55,19 +57,16 @@ func printDBUsage() {
 	fmt.Printf("  %s--db-path <path>%s    Database file path (default ./data/puchipix.db)\n", ui.Dim, ui.Reset)
 }
 
-// getDB returns the database connection, opening it if necessary.
-// The connection is opened lazily so non-db commands don't incur overhead.
+// getDB returns the connection opened by the caller from --db-path or
+// PUCHIPIX_DB_PATH; commands that do not need a database never open one.
 func getDB(ctx CommandContext) (*sql.DB, error) {
 	if ctx.DB != nil {
 		return ctx.DB, nil
 	}
 
-	// DB path is passed via environment variable or --db-path flag,
-	// which main.go captures and opens before calling Execute.
 	return nil, fmt.Errorf("database connection not available; use --db-path <path> or set PUCHIPIX_DB_PATH")
 }
 
-// dbTables lists all user tables with their row counts.
 func dbTables(ctx CommandContext) error {
 	db, err := getDB(ctx)
 	if err != nil {
@@ -92,7 +91,9 @@ func dbTables(ctx CommandContext) error {
 	}
 	var tables []tableInfo
 
-	// Collect table names first to avoid nested queries (deadlocks with MaxOpenConns=1).
+	// Table names are collected before counting: running another query while
+	// the sqlite_master result set is still open deadlocks with
+	// MaxOpenConns=1.
 	var tableNames []string
 	for rows.Next() {
 		var name string
@@ -124,7 +125,6 @@ func dbTables(ctx CommandContext) error {
 	return nil
 }
 
-// dbSchema shows the CREATE TABLE statement for a given table.
 func dbSchema(ctx CommandContext) error {
 	db, err := getDB(ctx)
 	if err != nil {
@@ -237,7 +237,6 @@ func dbQuery(ctx CommandContext) error {
 	return nil
 }
 
-// dbCount shows the row count for a specific table.
 func dbCount(ctx CommandContext) error {
 	db, err := getDB(ctx)
 	if err != nil {
@@ -275,7 +274,6 @@ func dbCount(ctx CommandContext) error {
 	return nil
 }
 
-// dbDump dumps table data with an optional limit.
 func dbDump(ctx CommandContext) error {
 	db, err := getDB(ctx)
 	if err != nil {
@@ -349,7 +347,6 @@ func dbDump(ctx CommandContext) error {
 	return nil
 }
 
-// renderTable prints results in a formatted text table.
 func renderTable(cols []string, rows []map[string]any) {
 	if len(rows) == 0 {
 		fmt.Printf("%s  (no results)%s\n", ui.Dim, ui.Reset)
@@ -402,13 +399,11 @@ func renderTable(cols []string, rows []map[string]any) {
 	fmt.Printf("%s  %d row(s)%s\n\n", ui.Dim, len(rows), ui.Reset)
 }
 
-// formatSQL adds basic indentation to a CREATE TABLE statement.
 func formatSQL(sql string) string {
 	sql = strings.ReplaceAll(sql, "CREATE TABLE", "\nCREATE TABLE")
 	sql = strings.ReplaceAll(sql, ", (", ",\n  (")
 	sql = strings.ReplaceAll(sql, ",", ",\n  ")
 	sql = strings.ReplaceAll(sql, " (", "\n  (")
-	// Clean up excessive newlines.
 	lines := strings.Split(sql, "\n")
 	var result []string
 	for _, line := range lines {

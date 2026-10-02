@@ -1,17 +1,7 @@
-/**
- * SSE event contract cross-check script.
- *
- * Compares event names emitted by backend task_stream.go against event names
- * subscribed by frontend stores, guarding against contract drift where the
- * backend renames an event and the frontend does not follow (a high-recurrence
- * P-TSG pattern).
- *
- * Usage:
- *   node scripts/sse-contract-check.mjs            # run from the repo root
- *
- * Exit codes:
- *   0 = contract consistent (or only allowlisted events differ)
- *   1 = mismatch found (backend emits but frontend never subscribes, or vice versa)
+/*
+ * Compares the event names emitted by the backend task stream against the event
+ * names subscribed by the frontend stores, so a backend rename cannot silently
+ * drift the contract. Exits 1 on a mismatch.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,23 +15,18 @@ const storeDir = path.resolve(root, "src/store");
 // Backend events the frontend does not consume (dedicated channel or no real-time UI needed).
 const BACKEND_ONLY_ALLOWLIST = new Set([
   /*
-   * Slot:stateChanged is pushed via /api/tasks/stream; the frontend has no
-   * slot panel consumer today. Subscribe to this event (or poll GET /api/slots)
-   * when live occupancy display is needed.
-   * The dedicated /api/slots/stream endpoint was removed on 260806 (no consumers).
+   * Pushed via /api/tasks/stream; the frontend has no slot panel consumer.
+   * Subscribe to it (or poll GET /api/slots) when live occupancy display is needed.
    */
   "slot:stateChanged",
   /*
-   * Dag:nodeStateChanged is consumed by the CLI `watch` command through the
-   * dedicated /api/dag/stream channel; the frontend task list / gallery pages
-   * do not need real-time DAG node status.
+   * Consumed by the CLI watch command through the dedicated /api/dag/stream
+   * channel; the task list and gallery pages do not need real-time node status.
    */
   "dag:nodeStateChanged",
   /*
-   * Gallery:downloadProgress is a legacy forward: the backend EventBus has zero
-   * emission sites (see 260803 investigation). Gallery download progress is
-   * carried by task:progress (completed/total/failed). Remove once the backend
-   * emission source is cleaned up.
+   * Legacy event with no emission site in the backend EventBus; gallery download
+   * progress is carried by task:progress (completed/total/failed).
    */
   "gallery:downloadProgress",
 ]);
@@ -59,7 +44,6 @@ function pass(msg) {
   return true;
 }
 
-// ── 1. Extract SendEvent event names from backend task_stream.go ──
 function extractBackendEvents() {
   if (!fs.existsSync(backendStream)) {
     console.error(`\x1b[33m⚠️ Backend file not found: ${backendStream}\x1b[0m (skipping backend-side check)`);
@@ -75,7 +59,6 @@ function extractBackendEvents() {
   return { events, found: true };
 }
 
-// ── 2. Extract subscribeSseEvent subscription names from frontend stores ──
 function extractFrontendSubscriptions() {
   const files = fs.readdirSync(storeDir).filter((f) => f.endsWith(".ts"));
   const subs = new Set();
@@ -102,7 +85,7 @@ function main() {
 
   let ok = true;
 
-  // ── A. Frontend subscribes but backend never emits (dead subscription) ──
+  // Dead subscription: the frontend subscribes but the backend never emits
   if (backend.found) {
     console.log("── Frontend subscriptions vs backend emissions ──");
     for (const ev of [...frontend.subs].sort()) {
@@ -115,7 +98,7 @@ function main() {
     }
     console.log();
 
-    // ── B. Backend emits but frontend never subscribes (contract gap) ──
+    // Contract gap: the backend emits but no frontend store subscribes
     console.log("── Backend emissions vs frontend subscriptions ──");
     for (const ev of [...backend.events].sort()) {
       if (INFRA_EVENTS.has(ev)) continue;

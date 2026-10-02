@@ -62,7 +62,6 @@ func (c LogContext) Merge(other LogContext) LogContext {
 	return out
 }
 
-// IsEmpty reports whether the context carries no trace data.
 func (c LogContext) IsEmpty() bool {
 	return c.TraceID == "" && c.DagID == "" && c.NodeID == "" &&
 		c.TaskType == "" && c.Phase == "" && len(c.Extra) == 0
@@ -103,7 +102,6 @@ func TraceFromContext(ctx context.Context) (LogContext, bool) {
 	return lc, ok
 }
 
-// ANSI color codes for console output.
 const (
 	ansiReset   = "\x1b[0m"
 	ansiDim     = "\x1b[2m"
@@ -284,16 +282,13 @@ func (l *Logger) log(level LogLevel, message string, data ...any) {
 	var dataVal any
 	switch len(data) {
 	case 0:
-		// No data payload.
 	case 1:
 		dataVal = data[0]
 	default:
 		// Multiple variadic args are key-value pairs ("key", value, ...).
-		// The old implementation kept only data[0], silently dropping the
-		// rest — every structured field past the first vanished. Normalize
-		// into a map so nothing is lost; args that do not fit the pair
-		// pattern fall back to argN keys, and error values are stringified
-		// so they survive JSON marshaling.
+		// Normalizing into a map keeps every structured field; args that do
+		// not fit the pair pattern fall back to argN keys, and error values
+		// are stringified so they survive JSON marshaling.
 		dataVal = normalizeLogArgs(data)
 	}
 
@@ -333,8 +328,9 @@ func (l *Logger) Info(message string, data ...any)  { l.log(LevelInfo, message, 
 func (l *Logger) Warn(message string, data ...any)  { l.log(LevelWarn, message, data...) }
 func (l *Logger) Error(message string, data ...any) { l.log(LevelError, message, data...) }
 
-// Child returns a new Logger that merges the given context into the
-// current bound context, avoiding repeated parameter passing.
+// Child returns a new Logger whose bound context is this logger's context
+// merged with ctx, so trace identifiers do not need threading through
+// every call site.
 func (l *Logger) Child(ctx LogContext) *Logger {
 	return &Logger{
 		module:       l.module,
@@ -345,8 +341,6 @@ func (l *Logger) Child(ctx LogContext) *Logger {
 	}
 }
 
-// RunWith merges the trace context into a context.Context, generates a
-// traceId when absent, then invokes fn with the enriched context.
 func (l *Logger) RunWith(ctx context.Context, traceCtx LogContext, fn func(context.Context) error) error {
 	merged := l.boundContext.Merge(traceCtx)
 	if merged.TraceID == "" {
@@ -393,15 +387,14 @@ var (
 	}
 )
 
-// InitGlobalSink initializes the singleton LogSink with the given capacity.
-// Must be called once at startup before any Logger is created.
+// InitGlobalSink creates the singleton LogSink. Call once at startup, before
+// the first NewLogger; later calls are no-ops.
 func InitGlobalSink(capacity int) {
 	globalSinkOnce.Do(func() {
 		globalSink = NewLogSink(capacity)
 	})
 }
 
-// InitGlobalConfig sets the global minimum log level and dev/prod mode.
 func InitGlobalConfig(logLevel string, isDev bool) {
 	globalConfig.mu.Lock()
 	defer globalConfig.mu.Unlock()
@@ -415,8 +408,8 @@ func getGlobalConfig() (LogLevel, bool) {
 	return globalConfig.minLevel, globalConfig.isDev
 }
 
-// NewLogger creates or retrieves a cached Logger for the given module.
-// It uses the global LogSink and the global log level / dev mode.
+// NewLogger returns a cached Logger for the given module, bound to the
+// global LogSink and the global log level / dev mode.
 func NewLogger(module string) *Logger {
 	if globalSink == nil {
 		InitGlobalSink(1000)
@@ -428,7 +421,6 @@ func NewLogger(module string) *Logger {
 	return registry.get(module, globalSink, minLevel, isDev)
 }
 
-// GetGlobalSink returns the singleton LogSink, initializing it if needed.
 func GetGlobalSink() *LogSink {
 	if globalSink == nil {
 		InitGlobalSink(1000)

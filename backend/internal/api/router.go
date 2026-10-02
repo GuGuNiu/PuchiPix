@@ -15,9 +15,10 @@ func NewRouter(h *Handlers) http.Handler {
 
 	r.Use(chimw.RequestID)
 	r.Use(middleware.RequestID)
+	r.Use(middleware.CORS)
+	r.Use(middleware.APIKey)
 	r.Use(middleware.RateLimiter)
 	r.Use(middleware.LocaleDetection)
-	r.Use(middleware.CORS)
 	r.Use(middleware.Recoverer)
 	r.Use(chimw.StripSlashes)
 
@@ -26,6 +27,8 @@ func NewRouter(h *Handlers) http.Handler {
 		r.Get("/system", h.System)
 		r.Get("/stats", h.Stats)
 		r.Get("/sites", h.Sites)
+		r.Get("/domains", h.Domains)
+		r.Post("/domains/probe", h.DomainProbe)
 
 		r.Get("/logs", h.LogsSSE)
 		r.Get("/logs/history", h.LogsHistory)

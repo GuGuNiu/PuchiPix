@@ -1,16 +1,14 @@
-// PuchiPix — design tokens (CSS vars + keyframes); light in :root, dark in [data-theme="dark"]
-
-// ===== Local font (Dancing Script 700, self-hosted to avoid slow/unreachable Google Fonts) =====
+// Self-hosted instead of using the Google Fonts CDN, which is slow or
+// unreachable in some regions
 @font-face {
   font-family: "Dancing Script";
   font-style: normal;
   font-weight: 700;
-  font-display: swap; // render fallback while loading; don't block text
+  font-display: swap;
   src: url("/fonts/dancing-script-700.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-// ===== Animation keyframes =====
 @keyframes pulse-glow {
   0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
   50% { opacity: 0.5; box-shadow: 0 0 12px currentColor; }
@@ -63,7 +61,6 @@
   50% { background-position: 100% 50%; }
 }
 
-// ===== SSE Live Update Animations =====
 @keyframes sse-row-pulse {
   0% { background-color: transparent; }
   15% { background-color: var(--accent-soft); }
@@ -87,7 +84,6 @@
   100% { background-color: transparent; }
 }
 
-// ===== Surfaces (light theme) =====
 :root {
   color-scheme: light;
 
@@ -100,26 +96,23 @@
   --bg-inset: rgba(248, 250, 252, 0.6);
   --bg-overlay: rgba(255, 255, 255, 0.92);
 
-  // ─── Glass ───
   --glass-blur: blur(16px) saturate(1.4);
   --glass-blur-lg: blur(20px) saturate(1.5);
   --glass-border: rgba(255, 255, 255, 0.5);
 
-  // ─── Borders ───
   --border: #e2e8f0;
   --border-light: rgba(226, 232, 240, 0.6);
   --border-strong: #cbd5e1;
 
-  // ─── Text ───
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #94a3b8;
   --text-inverse: #ffffff;
 
-  // ─── Inverse Background (tooltip / floating label) ───
   --bg-inverse: #1e293b;
 
-  // ─── Accent (near-black) ───
+  // The light theme accent is near-black on purpose, the dark theme
+  // overrides it with a periwinkle hue
   --accent: #0f0f1a;
   --accent-hover: #050508;
   --accent-light: #2a2a3e;
@@ -127,7 +120,6 @@
   --accent-glow: rgba(15, 15, 26, 0.12);
   --accent-shimmer: linear-gradient(135deg, #0a0a12 0%, #1a1a2e 40%, #2a2a3e 60%, #0a0a12 100%);
 
-  // ─── Status ───
   --success: #16a34a;
   --success-soft: #f0fdf4;
   --warning: #d97706;
@@ -139,11 +131,9 @@
   --purple: #9333ea;
   --purple-soft: #faf5ff;
 
-  // ─── Hover Variants ───
   --danger-hover: #b91c1c;
   --warning-hover: #b45309;
 
-  // ─── Status Pills (state indicators, white text on colored bg) ───
   --status-pending: #64748b;
   --status-preparing: #6366f1;
   --status-scrape-pending: #0891b2;
@@ -156,8 +146,8 @@
   --status-failed: #ef4444;
   --status-cancelled: #94a3b8;
   --status-transcoding: #8b5cf6;
+  --status-probing: #7c3aed;
 
-  // ─── Chip Colors (search page tags) ───
   --chip-category-fg: #3b82f6;
   --chip-category-bg: rgba(59, 130, 246, 0.12);
   --chip-tag-fg: #9333ea;
@@ -165,17 +155,15 @@
   --chip-actor-fg: #ec4899;
   --chip-actor-bg: rgba(236, 72, 153, 0.12);
 
-  // ─── Overlay Scrim (modal / popover backdrop) ───
   --overlay-scrim: rgba(15, 23, 42, 0.4);
 
-  // ─── Nav Active/Hover Effects ───
   --nav-hover-border: rgba(15, 15, 26, 0.06);
   --nav-hover-shadow: 0 2px 8px rgba(15, 15, 26, 0.04);
   --nav-active-border: rgba(255, 255, 255, 0.1);
   --nav-active-shadow: 0 4px 12px rgba(15, 15, 26, 0.18), 0 1px 3px rgba(15, 15, 26, 0.12);
   --nav-icon-glow: rgba(255, 255, 255, 0.3);
 
-  // ─── Neon Highlights (Ops panels only) ───
+  // Neon accents are reserved for the ops panels
   --neon-cyan: #0891b2;
   --neon-cyan-glow: rgba(8, 145, 178, 0.35);
   --neon-violet: #7c3aed;
@@ -183,7 +171,6 @@
   --neon-green: #059669;
   --neon-green-glow: rgba(5, 150, 105, 0.3);
 
-  // ─── Shadows ───
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px 0 rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
@@ -193,27 +180,22 @@
   --shadow-glow-success: 0 0 16px rgba(22, 163, 74, 0.2);
   --shadow-glow-danger: 0 0 16px rgba(220, 38, 38, 0.2);
 
-  // ─── Layout ───
   --sidebar-width: 260px;
   --sidebar-width-collapsed: 64px;
   --header-height: 56px;
 
-  // ─── Radius ───
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
   --radius-xl: 22px;
   --radius-full: 9999px;
 
-  // ─── Transitions ───
   --transition: 0.15s ease;
   --transition-slow: 0.25s ease;
   --transition-bounce: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  // ─── Fonts ───
   --font-dancing-script: "Dancing Script", cursive;
 
-  // ─── Spacing ───
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -224,12 +206,10 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  // ─── Inset highlight (white inset on light theme) ───
   --inset-highlight: rgba(255, 255, 255, 0.4);
   --inset-highlight-soft: rgba(255, 255, 255, 0.3);
   --sidebar-glow: rgba(255, 255, 255, 0.5);
 
-  // ─── Cyberpunk city bg (day: pale blue-silver, visible but subtle) ───
   --cp-city-building-top: rgba(148, 163, 184, 0.55);
   --cp-city-building-btm: rgba(148, 163, 184, 0.18);
   --cp-city-win-on: rgba(148, 163, 184, 0.7);
@@ -241,7 +221,6 @@
   --cp-city-neon: rgba(148, 163, 184, 0.25);
 }
 
-// ===== Surfaces (dark theme) =====
 [data-theme="dark"] {
   color-scheme: dark;
 
@@ -267,7 +246,6 @@
   --text-muted: #4a4d63;
   --text-inverse: #06060a;
 
-  // ─── Inverse Background (tooltip / floating label) ───
   --bg-inverse: #1a1a2e;
 
   --accent: #818cf8;
@@ -288,11 +266,9 @@
   --purple: #a855f7;
   --purple-soft: rgba(168, 85, 247, 0.14);
 
-  // ─── Hover Variants (brighter on dark) ───
   --danger-hover: #f87171;
   --warning-hover: #fbbf24;
 
-  // ─── Status Pills (brighter on dark backgrounds) ───
   --status-pending: #64748b;
   --status-preparing: #818cf8;
   --status-scrape-pending: #06b6d4;
@@ -305,8 +281,8 @@
   --status-failed: #f87171;
   --status-cancelled: #94a3b8;
   --status-transcoding: #a78bfa;
+  --status-probing: #8b5cf6;
 
-  // ─── Chip Colors (lighter shades for dark mode) ───
   --chip-category-fg: #60a5fa;
   --chip-category-bg: rgba(59, 130, 246, 0.15);
   --chip-tag-fg: #c084fc;
@@ -314,10 +290,8 @@
   --chip-actor-fg: #f472b6;
   --chip-actor-bg: rgba(236, 72, 153, 0.15);
 
-  // ─── Overlay Scrim (stronger on dark) ───
   --overlay-scrim: rgba(0, 0, 0, 0.6);
 
-  // ─── Nav Active/Hover Effects (accent-tinted on dark) ───
   --nav-hover-border: rgba(129, 140, 248, 0.08);
   --nav-hover-shadow: 0 2px 8px rgba(129, 140, 248, 0.06);
   --nav-active-border: rgba(129, 140, 248, 0.2);
@@ -344,7 +318,6 @@
   --inset-highlight-soft: rgba(129, 140, 248, 0.03);
   --sidebar-glow: rgba(139, 148, 255, 0.04);
 
-  // ─── Cyberpunk city bg (night: neon purple/indigo, clearly visible) ───
   --cp-city-building-top: rgba(99, 102, 241, 0.55);
   --cp-city-building-btm: rgba(139, 92, 246, 0.18);
   --cp-city-win-on: rgba(129, 140, 248, 0.75);

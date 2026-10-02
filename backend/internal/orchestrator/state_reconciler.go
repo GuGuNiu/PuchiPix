@@ -20,8 +20,8 @@ type DagNodeForVerification struct {
 }
 
 // StateReconciler verifies that a node's side effects are consistent
-// with its state, implementing the 260720 needs_retry fix that allows
-// interrupted scrapes to be retried instead of hard-failed.
+// with its state, so recoverable failures are retried instead of
+// hard-failed.
 type StateReconciler struct {
 	logger *infra.Logger
 	db     *db.Database
@@ -43,22 +43,19 @@ func NewStateReconciler(database *db.Database) *StateReconciler {
 // first signals that verification should resume from the last checkpoint
 // by returning a "resume" status; the caller (scheduler/orchestrator) is
 // responsible for transitioning the node back to VERIFYING so the verify
-// executor can re-run. Previously this branch was an empty code block,
-// which left RESUME_VERIFY nodes stranded with no recovery action.
+// executor can re-run.
 func (r *StateReconciler) VerifyNode(ctx context.Context, node DagNodeForVerification) VerificationResult {
 	if node.State == NodeStateResumeVerify {
-		// RESUME_VERIFY entry point: signal the caller to transition the
-		// node back to VERIFYING and re-run the verify executor. The
-		// checkpoint (e.g. list of already-downloaded files) is carried in
-		// node.Config, so the verify executor can resume from there rather
-		// than restarting the whole phase. We return a "resume" status
-		// distinct from "passed"/"needs_retry" so the caller knows to
-		// drive the VERIFYING transition before re-checking side effects.
+		// Return a status distinct from passed/needs_retry so the caller
+		// drives the VERIFYING transition before re-checking side effects.
+		// The checkpoint (e.g. list of already-downloaded files) is carried
+		// in node.Config, so the verify executor can resume from there
+		// rather than restarting the whole phase.
 		r.logger.Info("RESUME_VERIFY node ??signaling resume from checkpoint", "nodeId", node.NodeID, "dagId", node.DagID, "phase", node.Phase)
-		// Fall through to the phase-specific check below so we also report
-		// the current side-effect state (e.g. partial scrape results). The
-		// caller can use this to decide whether to re-verify or mark
-		// completed if the checkpoint already satisfies the requirements.
+		// Fall through to the phase-specific check so the result also
+		// reports the current side-effect state (e.g. partial scrape
+		// results), letting the caller decide between re-verifying and
+		// marking completed when the checkpoint already suffices.
 	} else if node.State != NodeStateVerifying {
 		return VerificationResult{Status: "skipped", Reason: "not in verifying state"}
 	}
@@ -112,10 +109,9 @@ func (r *StateReconciler) verifyScrapeNode(ctx context.Context, node DagNodeForV
 //
 // Video pipeline nodes (taskSeq/taskId in Config) produce a single
 // transcoded MP4 whose path is recorded in download_tasks.file_path —
-// verify that file directly. Without this branch, video nodes fell
-// through to the gallery savePath logic, found no savePath, and were
-// marked FAILED right after a fully successful download+merge+transcode
-// (the "merge phase always fails" defect, 2026-09-05).
+// verify that file directly. Without this branch, video nodes fall
+// through to the gallery savePath logic, find no savePath, and are marked
+// FAILED right after a fully successful download+merge+transcode.
 //
 // For gallery download nodes, the savePath is read from the galleries
 // table (where it was written by the galleryFn during download) rather
@@ -126,7 +122,6 @@ func (r *StateReconciler) verifyDownloadNode(ctx context.Context, node DagNodeFo
 		return VerificationResult{Status: "passed", Reason: "no database connection"}
 	}
 
-	// ── Video pipeline branch ──
 	if seq, ok := node.Config["taskSeq"].(string); ok && seq != "" {
 		var filePath string
 		if err := r.db.QueryRow(ctx,
@@ -192,8 +187,7 @@ func (r *StateReconciler) verifyDownloadNode(ctx context.Context, node DagNodeFo
 	return VerificationResult{Status: "passed", Corrected: corrected, Reason: "all files verified"}
 }
 
-// intToStr converts an integer to its decimal string representation
-// without importing strconv to avoid the dependency in this file.
+// Manual decimal formatting keeps strconv out of this file's imports.
 func intToStr(n int) string {
 	if n == 0 {
 		return "0"
@@ -206,9 +200,8 @@ func intToStr(n int) string {
 	return string(buf)
 }
 
-// calculateDirSize walks a directory tree and returns the total size
-// of all files within it, used by verifyDownloadNode to check that
-// downloaded content exists on disk.
+// calculateDirSize returns the summed size of every regular file under a
+// directory tree.
 func calculateDirSize(dirPath string) int64 {
 	if dirPath == "" {
 		return 0

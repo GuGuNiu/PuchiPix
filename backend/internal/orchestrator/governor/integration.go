@@ -31,8 +31,8 @@ type FlowControllerConfig struct {
 	AdmissionMinRate     float64
 	AdmissionMaxRate     float64
 
-	AIMDAdditive          float64
-	AIMDMultiplicative    float64
+	AIMDAdditive           float64
+	AIMDMultiplicative     float64
 	MinPressureForIncrease float64
 
 	OverloadThreshold float64
@@ -44,13 +44,13 @@ type FlowControllerConfig struct {
 // DefaultFlowControllerConfig provides a balanced starting point.
 func DefaultFlowControllerConfig() FlowControllerConfig {
 	return FlowControllerConfig{
-		AdmissionCapacity:      10,
-		AdmissionInitialRate:   5.0,
-		AdmissionMinRate:       0.1,
-		AdmissionMaxRate:       50.0,
+		AdmissionCapacity:    10,
+		AdmissionInitialRate: 5.0,
+		AdmissionMinRate:     0.1,
+		AdmissionMaxRate:     50.0,
 
-		AIMDAdditive:          0.5,
-		AIMDMultiplicative:    0.5,
+		AIMDAdditive:           0.5,
+		AIMDMultiplicative:     0.5,
 		MinPressureForIncrease: 0.5,
 
 		OverloadThreshold: 0.75,
@@ -117,9 +117,20 @@ func (fc *FlowController) Stats() FlowControllerStats {
 	}
 }
 
+// AdmissionController exposes the token bucket so backpressure sampling can
+// read its fill level without duplicating the controller's internals.
+func (fc *FlowController) AdmissionController() *AdmissionController {
+	return fc.admission
+}
+
+// PressureMonitor exposes the pressure gauges for backpressure sampling.
+func (fc *FlowController) PressureMonitor() *PressureMonitor {
+	return fc.monitor
+}
+
 type FlowControllerStats struct {
-	Running  bool           `json:"running"`
-	Governor GovernorStats  `json:"governor"`
+	Running  bool          `json:"running"`
+	Governor GovernorStats `json:"governor"`
 }
 
 type queueSorterAdapter struct {

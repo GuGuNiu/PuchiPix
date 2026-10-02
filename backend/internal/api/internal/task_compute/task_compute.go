@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"backend/internal/xutil"
 )
 
 // openingParens lists opening brackets that may follow a model name in titles,
@@ -52,6 +54,80 @@ var sitePrefixPatterns = regexp.MustCompile(`^\s*(?:` +
 // names, while the database stores them with the CJK conjunction character.
 // Normalizing before prefix matching avoids HasPrefix mismatches.
 var dualPersonSepRE = regexp.MustCompile(`\s*&\s*`)
+
+// Display-progress bands: the `progress` column is phase-scoped (segments %
+// while downloading, merge % while merging, transcode % while transcoding),
+// so a raw phase value regresses to 0 at every phase boundary. The display
+// progress composes the phase values into one monotonic 0-100 scale for UI:
+// download dominates wall time (0-90), merge (90-95), transcode (95-99),
+// probe (99), completed (100). Computed in ONE place (here) and applied to
+// every read path (EnrichTaskMap, SSE forwarding, /api/videos) so the wire
+// never carries a regressing percentage.
+const (
+	displayDownloadCap   = 90.0
+	displayMergeBand     = 5.0
+	displayTranscodeBand = 4.0
+	displayProbeValue    = 99.0
+)
+
+func clampProgress(p float64) float64 {
+	if p < 0 {
+		return 0
+	}
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+// ComputeDisplayProgress maps a phase-scoped progress value to the monotonic
+// composite display scale. Paused/failed/cancelled rows return the raw value:
+// the column no longer records which phase it belongs to once the task leaves
+// its active status, and guessing would be worse than showing the phase value.
+// Non-video tasks are single-phase and pass through unchanged.
+func ComputeDisplayProgress(taskType, status string, phaseProgress float64) float64 {
+	if taskType != "video" {
+		return phaseProgress
+	}
+	p := clampProgress(phaseProgress)
+	switch status {
+	case "scraping", "downloading":
+		return p * displayDownloadCap / 100
+	case "merging":
+		return displayDownloadCap + p/100*displayMergeBand
+	case "transcoding":
+		return displayDownloadCap + displayMergeBand + p/100*displayTranscodeBand
+	case "probing":
+		return displayProbeValue
+	case "completed":
+		return 100
+	default:
+		return phaseProgress
+	}
+}
+
+// RewriteProgressPayload returns a copy of a task:progress event payload with
+// the display-progress rewrite applied: "progress" becomes the composite
+// value and the raw phase percentage moves to "phaseProgress". Payloads
+// without a numeric progress pass through untouched.
+func RewriteProgressPayload(payload map[string]any) map[string]any {
+	raw, ok := payload["progress"].(float64)
+	if !ok {
+		return payload
+	}
+	taskType, _ := payload["taskType"].(string)
+	if taskType == "" {
+		taskType = "video"
+	}
+	status, _ := payload["status"].(string)
+	out := make(map[string]any, len(payload)+1)
+	for k, v := range payload {
+		out[k] = v
+	}
+	out["phaseProgress"] = raw
+	out["progress"] = ComputeDisplayProgress(taskType, status, raw)
+	return out
+}
 
 func ComputeEffectiveStatus(status, taskType string, imageCount, videoCount int) string {
 	hasScrapeResults := imageCount > 0 || videoCount > 0
@@ -116,7 +192,7 @@ func ComputeAllowedActions(status, taskType string) []string {
 			actions = append(actions, "delete")
 		case "scrape_pending", "download_pending":
 			actions = append(actions, "pause", "delete")
-		case "transcoding":
+		case "transcoding", "merging", "probing":
 			actions = append(actions, "cancel", "delete")
 		default:
 			actions = append(actions, "delete")
@@ -165,14 +241,16 @@ func ComputeProgressStage(status, taskType string, progress float64) string {
 		case "merging":
 			return "tasks.progressStageMerging"
 		case "transcoding":
-			// 100 is the explicit end-of-transcode marker (see
-			// manager.runDownload): live transcode events stay below
-			// 100, so the probing label only covers the real
-			// duration/resolution probe window.
+			// "probing" is a real persisted status now; this progress>=100
+			// check only remains as the read-time fallback for rows
+			// written before it existed (live transcode events are clamped
+			// below 100, so 100 marks the probe window).
 			if progress >= 100 {
 				return "tasks.progressStageProbing"
 			}
 			return "tasks.progressStageTranscoding"
+		case "probing":
+			return "tasks.progressStageProbing"
 		}
 		if taskType == "gallery" {
 			return "tasks.progressStageDownloading"
@@ -311,11 +389,17 @@ func EnrichTaskMap(task map[string]any) map[string]any {
 	taskType, _ := task["TaskType"].(string)
 	imageCount, _ := task["ImageCount"].(int)
 	videoCount, _ := task["VideoCount"].(int)
-	progress, _ := task["Progress"].(float64)
+	// The stored progress is phase-scoped; keep it as PhaseProgress and
+	// rewrite Progress to the monotonic composite scale. The stage label is
+	// derived from the RAW value so the legacy transcoding>=100 probe-window
+	// fallback keeps working for pre-existing rows.
+	rawProgress, _ := task["Progress"].(float64)
 
+	task["PhaseProgress"] = rawProgress
 	task["EffectiveStatus"] = ComputeEffectiveStatus(status, taskType, imageCount, videoCount)
-	task["ProgressStage"] = ComputeProgressStage(status, taskType, progress)
+	task["ProgressStage"] = ComputeProgressStage(status, taskType, rawProgress)
 	task["AllowedActions"] = ComputeAllowedActions(status, taskType)
+	task["Progress"] = ComputeDisplayProgress(taskType, status, rawProgress)
 
 	title, _ := task["GalleryTitle"].(string)
 	person, _ := task["Person"].(string)
@@ -328,32 +412,18 @@ func EnrichTaskMap(task map[string]any) map[string]any {
 
 // ParseTagsColumn decodes the video_infos.tags column into a tag slice.
 //
-// The scraper persists tags as a JSON array string (e.g. `["主人","女仆"]`);
-// older rows may carry a comma/、/space separated plain string. JSON decode
-// is attempted first, with the delimited fallback for anything else.
+// The column holds a JSON array string in most rows, but older rows may
+// carry a comma / ideographic-comma / space separated plain string, so JSON
+// decoding is attempted first with the whole value passed to CleanTagList as
+// the fallback.
 func ParseTagsColumn(raw string) []string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || trimmed == "null" || trimmed == "[]" {
 		return nil
 	}
-	var arr []string
-	if err := json.Unmarshal([]byte(trimmed), &arr); err == nil {
-		out := make([]string, 0, len(arr))
-		for _, t := range arr {
-			if t = strings.TrimSpace(t); t != "" {
-				out = append(out, t)
-			}
-		}
-		return out
+	var values []string
+	if err := json.Unmarshal([]byte(trimmed), &values); err == nil {
+		return xutil.CleanTagList(values)
 	}
-	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
-		return r == ',' || r == '、' || r == '|' || r == ';'
-	})
-	out := make([]string, 0, len(parts))
-	for _, t := range parts {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
+	return xutil.CleanTagList([]string{trimmed})
 }

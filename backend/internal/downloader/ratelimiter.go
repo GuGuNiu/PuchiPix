@@ -26,7 +26,6 @@ func NewSharedRateLimiter(bytesPerSec int64) *SharedRateLimiter {
 	}
 }
 
-// Wait blocks until at least n bytes worth of budget is available
 // or ctx is cancelled, enforcing the aggregate rate across all workers.
 func (rl *SharedRateLimiter) Wait(ctx context.Context, n int) error {
 	if rl == nil || n <= 0 {

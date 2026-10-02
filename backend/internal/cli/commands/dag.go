@@ -12,7 +12,7 @@ type dagCommand struct{}
 
 func (dagCommand) Name() string        { return "dag" }
 func (dagCommand) Description() string { return "View DAG details (with node status history)" }
-func (dagCommand) Usage() string        { return "puchipix-cli dag <dagId> [--logs]" }
+func (dagCommand) Usage() string       { return "puchipix-cli dag <dagId> [--logs]" }
 func (dagCommand) Aliases() []string   { return nil }
 
 func (dagCommand) Execute(ctx CommandContext) error {

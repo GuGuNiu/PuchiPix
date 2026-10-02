@@ -28,12 +28,12 @@ type MergeRetryOptions struct {
 	// ExpectedDuration is the sum of EXTINF values from the M3U8
 	// playlist. Used for duration-level validation. 0 skips the check.
 	ExpectedDuration time.Duration
+	OnProgress       func(completed, total int)
 	// OnRetry is invoked before each retry attempt (attempt >= 1) so
 	// callers can report progress. May be nil.
 	OnRetry func(attempt int, redownloadCount int, reason string)
 }
 
-// DefaultMergeRetryOptions returns sensible defaults.
 func DefaultMergeRetryOptions(outputPath, segDir string) MergeRetryOptions {
 	return MergeRetryOptions{
 		MaxMergeRetries: 2,
@@ -43,6 +43,7 @@ func DefaultMergeRetryOptions(outputPath, segDir string) MergeRetryOptions {
 		BatchOpts: SegmentBatchOptions{
 			Concurrency: 10,
 			MaxRetries:  3,
+			SegDir:      segDir,
 		},
 	}
 }
@@ -57,6 +58,12 @@ func MergeRetryLoop(
 	successSet map[int]bool,
 	opts MergeRetryOptions,
 ) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(segments) == 0 {
+		return fmt.Errorf("merge segment list is empty")
+	}
 	if opts.MaxMergeRetries <= 0 {
 		opts.MaxMergeRetries = 2
 	}
@@ -69,10 +76,18 @@ func MergeRetryLoop(
 	if opts.BatchOpts.MaxRetries <= 0 {
 		opts.BatchOpts.MaxRetries = 3
 	}
+	if opts.SegDir == "" {
+		opts.SegDir = opts.BatchOpts.SegDir
+	}
+	if opts.BatchOpts.SegDir == "" {
+		opts.BatchOpts.SegDir = opts.SegDir
+	}
 
 	logger := infra.NewLogger("MergeRetryLoop")
+	if successSet == nil {
+		successSet = make(map[int]bool)
+	}
 
-	// Ensure output directory exists.
 	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
@@ -86,9 +101,11 @@ func MergeRetryLoop(
 	manifest := SegmentManifest(segments)
 
 	for attempt := 0; attempt <= opts.MaxMergeRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		toDownload := filterSegments(remaining, successSet)
 		if len(toDownload) == 0 {
-			// All expected segments are confirmed good. Try merge.
 			logger.Info("All segments confirmed good, attempting merge",
 				"attempt", attempt+1)
 		} else {
@@ -101,21 +118,27 @@ func MergeRetryLoop(
 				successSet[idx] = true
 			}
 
-			// If nothing was downloaded at all, abort early.
 			if batchResult.Downloaded == 0 && len(batchResult.Failed) > 0 {
 				return fmt.Errorf("all %d segment(s) failed to download", len(batchResult.Failed))
 			}
 		}
 
-		mergeResult, err := MergeSegments(opts.SegDir, opts.OutputPath, manifest)
+		if opts.OnProgress != nil {
+			opts.OnProgress(0, len(manifest))
+		}
+		mergeResult, err := MergeSegmentsContextWithProgress(ctx, opts.SegDir, opts.OutputPath, manifest, opts.OnProgress)
 		if err != nil {
 			logger.Warn("Merge failed",
 				"attempt", attempt+1, "error", err.Error())
 			if attempt == opts.MaxMergeRetries {
 				return fmt.Errorf("merge failed after %d attempts: %w", attempt+1, err)
 			}
-			// Merge failed — retry after cleaning up.
+			for idx := range successSet {
+				delete(successSet, idx)
+			}
 			cleanupAllSegments(opts.SegDir)
+			remaining = segments
+			_ = os.Remove(opts.OutputPath)
 			continue
 		}
 
@@ -136,7 +159,7 @@ func MergeRetryLoop(
 			logger.Info("Merge validation passed",
 				"segments", validation.ActualSegments,
 				"duration", validation.OutputDuration)
-			return nil // Success.
+			return nil
 		}
 
 		if attempt == opts.MaxMergeRetries {
@@ -150,6 +173,10 @@ func MergeRetryLoop(
 		failedSet = append(failedSet, validation.CorruptedIndices...)
 		failedSet = append(failedSet, validation.EmptyIndices...)
 
+		for _, idx := range failedSet {
+			delete(successSet, idx)
+		}
+
 		redownloadIndices := expandToNeighborRange(failedSet, NeighborOptions{
 			Radius:     opts.NeighborRadius,
 			MaxIndex:   segments[len(segments)-1].Index,
@@ -157,7 +184,6 @@ func MergeRetryLoop(
 		})
 
 		if len(redownloadIndices) == 0 {
-			// Nothing to retry — validation failed but no redownload candidates.
 			return fmt.Errorf("merge validation failed: %d missing, no redownload candidates",
 				len(validation.MissingIndices))
 		}
@@ -184,7 +210,6 @@ func MergeRetryLoop(
 	return fmt.Errorf("merge retry exhausted after %d attempts", opts.MaxMergeRetries)
 }
 
-// cleanupAllSegments removes all .ts files from the segment directory.
 func cleanupAllSegments(segDir string) {
 	entries, err := os.ReadDir(segDir)
 	if err != nil {

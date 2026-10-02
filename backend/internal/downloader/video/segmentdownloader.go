@@ -9,14 +9,15 @@ import (
 
 	"backend/internal/downloader"
 	"backend/internal/infra"
+	"backend/internal/stealth"
 )
 
 // SegmentTask carries the data needed to download a single TS segment.
 type SegmentTask struct {
-	Segment  M3U8Segment
-	DestDir  string
-	TSID     string
-	Referer  string
+	Segment M3U8Segment
+	DestDir string
+	TSID    string
+	Referer string
 }
 
 // SegmentResult reports the outcome of a segment download attempt,
@@ -67,13 +68,11 @@ func DownloadSegment(ctx context.Context, task SegmentTask, maxRetries int) Segm
 			}
 		}
 
-		headers := map[string]string{
-			"Accept":     "*/*",
-			"Connection": "keep-alive",
-		}
-		if task.Referer != "" {
-			headers["Referer"] = task.Referer
-		}
+		// The full browser header set is required by CDN bot rules:
+		// without sec-ch-ua / Sec-Fetch-* the same URL that returns 200
+		// for a browser is answered with 410 Gone.
+		headers := stealth.CDNRequestHeaders(nil, task.Referer, stealth.FetchDestEmpty)
+		headers["Connection"] = "keep-alive"
 
 		result := downloader.DownloadFileWithDomainFallback(ctx, task.Segment.FullURI, filePath, &downloader.DownloadOptions{
 			Headers: headers,

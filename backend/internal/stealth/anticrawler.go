@@ -6,12 +6,12 @@ import (
 )
 
 const (
-	PageDelayMin     = 800
-	PageDelayMax     = 1500
-	BatchDelayMin    = 3000
-	BatchDelayMax    = 5000
-	MaxRetries       = 3
-	MaxGalleryPages  = 30
+	PageDelayMin        = 800
+	PageDelayMax        = 1500
+	BatchDelayMin       = 3000
+	BatchDelayMax       = 5000
+	MaxRetries          = 3
+	MaxGalleryPages     = 30
 	GalleryHTTPDelayMin = 200
 	GalleryHTTPDelayMax = 400
 )

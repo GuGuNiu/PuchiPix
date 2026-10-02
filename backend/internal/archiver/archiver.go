@@ -9,9 +9,11 @@ import (
 	"strings"
 )
 
-// ExtractZip extracts a ZIP archive to the given destination directory.
-// If password is non-empty, it is ignored (Go's archive/zip does not
-// support encrypted ZIPs; use an external tool for password-protected archives).
+// ExtractZip extracts a ZIP archive into destDir.
+//
+// The password argument is accepted for call-site compatibility and ignored:
+// archive/zip cannot read encrypted entries, so password-protected archives
+// require an external tool.
 func ExtractZip(zipPath, destDir string, password string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {

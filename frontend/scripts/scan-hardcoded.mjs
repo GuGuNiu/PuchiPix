@@ -1,8 +1,6 @@
-/**
- * Hardcoded text scan script:
- * 1. Chinese text nodes in JSX (e.g. <span>...</span>).
- * 2. Chinese inside string literals (e.g. const msg = "...").
- * Excludes: i18n locale files themselves, comments, styles, store data values, etc.
+/*
+ * Flags Chinese text in JSX text nodes and in string literals outside t() calls,
+ * excluding the i18n locale files, comments, styles and store data values.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -41,15 +39,14 @@ for (const fp of files) {
     if (/className\s*=\s*["'`][^"'`]*[\u4e00-\u9fff]/.test(noComment) && !/["'`][^"'`]*[\u4e00-\u9fff][^"'`]*["'`]\s*[,)]/.test(noComment)) {
       return;
     }
-    // Skip import / require.
     if (/^\s*(import|export).*from/.test(noComment)) return;
+
     // Skip Chinese inside type definitions (e.g. site names).
     if (/^\s*(type|interface|const .*:)\s/.test(noComment)) return;
 
-    // Detect whether we are inside a t() call — rough heuristic: line contains t(" or t(`.
+    // Rough heuristic for being inside a t() call: the line contains t(" or t(`.
     const isTranslated = /[^a-zA-Z]t\(\s*["'`]/.test(noComment);
 
-    // Collect string literals that contain Chinese characters.
     const strMatches = [...noComment.matchAll(/["'`]([^"'`]*[\u4e00-\u9fff][^"'`]*)["'`]/g)];
     if (strMatches.length === 0) return;
 
@@ -71,7 +68,6 @@ for (const fp of files) {
   });
 }
 
-// Output.
 for (const r of results) {
   console.log(`${r.file}:${r.line}`);
   console.log(`  ${r.code}`);

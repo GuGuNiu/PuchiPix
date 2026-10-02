@@ -30,7 +30,6 @@ type Engine struct {
 	db *db.Database
 }
 
-// NewEngine creates a progress tracking engine.
 func NewEngine(logger *infra.Logger) *Engine {
 	if logger == nil {
 		logger = infra.NewLogger("TaskProgress")
@@ -50,9 +49,18 @@ func (e *Engine) SetDatabase(database *db.Database) {
 	e.db = database
 }
 
-// RemoveGallery drops all in-memory tracking state (files + phase) for a
-// gallery. Called when the gallery is deleted; without this, the maps leak
-// an entry per deleted gallery for the lifetime of the process.
+// SetOnProgress installs the callback invoked after every per-file status
+// change with the fresh summary. Nil (the default) keeps gallery progress
+// pull-only via GetSummary; wiring the callback gives the SSE bus its push
+// path. The callback must be cheap and tolerate concurrent calls.
+func (e *Engine) SetOnProgress(cb func(galleryID int, summary GalleryProgressSummary)) {
+	e.mu.Lock()
+	e.onProgress = cb
+	e.mu.Unlock()
+}
+
+// RemoveGallery drops the in-memory files and phase for a gallery; without
+// it the maps keep one entry per deleted gallery for the process lifetime.
 func (e *Engine) RemoveGallery(galleryID int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -60,7 +68,6 @@ func (e *Engine) RemoveGallery(galleryID int) {
 	delete(e.phase, galleryID)
 }
 
-// tableFileProgress is the persistence table for per-file checkpoint state.
 const tableFileProgress = "gallery_file_progress"
 
 // phaseRowFileIndex is the sentinel file_index value used for the
@@ -69,18 +76,18 @@ const tableFileProgress = "gallery_file_progress"
 // PRIMARY KEY (gallery_id, file_index) without collision.
 const phaseRowFileIndex = -1
 
-// validDownloadPhaseTransitions enumerates legal DownloadPhase moves.
 var validDownloadPhaseTransitions = map[DownloadPhase][]DownloadPhase{
-	PhasePending:     {PhaseScanning, PhaseInProgress, PhaseFailed},
-	PhaseScanning:    {PhaseInProgress, PhaseComplete, PhaseFailed},
-	PhaseInProgress:  {PhaseVerifying, PhaseComplete, PhaseFailed, PhaseScanning},
-	PhaseVerifying:   {PhaseComplete, PhaseFailed, PhaseInProgress},
-	PhaseComplete:    {},
-	PhaseFailed:      {PhaseScanning, PhaseInProgress},
+	PhasePending:    {PhaseScanning, PhaseInProgress, PhaseFailed},
+	PhaseScanning:   {PhaseInProgress, PhaseComplete, PhaseFailed},
+	PhaseInProgress: {PhaseVerifying, PhaseComplete, PhaseFailed, PhaseScanning},
+	PhaseVerifying:  {PhaseComplete, PhaseFailed, PhaseInProgress},
+	PhaseComplete:   {},
+	PhaseFailed:     {PhaseScanning, PhaseInProgress},
 }
 
-// SetPhase transitions the gallery's download phase, returning an error
-// for illegal transitions. The new phase is persisted when a DB is set.
+// SetPhase moves the gallery's download phase, rejecting transitions absent
+// from validDownloadPhaseTransitions, and persists the new phase when a
+// database is attached.
 func (e *Engine) SetPhase(galleryID int, phase DownloadPhase) error {
 	e.mu.Lock()
 	current, exists := e.phase[galleryID]
@@ -123,8 +130,7 @@ func (e *Engine) SetPhase(galleryID int, phase DownloadPhase) error {
 	return nil
 }
 
-// GetPhase returns the current download phase for a gallery, defaulting
-// to PhasePending when unknown.
+// GetPhase reports PhasePending for a gallery with no recorded phase.
 func (e *Engine) GetPhase(galleryID int) DownloadPhase {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -134,7 +140,6 @@ func (e *Engine) GetPhase(galleryID int) DownloadPhase {
 	return PhasePending
 }
 
-// CanTransitionPhase reports whether a phase transition is legal.
 func (e *Engine) CanTransitionPhase(from, to DownloadPhase) bool {
 	allowed, ok := validDownloadPhaseTransitions[from]
 	if !ok {
@@ -148,10 +153,8 @@ func (e *Engine) CanTransitionPhase(from, to DownloadPhase) bool {
 	return false
 }
 
-// CanTransitionDownloadPhase is a lock-free predicate for callers that
-// already hold the Engine's state or are testing validity without a live
-// Engine instance. Use Engine.CanTransitionPhase when the Engine is
-// available.
+// CanTransitionDownloadPhase is a lock-free validity check for callers that
+// do not hold an Engine instance.
 func CanTransitionDownloadPhase(from, to DownloadPhase) bool {
 	allowed, ok := validDownloadPhaseTransitions[from]
 	if !ok {
@@ -165,8 +168,7 @@ func CanTransitionDownloadPhase(from, to DownloadPhase) bool {
 	return false
 }
 
-// RegisterFiles initializes file tracking for a gallery. Called after
-// the scrape phase when we know the expected file counts.
+// RegisterFiles is called once the scrape phase knows the expected file list.
 func (e *Engine) RegisterFiles(galleryID int, files []FileProgress) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -189,8 +191,6 @@ func (e *Engine) RegisterFiles(galleryID int, files []FileProgress) {
 		}})
 }
 
-// UpdateFileStatus updates the status of a single file and triggers
-// progress recalculation.
 func (e *Engine) UpdateFileStatus(galleryID, fileIndex int, status FileStatus, localPath string, fileSize int64, errMsg string) {
 	e.mu.Lock()
 	galleryFiles, ok := e.files[galleryID]
@@ -218,7 +218,8 @@ func (e *Engine) UpdateFileStatus(galleryID, fileIndex int, status FileStatus, l
 		f.RetryCount++
 	}
 
-	// Snapshot summary under lock, then call callback outside.
+	// The summary is snapshotted under the lock so the callback runs after
+	// it has been released.
 	summary := e.computeSummaryLocked(galleryID)
 	cb := e.onProgress
 	e.mu.Unlock()
@@ -228,15 +229,13 @@ func (e *Engine) UpdateFileStatus(galleryID, fileIndex int, status FileStatus, l
 	}
 }
 
-// GetSummary computes the current progress summary for a gallery.
 func (e *Engine) GetSummary(galleryID int) GalleryProgressSummary {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.computeSummaryLocked(galleryID)
 }
 
-// computeSummaryLocked builds the aggregate progress summary for a
-// gallery. Must be called with at least a read lock held.
+// computeSummaryLocked must be called with at least a read lock held.
 func (e *Engine) computeSummaryLocked(galleryID int) GalleryProgressSummary {
 	galleryFiles, ok := e.files[galleryID]
 	summary := GalleryProgressSummary{GalleryID: galleryID}
@@ -266,30 +265,23 @@ func (e *Engine) computeSummaryLocked(galleryID int) GalleryProgressSummary {
 	}
 
 	if summary.TotalFiles > 0 {
-		// Progress includes both completed and skipped files — skipped
-		// files are considered "done" for progress purposes. This ensures
-		// the progress bar reaches 100% when all files are either
-		// completed or intentionally skipped.
+		// Skipped files count as done so the progress bar still reaches
+		// 100% when files were intentionally skipped.
 		done := summary.CompletedFiles + summary.SkippedFiles
 		summary.Progress = math.Round(float64(done)/float64(summary.TotalFiles)*100*100) / 100
-		summary.PartialProgress = summary.Progress // kept for API backward-compat
+		// PartialProgress mirrors Progress and is retained for API compatibility.
+		summary.PartialProgress = summary.Progress
 	}
 
-	// Determine aggregate status.
 	summary.Status = computeAggregateStatus(summary)
 
 	return summary
 }
 
-// computeAggregateStatus determines the gallery-level status from
-// per-file progress.
 func computeAggregateStatus(s GalleryProgressSummary) string {
 	if s.TotalFiles == 0 {
 		return "pending"
 	}
-	// Skipped files count as "done" for completion purposes.
-	// A gallery is completed when all files are either completed or
-	// skipped (with zero failures).
 	done := s.CompletedFiles + s.SkippedFiles
 	if done == s.TotalFiles && s.FailedFiles == 0 {
 		return "completed"
@@ -306,8 +298,6 @@ func computeAggregateStatus(s GalleryProgressSummary) string {
 	return "pending"
 }
 
-// GetFailedFiles returns the list of file indices that have failed
-// for a gallery. Used by the retry engine to determine what to retry.
 func (e *Engine) GetFailedFiles(galleryID int) []FileProgress {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -327,15 +317,6 @@ func (e *Engine) GetFailedFiles(galleryID int) []FileProgress {
 	return failed
 }
 
-// ComputeRetryRange determines which files to retry based on the
-// selected strategy.
-//
-// Strategy behaviors:
-//   - failed_only: retry exactly the files that failed.
-//   - regional: for each failed file, expand to a window of ±N files
-//     (default N=2) to account for download dependencies. Overlapping
-//     windows are merged. Video files always get individual retry.
-//   - all: retry all non-completed files.
 func (e *Engine) ComputeRetryRange(galleryID int, req RetryRequest) ([]int, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -362,10 +343,9 @@ func (e *Engine) ComputeRetryRange(galleryID int, req RetryRequest) ([]int, erro
 	}
 }
 
-// retryFailedOnly returns indices of files that failed, optionally
-// filtered by the request's FileIndices or Range.
+// retryFailedOnly returns failed file indices, narrowed to the request's
+// FileIndices or Range when either is set.
 func (e *Engine) retryFailedOnly(galleryFiles map[int]*FileProgress, req RetryRequest) ([]int, error) {
-	// If specific indices requested, validate they're failed.
 	if len(req.FileIndices) > 0 {
 		var result []int
 		for _, idx := range req.FileIndices {
@@ -376,7 +356,6 @@ func (e *Engine) retryFailedOnly(galleryFiles map[int]*FileProgress, req RetryRe
 		return result, nil
 	}
 
-	// If range specified, collect failed files within range.
 	if req.Range != nil {
 		var result []int
 		for idx, f := range galleryFiles {
@@ -388,7 +367,6 @@ func (e *Engine) retryFailedOnly(galleryFiles map[int]*FileProgress, req RetryRe
 		return result, nil
 	}
 
-	// Default: all failed files.
 	var result []int
 	for idx, f := range galleryFiles {
 		if f.Status == FileFailed {
@@ -399,13 +377,12 @@ func (e *Engine) retryFailedOnly(galleryFiles map[int]*FileProgress, req RetryRe
 	return result, nil
 }
 
-// retryRegional expands each failed file into a window and merges
-// overlapping windows. Video files are retried individually to avoid
-// unnecessary segment re-downloads.
+// retryRegional expands each failed file into a window and merges overlapping
+// windows. Video files are retried individually to avoid re-downloading
+// segments that already succeeded.
 func (e *Engine) retryRegional(galleryFiles map[int]*FileProgress, req RetryRequest) ([]int, error) {
-	const windowSize = 2 // ±2 files from each failure
+	const windowSize = 2
 
-	// Collect failed indices.
 	var failedIndices []int
 	for idx, f := range galleryFiles {
 		if f.Status == FileFailed {
@@ -417,11 +394,9 @@ func (e *Engine) retryRegional(galleryFiles map[int]*FileProgress, req RetryRequ
 	}
 	sort.Ints(failedIndices)
 
-	// Build windows around each failure.
 	type interval struct{ start, end int }
 	var intervals []interval
 	for _, fi := range failedIndices {
-		// Video files: retry individually (no window expansion).
 		if f, ok := galleryFiles[fi]; ok && f.FileType == FileTypeVideo {
 			intervals = append(intervals, interval{fi, fi})
 			continue
@@ -431,7 +406,6 @@ func (e *Engine) retryRegional(galleryFiles map[int]*FileProgress, req RetryRequ
 			start = 0
 		}
 		end := fi + windowSize
-		// Clamp to valid file range.
 		maxIdx := 0
 		for idx := range galleryFiles {
 			if idx > maxIdx {
@@ -444,7 +418,6 @@ func (e *Engine) retryRegional(galleryFiles map[int]*FileProgress, req RetryRequ
 		intervals = append(intervals, interval{start, end})
 	}
 
-	// Merge overlapping intervals.
 	sort.Slice(intervals, func(i, j int) bool { return intervals[i].start < intervals[j].start })
 	merged := []interval{intervals[0]}
 	for i := 1; i < len(intervals); i++ {
@@ -458,13 +431,11 @@ func (e *Engine) retryRegional(galleryFiles map[int]*FileProgress, req RetryRequ
 		}
 	}
 
-	// Collect all indices in merged intervals.
 	seen := make(map[int]bool)
 	var result []int
 	for _, inv := range merged {
 		for idx := inv.start; idx <= inv.end; idx++ {
 			if !seen[idx] {
-				// Include only non-completed files within the window.
 				if f, ok := galleryFiles[idx]; ok && f.Status != FileCompleted {
 					result = append(result, idx)
 					seen[idx] = true
@@ -476,7 +447,6 @@ func (e *Engine) retryRegional(galleryFiles map[int]*FileProgress, req RetryRequ
 	return result, nil
 }
 
-// retryAll returns all non-completed file indices.
 func (e *Engine) retryAll(galleryFiles map[int]*FileProgress) ([]int, error) {
 	var result []int
 	for idx, f := range galleryFiles {
@@ -488,7 +458,6 @@ func (e *Engine) retryAll(galleryFiles map[int]*FileProgress) ([]int, error) {
 	return result, nil
 }
 
-// countFilesRecursive counts all regular files in a directory tree.
 func countFilesRecursive(dir string) int {
 	count := 0
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -503,15 +472,12 @@ func countFilesRecursive(dir string) int {
 	return count
 }
 
-// CountFilesOnDisk is a public convenience wrapper for counting files.
 func CountFilesOnDisk(dir string) int {
 	return countFilesRecursive(dir)
 }
 
-// SaveProgress persists the current per-file progress and phase for a
-// gallery to the gallery_file_progress table. This enables retry across
-// restarts: on the next load, the Engine can reconstruct which files
-// completed and which failed, skipping re-download of completed files.
+// SaveProgress persists per-file status and phase so a later load can skip
+// files that already completed.
 func (e *Engine) SaveProgress(ctx context.Context, database *db.Database, galleryID int) error {
 	if database == nil {
 		return nil
@@ -524,9 +490,8 @@ func (e *Engine) SaveProgress(ctx context.Context, database *db.Database, galler
 		return nil
 	}
 
-	// Batch-insert file status rows. The ON CONFLICT upsert ensures
-	// repeated saves are idempotent — on retry the existing completed
-	// rows are preserved.
+	// The upsert keeps the previously stored local_path and file_size when
+	// the new values are empty, so a partial save cannot erase checkpoints.
 	for _, f := range galleryFiles {
 		_, err := database.Exec(ctx,
 			`INSERT INTO `+tableFileProgress+`
@@ -546,7 +511,6 @@ func (e *Engine) SaveProgress(ctx context.Context, database *db.Database, galler
 		}
 	}
 
-	// Persist the download phase row (file_index = -1 sentinel).
 	if phase != "" {
 		_, _ = database.Exec(ctx,
 			`INSERT INTO `+tableFileProgress+` (gallery_id, file_index, phase, updated_at)
@@ -559,16 +523,10 @@ func (e *Engine) SaveProgress(ctx context.Context, database *db.Database, galler
 	return nil
 }
 
-// EnsureLoadedForRetry guarantees the in-memory file map for a gallery
-// exists before a retry computes its file set. The API layer's retry
-// endpoints previously called ComputeRetryRange directly; after a server
-// restart the map is empty (only the download executor calls
-// LoadProgress), so every fine-grained retry failed with
-// "gallery N not found in progress tracker" until the next download
-// attempt re-populated it. Loading is idempotent: an already-populated
-// gallery is left untouched so in-flight statuses are not clobbered.
-// attempt on LoadProgress) is not treated as "loaded" — a later call
-// must still be able to hydrate from the checkpoint table.
+// EnsureLoadedForRetry hydrates the file map from the checkpoint table first,
+// because after a restart the map is empty and every fine-grained retry would
+// fail with "gallery N not found in progress tracker". An already tracked
+// gallery is left alone so in-flight statuses are not clobbered.
 func (e *Engine) EnsureLoadedForRetry(ctx context.Context, database *db.Database, galleryID int) error {
 	e.mu.RLock()
 	tracked := len(e.files[galleryID]) > 0
@@ -579,11 +537,9 @@ func (e *Engine) EnsureLoadedForRetry(ctx context.Context, database *db.Database
 	return e.LoadProgress(ctx, database, galleryID)
 }
 
-// ResetFileStatusForRetry marks the given file indices as pending again
-// in the in-memory tracker so a subsequent ComputeRetryRange / progress
-// summary reflects the queued re-download. Only non-completed files are
-// reset; a completed file whose download actually succeeded must not be
-// re-queued by an over-broad retry strategy (e.g. regional/all).
+// ResetFileStatusForRetry marks the given file indices pending again so the
+// summary reflects the queued re-download. Completed files are left untouched
+// so an over-broad retry strategy cannot re-queue a successful download.
 func (e *Engine) ResetFileStatusForRetry(galleryID int, fileIndices []int) int {
 	e.mu.Lock()
 	galleryFiles, ok := e.files[galleryID]
@@ -611,10 +567,7 @@ func (e *Engine) ResetFileStatusForRetry(galleryID int, fileIndices []int) int {
 	return reset
 }
 
-// LoadProgress reconstructs per-file progress for a gallery from the DB.
-// Used after restart to skip re-downloading files that already completed.
-// The phase is also restored so the state machine can continue from where
-// it left off.
+// LoadProgress restores per-file status and phase from the checkpoint table.
 func (e *Engine) LoadProgress(ctx context.Context, database *db.Database, galleryID int) error {
 	if database == nil {
 		return nil
@@ -622,7 +575,6 @@ func (e *Engine) LoadProgress(ctx context.Context, database *db.Database, galler
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Load phase from the sentinel row.
 	var phaseStr string
 	err := database.QueryRow(ctx,
 		`SELECT COALESCE(phase, '') FROM `+tableFileProgress+` WHERE gallery_id = ? AND file_index = ?`,
@@ -631,8 +583,6 @@ func (e *Engine) LoadProgress(ctx context.Context, database *db.Database, galler
 		e.phase[galleryID] = DownloadPhase(phaseStr)
 	}
 
-	// Load per-file progress (exclude the phase sentinel row, which uses
-	// file_index = -1).
 	rows, err := database.Query(ctx,
 		`SELECT file_index, file_type, file_url, local_path, file_size, status, error_msg, retry_count
 		 FROM `+tableFileProgress+` WHERE gallery_id = ? AND file_index >= 0 ORDER BY file_index`,

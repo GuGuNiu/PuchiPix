@@ -32,11 +32,17 @@ func NewStrategySelector() *StrategySelector {
 		StaticSites: map[string]bool{
 			"aimeizizi": true,
 			"xsnvshen":  true,
+			// Video sites whose player configuration and taxonomy are
+			// server-rendered and read directly by the provider. Their
+			// streams and metadata are fully available over plain HTTP, so
+			// escalating to a browser only wastes a slot and a page load.
+			"91porn":  true,
+			"pornhub": true,
+			"xvideos": true,
 		},
 	}
 }
 
-// SelectStrategyInput carries the context needed for strategy selection.
 type SelectStrategyInput struct {
 	SiteID         string
 	TaskType       TaskType
@@ -51,6 +57,19 @@ type SelectStrategyInput struct {
 func (s *StrategySelector) Select(in SelectStrategyInput) ScrapeStrategy {
 	if in.TaskType == TaskTypeSniff {
 		return StrategyChromedp
+	}
+	if in.TaskType == TaskTypeVideo {
+		// A site known to server-render its player configuration needs no
+		// browser, so a WAF hint or a retry must not escalate one: the
+		// generic browser path cannot recover the site's own tags and
+		// categories anyway, and it costs a page load per attempt.
+		if s.StaticSites[in.SiteID] {
+			return StrategyHTTP
+		}
+		if in.HasWaf || in.HTTPRetryCount >= 2 {
+			return StrategyChromedp
+		}
+		return StrategyAuto
 	}
 
 	if s.JSSites[in.SiteID] {

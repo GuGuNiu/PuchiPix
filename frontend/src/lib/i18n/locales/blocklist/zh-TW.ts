@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Blocklist page text — zh-TW
 const zhTW: TranslationDict = {
   "blocklist.title": "屏蔽詞庫",
   "blocklist.subtitle": "管理站點內容的屏蔽規則支援按標題/分類/主角/導演過濾",

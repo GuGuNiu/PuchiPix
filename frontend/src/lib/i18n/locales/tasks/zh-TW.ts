@@ -1,6 +1,5 @@
 import type { TranslationDict } from "../../types";
 
-// Task management page text — zh-TW
 const zhTW: TranslationDict = {
   "tasks.typeAll": "全部",
   "tasks.typeVideo": "影片",

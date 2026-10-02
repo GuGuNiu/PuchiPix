@@ -9,7 +9,6 @@ import { initSharedSse, destroySharedSse } from "@/lib/sse/shared-sse";
 import { initSiteModules } from "@/lib/site-modules";
 import GlobalError from "./pages/error";
 
-/* Lazy-loaded route components. */
 const Dashboard = lazy(() => import("./pages/index"));
 const TasksPage = lazy(() => import("./pages/tasks/index"));
 const SearchPage = lazy(() => import("./pages/search"));
@@ -24,7 +23,6 @@ const ProtagonistsList = lazy(() => import("./pages/protagonists/index"));
 const ProtagonistDetail = lazy(() => import("./pages/protagonists/detail"));
 const ModelStagePage = lazy(() => import("./pages/modelstage"));
 
-/** Global loading fallback for lazy routes. */
 function RouteLoading(): React.JSX.Element {
   const { t } = useI18n();
   return (
@@ -44,10 +42,6 @@ function RouteLoading(): React.JSX.Element {
   );
 }
 
-/**
- * Route-level error boundary. On lazy-chunk load failure or page render
- * exceptions, GlobalError is shown instead of a blank screen.
- */
 interface RouteErrorBoundaryProps {
   children: ReactNode;
 }
@@ -107,7 +101,6 @@ export default function App(): React.JSX.Element {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/tasks" element={<TasksPage />} />
                         <Route path="/search" element={<SearchPage />} />
-                        {/* /shelf redirects to /shelf/photos */}
                         <Route path="/shelf" element={<Navigate to="/shelf/photos" replace />} />
                         <Route path="/shelf/photos" element={<ShelfPhotos />} />
                         <Route path="/shelf/videos" element={<ShelfVideos />} />
@@ -119,7 +112,6 @@ export default function App(): React.JSX.Element {
                         <Route path="/protagonists" element={<ProtagonistsList />} />
                         <Route path="/protagonists/:name" element={<ProtagonistDetail />} />
                         <Route path="/modelstage" element={<ModelStagePage />} />
-                        {/* Custom 404 page */}
                         <Route path="*" element={<NotFound />} />
                       </Routes>
                     </Suspense>
@@ -135,5 +127,4 @@ export default function App(): React.JSX.Element {
   );
 }
 
-/** Lazy-loaded 404 page. */
 const NotFound = lazy(() => import("./pages/not-found"));

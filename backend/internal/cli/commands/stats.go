@@ -11,8 +11,8 @@ type statsCommand struct{}
 
 func (statsCommand) Name() string        { return "stats" }
 func (statsCommand) Description() string { return "Show aggregate dashboard statistics" }
-func (statsCommand) Usage() string        { return "puchipix-cli stats" }
-func (statsCommand) Aliases() []string    { return []string{"summary"} }
+func (statsCommand) Usage() string       { return "puchipix-cli stats" }
+func (statsCommand) Aliases() []string   { return []string{"summary"} }
 
 func (statsCommand) Execute(ctx CommandContext) error {
 	data, err := ctx.Client.GetStats()

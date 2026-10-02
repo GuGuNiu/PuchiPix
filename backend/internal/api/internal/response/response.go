@@ -2,6 +2,7 @@ package response
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -25,7 +26,14 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		WriteError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.missingBody"))
 		return false
 	}
-	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(dst); err != nil {
+		WriteError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidJson"))
+		return false
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
 		WriteError(w, http.StatusBadRequest, i18n.TFromRequest(r, "api.common.invalidJson"))
 		return false
 	}

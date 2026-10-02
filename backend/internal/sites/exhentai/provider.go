@@ -21,8 +21,6 @@ type Provider struct {
 	dataStore sites.SiteDataStore
 }
 
-// NewProvider creates an ExHentai provider instance, loading site
-// configuration from the unified SiteDataStore.
 func NewProvider(dataStore sites.SiteDataStore) *Provider {
 	initData(dataStore)
 	return &Provider{dataStore: dataStore}

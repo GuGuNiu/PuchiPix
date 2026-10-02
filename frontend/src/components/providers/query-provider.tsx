@@ -5,10 +5,6 @@ interface QueryProviderProps {
   children: ReactNode;
 }
 
-/**
- * React Query provider with a lazy-initialized QueryClient.
- * Configures a 30s stale time with 3 retries on queries.
- */
 export function QueryProvider({ children }: QueryProviderProps): React.JSX.Element {
   const [queryClient] = useState(
     () =>

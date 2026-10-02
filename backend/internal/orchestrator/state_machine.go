@@ -12,9 +12,9 @@ import (
 // prevent unbounded memory growth in long-running DAGs.
 const maxHistoryLength = 100
 
-// globalInvariantChecker is the shared StateInvariantChecker instance
-// that runs after every node's Transition. It is initialised lazily on
-// first use so tests can substitute a mock before any transition fires.
+// invariantChecker is the shared StateInvariantChecker instance that runs
+// after every node's Transition. It is created lazily on first access so
+// tests can install a substitute before any transition fires.
 var (
 	invariantCheckerMu sync.RWMutex
 	invariantChecker   *StateInvariantChecker
@@ -28,8 +28,6 @@ func InitInvariantChecker(c *StateInvariantChecker) {
 	invariantChecker = c
 }
 
-// getInvariantChecker returns the current checker, installing the default
-// set on first access.
 func getInvariantChecker() *StateInvariantChecker {
 	invariantCheckerMu.RLock()
 	c := invariantChecker
@@ -97,47 +95,39 @@ func NewTaskStateMachine(dagID, nodeID string, phase TaskPhase, def DagNodeDefin
 	return fsm
 }
 
-// SetPolicy attaches a TransitionPolicy to an existing FSM. Used during
-// snapshot restore when the policy is looked up from the TaskTypeRegistry
-// rather than carried in the DagNodeDefinition (which may have been
-// persisted before the strategy layer existed).
+// SetPolicy attaches a TransitionPolicy to an existing FSM. Snapshot
+// restore looks the policy up from the TaskTypeRegistry because a
+// persisted DagNodeDefinition may predate the strategy layer.
 func (fsm *TaskStateMachine) SetPolicy(p *TransitionPolicy) {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
 	fsm.policy = p
 }
 
-// Policy returns the installed TransitionPolicy, or nil.
 func (fsm *TaskStateMachine) Policy() *TransitionPolicy {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
 	return fsm.policy
 }
 
-// State returns the current node state.
 func (fsm *TaskStateMachine) State() NodeState {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
 	return fsm.state
 }
 
-// Error returns the last error recorded for this node, if any.
 func (fsm *TaskStateMachine) Error() *NodeError {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
 	return fsm.error
 }
 
-// NodeID returns the node identifier.
 func (fsm *TaskStateMachine) NodeID() string { return fsm.nodeID }
 
-// DagID returns the DAG identifier.
 func (fsm *TaskStateMachine) DagID() string { return fsm.dagID }
 
-// Phase returns the task phase.
 func (fsm *TaskStateMachine) Phase() TaskPhase { return fsm.phase }
 
-// Context returns a snapshot of the state machine context.
 func (fsm *TaskStateMachine) Context() StateMachineContext {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
@@ -152,8 +142,8 @@ func (fsm *TaskStateMachine) ResetRetryCount() {
 	fsm.context.RetryCount = 0
 }
 
-// Transition attempts to move the node to the target state, enforcing
-// the validTransitions table and recording the transition in history.
+// Transition moves the node to the target state, letting the policy's
+// transition rules redirect the target, and appends the move to history.
 func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext) error {
 	fsm.mu.Lock()
 
@@ -208,10 +198,8 @@ func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext
 		fsm.runActionsLocked(prevState, resolvedTo, ctx)
 	}
 
-	// Post-transition invariant check: validate that the new state is
-	// internally consistent and agrees with the broader system context.
-	// Runs under the FSM lock so the check sees a stable snapshot. The
-	// checker is a no-op when no invariants are registered (nil-safe).
+	// Post-transition invariant check. Runs under the FSM lock so the
+	// evaluators see a stable snapshot; a nil checker reports nothing.
 	if violations := getInvariantChecker().Check(fsm.context, resolvedTo, nil); len(violations) > 0 {
 		for _, v := range violations {
 			if v.Severity == InvariantError {
@@ -269,7 +257,6 @@ func (fsm *TaskStateMachine) transitionAllowedLocked(from, to NodeState) bool {
 					return true
 				}
 			}
-		// No matching rule in the policy; fall back to the global table.
 		}
 	}
 	return CanTransition(from, to)
@@ -293,8 +280,6 @@ func (fsm *TaskStateMachine) runActionsLocked(from, to NodeState, event Transiti
 	}
 }
 
-// CanTransitionTo checks whether a transition to the target state is
-// valid from the current state.
 func (fsm *TaskStateMachine) CanTransitionTo(toState NodeState) bool {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()

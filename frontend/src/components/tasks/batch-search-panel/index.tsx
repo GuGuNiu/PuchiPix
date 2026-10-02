@@ -14,11 +14,8 @@ import { getSites, getSiteOptions } from "./constants";
 import { JobResults } from "./job-results";
 
 /*
- * Backend contract: POST /api/search/batch with { keywords: string[] }
- * returns a bare array of { id, title, protagonist, tags, coverUrl,
- * siteId, imageCount, status } matched against the local gallery
- * database. Performs a single synchronous batch lookup and reports
- * found / not_found per title.
+ * One row of the bare array returned by POST /api/search/batch, which matches
+ * the submitted titles against the local gallery database.
  */
 interface SearchHit {
   id: number;
@@ -72,27 +69,30 @@ export default function BatchSearchPanel({
       const res = await fetch("/api/search/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords: titles }),
+        body: JSON.stringify({ keywords: titles, siteId: selectedSiteId }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data: unknown = await res.json();
       const hits: SearchHit[] = Array.isArray(data) ? data : [];
 
+      const usedHitIds = new Set<number>();
       const results: BatchTitleResult[] = titles.map((title) => {
         const lower = title.toLowerCase();
         const hit = hits.find(
           (h) =>
-            h.title.toLowerCase().includes(lower) ||
-            lower.includes(h.title.toLowerCase()) ||
-            h.protagonist.toLowerCase().includes(lower),
+            !usedHitIds.has(h.id) &&
+            (h.title.toLowerCase().includes(lower) ||
+              lower.includes(h.title.toLowerCase()) ||
+              h.protagonist.toLowerCase().includes(lower)),
         );
         if (hit) {
+          usedHitIds.add(hit.id);
           const item: SearchItem = {
             pageUrl: hit.coverUrl || "",
             title: hit.title,
             coverUrl: hit.coverUrl,
             date: hit.protagonist || undefined,
-            status: "downloaded",
+            status: hit.status as SearchItem["status"],
             retries: 0,
           };
           return {

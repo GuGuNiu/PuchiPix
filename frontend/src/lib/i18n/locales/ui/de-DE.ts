@@ -1,8 +1,6 @@
 import type { TranslationDict } from "../../types";
 
-/** Frontend UI text — de-DE */
 const deDE: TranslationDict = {
-  /* ─── Common ─── */
   "common.refresh": "Aktualisieren",
   "common.delete": "Löschen",
   "common.cancel": "Abbrechen",
@@ -21,6 +19,7 @@ const deDE: TranslationDict = {
   "common.success": "Erfolg",
   "common.failed": "Fehlgeschlagen",
   "common.pending": "Ausstehend",
+  "common.preparing": "Wird vorbereitet",
   "common.completed": "Abgeschlossen",
   "common.downloading": "Herunterladen",
   "common.scraping": "Identifizierung",
@@ -37,7 +36,6 @@ const deDE: TranslationDict = {
   "common.adding": "Wird hinzugefügt...",
   "common.pages": "Seiten",
 
-  /* ─── Navigation ─── */
   "nav.dashboard": "Puchi-Halle",
   "nav.tasks": "Aufgaben",
   "nav.shelf": "Ressourcenregal",
@@ -57,13 +55,12 @@ const deDE: TranslationDict = {
   "nav.collapse": "Seitenleiste einklappen",
   "nav.language": "Sprache",
   "nav.photos": "Foto-Pakete",
+  "nav.videos": "Videos",
   "nav.sjs": "SJS",
 
-  /* ─── SJS ─── */
   "sjs.comingSoon": "SJS kommt bald",
   "sjs.underConstruction": "In Entwicklung, bleiben Sie dran",
 
-  /* ─── SJS Shelf ─── */
   "sjs.shelf.batchImport": "Batch Import",
   "sjs.shelf.searchPlaceholder": "Search title, author, URL...",
   "sjs.shelf.allForums": "All Forums",
@@ -101,7 +98,6 @@ const deDE: TranslationDict = {
   "sjs.shelf.refreshed": "Refreshed",
   "sjs.shelf.refreshNetworkError": "Refresh request failed, please check network",
 
-  /* ─── Dashboard ─── */
   "dashboard.realtimeConnected": "Live",
   "dashboard.offline": "Offline",
   "dashboard.totalTasks": "Aufgaben gesamt",
@@ -131,7 +127,6 @@ const deDE: TranslationDict = {
   "dashboard.addLinkToStart": "Link hinzufügen, um den Download zu starten",
   "dashboard.identifying": "Identifizierung",
 
-  /* ─── Gallery ─── */
   "gallery.statusScraping": "Scrapen",
 "gallery.statusScrapePending": "Wartend (Identifiz.)",
 "gallery.statusDownloadPending": "Wartend (Download)",
@@ -201,7 +196,6 @@ const deDE: TranslationDict = {
   "gallery.zipExtractLabel": "Entpacken: ",
   "gallery.clickToCopy": "Klicken zum Kopieren",
 
-  /* ─── Search ─── */
   "search.placeholderGallery": "Schlüsselwörter eingeben oder vollständige URL einfügen (z.B. /article/ /tag/ Seiten)...",
   "search.placeholderVideo": "Suchbegriffe eingeben, durch Kommas oder Leerzeichen getrennt...",
   "search.searching": "Suche läuft...",
@@ -247,7 +241,6 @@ const deDE: TranslationDict = {
   "search.statusCancelled": "Abgebrochen",
   "search.statusScraping": "Scrapen",
 
-  /* ─── Settings ─── */
   "config.title": "Systemeinstellungen",
   "config.pathSettings": "Pfadeinstellungen",
   "config.chromeDriverPath": "ChromeDriver-Pfad",
@@ -268,7 +261,13 @@ const deDE: TranslationDict = {
   "config.downloadMaxSpeed": "Geschwindigkeitslimit (MB/s, 0=unbegrenzt)",
   "config.downloadMinFileSize": "Minimale Dateigröße (MB)",
 
-  /* ─── Sniff ─── */
+  "config.gpuTranscodeSettings": "GPU-Hardware-Transkodierung",
+  "config.enableGPUTranscode": "GPU-Hardware-Beschleunigung für Transkodierung aktivieren",
+  "config.gpuDetecting": "GPU wird erkannt...",
+  "config.gpuDetected": "GPU erkannt",
+  "config.gpuDriver": "Treiberversion",
+  "config.gpuEncoder": "Encoder",
+  "config.gpuNotAvailable": "Keine kompatible GPU erkannt, Transkodierung erfolgt per CPU",
   "sniff.title": "M3U8-Links sniffe",
   "sniff.control": "Sniffing-Steuerung",
   "sniff.targetUrl": "Ziel-URL",
@@ -287,7 +286,6 @@ const deDE: TranslationDict = {
   "sniff.addedToDownload": "Zu Download-Aufgaben hinzugefügt",
   "sniff.untitled": "Unbenannt",
 
-  /* ─── Characters ─── */
   "protagonists.title": "Charakter-Galerie",
   "protagonists.subtitle": "Normalisierte Charakterliste — klicken, um alle Galeries dieses Charakters anzuzeigen",
   "protagonists.searchPlaceholder": "Charaktername suchen...",
@@ -303,8 +301,6 @@ const deDE: TranslationDict = {
   "protagonists.statGalleries": "{count} Galerien",
   "protagonists.statAliases": "{count} Aliase",
 
-  /* ─── Ops Panel ─── */ "ops.online": "Online", "ops.offline": "Offline", "ops.todayTasks": "Heutige Aufgaben", "ops.avgSpeed": "Ø Geschwindigkeit", "ops.uptime": "Verfügbarkeit", "ops.lastChecked": "Zuletzt geprüft", "ops.loadingSites": "Site-Monitoring-Daten werden geladen...", "ops.systemConsole": "Systemkonsole", "ops.realtimeConnected": "Live", "ops.disconnected": "Getrennt", "ops.all": "Alle", "ops.resume": "Fortsetzen", "ops.pause": "Pause", "ops.clear": "Leeren", "ops.noLogs": "Keine Logs", "ops.pausedBuffer": "Pausiert — {count} neue Logs im Puffer",
-  /* ─── Search (Supplements) ─── */   "createTask.title": "Download-Aufgabe erstellen",
   "createTask.pleaseFillLink": "Bitte Link eingeben",
   "createTask.exactMatch": "Genaue Übereinstimmung",
   "createTask.mirrorMatch": "Spiegel-Domain-Übereinstimmung",
@@ -327,10 +323,7 @@ const deDE: TranslationDict = {
   "createTask.createTask": "Aufgabe erstellen",
 
   "search.scrape": "Scrapen", "search.scrapeThisVideo": "Dieses Video scrapen", "search.loadingData": "Daten werden geladen...", "search.statusDownloaded": "Heruntergeladen", "search.taskId": "Aufgabe #{id}", "search.tags": "Tags", "search.noDetailData": "Keine Detaildaten. Bitte zuerst {scrape} oder herunterladen.", "search.videoData": "Videodaten", "search.fieldTitle": "Titel", "search.fieldDate": "Datum", "search.fieldResolution": "Auflösung", "search.fieldDuration": "Dauer", "search.fieldStatus": "Status", "search.categories": "Kategorien", "search.actors": "Schauspieler", "search.director": "Regisseur", "search.segmentData": "Segmentdaten", "search.segmentCount": "Segmentanzahl", "search.totalDuration": "Gesamtdauer", "search.avgSegmentDuration": "Ø Segmentdauer", "search.sizeData": "Größendaten", "search.fieldFileSize": "Dateigröße", "search.estimatedSize": "Geschätzte Größe", "search.estimatedSizeValue": "Schätzung", "search.bitrate": "Bitrate",
-  /* ─── Batch Search ─── */ "batchSearch.title": "Batch-Suche", "batchSearch.titleLabel": "Titel", "batchSearch.siteLabel": "Seite", "batchSearch.startSearch": "Suche starten", "batchSearch.searching": "Suche läuft...", "batchSearch.collapse": "Einklappen", "batchSearch.expand": "Ausklappen", "batchSearch.downloaded": "Heruntergeladen", "batchSearch.notFound": "Nicht gefunden", "batchSearch.failed": "Fehlgeschlagen", "batchSearch.total": "Gesamt", "batchSearch.all": "Alle", "batchSearch.candidates": "{count} Kandidaten", "batchSearch.progress": "Fortschritt: ", "batchSearch.copyNotFound": "Nicht gefundene kopieren", "batchSearch.retryFailed": "Fehlgeschlagene wiederholen", "batchSearch.hideLogs": "Logs ausblenden", "batchSearch.showLogs": "Logs anzeigen", "batchSearch.colInputTitle": "Eingabetitel", "batchSearch.colMatchResult": "Ergebnis", "batchSearch.colScore": "Score", "batchSearch.colStatus": "Status", "batchSearch.colTask": "Aufgabe", "batchSearch.complete": "Batch-Suche abgeschlossen: heruntergeladen {downloaded}, nicht gefunden {notFound}, fehlgeschlagen {failed}", "batchSearch.started": "Batch-Suche gestartet, {count} Titel", "batchSearch.copied": "{count} Titel in die Zwischenablage kopiert", "batchSearch.placeholder": "Videotitel einfügen, einer pro Zeile, z.B.:\nGeheimleben einer schönen Zofe\nVersuchung eines Engels\nErziehungstagebuch", "batchSearch.pleaseInputTitle": "Bitte Titel eingeben", "batchSearch.noValidTitle": "Keine gültigen Titel gefunden", "batchSearch.cancelled": "Batch-Suche abgebrochen", "batchSearch.cancelFailed": "Abbruch fehlgeschlagen", "batchSearch.noNotFound": "Keine nicht gefundenen Titel", "batchSearch.noRetry": "Keine Titel zu wiederholen", "batchSearch.refilled": "Fehlgeschlagene Titel ins Eingabefeld eingefüllt", "batchSearch.inputHint": "{count} Titel erkannt · Auto-Fuzzy-Suche und Download passender Videos · 3-5s Intervall zwischen Titeln zur Blockierungsvorbeugung",
-  /* ─── Task Settings ─── */ "taskSettings.title": "Aufgaben-Einstellungen", "taskSettings.maxConcurrentTasks": "Max. gleichzeitige Aufgaben", "taskSettings.maxConcurrentTasksDesc": "Limit gleichzeitiger Video/Galerie-Download-Aufgaben", "taskSettings.maxScrapingTasks": "Max. Scraping-Aufgaben", "taskSettings.maxScrapingTasksDesc": "Limit gleichzeitiger Scraping-(Identifikations-)Aufgaben", "taskSettings.sniffMaxConcurrentTasks": "Max. Sniff-Gleichzeitig-Aufgaben", "taskSettings.maxSniffTasksDesc": "Limit gleichzeitiger Sniffing-Aufgaben", "taskSettings.tsSegmentConcurrent": "TS-Segment-Parallelität", "taskSettings.tsSegmentConcurrentDesc": "Parallele TS-Segment-Anfragen pro Video-Download", "taskSettings.galleryImageConcurrent": "Galerie-Bild-Parallelität", "taskSettings.galleryImageConcurrentDesc": "Parallele Bild-Anfragen beim Galerie-Download", "taskSettings.unitTasks": "Aufg.", "taskSettings.unitSegments": "Seg.", "taskSettings.unitFiles": "Dateien", "taskSettings.note": "Änderungen werden sofort wirksam, kein Neustart nötig", "taskSettings.refresh": "Aktualisieren", "taskSettings.save": "Speichern", "taskSettings.loadFailed": "Einstellungen konnten nicht geladen werden", "taskSettings.saveFailed": "Einstellungen konnten nicht gespeichert werden", "taskSettings.saved": "Einstellungen gespeichert", "console.noTaskLogs": "Keine Aufgabenlogs", "console.fetchFailed": "Logs konnten nicht abgerufen werden",
 
-  /* ─── DAG Node States ─── */
   "dag.nodeState.pending": "Wartend",
   "dag.nodeState.ready": "Bereit",
   "dag.nodeState.queued": "In Warteschlange",
@@ -352,7 +345,36 @@ const deDE: TranslationDict = {
   "modelstage.comingSoon": "Bald verfügbar, bleiben Sie dran",
   "modelstage.title": "Modelbühne",
 
-  /* ─── Videos ─── */
+  "video.statusScraping": "Scrapen",
+  "video.statusScrapePending": "Wartend (Identifiz.)",
+  "video.statusDownloadPending": "Wartend (Download)",
+  "video.statusCompleted": "Abgeschlossen",
+  "video.statusDownloading": "Herunterladen",
+  "video.statusPartial": "Teilweise",
+  "video.statusFailed": "Fehlgeschlagen",
+  "video.statusPending": "Ausstehend",
+  "video.filterAll": "Alle",
+  "video.filterScraping": "Scrapen",
+  "video.filterDownloading": "Herunterladen",
+  "video.filterCompleted": "Abgeschlossen",
+  "video.filterFailed": "Fehlgeschlagen",
+  "video.sortDateDesc": "Neueste zuerst",
+  "video.sortDateAsc": "Älteste zuerst",
+  "video.sortVideosDesc": "Meiste Videos",
+  "video.sortSizeDesc": "Größte Größe",
+  "video.searchPlaceholder": "Titel, Modell oder URL suchen...",
+  "video.noVideos": "Noch keine Videos",
+  "video.noMatchingVideos": "Keine passenden Videos",
+  "video.emptyHintNew": "Geben Sie eine Video-Website-URL auf der Aufgabenseite ein, um das Scrapen zu starten",
+  "video.emptyHintFilter": "Versuchen Sie, Filter oder Suchbegriffe anzupassen",
+  "video.videoTitle": "Video #{id}",
+  "video.model": "Modell",
+  "video.confirmDelete": "Video #{id} löschen?",
+  "video.deleted": "Video #{id} gelöscht",
+  "video.deleteFailed": "Löschen fehlgeschlagen",
+  "video.retryStarted": "Video #{id} Download neu gestartet",
+  "video.retryFailed": "Download-Start fehlgeschlagen",
+  "video.previewError": "Vorschau nicht verfügbar",
   "video.play": "Abspielen",
   "video.pause": "Pause",
   "video.mute": "Stumm",

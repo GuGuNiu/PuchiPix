@@ -1,9 +1,9 @@
 package aimeizizi
 
 import (
-	"slices"
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -16,8 +16,6 @@ var (
 	ouoURLPattern    = regexp.MustCompile(`(?i)https?://(?:www\.)?(?:ouo\.io|ouo\.press)/[A-Za-z0-9]+`)
 )
 
-// ParseArticlePageConfig extracts the ArticlePageConfig JSON from the
-// #article-page-config script tag.
 func ParseArticlePageConfig(doc *goquery.Document) *ArticlePageConfig {
 	content := doc.Find("#article-page-config").Text()
 	if content == "" {
@@ -30,8 +28,6 @@ func ParseArticlePageConfig(doc *goquery.Document) *ArticlePageConfig {
 	return &cfg
 }
 
-// ParseGalleryPageHtml extracts gallery metadata from a goquery document,
-// including images, videos, tags, and pagination info.
 func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder string) GalleryPageMetadata {
 	result := GalleryPageMetadata{
 		CurrentPage: 1,
@@ -87,10 +83,7 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 			}
 		})
 
-		// Use the first collected image as the gallery cover instead of
-		// running a separate selection loop over article <img> elements.
-		// The first image (ordered by page position) is the most
-		// representative thumbnail for the gallery.
+		// The first image in document order is the most representative cover.
 		if result.CoverURL == "" && len(result.Images) > 0 {
 			result.CoverURL = result.Images[0].URL
 		}
@@ -120,12 +113,10 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 		}
 	})
 
-	// Extract publish time from article time element (most reliable source).
 	article.Find("time").Each(func(_ int, t *goquery.Selection) {
 		if result.PublishTime != "" {
 			return
 		}
-		// Try datetime attribute first (ISO 8601 format), then text content.
 		datetime := t.AttrOr("datetime", "")
 		if datetime != "" && len(datetime) >= 10 {
 			result.PublishTime = datetime[:10]
@@ -137,7 +128,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 		}
 	})
 
-	// Fallback to JSON-LD VideoObject uploadDate.
 	doc.Find(`script[type="application/ld+json"]`).Each(func(_ int, script *goquery.Selection) {
 		if result.PublishTime != "" {
 			return
@@ -156,7 +146,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 		}
 	})
 
-	// Final fallback: extract date from cover URL path.
 	if result.PublishTime == "" && result.CoverURL != "" {
 		if m := dateInURLPattern.FindStringSubmatch(result.CoverURL); len(m) >= 4 {
 			result.PublishTime = m[1] + "-" + m[2] + "-" + m[3]
@@ -166,7 +155,6 @@ func ParseGalleryPageHtml(doc *goquery.Document, pageIndex int, placeholder stri
 	return result
 }
 
-// SearchEntry represents a single search result from a listing page.
 type SearchEntry struct {
 	URL      string
 	Title    string
@@ -174,7 +162,6 @@ type SearchEntry struct {
 	Date     string
 }
 
-// ParseSearchResults extracts search results from a listing page document.
 func ParseSearchResults(doc *goquery.Document, baseURL, placeholder string) []SearchEntry {
 	var results []SearchEntry
 	seen := make(map[string]bool)
@@ -227,7 +214,6 @@ func ParseSearchResults(doc *goquery.Document, baseURL, placeholder string) []Se
 	return results
 }
 
-// ZipInfoFromHtml holds parsed ZIP download information.
 type ZipInfoFromHtml struct {
 	Title           string
 	FileCount       int
@@ -242,18 +228,15 @@ type ZipInfoFromHtml struct {
 	DownloadSource  string
 }
 
-// ParseZipInfoFromHtml extracts ZIP download info from a document.
-// It detects both traditional download boxes and OUO short links that
-// may appear at the top of the page.
+// OUO short links sit outside the download box, so they are detected
+// independently of the box markup.
 func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml {
 	box := doc.Find(".download-info-box")
 	section := doc.Find(".download-section")
 	btn := doc.Find(".btn-download")
 
-	// Search for OUO short links anywhere in the page
 	ouoURL := extractOuoURL(doc)
 
-	// If no download box and no OUO link found, return nil
 	if box.Length() == 0 && section.Length() == 0 && ouoURL == "" {
 		return nil
 	}
@@ -311,7 +294,6 @@ func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml
 		info.RequiresEmail = true
 	}
 
-	// Store detected OUO URL
 	if ouoURL != "" {
 		info.OuoURL = ouoURL
 		info.DownloadSource = "ouo"
@@ -324,10 +306,9 @@ func ParseZipInfoFromHtml(doc *goquery.Document, domain string) *ZipInfoFromHtml
 	return info
 }
 
-// extractOuoURL searches the document for OUO short links (ouo.io or ouo.press).
-// It checks <a> tags, script content, and inline text to find the first OUO URL.
+// The OUO link is not always in a stable position, so anchors and script
+// bodies are scanned before falling back to a whole-page text search.
 func extractOuoURL(doc *goquery.Document) string {
-	// First check <a> tags with href containing ouo.io/ouo.press
 	var ouoURL string
 	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
 		if ouoURL != "" {
@@ -343,7 +324,6 @@ func extractOuoURL(doc *goquery.Document) string {
 		return ouoURL
 	}
 
-	// Then check script tags for embedded OUO URLs
 	doc.Find("script").Each(func(_ int, script *goquery.Selection) {
 		if ouoURL != "" {
 			return
@@ -358,9 +338,6 @@ func extractOuoURL(doc *goquery.Document) string {
 		return ouoURL
 	}
 
-	// Finally check the entire page text for OUO URLs
-	// This catches cases where the URL might be in data attributes or
-	// other non-standard locations
 	pageText := doc.Text()
 	if matched := ouoURLPattern.FindString(pageText); matched != "" {
 		return matched
@@ -377,7 +354,6 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
 
 func atoiSafe(s string) int {
 	n := 0

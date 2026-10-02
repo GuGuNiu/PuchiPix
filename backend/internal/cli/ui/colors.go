@@ -2,7 +2,6 @@ package ui
 
 import "fmt"
 
-// ANSI escape codes for terminal styling, matching the TypeScript C map.
 const (
 	Reset     = "\033[0m"
 	Bold      = "\033[1m"
@@ -23,8 +22,9 @@ const (
 	BgBlue    = "\033[44m"
 )
 
-// StateStyle pairs an ANSI color code with a label for a node state,
-// matching the TypeScript STATE_STYLE map.
+// StateStyle pairs an ANSI color code with the label of a node state. Labels
+// must stay identical to the frontend STATE_STYLE map so both surfaces render
+// the same state the same way.
 type StateStyle struct {
 	Color string
 	Label string
@@ -46,7 +46,6 @@ var stateStyles = map[string]StateStyle{
 	"needs_retry":   {Yellow, "\u21bb NEEDS_RETRY"},
 }
 
-// StateLabel returns the colored label for a node state string.
 func StateLabel(state string) string {
 	style, ok := stateStyles[state]
 	if !ok {
@@ -55,8 +54,8 @@ func StateLabel(state string) string {
 	return style.Color + style.Label + Reset
 }
 
-// StatePill returns a fixed-width uppercase colored state pill,
-// matching the TypeScript statePill function.
+// StatePill renders the state as a fixed-width pill, unknown states are
+// padded to the same width so table columns stay aligned.
 func StatePill(state string) string {
 	style, ok := stateStyles[state]
 	if !ok {
@@ -77,7 +76,6 @@ var logLevelStyles = map[string]LogLevelStyle{
 	"error": {Red, "ERROR"},
 }
 
-// LogLevelLabel returns the colored label for a log level string.
 func LogLevelLabel(level string) string {
 	style, ok := logLevelStyles[toLowerCase(level)]
 	if !ok {

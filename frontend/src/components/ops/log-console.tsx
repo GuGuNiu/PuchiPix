@@ -25,9 +25,8 @@ interface LogConsoleProps {
 }
 
 /*
- * Go backend serializes LogContext as a nested {context: {dagId, nodeId,
- * traceId, ...}} object; the frontend reads these at the top level.
- * Flatten the nested context onto the entry so dag/node/trace tags render.
+ * The backend nests the ids under {context: {dagId, nodeId, traceId, ...}},
+ * while the frontend reads them at the top level of the entry.
  */
 function flattenLogContext(raw: Record<string, unknown>): Record<string, unknown> {
   const ctx = raw.context;

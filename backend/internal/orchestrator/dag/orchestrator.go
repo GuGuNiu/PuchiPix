@@ -20,6 +20,7 @@ func defaultOnRestart(restoredState orchestrator.NodeState) orchestrator.NodeSta
 		orchestrator.NodeStateAllocated,
 		orchestrator.NodeStateQueued,
 		orchestrator.NodeStateReady,
+		orchestrator.NodeStatePreparing,
 		orchestrator.NodeStateResumeVerify,
 		orchestrator.NodeStateNeedsRetry:
 		return orchestrator.NodeStatePaused
@@ -83,6 +84,11 @@ type SchedulerInterface interface {
 	// must transition the node to PAUSED/CANCELLED BEFORE calling it so
 	// the executor's cancellation report is ignored by OnNodeCompleted.
 	CancelRunningNode(dagID, nodeID string)
+	// IsExecuting reports whether a live executor supervisor is running
+	// this node right now. The zombie sweep uses it to tell a node whose
+	// executor is genuinely gone from one that is still in flight.
+	IsExecuting(dagID, nodeID string) bool
+	WaitForDag(ctx context.Context, dagID string) error
 	OnSlotFreed(slotType string)
 }
 
@@ -105,6 +111,22 @@ type FlowControllerInterface interface {
 	TryAsk() bool
 }
 
+// DomainAdmissionInterface is the contract the orchestrator needs from the
+// per-domain admission gate. It mirrors FlowControllerInterface's shape so the
+// two gates compose at the same point without the orchestrator depending on
+// the stealth package.
+type DomainAdmissionInterface interface {
+	// TryAdmit reserves capacity on one of the site's domains without
+	// blocking. It returns the reserved domain and true when the node may
+	// proceed, or an empty domain and false when every domain is at
+	// capacity. A site with no known domains is always admitted.
+	TryAdmit(siteID string) (string, bool)
+
+	// Release returns a reservation taken by TryAdmit. The domain must be
+	// the value TryAdmit returned.
+	Release(siteID, domain string)
+}
+
 // SlotPoolInterface is the contract the orchestrator needs from the
 // slot pool.
 type SlotPoolInterface interface {
@@ -117,7 +139,7 @@ type SlotPoolInterface interface {
 // submission, node activation, dependency resolution, pause/resume/
 // cancel/retry, and snapshot persistence/recovery.
 //
-// Concurrency model (Stage 3 lock split):
+// Concurrency model:
 //   - dagsMu (RWMutex) guards ONLY the dags map (lookup/insert).
 //   - Each dagInstance.mu guards that DAG's nodes/FSM/counters/graphIdx.
 //   - Global lock ordering (never reversed): dagsMu(R) -> dag.mu ->
@@ -142,13 +164,28 @@ type DagOrchestrator struct {
 	// control" (original behavior, useful for tests).
 	flowController FlowControllerInterface
 
+	// domainAdmission (optional) spreads admitted nodes across a site's
+	// mirror domains. It runs after flowController and before the scheduler,
+	// so a node can be held back by domain saturation while the global rate
+	// still looks healthy. Reservations are released when the node settles,
+	// is paused or is cancelled. nil means no domain balancing.
+	domainAdmission DomainAdmissionInterface
+
+	// domainReservations holds the domain reserved for each in-flight node,
+	// keyed by "dagID:nodeID" to match the slot pool's holder ID convention.
+	// It has its own mutex rather than using dagsMu: the documented lock
+	// order takes dagsMu for read before dag.mu, so taking it for write from
+	// inside a DAG-locked path would invert the order.
+	domainReservationsMu sync.Mutex
+	domainReservations   map[string]string
+
 	// statusSyncFn, when installed, is invoked after a node transitions
 	// to a terminal state (or RUNNING) so the orchestrator can push the
 	// FSM state back to the entity tables (galleries / download_tasks /
-	// sniff_tasks). This closes the long-standing gap where the DB status
-	// update was deferred ("Phase 4 integration" TODO) and the FSM could
-	// reach failed while the DB stayed at a transient status. It is a
-	// one-way fire-and-forget callback: failures are logged, never fatal.
+	// sniff_tasks), closing the gap where the DB status update was
+	// deferred and the FSM could reach failed while the DB stayed at a
+	// transient status. It is a one-way fire-and-forget callback: failures
+	// are logged, never fatal.
 	statusSyncFn func(ctx context.Context, dagID, nodeID string, def orchestrator.DagNodeDefinition, state orchestrator.NodeState)
 
 	// dagStatusSyncFn, when installed, is invoked once when a DAG reaches a
@@ -160,14 +197,18 @@ type DagOrchestrator struct {
 	// CONDITIONAL terminal write that only fills entities still stuck in an
 	// active status (scraping/downloading/pending), so an executor crash
 	// between node completion and its final UPDATE can no longer leave the
-	// DB permanently "downloading" (the 260817 crash-recovery blind spot).
-	// It never clobbers executor-owned terminal statuses (partial/failed/
-	// cancelled/completed) because the WHERE clause excludes them.
+	// DB permanently "downloading". It never clobbers executor-owned
+	// terminal statuses (partial/failed/cancelled/completed) because the
+	// WHERE clause excludes them.
 	dagStatusSyncFn func(ctx context.Context, dagID string, def orchestrator.DagDefinition, aggregateStatus string)
 
 	// reactivationStarted guards the auto-reactivation ticker so
 	// StartAutoReactivation is idempotent.
 	reactivationStarted bool
+
+	// zombieSweepStarted guards the zombie-sweep ticker so
+	// StartZombieSweep is idempotent.
+	zombieSweepStarted bool
 }
 
 // NewDagOrchestrator creates an orchestrator with the given event store
@@ -250,6 +291,103 @@ func (o *DagOrchestrator) SetFlowController(fc FlowControllerInterface) {
 	}
 }
 
+// SetDomainAdmission connects the per-domain admission gate. Once set, every
+// node submission reserves a domain before entering the scheduler. Setting it
+// to nil disables domain balancing.
+func (o *DagOrchestrator) SetDomainAdmission(da DomainAdmissionInterface) {
+	o.domainReservationsMu.Lock()
+	o.domainAdmission = da
+	if da != nil && o.domainReservations == nil {
+		o.domainReservations = make(map[string]string)
+	}
+	o.domainReservationsMu.Unlock()
+
+	if da != nil {
+		o.logger.Info("Per-domain admission enabled")
+	} else {
+		o.logger.Info("Per-domain admission disabled")
+	}
+}
+
+// recordDomainReservation stores the domain reserved for a node.
+func (o *DagOrchestrator) recordDomainReservation(dagID, nodeID, domain string) {
+	o.domainReservationsMu.Lock()
+	defer o.domainReservationsMu.Unlock()
+	if o.domainReservations == nil {
+		o.domainReservations = make(map[string]string)
+	}
+	o.domainReservations[dagID+":"+nodeID] = domain
+}
+
+// releaseDomainReservation returns a node's domain reservation. It is
+// idempotent: a node that was never admitted, or whose reservation was already
+// returned, is a no-op. That matters because completion, pause and cancel can
+// all settle the same node.
+func (o *DagOrchestrator) releaseDomainReservation(dagID, nodeID string) {
+	o.domainReservationsMu.Lock()
+	domain, ok := o.domainReservations[dagID+":"+nodeID]
+	if ok {
+		delete(o.domainReservations, dagID+":"+nodeID)
+	}
+	admission := o.domainAdmission
+	o.domainReservationsMu.Unlock()
+
+	if !ok || admission == nil {
+		return
+	}
+	admission.Release(siteIDFromConfig(o, dagID, nodeID), domain)
+}
+
+// releaseDomainReservationsForDag returns every reservation held by a DAG.
+// Used by pause, cancel and delete, where a whole DAG stops occupying capacity
+// at once.
+func (o *DagOrchestrator) releaseDomainReservationsForDag(dagID string) {
+	o.domainReservationsMu.Lock()
+	admission := o.domainAdmission
+	released := make(map[string]string)
+	prefix := dagID + ":"
+	for key, domain := range o.domainReservations {
+		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+			released[key[len(prefix):]] = domain
+			delete(o.domainReservations, key)
+		}
+	}
+	o.domainReservationsMu.Unlock()
+
+	if admission == nil {
+		return
+	}
+	for nodeID, domain := range released {
+		admission.Release(siteIDFromConfig(o, dagID, nodeID), domain)
+	}
+}
+
+// siteIDFromConfig reads the site identifier the DAG factory injected into a
+// node's config, which is what the domain pool is keyed by. Returns an empty
+// string when the node is gone, in which case Release is a no-op.
+func siteIDFromConfig(o *DagOrchestrator, dagID, nodeID string) string {
+	o.dagsMu.RLock()
+	dag, ok := o.dags[dagID]
+	o.dagsMu.RUnlock()
+	if !ok {
+		return ""
+	}
+
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+
+	node, ok := dag.nodes[nodeID]
+	if !ok {
+		return ""
+	}
+	if raw, exists := node.definition.Config["siteId"]; exists {
+		if s, isString := raw.(string); isString {
+			return s
+		}
+	}
+	return ""
+}
+
 // SetStatusSyncFn installs the callback that pushes node FSM state back
 // to the entity tables after terminal transitions. See statusSyncFn.
 func (o *DagOrchestrator) SetStatusSyncFn(fn func(ctx context.Context, dagID, nodeID string, def orchestrator.DagNodeDefinition, state orchestrator.NodeState)) {
@@ -287,8 +425,7 @@ func (o *DagOrchestrator) Reconciler() *orchestrator.StateReconciler {
 // GetNodeForVerification returns a DagNodeForVerification view of the
 // node, or nil if the DAG/node does not exist. This is the production
 // implementation backing the scheduler's
-// DagOrchestratorInterface.GetNodeForVerification callback — previously
-// the adapter returned nil, breaking the entire verification chain.
+// DagOrchestratorInterface.GetNodeForVerification callback.
 func (o *DagOrchestrator) GetNodeForVerification(dagID, nodeID string) *orchestrator.DagNodeForVerification {
 	o.dagsMu.RLock()
 	dag, ok := o.dags[dagID]
@@ -358,10 +495,9 @@ func (o *DagOrchestrator) SubmitDag(ctx context.Context, def orchestrator.DagDef
 	}
 	for _, nodeDef := range def.Nodes {
 		fsm := orchestrator.NewTaskStateMachine(dagID, nodeDef.ID, nodeDef.Phase, nodeDef)
-		// Strategy layer: when the definition has no explicit
-		// TransitionPolicy, look one up from the TaskTypeRegistry so
-		// definitions persisted before the strategy layer still get
-		// policy-driven behavior (guards, actions, retryPolicy).
+		// Look up a TransitionPolicy in the TaskTypeRegistry when the
+		// definition carries none, so definitions persisted without one
+		// still get policy-driven guards, actions and retryPolicy.
 		if fsm.Policy() == nil {
 			if p := o.resolvePolicy(nodeDef); p != nil {
 				fsm.SetPolicy(p)

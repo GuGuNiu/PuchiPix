@@ -1,5 +1,3 @@
-// Task detail panel — task-detail-popover / task-detail-grid / failure-reason
-
 .task-detail-overlay {
   position: fixed;
   inset: 0;
@@ -198,7 +196,6 @@
   }
 }
 
-// ===== Failure Reason Card =====
 .failure-reason-card {
   background: linear-gradient(135deg, var(--danger-soft) 0%, var(--danger-soft) 100%);
   border: 1px solid var(--danger-light, var(--danger));

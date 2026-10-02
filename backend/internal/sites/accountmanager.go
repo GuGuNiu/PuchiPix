@@ -1,4 +1,4 @@
-﻿package sites
+package sites
 
 import (
 	"context"
@@ -19,7 +19,6 @@ type SiteAccountManager struct {
 	logger *infra.Logger
 }
 
-// NewSiteAccountManager creates a manager bound to the given database.
 func NewSiteAccountManager(database *db.Database) *SiteAccountManager {
 	return &SiteAccountManager{
 		db:     database,
@@ -47,7 +46,6 @@ func (m *SiteAccountManager) GetAvailableAccount(ctx context.Context, siteID str
 	return &acc, nil
 }
 
-// GetAccountById returns a single account by its primary key.
 func (m *SiteAccountManager) GetAccountById(ctx context.Context, accountID int) (*db.SiteAccount, error) {
 	row := m.db.QueryRow(ctx, `
 		SELECT id, site_id, username, password, domain, status, auth_cookies,
@@ -62,7 +60,6 @@ func (m *SiteAccountManager) GetAccountById(ctx context.Context, accountID int) 
 	return &acc, nil
 }
 
-// GetAccountsBySiteId returns all accounts for a site as AccountInfo views.
 func (m *SiteAccountManager) GetAccountsBySiteId(ctx context.Context, siteID string) ([]AccountInfo, error) {
 	rows, err := m.db.Query(ctx, `
 		SELECT id, site_id, username, password, domain, status, auth_cookies,
@@ -131,7 +128,8 @@ func (m *SiteAccountManager) GetAuthCookies(ctx context.Context, accountID int) 
 	return nil, nil
 }
 
-// SaveAuthCookies persists cookies for an account and resets its fail counter.
+// SaveAuthCookies persists cookies, marks the account active, and resets its
+// fail counter so a recovered session is retried from a clean state.
 func (m *SiteAccountManager) SaveAuthCookies(ctx context.Context, accountID int, cookies []CookieData, cookiePrefix string) error {
 	cookiesJSON, err := json.Marshal(cookies)
 	if err != nil {
@@ -155,7 +153,6 @@ func (m *SiteAccountManager) SaveAuthCookies(ctx context.Context, accountID int,
 	return nil
 }
 
-// MarkUsed updates the last_used_at timestamp for an account.
 func (m *SiteAccountManager) MarkUsed(ctx context.Context, accountID int) error {
 	_, err := m.db.Exec(ctx, `
 		UPDATE site_accounts SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -163,8 +160,8 @@ func (m *SiteAccountManager) MarkUsed(ctx context.Context, accountID int) error 
 	return err
 }
 
-// MarkLoginFailed increments the fail counter and auto-disables the account
-// after exceeding the threshold, preventing repeated use of broken credentials.
+// MarkLoginFailed increments the fail counter and disables the account once
+// the threshold is reached, so broken credentials are not retried forever.
 func (m *SiteAccountManager) MarkLoginFailed(ctx context.Context, accountID int, reason string) error {
 	acc, err := m.GetAccountById(ctx, accountID)
 	if err != nil || acc == nil {
@@ -197,14 +194,13 @@ func (m *SiteAccountManager) MarkLoginFailed(ctx context.Context, accountID int,
 	if shouldDisable {
 		m.logger.Warn("Account auto-disabled after consecutive failures",
 			infra.LogContext{Extra: map[string]any{
-				"id":         accountID,
+				"id":        accountID,
 				"failCount": newFailCount,
 			}})
 	}
 	return nil
 }
 
-// UpdateStatus changes the status of an account, optionally updating remark.
 func (m *SiteAccountManager) UpdateStatus(ctx context.Context, accountID int, status AccountStatus, remark string) error {
 	if remark != "" {
 		_, err := m.db.Exec(ctx, `
@@ -218,7 +214,6 @@ func (m *SiteAccountManager) UpdateStatus(ctx context.Context, accountID int, st
 	return err
 }
 
-// CreateAccount inserts a new site account and returns its info view.
 func (m *SiteAccountManager) CreateAccount(ctx context.Context, siteID, username, password, domain, cookiePrefix, remark string) (*AccountInfo, error) {
 	var id int
 	err := m.db.QueryRow(ctx, `
@@ -241,7 +236,6 @@ func (m *SiteAccountManager) CreateAccount(ctx context.Context, siteID, username
 	}, nil
 }
 
-// DeleteAccount removes an account by its primary key.
 func (m *SiteAccountManager) DeleteAccount(ctx context.Context, accountID int) error {
 	_, err := m.db.Exec(ctx, `DELETE FROM site_accounts WHERE id = ?`, accountID)
 	return err

@@ -2,13 +2,16 @@ import { create } from 'zustand';
 import type { DownloadTask, TaskStatus } from '@/types';
 import { subscribeSseEvent, onSseConnectionState } from '@/lib/sse/shared-sse';
 import { createLogger } from '@/lib/core/infra';
-import { normalizeStringArray } from '@/pages/tasks/_lib/task-helpers';
+import { getAllowedActions, normalizeStringArray } from '@/pages/tasks/_lib/task-helpers';
 
 const logger = createLogger('TaskStore');
 
 interface TaskStore {
   tasks: DownloadTask[];
   loading: boolean;
+  loadError: string | null;
+  batchActionInProgress: boolean;
+  setBatchActionInProgress: (value: boolean) => void;
   sseConnected: boolean;
   totalCount: number;
   currentPage: number;
@@ -18,6 +21,8 @@ interface TaskStore {
   loadMoreTasks: () => Promise<void>;
   addTask: (task: DownloadTask) => void;
   updateTask: (id: number, taskType: string, patch: Partial<DownloadTask>) => void;
+  markTaskAction: (id: number, taskType: string) => void;
+  clearTaskAction: (id: number, taskType: string) => void;
   removeTask: (id: number, taskType?: string) => void;
   clearDeletedKey: (id: number, taskType: string) => void;
   connectSSE: () => () => void;
@@ -29,6 +34,22 @@ function taskKey(t: DownloadTask): string {
 }
 
 const deletedKeys = new Set<string>();
+const pendingTaskActions = new Set<string>();
+const terminalStatuses = new Set<TaskStatus>(['completed', 'partial', 'failed', 'cancelled']);
+let aggregateRefetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isTerminalStatus(status: TaskStatus): boolean {
+  return terminalStatuses.has(status);
+}
+
+function applyStatus(task: DownloadTask, status: TaskStatus): DownloadTask {
+  return {
+    ...task,
+    Status: status,
+    EffectiveStatus: status,
+    AllowedActions: getAllowedActions(status, task.TaskType),
+  };
+}
 
 function markDeleted(key: string): void {
   deletedKeys.add(key);
@@ -37,6 +58,9 @@ function markDeleted(key: string): void {
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   loading: true,
+  loadError: null,
+  batchActionInProgress: false,
+  setBatchActionInProgress: (value) => set({ batchActionInProgress: value }),
   sseConnected: false,
   totalCount: 0,
   currentPage: 0,
@@ -44,66 +68,57 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   loadingMore: false,
 
   fetchTasks: async (status?: string) => {
-    set({ loading: true });
+    set({ loading: true, loadError: null });
     try {
-      const res = await fetch(status ? `/api/tasks/all?status=${status}` : '/api/tasks/all');
+      const res = await fetch(status ? `/api/tasks/all?status=${encodeURIComponent(status)}` : '/api/tasks/all');
       const data = await res.json();
-      // Handle both old format (array) and new format (paginated object)
+      if (!res.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`);
+      }
       const rawTasks: DownloadTask[] = Array.isArray(data) ? data : (data.tasks || []);
-      const totalCount = Array.isArray(data) ? rawTasks.length : (data.totalCount || rawTasks.length);
-      /*
-       * If response is bare array (legacy format) but SSE has already delivered
-       * paginated metadata, do NOT downgrade hasMore to false.
-       */
+      const totalCount = Array.isArray(data) ? rawTasks.length : (data.totalCount ?? rawTasks.length);
       const incomingHasMore = Array.isArray(data) ? false : (data.hasMore || false);
       const filtered = rawTasks.filter((t: DownloadTask) => !deletedKeys.has(taskKey(t)));
-      /*
-       * Full fetch = DB is the single source of truth. Clear stale deletion
-       * marks so permanently-resident keys cannot block future SSE events.
-       * (Regression restore of the 260715 fix, lost in the Go-era rewrite:
-       * batch delete left keys in deletedKeys forever.)
-       */
       deletedKeys.clear();
-      set((s) => {
-        if (filtered.length === 0 && s.tasks.length > 0) {
-          return { loading: false, totalCount, hasMore: s.hasMore || incomingHasMore };
-        }
-        /*
-         * Race-condition guard: if SSE initial already set hasMore=true,
-         * an array-format fetchTasks response must NOT reset it to false.
-         */
-        return {
-          tasks: filtered,
-          loading: false,
-          totalCount,
-          hasMore: s.hasMore || incomingHasMore,
-          currentPage: 1,
-        };
-      });
-    } catch {
-      set({ loading: false });
+      set((s) => ({
+        tasks: filtered,
+        loading: false,
+        loadError: null,
+        totalCount,
+        hasMore: incomingHasMore || (Array.isArray(data) ? s.hasMore : false),
+        currentPage: 1,
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ loading: false, loadError: message });
     }
   },
 
   loadMoreTasks: async () => {
-    const { loadingMore, hasMore, tasks } = get();
+    const { loadingMore, hasMore } = get();
     if (loadingMore || !hasMore) return;
 
+    const nextPage = get().currentPage + 1;
     set({ loadingMore: true });
     try {
-      const nextPage = get().currentPage + 1;
       const res = await fetch(`/api/tasks/page?page=${nextPage}&pageSize=100`);
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`);
+      }
       const newTasks = (data.tasks || []) as DownloadTask[];
-      const existingKeys = new Set(tasks.map(taskKey));
-      const uniqueNewTasks = newTasks.filter((t) => !existingKeys.has(taskKey(t)) && !deletedKeys.has(taskKey(t)));
-      set((s) => ({
-        tasks: [...s.tasks, ...uniqueNewTasks],
-        currentPage: nextPage,
-        totalCount: data.totalCount ?? s.totalCount,
-        hasMore: data.hasMore ?? false,
-        loadingMore: false,
-      }));
+      set((s) => {
+        if (s.currentPage !== nextPage - 1) return { loadingMore: false };
+        const existingKeys = new Set(s.tasks.map(taskKey));
+        const uniqueNewTasks = newTasks.filter((t) => !existingKeys.has(taskKey(t)) && !deletedKeys.has(taskKey(t)));
+        return {
+          tasks: [...s.tasks, ...uniqueNewTasks],
+          currentPage: nextPage,
+          totalCount: data.totalCount ?? s.totalCount,
+          hasMore: data.hasMore ?? false,
+          loadingMore: false,
+        };
+      });
     } catch {
       set({ loadingMore: false });
     }
@@ -111,9 +126,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   addTask: (task) => set((s) => {
     const key = taskKey(task);
-    const exists = s.tasks.some((t) => taskKey(t) === key);
-    if (exists) return s;
-    return { tasks: [task, ...s.tasks] };
+    const index = s.tasks.findIndex((t) => taskKey(t) === key);
+    if (index < 0) return { tasks: [task, ...s.tasks] };
+    const next = [...s.tasks];
+    next[index] = { ...next[index], ...task };
+    return { tasks: next };
   }),
 
   updateTask: (id, taskType, patch) => set((s) => {
@@ -124,6 +141,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       ),
     };
   }),
+
+  markTaskAction: (id, taskType) => {
+    pendingTaskActions.add(`${taskType}-${id}`);
+  },
+  clearTaskAction: (id, taskType) => {
+    pendingTaskActions.delete(`${taskType}-${id}`);
+  },
 
   removeTask: (id, taskType?: string) =>
     set((s) => {
@@ -155,7 +179,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       subscribeSseEvent('initial', (e: MessageEvent) => {
         try {
           const raw = JSON.parse(e.data);
-          // Handle both old format (array) and new paginated format (object)
           let data: DownloadTask[];
           let totalCount = 0;
           let hasMore = false;
@@ -166,22 +189,20 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             totalCount = raw.totalCount || data.length;
             hasMore = raw.hasMore || false;
           }
-          const filtered = data.filter((t) => !deletedKeys.has(taskKey(t)));
-          set((s) => {
-            if (filtered.length === 0 && s.tasks.length > 0) {
-              return { loading: false, totalCount, hasMore };
-            }
-            return {
-              tasks: filtered,
-              loading: false,
-              totalCount,
-              hasMore,
-              currentPage: 1,
-            };
-          });
-        } catch (err) {
-          logger.warn('SSE initial parse failed', { error: err instanceof Error ? err.message : String(err) });
-        }
+           const filtered = data.filter((t) => !deletedKeys.has(taskKey(t)));
+           set({
+             tasks: filtered,
+             loading: false,
+             loadError: null,
+             totalCount,
+             hasMore,
+             currentPage: 1,
+           });
+         } catch (err) {
+           const message = err instanceof Error ? err.message : String(err);
+           logger.warn('SSE initial parse failed', { error: message });
+           set({ loading: false, loadError: message });
+         }
       }),
     );
 
@@ -190,17 +211,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         try {
           const raw = JSON.parse(e.data) as Partial<DownloadTask> & { TaskType?: string };
           const taskType = raw.TaskType || 'video';
-          if (taskType === 'gallery') return;
+           if (taskType === 'gallery' || taskType === 'sniff') return;
           const task = { ...raw, TaskType: taskType } as DownloadTask;
           const key = taskKey(task);
           if (deletedKeys.has(key)) return;
           set((s) => {
             const idx = s.tasks.findIndex((t) => taskKey(t) === key);
-            if (idx >= 0) {
-              const newTasks = [...s.tasks];
-              newTasks[idx] = task;
-              return { tasks: newTasks };
-            }
+             if (idx >= 0) {
+               const newTasks = [...s.tasks];
+               newTasks[idx] = { ...newTasks[idx], ...task };
+               return { tasks: newTasks };
+             }
             return { tasks: [task, ...s.tasks] };
           });
         } catch (err) {
@@ -260,6 +281,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             taskId: number;
             taskType?: string;
             progress?: number;
+            phaseProgress?: number;
             status?: string;
             speed?: string;
             completed?: number;
@@ -271,53 +293,54 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           };
           const taskType = payload.taskType || 'video';
           const key = `${taskType}-${payload.taskId}`;
-          /*
-           * Terminal states that should not be overwritten by
-           * non-terminal SSE events (prevents stale task:progress
-           * events from reverting a completed/partial/failed task
-           * back to "downloading").
-           */
-          const TERMINAL_STATES: TaskStatus[] = ['completed', 'partial', 'failed', 'cancelled'];
           set((s) => ({
-            tasks: s.tasks.map((t) => {
-              if (taskKey(t) !== key) return t;
+             tasks: s.tasks.map((t) => {
+               if (taskKey(t) !== key) return t;
+               const incomingStatus = payload.status === 'scraped' ? 'download_pending' : payload.status as TaskStatus;
+               const incomingTerminal = incomingStatus ? isTerminalStatus(incomingStatus) : false;
+               if (isTerminalStatus(t.Status) && incomingStatus && !incomingTerminal && !pendingTaskActions.has(key)) {
+                 return t;
+               }
               /*
-               * Terminal state guard: if the task is already in a
-               * terminal state and this event does not carry a
-               * terminal status, skip the update entirely.
+               * payload.progress is the backend-computed monotonic composite
+               * scale (download 0-90 → merge 90-95 → transcode 95-99 → 100),
+               * so the non-regression guard holds across phase boundaries
+               * without any phase-specific bypass. A status change is still
+               * taken raw: it marks a real restart (retry/resume) whose
+               * composite legitimately starts below the previous value.
                */
-              const incomingStatus = payload.status === 'scraped' ? 'download_pending' : payload.status as TaskStatus;
-              if (TERMINAL_STATES.includes(t.Status) && incomingStatus && !TERMINAL_STATES.includes(incomingStatus)) {
-                return t;
-              }
+              const statusChanged = incomingStatus !== undefined && incomingStatus !== t.Status;
               const next = {
                 ...t,
-                /*
-                 * Progress non-regression: use Math.max so a stale
-                 * event with a lower progress value cannot overwrite
-                 * a higher value already displayed.
-                 * EXCEPTION 1 — new download round (retry): when the
-                 * segment index moves BACKWARDS (e.g. 458 → 1), the
-                 * task has been re-submitted and progress legitimately
-                 * restarts from ~0; Math.max would pin the display at
-                 * the previous round's 100% forever.
-                 * EXCEPTION 2 — transcoding phase progress: while
-                 * status is "transcoding", the progress field carries
-                 * the transcode percentage (0→100), which legitimately
-                 * restarts from 0 after the download's 100%.
-                 */
-                Progress: payload.progress !== undefined
-                  ? (payload.status === 'transcoding'
-                      ? payload.progress
-                      : payload.segment !== undefined &&
+                 Progress: payload.progress !== undefined
+                   ? (statusChanged ||
+                      payload.segment !== undefined &&
                          typeof t.Segment === 'number' &&
                          payload.segment < t.Segment
-                          ? payload.progress
-                          : Math.max(t.Progress, payload.progress))
+                         ? payload.progress
+                         : Math.max(t.Progress, payload.progress))
                   : t.Progress,
-                Status: incomingStatus || t.Status,
+                 PhaseProgress: payload.phaseProgress ?? t.PhaseProgress,
+                 Status: incomingStatus || t.Status,
+                 EffectiveStatus: incomingStatus || t.EffectiveStatus,
+                 AllowedActions: incomingStatus
+                   ? getAllowedActions(incomingStatus, t.TaskType)
+                   : t.AllowedActions,
+                 ProgressStage: incomingStatus === 'merging'
+                   ? 'tasks.progressStageMerging'
+                   : incomingStatus === 'transcoding'
+                     ? 'tasks.progressStageTranscoding'
+                     : incomingStatus === 'probing'
+                       ? 'tasks.progressStageProbing'
+                       : t.ProgressStage,
+                 Speed: payload.speed || undefined,
               };
-              if (taskType === 'video' && payload.segment !== undefined && payload.total !== undefined && payload.total > 0) {
+              /*
+               * Only download-phase events feed the segment capsule: merge
+               * events reuse `segment` for the merge count (restarts at 0)
+               * and would otherwise roll the capsule back mid-pipeline.
+               */
+              if (taskType === 'video' && payload.status === 'downloading' && payload.segment !== undefined && payload.total !== undefined && payload.total > 0) {
                 next.Segment = payload.segment;
                 next.TotalSegments = payload.total;
               }
@@ -344,6 +367,26 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     );
 
     unsubs.push(
+      subscribeSseEvent('events:aggregated', () => {
+        /*
+         * The server replaced individual events (progress is sheddable under
+         * load) with a count-only summary. The dropped frames may include
+         * status transitions, so re-sync from the API once the burst
+         * settles instead of waiting for the next per-task event.
+         */
+        if (aggregateRefetchTimer !== null) {
+          clearTimeout(aggregateRefetchTimer);
+        }
+        aggregateRefetchTimer = setTimeout(() => {
+          aggregateRefetchTimer = null;
+          if (!get().loading) {
+            void get().fetchTasks();
+          }
+        }, 800);
+      }),
+    );
+
+    unsubs.push(
       subscribeSseEvent('task:completed', (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data) as {
@@ -355,27 +398,25 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           const taskType = payload.taskType || 'video';
           const key = `${taskType}-${payload.taskId}`;
           const status = (payload.status || 'completed') as TaskStatus;
+          const allowPending = pendingTaskActions.has(key);
           set((s) => ({
-            tasks: s.tasks.map((t) =>
-              taskKey(t) === key
-                ? {
-                    ...t,
-                    Status: status,
-                    /*
-                     * Use the progress value from the completed event
-                     * if present (backend now includes it), otherwise
-                     * default to 100 for completed, or keep current
-                     * for partial/other terminal states.
-                     */
-                    Progress: payload.progress !== undefined
-                      ? Math.max(t.Progress, payload.progress)
-                      : status === 'completed' ? 100 : t.Progress,
-                  }
-                : t,
-            ),
+             tasks: s.tasks.map((t) => {
+               if (taskKey(t) !== key) return t;
+               if (isTerminalStatus(t.Status) && t.Status !== status && !allowPending) return t;
+               pendingTaskActions.delete(key);
+               return {
+                 ...t,
+                 Status: status,
+                 EffectiveStatus: status,
+                 AllowedActions: getAllowedActions(status, t.TaskType),
+                 Progress: payload.progress !== undefined
+                   ? Math.max(t.Progress, payload.progress)
+                   : status === 'completed' ? 100 : t.Progress,
+               };
+             }),
           }));
         } catch (err) {
-          logger.warn('SSE task:completed parse failed', { error: err instanceof Error ? err.message : String(err) });
+           logger.warn('SSE task:completed parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -384,20 +425,24 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       subscribeSseEvent('task:failed', (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data) as { taskId: number; taskType?: string; error?: string };
-          /*
-           * TaskType comes from the event itself (gallery/sniff executors
-           * emit it); a hardcoded `video-` prefix left gallery DAG
-           * submission failures unmatched in the unified task list.
-           */
-          const taskType = payload.taskType || 'video';
-          const key = `${taskType}-${payload.taskId}`;
-          set((s) => ({
-            tasks: s.tasks.map((t) =>
-              taskKey(t) === key
-                ? { ...t, Status: 'failed' as TaskStatus, ErrorMsg: payload.error || t.ErrorMsg }
-                : t,
-            ),
-          }));
+          // Gallery and sniff executors set TaskType on the event payload
+           const taskType = payload.taskType || 'video';
+           const key = `${taskType}-${payload.taskId}`;
+           const allowPending = pendingTaskActions.has(key);
+           set((s) => ({
+             tasks: s.tasks.map((t) => {
+               if (taskKey(t) !== key) return t;
+               if (isTerminalStatus(t.Status) && t.Status !== 'failed' && !allowPending) return t;
+               pendingTaskActions.delete(key);
+               return {
+                 ...t,
+                 Status: 'failed' as TaskStatus,
+                 EffectiveStatus: 'failed' as TaskStatus,
+                 AllowedActions: getAllowedActions('failed', t.TaskType),
+                 ErrorMsg: payload.error || t.ErrorMsg,
+               };
+             }),
+           }));
         } catch (err) {
           logger.warn('SSE task:failed parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
@@ -408,15 +453,32 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       subscribeSseEvent('task:cancelled', (e: MessageEvent) => {
         try {
           const raw = JSON.parse(e.data) as { taskId: number; taskType?: string };
-          const taskId = raw.taskId;
           const taskType = raw.taskType || 'video';
-          const key = `${taskType}-${taskId}`;
-          markDeleted(key);
+          const key = `${taskType}-${raw.taskId}`;
+          pendingTaskActions.delete(key);
           set((s) => ({
-            tasks: s.tasks.filter((t) => taskKey(t) !== key),
+            tasks: s.tasks.map((task) => {
+              if (taskKey(task) !== key) return task;
+              return applyStatus(task, 'cancelled');
+            }),
           }));
         } catch (err) {
           logger.warn('SSE task:cancelled parse failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
+
+    unsubs.push(
+      subscribeSseEvent('task:deleted', (e: MessageEvent) => {
+        try {
+          const raw = JSON.parse(e.data) as { taskId: number; taskType?: string };
+          const taskType = raw.taskType || 'video';
+          const key = `${taskType}-${raw.taskId}`;
+          pendingTaskActions.delete(key);
+          markDeleted(key);
+          set((s) => ({ tasks: s.tasks.filter((task) => taskKey(task) !== key) }));
+        } catch (err) {
+          logger.warn('SSE task:deleted parse failed', { error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
@@ -446,20 +508,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           set((s) => ({
             tasks: s.tasks.map((t) => {
               if (taskKey(t) !== key) return t;
-              /*
-               * Terminal state guard: don't update progress for
-               * tasks already in a terminal state.
-               */
-              const TERMINAL_STATES: TaskStatus[] = ['completed', 'partial', 'failed', 'cancelled'];
-              if (TERMINAL_STATES.includes(t.Status)) return t;
+               if (isTerminalStatus(t.Status)) return t;
               return {
                 ...t,
                 /*
-                 * Progress non-regression: use Math.max to prevent
-                 * a stale dag:nodeProgress event from lowering the
-                 * displayed progress.
+                 * Non-regression: a stale dag:nodeProgress event must not lower
+                 * the displayed progress
                  */
-                Progress: Math.max(t.Progress, progress),
+                 Progress: Math.max(t.Progress, progress),
                 GalleryProgressInfo: {
                   completed: current,
                   total,
@@ -492,12 +548,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
           set((s) => ({
             tasks: s.tasks.map((t) => {
               /*
-               * Match by numeric key first; fall back to DisplayID — some
-               * backend emitters historically sent the string seq (e.g.
-               * "HSYZH3") as taskId, which never matched the numeric key
-               * and silently dropped metadata updates until F5.
+               * DisplayID fallback: some backend emitters send the string seq
+               * (e.g. "HSYZH3") as taskId, which never matches the numeric key.
                */
-              if (taskKey(t) !== key && t.DisplayID !== payload.taskId) return t;
+              if (taskKey(t) !== key && String(t.DisplayID) !== String(payload.taskId)) return t;
               const next = { ...t };
               if (payload.GalleryTitle !== undefined) {
                 next.GalleryTitle = payload.GalleryTitle;
@@ -506,9 +560,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
                 next.Person = payload.Person !== 'null' ? payload.Person : '';
               }
               /*
-               * Live tags/actors from the scrape (normalizeStringArray
-               * decodes JSON-string payloads defensively). Only set when
-               * non-empty so a tagless re-scrape cannot erase list data.
+               * Applied only when non-empty so a tagless re-scrape cannot erase
+               * already collected tags and actors.
                */
               if (payload.Tags !== undefined) {
                 const tags = normalizeStringArray(payload.Tags);

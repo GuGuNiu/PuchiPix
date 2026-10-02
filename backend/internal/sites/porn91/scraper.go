@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -15,21 +16,30 @@ import (
 	"backend/internal/infra"
 	"backend/internal/sites"
 	"backend/internal/stealth"
+	"backend/internal/xutil"
 )
 
 var scraperLogger = infra.NewLogger("Porn91Scraper")
 
 // jsonLDVideoObject represents the relevant fields of a Schema.org
 // VideoObject JSON-LD block embedded in 91porn.plus video pages.
+//
+// Author is untyped because the site emits it as a nested Person object;
+// declaring it as a string would abort the decode of the whole object and
+// cost the stream URL along with the author.
 type jsonLDVideoObject struct {
-	Type         string `json:"@type"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	ThumbnailURL []string `json:"thumbnailUrl"`
-	UploadDate   string `json:"uploadDate"`
-	Duration     string `json:"duration"`
-	ContentURL   string `json:"contentUrl"`
-	Author       string `json:"author"`
+	Type        string `json:"@type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// URL is the canonical page address. Listing entries carry it, and on a
+	// detail page it duplicates contentUrl's sibling information while
+	// contentUrl itself holds the stream.
+	URL                  string     `json:"url"`
+	ThumbnailURL         stringList `json:"thumbnailUrl"`
+	UploadDate           string     `json:"uploadDate"`
+	Duration             string     `json:"duration"`
+	ContentURL           string     `json:"contentUrl"`
+	Author               any        `json:"author"`
 	InteractionStatistic struct {
 		Type            string `json:"@type"`
 		InteractionType struct {
@@ -39,11 +49,51 @@ type jsonLDVideoObject struct {
 	} `json:"interactionStatistic"`
 }
 
-// ScrapeDetailHTTP scrapes a video detail page via HTTP GET and extracts
-// the M3U8 URL and metadata from the Schema.org JSON-LD structured data
-// embedded in the HTML. This is the primary scraping method for 91porn.plus
-// since the site embeds the video stream URL directly in JSON-LD without
-// requiring JavaScript execution.
+// stringList accepts a JSON value that the site emits either as a bare
+// string or as an array of strings.
+//
+// The same field is published in both forms: thumbnailUrl is an array on a
+// detail page and a plain string on a listing entry. A typed slice field
+// cannot decode the string form, and encoding/json abandons the entire
+// enclosing object when it hits the mismatch, which loses every entry in the
+// list rather than one field.
+type stringList []string
+
+// UnmarshalJSON decodes either representation into a string slice.
+func (s *stringList) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*s = stringList{single}
+		return nil
+	}
+
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return err
+	}
+	*s = many
+	return nil
+}
+
+// jsonLDGraph is the wrapper the site puts its structured data in: the
+// script's top-level type is absent and the members sit inside @graph.
+type jsonLDGraph struct {
+	Type  string            `json:"@type"`
+	Graph []json.RawMessage `json:"@graph"`
+}
+
+// jsonLDItemList is the listing shape: a graph member of type ItemList whose
+// entries each wrap a VideoObject.
+type jsonLDItemList struct {
+	Type            string `json:"@type"`
+	ItemListElement []struct {
+		Position int               `json:"position"`
+		Item     jsonLDVideoObject `json:"item"`
+	} `json:"itemListElement"`
+}
+
+// ScrapeDetailHTTP extracts the M3U8 URL and metadata from the Schema.org
+// JSON-LD block of a server-rendered detail page.
 func ScrapeDetailHTTP(ctx context.Context, pageURL string) (*VideoDetailResult, error) {
 	scraperLogger.Info("Scraping detail page",
 		infra.LogContext{Extra: map[string]any{
@@ -55,7 +105,11 @@ func ScrapeDetailHTTP(ctx context.Context, pageURL string) (*VideoDetailResult, 
 		return nil, fmt.Errorf("HTTP fetch failed: %w", err)
 	}
 
-	// Parse JSON-LD from the HTML.
+	return ScrapeDetailFromHTML(html, pageURL)
+}
+
+// ScrapeDetailFromHTML parses a detail page that has already been fetched.
+func ScrapeDetailFromHTML(html, pageURL string) (*VideoDetailResult, error) {
 	videoObj, err := extractJSONLDVideoObject(html)
 	if err != nil {
 		return nil, fmt.Errorf("JSON-LD extraction failed: %w", err)
@@ -67,18 +121,34 @@ func ScrapeDetailHTTP(ctx context.Context, pageURL string) (*VideoDetailResult, 
 	if len(videoObj.ThumbnailURL) > 0 {
 		thumbnailURL = videoObj.ThumbnailURL[0]
 	}
+	if thumbnailURL == "" {
+		if m := OGImagePattern.FindStringSubmatch(html); len(m) >= 2 {
+			thumbnailURL = m[1]
+		}
+	}
+
+	title := videoObj.Name
+	if title == "" {
+		if m := OGTitlePattern.FindStringSubmatch(html); len(m) >= 2 {
+			title = m[1]
+		}
+	}
+
+	duration, durationSec := parseISODurationSeconds(videoObj.Duration)
 
 	result := &VideoDetailResult{
 		VideoMetadata: VideoMetadata{
 			ID:           videoID,
-			Title:        videoObj.Name,
+			Title:        title,
 			PageURL:      pageURL,
 			ThumbnailURL: thumbnailURL,
 			Views:        videoObj.InteractionStatistic.UserInteractionCount,
 			ViewsText:    fmt.Sprintf("%d", videoObj.InteractionStatistic.UserInteractionCount),
-			Duration:     parseISODuration(videoObj.Duration),
+			Duration:     duration,
+			DurationSec:  durationSec,
 			PublishDate:  parseUploadDate(videoObj.UploadDate),
-			Author:       videoObj.Author,
+			Author:       jsonLDAuthorName(videoObj.Author),
+			Tags:         extractTags(html),
 		},
 		M3U8URL:     videoObj.ContentURL,
 		Description: videoObj.Description,
@@ -90,55 +160,94 @@ func ScrapeDetailHTTP(ctx context.Context, pageURL string) (*VideoDetailResult, 
 			"videoId":   videoID,
 			"m3u8Found": result.M3U8URL != "",
 			"title":     result.Title,
+			"author":    result.Author,
 			"views":     result.Views,
+			"tagsCount": len(result.Tags),
 		}})
 
 	return result, nil
 }
 
+// extractTags reads the keywords meta tag, the only structured tag source
+// the site publishes. The site's own SEO keywords are filtered out because
+// they appear on every page and describe the site rather than the video.
+func extractTags(html string) []string {
+	m := MetaKeywordsPattern.FindStringSubmatch(html)
+	if len(m) < 2 {
+		return nil
+	}
+
+	var tags []string
+	seen := make(map[string]bool)
+
+	for _, raw := range strings.Split(m[1], ",") {
+		tag := strings.TrimSpace(htmlUnescape(raw))
+		if tag == "" || len(tag) >= 50 || seen[tag] || isBrandKeyword(tag) {
+			continue
+		}
+		seen[tag] = true
+		tags = append(tags, tag)
+	}
+
+	return tags
+}
+
+func isBrandKeyword(tag string) bool {
+	lowered := strings.ToLower(tag)
+	for _, prefix := range brandKeywordPrefixes {
+		if strings.HasPrefix(lowered, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonLDAuthorName normalizes the author field, which is a nested Person
+// object on the current pages.
+func jsonLDAuthorName(author any) string {
+	switch v := author.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]any:
+		if name, ok := v["name"].(string); ok && name != "" {
+			return strings.TrimSpace(name)
+		}
+	case []any:
+		for _, entry := range v {
+			if name := jsonLDAuthorName(entry); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// ToScrapeResult maps a detail scrape onto the pipeline's result shape. The
+// author is only used as an actor when present, so an unknown uploader never
+// becomes a one-element slice holding "".
+func (r *VideoDetailResult) ToScrapeResult(pageURL string) *sites.ScrapeResult {
+	out := &sites.ScrapeResult{
+		M3U8URL: r.M3U8URL,
+		Title:   r.Title,
+		PageURL: pageURL,
+		Tags:    r.Tags,
+	}
+	if r.Author != "" {
+		out.Actors = []string{r.Author}
+	}
+	return out
+}
+
 // ScrapeDetailAsScrapeResult scrapes a video detail page and converts the
-// result to a sites.ScrapeResult for compatibility with the universal
-// pipeline used by the task creation flow.
+// result to a sites.ScrapeResult for the video pipeline.
 func ScrapeDetailAsScrapeResult(ctx context.Context, pageURL string) (*sites.ScrapeResult, error) {
 	detail, err := ScrapeDetailHTTP(ctx, pageURL)
 	if err != nil {
 		return nil, err
 	}
-
-	var tags []string
-	var categories []string
-
-	// Also parse the HTML with goquery for tag/category extraction.
-	html, _ := fetchPageHTML(ctx, pageURL)
-	if html != "" {
-		if doc, err := goquery.NewDocumentFromReader(strings.NewReader(html)); err == nil {
-			doc.Find(".tag a, .tags a, .category a").Each(func(_ int, s *goquery.Selection) {
-				if text := strings.TrimSpace(s.Text()); text != "" && len(text) < 50 {
-					tags = append(tags, text)
-				}
-			})
-			if kw, ok := doc.Find(`meta[name="keywords"]`).Attr("content"); ok && kw != "" {
-				for _, t := range strings.Split(kw, ",") {
-					if t = strings.TrimSpace(t); t != "" {
-						tags = append(tags, t)
-					}
-				}
-			}
-		}
-	}
-
-	return &sites.ScrapeResult{
-		M3U8URL:    detail.M3U8URL,
-		Title:      detail.Title,
-		PageURL:    pageURL,
-		Tags:       tags,
-		Categories: categories,
-		Actors:     []string{detail.Author},
-	}, nil
+	return detail.ToScrapeResult(pageURL), nil
 }
 
-// ScrapeListingHTTP scrapes a video listing page via HTTP request.
-// This is suitable for category pages, search results, and the homepage.
 func ScrapeListingHTTP(ctx context.Context, listingURL string) (*ListingPageResult, error) {
 	scraperLogger.Info("Scraping listing page",
 		infra.LogContext{Extra: map[string]any{
@@ -150,47 +259,119 @@ func ScrapeListingHTTP(ctx context.Context, listingURL string) (*ListingPageResu
 		return nil, fmt.Errorf("HTTP fetch failed: %w", err)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	result, err := ScrapeListingFromHTML(html, listingURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse HTML: %w", err)
-	}
-
-	videos := extractVideosFromDocument(doc, listingURL)
-
-	// Determine the base URL for resolving relative links.
-	baseURL := extractBaseURL(listingURL)
-
-	pagination := extractPaginationFromDocument(doc, listingURL, baseURL)
-
-	result := &ListingPageResult{
-		Videos:      videos,
-		TotalPages:  pagination.TotalPages,
-		CurrentPage: pagination.CurrentPage,
-		HasNextPage: pagination.HasNextPage,
-		NextPageURL: pagination.NextPageURL,
+		return nil, err
 	}
 
 	scraperLogger.Info("Listing scrape completed",
 		infra.LogContext{Extra: map[string]any{
-			"url":          listingURL,
-			"videosFound":  len(videos),
-			"currentPage":  result.CurrentPage,
-			"hasNextPage":  result.HasNextPage,
+			"url":         listingURL,
+			"videosFound": len(result.Videos),
+			"currentPage": result.CurrentPage,
+			"hasNextPage": result.HasNextPage,
 		}})
 
 	return result, nil
 }
 
-// fetchPageHTML performs an HTTP GET request and returns the raw HTML body.
+// ScrapeListingFromHTML parses a listing page that has already been fetched.
+func ScrapeListingFromHTML(html, listingURL string) (*ListingPageResult, error) {
+	// Card hrefs are site-absolute, so they must be resolved against the
+	// origin rather than against the listing URL, which would prefix the
+	// listing path onto every card link.
+	baseURL := extractBaseURL(listingURL)
+
+	// The structured listing is authoritative: the page ships no card markup
+	// at all, so the card parser is kept only as a fallback for a template
+	// that renders them server-side.
+	videos := extractListingFromJSONLD(html, baseURL)
+	usedStructured := len(videos) > 0
+	if !usedStructured {
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse HTML: %w", err)
+		}
+		videos = extractVideosFromDocument(doc, baseURL)
+	}
+
+	pagination := extractPaginationFromDocument(docOrNil(html), listingURL, baseURL)
+
+	result := &ListingPageResult{
+		Videos:      videos,
+		TotalPages:  pagination.TotalPages,
+		CurrentPage: pagination.CurrentPage,
+		HasNextPage: pagination.HasNextPage || len(videos) >= fullListingPageSize,
+		NextPageURL: pagination.NextPageURL,
+	}
+
+	// The pager is rendered on the client, so the markup parser picks up
+	// unrelated numbers from the response. When the structured listing is
+	// in use the page index is taken from the URL, which is authoritative,
+	// and the total is left unknown rather than guessed.
+	if len(videos) > 0 && usedStructured {
+		result.CurrentPage = pageFromURL(listingURL)
+		result.TotalPages = 0
+		if result.CurrentPage > 0 && result.HasNextPage {
+			result.NextPageURL = fmt.Sprintf("%s?page=%d", listingPath(listingURL), result.CurrentPage+1)
+		}
+	}
+
+	return result, nil
+}
+
+// pageFromURL reads the 1-based page index from a listing URL, defaulting
+// to the first page.
+func pageFromURL(listingURL string) int {
+	parsed, err := url.Parse(listingURL)
+	if err != nil {
+		return 1
+	}
+	if n := atoiSafe(parsed.Query().Get("page")); n > 0 {
+		return n
+	}
+	return 1
+}
+
+// listingPath returns a listing URL without its query string, so a rebuilt
+// next-page link does not accumulate parameters.
+func listingPath(listingURL string) string {
+	parsed, err := url.Parse(listingURL)
+	if err != nil {
+		return listingURL
+	}
+	parsed.RawQuery = ""
+	return strings.TrimSuffix(parsed.String(), "/")
+}
+
+// fullListingPageSize is the number of entries the site publishes per
+// listing page. A full page means there is very likely another one, because
+// the pager is rendered on the client and leaves no next-page marker in the
+// server response.
+const fullListingPageSize = 24
+
+func docOrNil(html string) *goquery.Document {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil
+	}
+	return doc
+}
+
+// fetchPageHTML performs an HTTP GET and returns the raw HTML body. The
+// full browser header set is required: the site is an Angular SPA whose
+// index is served to any client, but it only renders the video data into
+// the server response for one that looks like a browser.
 func fetchPageHTML(ctx context.Context, pageURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", stealth.RandomUA())
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	profile := stealth.RandomProfile()
+	for k, v := range stealth.DocumentRequestHeaders(&profile, extractBaseURL(pageURL)+"/") {
+		req.Header.Set(k, v)
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -211,13 +392,33 @@ func fetchPageHTML(ctx context.Context, pageURL string) (string, error) {
 	return string(bodyBytes), nil
 }
 
-// extractJSONLDVideoObject finds the first JSON-LD script block containing
-// a VideoObject type and parses it into a jsonLDVideoObject struct.
+// htmlUnescape decodes the HTML entities the site emits in titles and meta
+// tags, then normalizes the result through the shared text cleaner.
+func htmlUnescape(s string) string {
+	replacements := []struct{ from, to string }{
+		{"&amp;", "&"},
+		{"&lt;", "<"},
+		{"&gt;", ">"},
+		{"&quot;", "\""},
+		{"&#39;", "'"},
+		{"&#039;", "'"},
+	}
+	for _, r := range replacements {
+		s = strings.ReplaceAll(s, r.from, r.to)
+	}
+	return xutil.CleanText(s)
+}
+
+// extractJSONLDVideoObject finds the VideoObject on the page and returns it.
+//
+// The site does not publish the video as a standalone JSON-LD block: the
+// script's top-level type is BreadcrumbList and the video is a member of its
+// @graph array, so the graph is walked as well. Matching only on a
+// top-level VideoObject is what previously forced the parser onto the
+// raw-HTML fallback, which picked the breadcrumb's name as the title.
 func extractJSONLDVideoObject(html string) (*jsonLDVideoObject, error) {
-	// Find all JSON-LD script blocks.
 	blocks := JSONLDVideoObjectPattern.FindAllStringSubmatch(html, -1)
 	if len(blocks) == 0 {
-		// Fallback: try direct regex extraction of contentUrl from raw HTML.
 		return extractVideoFromRawHTML(html)
 	}
 
@@ -226,23 +427,97 @@ func extractJSONLDVideoObject(html string) (*jsonLDVideoObject, error) {
 			continue
 		}
 		rawJSON := strings.TrimSpace(block[1])
-
-		var obj jsonLDVideoObject
-		if err := json.Unmarshal([]byte(rawJSON), &obj); err != nil {
+		if rawJSON == "" {
 			continue
 		}
 
-		if obj.Type == "VideoObject" {
-			return &obj, nil
+		if obj, ok := decodeVideoObject(rawJSON); ok {
+			return obj, nil
 		}
 	}
 
-	// Fallback: try direct regex extraction.
 	return extractVideoFromRawHTML(html)
 }
 
-// extractVideoFromRawHTML extracts the M3U8 URL and basic metadata using
-// regex patterns as a fallback when JSON-LD parsing fails.
+// decodeVideoObject parses one JSON-LD block, accepting the video either as
+// the block itself or as a direct member of its @graph array.
+func decodeVideoObject(rawJSON string) (*jsonLDVideoObject, bool) {
+	var obj jsonLDVideoObject
+	if err := json.Unmarshal([]byte(rawJSON), &obj); err == nil && obj.Type == "VideoObject" && obj.ContentURL != "" {
+		return &obj, true
+	}
+
+	var wrapper jsonLDGraph
+	if err := json.Unmarshal([]byte(rawJSON), &wrapper); err != nil {
+		return nil, false
+	}
+	for _, member := range wrapper.Graph {
+		var candidate jsonLDVideoObject
+		if err := json.Unmarshal(member, &candidate); err != nil {
+			continue
+		}
+		if candidate.Type == "VideoObject" && candidate.ContentURL != "" {
+			return &candidate, true
+		}
+	}
+
+	return nil, false
+}
+
+// extractListingFromJSONLD reads the listing entries the site publishes as
+// structured data.
+//
+// This is the only usable listing source: the page is an Angular shell whose
+// cards are rendered on the client, so the card markup is absent from the
+// server response and no CSS selector can match it. The videos are published
+// as an ItemList member of the JSON-LD graph, one level deeper than the
+// detail page's VideoObject.
+func extractListingFromJSONLD(html, baseURL string) []VideoMetadata {
+	var videos []VideoMetadata
+	seen := make(map[string]bool)
+
+	for _, m := range JSONLDVideoObjectPattern.FindAllStringSubmatch(html, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		var wrapper jsonLDGraph
+		if err := json.Unmarshal([]byte(strings.TrimSpace(m[1])), &wrapper); err != nil {
+			continue
+		}
+
+		for _, member := range wrapper.Graph {
+			var list jsonLDItemList
+			if err := json.Unmarshal(member, &list); err != nil || list.Type != "ItemList" {
+				continue
+			}
+			for _, entry := range list.ItemListElement {
+				item := entry.Item
+				id := ExtractVideoID(item.URL)
+				if id == "" || seen[id] {
+					continue
+				}
+				seen[id] = true
+
+				video := VideoMetadata{
+					ID:          id,
+					Title:       item.Name,
+					PageURL:     resolveURL(item.URL, baseURL),
+					PublishDate: parseUploadDate(item.UploadDate),
+				}
+				video.Duration, video.DurationSec = parseISODurationSeconds(item.Duration)
+				if len(item.ThumbnailURL) > 0 {
+					video.ThumbnailURL = item.ThumbnailURL[0]
+				}
+				videos = append(videos, video)
+			}
+		}
+	}
+
+	return videos
+}
+
+// extractVideoFromRawHTML pulls the M3U8 URL and basic metadata straight out
+// of the markup when the JSON-LD block cannot be parsed.
 func extractVideoFromRawHTML(html string) (*jsonLDVideoObject, error) {
 	contentMatch := ContentURLPattern.FindStringSubmatch(html)
 	if len(contentMatch) < 2 || contentMatch[1] == "" {
@@ -273,15 +548,14 @@ func extractVideoFromRawHTML(html string) (*jsonLDVideoObject, error) {
 	return obj, nil
 }
 
-// extractVideosFromDocument extracts video metadata from a listing page document.
-// 91porn.plus is an Angular SPA, so listing pages typically render video cards
-// with predictable CSS classes. This function uses generic selectors that
-// match common card patterns.
+// extractVideosFromDocument reads video cards from a listing page.
+//
+// As an Angular SPA the site renders cards client-side, so the generic selector
+// list is tried in order and an ItemList JSON-LD block is used as fallback.
 func extractVideosFromDocument(doc *goquery.Document, baseURL string) []VideoMetadata {
 	var videos []VideoMetadata
 	seen := make(map[string]bool)
 
-	// Try multiple card selectors for robustness.
 	cardSelectors := []string{
 		".video-item",
 		".video-card",
@@ -299,24 +573,21 @@ func extractVideosFromDocument(doc *goquery.Document, baseURL string) []VideoMet
 				videos = append(videos, video)
 			}
 		})
-		// If we found videos with this selector, no need to try others.
 		if len(videos) > 0 {
 			break
 		}
 	}
 
-	// Fallback: try to find JSON-LD item lists on the page.
 	if len(videos) == 0 {
 		doc.Find(`script[type="application/ld+json"]`).Each(func(_ int, s *goquery.Selection) {
 			content := strings.TrimSpace(s.Text())
 			if content == "" {
 				return
 			}
-			// Try to parse as ItemList with VideoObject entries.
 			var itemList struct {
-				Type         string `json:"@type"`
+				Type            string `json:"@type"`
 				ItemListElement []struct {
-					Type string `json:"@type"`
+					Type string            `json:"@type"`
 					Item jsonLDVideoObject `json:"item"`
 				} `json:"itemListElement"`
 			}
@@ -328,7 +599,6 @@ func extractVideosFromDocument(doc *goquery.Document, baseURL string) []VideoMet
 					}
 					videoID := ExtractVideoID(v.ContentURL)
 					if videoID == "" {
-						// Try to extract from URL field or name
 						videoID = v.Name
 					}
 					if videoID != "" && !seen[videoID] {
@@ -354,14 +624,11 @@ func extractVideosFromDocument(doc *goquery.Document, baseURL string) []VideoMet
 	return videos
 }
 
-// extractVideoFromElement extracts a single video's metadata from a selection.
 func extractVideoFromElement(s *goquery.Selection, baseURL string) VideoMetadata {
 	var video VideoMetadata
 
-	// Find the video link.
 	linkElem := s.Find("a[href*='/video/']")
 	if linkElem.Length() == 0 {
-		// Try any link with href containing "video"
 		linkElem = s.Find("a[href*='video']")
 	}
 
@@ -377,7 +644,6 @@ func extractVideoFromElement(s *goquery.Selection, baseURL string) VideoMetadata
 
 	video.PageURL = resolveURL(href, baseURL)
 
-	// Extract thumbnail.
 	imgElem := s.Find("img")
 	if imgElem.Length() > 0 {
 		video.ThumbnailURL, _ = imgElem.Attr("data-src")
@@ -390,7 +656,6 @@ func extractVideoFromElement(s *goquery.Selection, baseURL string) VideoMetadata
 		video.Title, _ = imgElem.Attr("alt")
 	}
 
-	// If title not found from image alt, try from link text or title element.
 	if video.Title == "" {
 		titleElem := s.Find(".title, .video-title, h3, h4")
 		if titleElem.Length() > 0 {
@@ -398,7 +663,6 @@ func extractVideoFromElement(s *goquery.Selection, baseURL string) VideoMetadata
 		}
 	}
 
-	// Extract views.
 	viewsElem := s.Find(".views, .view-count, [class*='view']")
 	if viewsElem.Length() > 0 {
 		viewsText := strings.TrimSpace(viewsElem.Text())
@@ -406,13 +670,11 @@ func extractVideoFromElement(s *goquery.Selection, baseURL string) VideoMetadata
 		video.Views = ExtractViews(viewsText)
 	}
 
-	// Extract duration.
 	durationElem := s.Find(".duration, .time, [class*='duration']")
 	if durationElem.Length() > 0 {
 		video.Duration = strings.TrimSpace(durationElem.Text())
 	}
 
-	// Extract author.
 	authorElem := s.Find(".author, .uploader, [class*='author']")
 	if authorElem.Length() > 0 {
 		video.Author = strings.TrimSpace(authorElem.Text())
@@ -421,7 +683,6 @@ func extractVideoFromElement(s *goquery.Selection, baseURL string) VideoMetadata
 	return video
 }
 
-// PaginationInfo holds extracted pagination data.
 type PaginationInfo struct {
 	TotalPages  int
 	CurrentPage int
@@ -429,31 +690,26 @@ type PaginationInfo struct {
 	NextPageURL string
 }
 
-// extractPaginationFromDocument extracts pagination information from the document.
 func extractPaginationFromDocument(doc *goquery.Document, currentURL string, baseURL string) PaginationInfo {
 	info := PaginationInfo{
 		CurrentPage: 1,
 		HasNextPage: false,
 	}
 
-	// Find pagination container.
 	pagination := doc.Find(".pagination, .pager, [class*='pagination'], [class*='pager']")
 	if pagination.Length() == 0 {
 		return info
 	}
 
-	// Find active/current page.
 	activePage := pagination.Find(".active, .current")
 	if activePage.Length() > 0 {
 		pageText := strings.TrimSpace(activePage.Text())
 		info.CurrentPage = atoiSafe(pageText)
 	}
 
-	// Count total pages.
 	maxPage := info.CurrentPage
 	pagination.Find("a").Each(func(_ int, s *goquery.Selection) {
 		text := strings.TrimSpace(s.Text())
-		// Look for "Next" or "›" or "»" indicators
 		if strings.Contains(text, "Next") || strings.Contains(text, "下一页") ||
 			strings.Contains(text, "›") || strings.Contains(text, "»") {
 			if href, exists := s.Attr("href"); exists {
@@ -461,7 +717,6 @@ func extractPaginationFromDocument(doc *goquery.Document, currentURL string, bas
 				info.NextPageURL = resolveURL(href, baseURL)
 			}
 		}
-		// Try to extract page number
 		if pageNum := atoiSafe(text); pageNum > maxPage {
 			maxPage = pageNum
 		}
@@ -469,7 +724,8 @@ func extractPaginationFromDocument(doc *goquery.Document, currentURL string, bas
 
 	info.TotalPages = maxPage
 
-	// If no explicit next link but current page < max page.
+	// Derive the next page from the pager window when no explicit next link
+	// was rendered
 	if !info.HasNextPage && info.CurrentPage < maxPage {
 		info.HasNextPage = true
 		info.NextPageURL = buildNextPageURL(currentURL, info.CurrentPage+1)
@@ -478,7 +734,6 @@ func extractPaginationFromDocument(doc *goquery.Document, currentURL string, bas
 	return info
 }
 
-// resolveURL resolves a relative URL to absolute using the base URL.
 func resolveURL(href, baseURL string) string {
 	if strings.HasPrefix(href, "http") {
 		return href
@@ -492,7 +747,6 @@ func resolveURL(href, baseURL string) string {
 	return baseURL + "/" + href
 }
 
-// extractBaseURL extracts the scheme://host from a URL.
 func extractBaseURL(rawURL string) string {
 	idx := strings.Index(rawURL, "://")
 	if idx < 0 {
@@ -506,15 +760,12 @@ func extractBaseURL(rawURL string) string {
 	return rawURL[:idx+3+slashIdx]
 }
 
-// buildNextPageURL constructs the next page URL based on the current URL pattern.
 func buildNextPageURL(currentURL string, nextPage int) string {
 	// 91porn.plus uses URL patterns like /category/1/latest/2
-	// Replace the last numeric segment.
 	re := regexp.MustCompile(`/(\d+)(?:/?)$`)
 	if re.MatchString(currentURL) {
 		return re.ReplaceAllString(currentURL, fmt.Sprintf("/%d", nextPage))
 	}
-	// If URL ends with /, append page number.
 	if strings.HasSuffix(currentURL, "/") {
 		return currentURL + fmt.Sprintf("%d", nextPage)
 	}

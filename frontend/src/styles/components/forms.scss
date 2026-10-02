@@ -1,5 +1,3 @@
-// Forms — form-group / form-label / form-control / form-row
-
 .form-group {
   display: flex;
   flex-direction: column;
@@ -105,7 +103,6 @@ select.form-control {
   border-top: 1px solid var(--border);
 }
 
-// ===== Setting row (label + toggle) =====
 .setting-row {
   display: flex;
   align-items: center;
@@ -141,7 +138,6 @@ select.form-control {
   line-height: 16px;
 }
 
-// ===== Checkbox Group =====
 .checkbox-group {
   display: flex;
   align-items: center;

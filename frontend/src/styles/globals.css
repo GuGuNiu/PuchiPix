@@ -1,5 +1,3 @@
-/* PuchiPix — global style entry (submodules loaded via JS imports in layout.tsx) */
-
 @import "tailwindcss";
 
 @theme inline {

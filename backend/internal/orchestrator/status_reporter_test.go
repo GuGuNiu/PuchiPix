@@ -2,12 +2,11 @@ package orchestrator
 
 import "testing"
 
-// TestStatusReporterFinalizeNoWrite locks in the fix for the 260820
-// "100%+downloading stuck forever" defect: post-processing nodes
-// (extract/verify — PhaseFinalize) must NOT write back entity status while
-// running. Previously their QUEUED/RUNNING transitions overwrote the download
-// executor's fresh completed/partial with downloading, regressing both the
-// frontend and the DB.
+// Post-processing nodes (extract/verify, PhaseFinalize) must not write
+// back entity status while running: their QUEUED/RUNNING transitions
+// would otherwise overwrite the download executor's fresh
+// completed/partial write with downloading, regressing both the frontend
+// and the DB.
 func TestStatusReporterFinalizeNoWrite(t *testing.T) {
 	r := NewStatusReporter()
 
@@ -25,11 +24,11 @@ func TestStatusReporterFinalizeNoWrite(t *testing.T) {
 	}
 }
 
-// TestStatusReporterNonCriticalFailureNoWrite: a non-critical node
-// (gallery extract) failing must NOT roll the entity back to failed — the
-// download executor already recorded the real outcome, and a non-critical
-// post-processing failure does not change the task result (otherwise a
-// fully-downloaded gallery would be mislabeled failed with no way to heal).
+// A non-critical node (gallery extract) failing must NOT roll the entity
+// back to failed: the download executor already recorded the real
+// outcome, and a non-critical post-processing failure does not change
+// the task result (otherwise a fully-downloaded gallery would be
+// mislabeled failed with no way to heal).
 func TestStatusReporterNonCriticalFailureNoWrite(t *testing.T) {
 	r := NewStatusReporter()
 
@@ -47,16 +46,14 @@ func TestStatusReporterNonCriticalFailureNoWrite(t *testing.T) {
 	}
 }
 
-// TestStatusReporterCoreMapping verifies the standard mappings of core
-// pipeline nodes are not broken by this change.
 func TestStatusReporterCoreMapping(t *testing.T) {
 	r := NewStatusReporter()
 
 	tests := []struct {
-		name string
-		def  DagNodeDefinition
-		state NodeState
-		want string
+		name   string
+		def    DagNodeDefinition
+		state  NodeState
+		want   string
 		wantOK bool
 	}{
 		{"scrape 节点 QUEUED → scraping", DagNodeDefinition{Executor: "scrape", Phase: PhaseScrape}, NodeStateQueued, "scraping", true},

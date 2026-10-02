@@ -4,8 +4,6 @@
 // nodes with different Config values can follow different transition
 // paths, run different actions, and use different retry behavior without
 // modifying hardcoded orchestrator logic.
-//
-// This package ports the 260720 TypeScript gallery-node-policy.ts to Go.
 package policies
 
 import (
@@ -14,22 +12,21 @@ import (
 	"backend/internal/orchestrator"
 )
 
-// GalleryNodePolicy is the TransitionPolicy for gallery-type DAG nodes.
-// It ports the 260720 TS galleryNodePolicy: guards (skipVerify /
-// shouldVerify), actions (onEnterRunning / onExitRunning), retryPolicy,
-// and onPause / onResume / onRestart strategy methods.
+// GalleryNodePolicy is the TransitionPolicy for gallery-type DAG nodes:
+// guards (skipVerify / shouldVerify), actions (onEnterRunning /
+// onExitRunning), retryPolicy, and the onPause / onResume / onRestart
+// strategy methods.
 //
-// Resolution: the orchestrator looks up this policy via the
+// Resolution: the orchestrator looks this policy up via the
 // TaskTypeRegistry when a node's DagNodeDefinition.TransitionPolicy is
-// nil (e.g. for definitions persisted before the strategy layer existed).
-// Nodes that carry their own TransitionPolicy in the definition take
+// nil. Nodes that carry their own TransitionPolicy in the definition take
 // precedence.
 var GalleryNodePolicy = &orchestrator.TransitionPolicy{
 	Transitions: buildGalleryTransitions(),
 	RetryPolicy: &orchestrator.RetryPolicy{
-		MaxAttempts:      3,
-		BackoffMs:        1000,
-		BackoffStrategy:  "exponential",
+		MaxAttempts:     3,
+		BackoffMs:       1000,
+		BackoffStrategy: "exponential",
 	},
 	OnPause:   galleryOnPause,
 	OnResume:  galleryOnResume,
@@ -51,7 +48,7 @@ func skipVerify(ctx orchestrator.StateMachineContext, _ orchestrator.TransitionC
 
 // shouldVerify is the complement of skipVerify: true when the node
 // should enter VERIFYING after RUNNING. It is the default guard on the
-// RUNNING ??VERIFYING rule.
+// RUNNING to VERIFYING rule.
 func shouldVerify(ctx orchestrator.StateMachineContext, _ orchestrator.TransitionContext) bool {
 	v, ok := ctx.Definition.Config["skipVerify"]
 	if !ok {
@@ -114,25 +111,19 @@ func galleryOnResume(_ orchestrator.StateMachineContext) orchestrator.NodeState 
 }
 
 // galleryOnRestart decides the fate of a gallery node found in a
-// non-terminal state after a service restart. Per the design requirement,
-// all unfinished tasks should transition to PAUSED so the user can
-// decide when to resume them — no auto-execution should happen.
-//
-// Previously:
-//   - resumableVerify && retryCount < 2 → RESUME_VERIFY (auto-re-verify)
-//   - otherwise → FAILED (user had to retry)
-//
-// Now: always → PAUSED, leaving the task in a user-controllable state.
+// non-terminal state after a service restart. All unfinished tasks go to
+// PAUSED so the user decides when to resume them, with no auto-execution.
 func galleryOnRestart(_ orchestrator.StateMachineContext) orchestrator.NodeState {
 	return orchestrator.NodeStatePaused
 }
 
 // buildGalleryTransitions constructs the transition rule map for the
-// gallery policy. It adds guarded rules on top of the global
+// gallery policy, adding guarded rules on top of the global
 // validTransitions table:
-//   - RUNNING ??VERIFYING (guard: shouldVerify) ??default verify path
-//   - RUNNING ??COMPLETED (guard: skipVerify) ??direct completion when
+//   - RUNNING to VERIFYING (guard: shouldVerify), the default verify path
+//   - RUNNING to COMPLETED (guard: skipVerify), direct completion when
 //     the node opts out of verification
+//
 // The remaining transitions (FAILED, TIMEOUT, CANCELLED, PAUSED from
 // RUNNING etc.) are left to the global table via the policy's fallback
 // behavior in transitionAllowedLocked.
@@ -152,15 +143,15 @@ func buildGalleryTransitions() map[orchestrator.NodeState][]orchestrator.Transit
 				Action: onExitRunning,
 			},
 			{
-				From:  orchestrator.NodeStateRunning,
-				To:    orchestrator.NodeStateRunning,
+				From:   orchestrator.NodeStateRunning,
+				To:     orchestrator.NodeStateRunning,
 				Action: onEnterRunning,
 			},
 		},
 		orchestrator.NodeStateAllocated: {
 			{
-				From:  orchestrator.NodeStateAllocated,
-				To:    orchestrator.NodeStateRunning,
+				From:   orchestrator.NodeStateAllocated,
+				To:     orchestrator.NodeStateRunning,
 				Action: onEnterRunning,
 			},
 		},

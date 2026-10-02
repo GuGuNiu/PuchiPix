@@ -33,7 +33,6 @@ func TestEnsureLoadedForRetry_Idempotent(t *testing.T) {
 		t.Fatalf("EnsureLoadedForRetry on unknown gallery should not error: %v", err)
 	}
 
-	// Populate the checkpoint table for gallery 42 directly, then load.
 	if _, err := database.Exec(ctx,
 		`INSERT INTO gallery_file_progress (gallery_id, file_index, file_type, file_url, status, error_msg)
 		 VALUES (42, 0, 'image', 'https://example.com/a.jpg', 'failed', 'boom')`); err != nil {
@@ -48,7 +47,6 @@ func TestEnsureLoadedForRetry_Idempotent(t *testing.T) {
 		t.Fatalf("EnsureLoadedForRetry: %v", err)
 	}
 
-	// The engine must now compute retry indices for the failed file.
 	indices, err := e.ComputeRetryRange(42, RetryRequest{Strategy: RetryFailedOnly})
 	if err != nil {
 		t.Fatalf("ComputeRetryRange after load: %v", err)
@@ -57,8 +55,6 @@ func TestEnsureLoadedForRetry_Idempotent(t *testing.T) {
 		t.Fatalf("expected failed index [0], got %v", indices)
 	}
 
-	// Idempotency: an in-memory status flip must survive a second
-	// EnsureLoadedForRetry call (already-populated galleries are skipped).
 	e.UpdateFileStatus(42, 0, FileCompleted, "/tmp/a.jpg", 1, "")
 	if err := e.EnsureLoadedForRetry(ctx, database, 42); err != nil {
 		t.Fatalf("second EnsureLoadedForRetry: %v", err)
@@ -72,9 +68,28 @@ func TestEnsureLoadedForRetry_Idempotent(t *testing.T) {
 	}
 }
 
-// TestResetFileStatusForRetry verifies the reset only touches
-// non-completed files — a completed file must never be re-queued, even
-// when an over-broad strategy (regional/all) includes it.
+// TestVideoTrackerUsesPlaylistIndices verifies that non-zero-based segment
+// indices (HLS playlists can start partway through) are tracked as given and
+// that re-registering the same indices preserves existing progress.
+func TestVideoTrackerUsesPlaylistIndices(t *testing.T) {
+	tracker := NewVideoProgressTracker(DefaultVideoRetryStrategy())
+	tracker.RegisterSegmentIndices(7, []int{10, 11, 12})
+	tracker.UpdateSegment(7, 10, SegCompleted, "segment.ts", 4, "")
+
+	summary := tracker.GetSummary(7)
+	if summary.TotalSegments != 3 || summary.CompletedSegments != 1 {
+		t.Fatalf("unexpected offset summary: %+v", summary)
+	}
+	tracker.RegisterSegmentIndices(7, []int{10, 11, 12})
+	summary = tracker.GetSummary(7)
+	if summary.CompletedSegments != 1 {
+		t.Fatalf("idempotent registration cleared progress: %+v", summary)
+	}
+}
+
+// TestResetFileStatusForRetry verifies the reset only touches non-completed
+// files, so a completed file is never re-queued even when an over-broad
+// strategy includes it.
 func TestResetFileStatusForRetry(t *testing.T) {
 	e := NewEngine(nil)
 	e.RegisterFiles(1, []FileProgress{
@@ -97,7 +112,6 @@ func TestResetFileStatusForRetry(t *testing.T) {
 		t.Fatalf("completed count must stay 1, got %d", summary.CompletedFiles)
 	}
 
-	// Unknown gallery must be a safe no-op.
 	if n := e.ResetFileStatusForRetry(99, []int{0}); n != 0 {
 		t.Fatalf("unknown gallery should reset 0, got %d", n)
 	}

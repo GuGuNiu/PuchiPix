@@ -87,7 +87,7 @@ func (o *DagOrchestrator) restoreDag(snap orchestrator.DagSnapshot) error {
 			continue
 		}
 		fsm := orchestrator.NewTaskStateMachine(snap.DagID, ns.NodeID, nodeDef.Phase, *nodeDef)
-		// Strategy layer: resolve policy from definition or registry so
+		// Resolve the policy from the definition or the registry so
 		// restored nodes get the same guard/action/retry behavior as
 		// freshly-submitted ones.
 		if fsm.Policy() == nil {
@@ -96,18 +96,13 @@ func (o *DagOrchestrator) restoreDag(snap orchestrator.DagSnapshot) error {
 			}
 		}
 		fsm.RestoreFromSnapshot(ns.History, ns.Error)
-		// M7 onRestart strategy: per the design requirement, ALL non-terminal
-		// nodes found after a restart must transition to PAUSED so the user
-		// can decide when to resume them — no auto-execution should happen.
-		//
-		// Previously, only RUNNING and VERIFYING were handled (RUNNING → READY
-		// for re-scheduling, VERIFYING → FAILED). QUEUED and READY nodes were
-		// left as-is, which caused the periodic ReactivateReadyNodes ticker
-		// to auto-execute them immediately after restart.
-		//
-		// Now: all non-terminal, non-PENDING states → PAUSED. PENDING nodes
-		// are left untouched (they haven't started yet and are already in
-		// the correct "waiting" state).
+		// Restart recovery: all non-terminal, non-PENDING states go to
+		// PAUSED so the user decides when to resume them, with no
+		// auto-execution. Restricting this to RUNNING and VERIFYING left
+		// QUEUED and READY nodes untouched, so the periodic
+		// ReactivateReadyNodes ticker auto-executed them right after
+		// restart. PENDING nodes are left alone: they have not started
+		// and are already in the correct waiting state.
 		restoredState := fsm.State()
 		if !orchestrator.IsTerminalState(restoredState) && restoredState != orchestrator.NodeStatePending {
 			targetState := defaultOnRestart(restoredState)
@@ -145,6 +140,9 @@ func (o *DagOrchestrator) applyEvent(event orchestrator.DagEvent) error {
 	o.dagsMu.RLock()
 	defer o.dagsMu.RUnlock()
 	for _, dag := range o.dags {
+		if event.DagID != "" && dag.id != event.DagID {
+			continue
+		}
 		dag.mu.Lock()
 		node, exists := dag.nodes[event.NodeID]
 		if !exists {

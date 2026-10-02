@@ -9,16 +9,16 @@ import (
 type InvariantSeverity string
 
 const (
-	InvariantError InvariantSeverity = "error"   // Hard violation: log + metric
-	InvariantWarn  InvariantSeverity = "warn"    // Soft violation: log only
+	InvariantError InvariantSeverity = "error" // Hard violation: log + metric
+	InvariantWarn  InvariantSeverity = "warn"  // Soft violation: log only
 )
 
 // InvariantCheck represents the result of evaluating one invariant rule.
 type InvariantCheck struct {
-	RuleName  string           // Human-readable rule identifier
-	Satisfied bool             // true = invariant holds
-	Severity  InvariantSeverity // How to treat a violation
-	Message   string           // Explanation when violated
+	RuleName  string
+	Satisfied bool
+	Severity  InvariantSeverity
+	Message   string
 }
 
 // InvariantEvaluator is a pure predicate that validates one aspect of
@@ -40,16 +40,10 @@ type DagInvariantView struct {
 // StateInvariantChecker validates post-transition invariants. It runs
 // after every Transition call to detect silent divergence between the
 // FSM state and the broader system (DB, slot pool, executor state).
-//
-// Design goals:
-//   - Fail-fast on contradictions (e.g. RUNNING node with no slot).
-//   - Observability: every violation is logged and counted in metrics.
-//   - Extensibility: new invariants register via AddInvariant without
-//     modifying existing rules.
 type StateInvariantChecker struct {
-	mu         sync.RWMutex
-	evaluators []InvariantEvaluator
-	logger     interface{} // *infra.Logger (avoid import cycle)
+	mu             sync.RWMutex
+	evaluators     []InvariantEvaluator
+	logger         interface{} // *infra.Logger (avoid import cycle)
 	violationCount map[string]int64
 }
 
@@ -72,8 +66,8 @@ func (c *StateInvariantChecker) AddInvariant(eval InvariantEvaluator) {
 }
 
 // Check runs every registered invariant and returns the list of
-// violations (empty slice means all invariants hold). A nil return
-// checker is a no-op (safe to call on optional dependencies).
+// violations (an empty slice means all invariants hold). A nil receiver
+// is a no-op, so call sites with an optional dependency need no guard.
 func (c *StateInvariantChecker) Check(ctx StateMachineContext, state NodeState, dag *DagInvariantView) []InvariantCheck {
 	if c == nil {
 		return nil
@@ -122,8 +116,8 @@ func (c *StateInvariantChecker) registerDefaults() {
 	}
 }
 
-// invariantTerminalHasNoErrorOrHistory ensures FAILED/TIMEOUT nodes
-// carry an error and COMPLETED nodes have a non-empty transition history.
+// invariantTerminalHasNoErrorOrHistory flags FAILED/TIMEOUT nodes with
+// no error, and COMPLETED nodes that show no sign of ever having run.
 func invariantTerminalHasNoErrorOrHistory(ctx StateMachineContext, state NodeState, dag *DagInvariantView) *InvariantCheck {
 	switch state {
 	case NodeStateFailed, NodeStateTimeout:
@@ -150,16 +144,13 @@ func invariantTerminalHasNoErrorOrHistory(ctx StateMachineContext, state NodeSta
 	return &InvariantCheck{RuleName: "terminal_has_error", Satisfied: true}
 }
 
-// invariantVerifyingRequiresReconcilerPath ensures VERIFYING state is
-// only entered when the node's policy or phase supports verification.
 func invariantVerifyingRequiresReconcilerPath(ctx StateMachineContext, state NodeState, dag *DagInvariantView) *InvariantCheck {
 	if state != NodeStateVerifying {
 		return &InvariantCheck{RuleName: "verifying_has_path", Satisfied: true}
 	}
-	// In a real installation the reconciler presence is checked by the
-	// orchestrator before invoking VerifyNode. This invariant guards
-	// against a misconfigured policy that enables verification for a
-	// phase with no verifier registered.
+	// The reconciler rejects unsupported phases before verification starts,
+	// so this rule only flags a misconfigured policy that enables
+	// verification for a phase with no verifier.
 	if ctx.Definition.Phase != PhaseScrape && ctx.Definition.Phase != PhaseDownload {
 		return &InvariantCheck{
 			RuleName:  "verifying_has_path",
@@ -171,26 +162,22 @@ func invariantVerifyingRequiresReconcilerPath(ctx StateMachineContext, state Nod
 	return &InvariantCheck{RuleName: "verifying_has_path", Satisfied: true}
 }
 
-// invariantCompletedThroughVerification ensures that COMPLETED nodes
-// either passed verification or were explicitly marked skipVerify.
-// This catches the 260819 P7 defect (verify executors registered but
-// never invoked, leaving nodes in RUNNING).
+// invariantCompletedThroughVerification requires a COMPLETED node to carry
+// a verification marker or an explicit skipVerify, catching executors that
+// are registered but never invoked and leave the node in RUNNING.
 func invariantCompletedThroughVerification(ctx StateMachineContext, state NodeState, dag *DagInvariantView) *InvariantCheck {
 	if state != NodeStateCompleted {
 		return &InvariantCheck{RuleName: "completed_via_verify", Satisfied: true}
 	}
-	// The skipVerify config explicitly opts out of verification.
 	if v, ok := ctx.Definition.Config["skipVerify"].(bool); ok && v {
 		return &InvariantCheck{RuleName: "completed_via_verify", Satisfied: true}
 	}
-	// If the node has no deps and was created in COMPLETED state by the
-	// executor (skipVerify path), Extras["verified"] will be set.
+	// Executors that skip verification still mark the context, so a node
+	// created directly in COMPLETED carries Extras["verified"].
 	if verified, ok := ctx.Extras["verified"].(bool); ok && verified {
 		return &InvariantCheck{RuleName: "completed_via_verify", Satisfied: true}
 	}
-	// Reach here: a node completed without explicit verification marker.
-	// This is a soft warning because some legit paths (e.g. no-op nodes)
-	// may not set the flag.
+	// A soft warning because no-op nodes legitimately leave the flag unset.
 	return &InvariantCheck{
 		RuleName:  "completed_via_verify",
 		Satisfied: false,
@@ -199,9 +186,9 @@ func invariantCompletedThroughVerification(ctx StateMachineContext, state NodeSt
 	}
 }
 
-// invariantRetryableFlagConsistent ensures result.Error.Retryable
-// agrees with node state: a Retryable error should land in NEEDS_RETRY
-// (or eventually READY), not FAILED.
+// invariantRetryableFlagConsistent flags a FAILED node whose error is
+// marked Retryable: that node should have landed in NEEDS_RETRY (or
+// eventually READY) instead.
 func invariantRetryableFlagConsistent(ctx StateMachineContext, state NodeState, dag *DagInvariantView) *InvariantCheck {
 	if state != NodeStateFailed {
 		return &InvariantCheck{RuleName: "retryable_consistent", Satisfied: true}

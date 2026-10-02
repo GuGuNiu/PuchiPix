@@ -1,13 +1,18 @@
 package video
 
 import (
+	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"backend/internal/infra"
 )
 
 var segmentIdxRe = regexp.MustCompile(`_(\d+)\.ts$`)
@@ -86,6 +91,21 @@ type MergeResult struct {
 // are skipped; the caller's validation detects them and triggers a
 // targeted redownload.
 func MergeSegments(segDir, outputPath string, manifest []string) (*MergeResult, error) {
+	return MergeSegmentsContext(context.Background(), segDir, outputPath, manifest)
+}
+
+func MergeSegmentsContext(ctx context.Context, segDir, outputPath string, manifest []string) (*MergeResult, error) {
+	return mergeSegmentsContext(ctx, segDir, outputPath, manifest, nil)
+}
+
+func MergeSegmentsContextWithProgress(ctx context.Context, segDir, outputPath string, manifest []string, onProgress func(completed, total int)) (*MergeResult, error) {
+	return mergeSegmentsContext(ctx, segDir, outputPath, manifest, onProgress)
+}
+
+func mergeSegmentsContext(ctx context.Context, segDir, outputPath string, manifest []string, onProgress func(completed, total int)) (*MergeResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(manifest) == 0 {
 		return nil, errors.New("merge manifest is empty")
 	}
@@ -93,6 +113,9 @@ func MergeSegments(segDir, outputPath string, manifest []string) (*MergeResult, 
 
 	files := make([]string, 0, len(manifest))
 	for _, name := range manifest {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		info, err := os.Stat(filepath.Join(dirPath, name))
 		if err != nil || info.Size() == 0 {
 			continue
@@ -104,33 +127,83 @@ func MergeSegments(segDir, outputPath string, manifest []string) (*MergeResult, 
 		return nil, errors.New("no .ts segment files found to merge")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, err
 	}
 
-	out, err := os.Create(outputPath)
+	out, err := os.CreateTemp(outputDir, "."+filepath.Base(outputPath)+".*.tmp")
 	if err != nil {
 		return nil, err
 	}
-	defer out.Close()
+	tempPath := out.Name()
+	defer func() {
+		_ = out.Close()
+		_ = os.Remove(tempPath)
+	}()
 
+	writer := bufio.NewWriterSize(out, 256*1024)
+	copyBuffer := make([]byte, 256*1024)
 	var totalSize int64
-	for _, file := range files {
-		data, err := os.ReadFile(filepath.Join(dirPath, file))
-		if err != nil {
-			return nil, fmt.Errorf("cannot read segment %s: %w", file, err)
+	total := len(manifest)
+	if onProgress != nil {
+		onProgress(0, total)
+	}
+	for i, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		written, err := out.Write(data)
+		src, err := os.Open(filepath.Join(dirPath, file))
 		if err != nil {
-			return nil, fmt.Errorf("cannot write segment %s: %w", file, err)
+			return nil, fmt.Errorf("cannot open segment %s: %w", file, err)
 		}
-		totalSize += int64(written)
+		written, copyErr := io.CopyBuffer(&infra.CountingWriter{W: writer}, &mergeContextReader{ctx: ctx, reader: src}, copyBuffer)
+		closeErr := src.Close()
+		if copyErr != nil {
+			return nil, fmt.Errorf("cannot copy segment %s: %w", file, copyErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("cannot close segment %s: %w", file, closeErr)
+		}
+		totalSize += written
+		if onProgress != nil {
+			onProgress(i+1, total)
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		return nil, fmt.Errorf("cannot flush merged output: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return nil, fmt.Errorf("cannot close merged output: %w", err)
+	}
+
+	if err := os.Rename(tempPath, outputPath); err != nil {
+		removeErr := os.Remove(outputPath)
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return nil, fmt.Errorf("cannot replace merged output: %w", err)
+		}
+		if err := os.Rename(tempPath, outputPath); err != nil {
+			return nil, fmt.Errorf("cannot publish merged output: %w", err)
+		}
 	}
 
 	return &MergeResult{
 		TotalFiles: len(files),
 		TotalSize:  totalSize,
 	}, nil
+}
+
+type mergeContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *mergeContextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 // CleanupSegments removes a segment directory and all its contents,

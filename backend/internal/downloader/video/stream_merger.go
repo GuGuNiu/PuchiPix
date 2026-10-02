@@ -13,26 +13,19 @@ import (
 
 var streamMergerLogger = infra.NewLogger("StreamMerger")
 
-// StreamMergerConfig configures a streaming merger.
 type StreamMergerConfig struct {
-	// Mode storage mode
-	Mode BufferMode
-	// TempDir temp directory for disk mode
-	TempDir string
-	// ProgressCallback progress callback
+	Mode             BufferMode
+	TempDir          string
 	ProgressCallback func(segmentIndex int, segmentSize int64)
-	// Logger logger
-	Logger *infra.Logger
+	Logger           *infra.Logger
 }
 
 // StreamMerger merges segments while they download (stream-as-you-go).
-// Follows cat-catch's sequentialPush design (see design doc §2.5.1).
 type StreamMerger struct {
 	buffer *IndexBuffer
 	config StreamMergerConfig
 }
 
-// NewStreamMerger creates a new streaming merger.
 func NewStreamMerger(segmentCount int, config StreamMergerConfig) *StreamMerger {
 	if config.Logger == nil {
 		config.Logger = streamMergerLogger
@@ -43,12 +36,10 @@ func NewStreamMerger(segmentCount int, config StreamMergerConfig) *StreamMerger 
 	}
 }
 
-// StoreSegment stores a downloaded segment (memory mode).
 func (m *StreamMerger) StoreSegment(index int, data []byte) error {
 	return m.buffer.Store(index, data)
 }
 
-// StoreSegmentDisk stores a downloaded segment (disk mode).
 func (m *StreamMerger) StoreSegmentDisk(index int, filePath string, size int64) error {
 	return m.buffer.StoreDisk(index, filePath, size)
 }
@@ -63,7 +54,6 @@ func (m *StreamMerger) MergeToWriter(w io.Writer) (int64, error) {
 	return m.buffer.SequentialPushWithCallback(w, callback)
 }
 
-// MergeToFile merges segments in order into the file at outputPath.
 func (m *StreamMerger) MergeToFile(outputPath string) (int64, error) {
 	if err := os.MkdirAll(m.config.TempDir, 0755); err != nil {
 		return 0, fmt.Errorf("create temp directory: %w", err)
@@ -75,7 +65,7 @@ func (m *StreamMerger) MergeToFile(outputPath string) (int64, error) {
 	}
 	defer f.Close()
 
-	return m.MergeToWriter(f)
+	return m.MergeToWriter(&infra.CountingWriter{W: f})
 }
 
 // MergeToPipe streams merged segments through an io.Pipe, for
@@ -99,24 +89,26 @@ func (m *StreamMerger) MergeToPipe() (io.ReadCloser, *sync.WaitGroup, error) {
 	return pr, &wg, nil
 }
 
-// GetBuffer returns the underlying IndexBuffer for direct access.
 func (m *StreamMerger) GetBuffer() *IndexBuffer {
 	return m.buffer
+}
+
+func (m *StreamMerger) Cancel() {
+	m.buffer.Cancel()
 }
 
 // StreamingMergePipeline runs the full streaming merge pipeline;
 // download and merge goroutines run in parallel.
 type StreamingMergePipeline struct {
-	merger    *StreamMerger
-	output    io.WriteCloser
-	ctx       context.Context
-	cancel    context.CancelFunc
-	doneChan  chan error
-	mu        sync.Mutex
-	started   bool
+	merger   *StreamMerger
+	output   io.WriteCloser
+	ctx      context.Context
+	cancel   context.CancelFunc
+	doneChan chan error
+	mu       sync.Mutex
+	started  bool
 }
 
-// NewStreamingMergePipeline creates a new streaming merge pipeline.
 func NewStreamingMergePipeline(segmentCount int, config StreamMergerConfig, output io.WriteCloser) *StreamingMergePipeline {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &StreamingMergePipeline{
@@ -128,12 +120,10 @@ func NewStreamingMergePipeline(segmentCount int, config StreamMergerConfig, outp
 	}
 }
 
-// StoreSegment stores a downloaded segment (concurrency-safe).
 func (p *StreamingMergePipeline) StoreSegment(index int, data []byte) error {
 	return p.merger.StoreSegment(index, data)
 }
 
-// StoreSegmentDisk stores a downloaded segment (disk mode).
 func (p *StreamingMergePipeline) StoreSegmentDisk(index int, filePath string, size int64) error {
 	return p.merger.StoreSegmentDisk(index, filePath, size)
 }
@@ -158,30 +148,23 @@ func (p *StreamingMergePipeline) Start() error {
 	return nil
 }
 
-// Wait blocks until the merge completes.
 func (p *StreamingMergePipeline) Wait() error {
 	err := <-p.doneChan
 	return err
 }
 
-// Cancel aborts the merge.
 func (p *StreamingMergePipeline) Cancel() {
+	p.merger.Cancel()
 	p.cancel()
 }
 
-// GetProgress returns current progress (ready, total).
 func (p *StreamingMergePipeline) GetProgress() (ready, total int) {
 	return p.merger.buffer.GetProgress()
 }
 
-// GetPushProgress returns push progress (pushed, total).
 func (p *StreamingMergePipeline) GetPushProgress() (pushed, total int) {
 	return p.merger.buffer.GetPushProgress()
 }
-
-// ============================================================
-// Helpers adapting to the existing SegmentQueue
-// ============================================================
 
 // CreateStreamMergerForTask creates a streaming merger for a download task.
 func CreateStreamMergerForTask(taskID int, segmentCount int, segDir string, mode BufferMode) *StreamMerger {
@@ -196,14 +179,14 @@ func CreateStreamMergerForTask(taskID int, segmentCount int, segDir string, mode
 		if mode == MemoryMode {
 			logger.Info("创建内存模式流式合并器",
 				infra.LogContext{Extra: map[string]any{
-					"taskId":     taskID,
-					"segments":   segmentCount,
+					"taskId":   taskID,
+					"segments": segmentCount,
 				}})
 		} else {
 			logger.Info("创建磁盘模式流式合并器",
 				infra.LogContext{Extra: map[string]any{
-					"taskId":     taskID,
-					"segments":   segmentCount,
+					"taskId":   taskID,
+					"segments": segmentCount,
 				}})
 		}
 	}
@@ -212,25 +195,22 @@ func CreateStreamMergerForTask(taskID int, segmentCount int, segDir string, mode
 	return merger
 }
 
-// DetermineBufferMode picks the storage mode from segment count and
-// estimated size: < 100MB uses memory mode, otherwise disk mode.
+// DetermineBufferMode picks the storage mode from the estimated total size.
 func DetermineBufferMode(segmentCount int, avgSegmentSize int64) BufferMode {
 	estimatedTotal := int64(segmentCount) * avgSegmentSize
-	const memoryThreshold = 100 * 1024 * 1024 // 100MB
+	const memoryThreshold = 100 * 1024 * 1024
 	if estimatedTotal < memoryThreshold {
 		return MemoryMode
 	}
 	return DiskMode
 }
 
-// CleanupSegmentFile removes a segment temp file.
 func CleanupSegmentFile(filePath string) {
 	if filePath != "" {
 		_ = os.Remove(filePath)
 	}
 }
 
-// SegmentDownloadInfo is segment download info passed to the streaming merger.
 type SegmentDownloadInfo struct {
 	Index    int
 	FilePath string
@@ -246,7 +226,6 @@ func (m *StreamMerger) BatchStoreSegments(segments []SegmentDownloadInfo) error 
 				return fmt.Errorf("store segment %d: %w", seg.Index, err)
 			}
 		} else {
-			// Memory mode: read the file into memory
 			data, err := os.ReadFile(seg.FilePath)
 			if err != nil {
 				return fmt.Errorf("read segment %d file: %w", seg.Index, err)
@@ -254,7 +233,7 @@ func (m *StreamMerger) BatchStoreSegments(segments []SegmentDownloadInfo) error 
 			if err := m.StoreSegment(seg.Index, data); err != nil {
 				return fmt.Errorf("store segment %d: %w", seg.Index, err)
 			}
-			_ = os.Remove(seg.FilePath) // clean up temp file
+			_ = os.Remove(seg.FilePath)
 		}
 	}
 	return nil
@@ -262,13 +241,12 @@ func (m *StreamMerger) BatchStoreSegments(segments []SegmentDownloadInfo) error 
 
 // SegmentTimeInfo holds per-segment timing used for download speed calculation.
 type SegmentTimeInfo struct {
-	Index      int
-	StartTime  time.Time
-	EndTime    time.Time
-	Size       int64
+	Index     int
+	StartTime time.Time
+	EndTime   time.Time
+	Size      int64
 }
 
-// CalculateDownloadSpeed returns the average download speed in bytes/sec.
 func CalculateDownloadSpeed(stats []SegmentTimeInfo) float64 {
 	if len(stats) == 0 {
 		return 0

@@ -3,13 +3,17 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
 
 type bucket struct {
 	tokens   chan struct{}
+	done     chan struct{}
 	lastSeen time.Time
 }
 
@@ -39,7 +43,7 @@ func (s *rateLimiterStore) cleanupLoop() {
 		now := time.Now()
 		for ip, b := range s.bucket {
 			if now.Sub(b.lastSeen) > ipTTL {
-				close(b.tokens)
+				close(b.done)
 				delete(s.bucket, ip)
 			}
 		}
@@ -60,7 +64,7 @@ func (s *rateLimiterStore) getOrCreate(ip string) *bucket {
 	for i := 0; i < defaultBurst; i++ {
 		tokens <- struct{}{}
 	}
-	b := &bucket{tokens: tokens, lastSeen: time.Now()}
+	b := &bucket{tokens: tokens, done: make(chan struct{}), lastSeen: time.Now()}
 	s.bucket[ip] = b
 
 	go s.refill(ip, b)
@@ -71,17 +75,24 @@ func (s *rateLimiterStore) refill(ip string, b *bucket) {
 	interval := time.Second / time.Duration(defaultRate)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
+	for {
 		select {
-		case b.tokens <- struct{}{}:
-		default:
+		case <-b.done:
 			return
-		}
-		s.mu.Lock()
-		_, ok := s.bucket[ip]
-		s.mu.Unlock()
-		if !ok {
-			return
+		case <-ticker.C:
+			select {
+			case <-b.done:
+				return
+			case b.tokens <- struct{}{}:
+			default:
+				// Bucket full; skip this tick but keep refilling.
+			}
+			s.mu.Lock()
+			_, ok := s.bucket[ip]
+			s.mu.Unlock()
+			if !ok {
+				return
+			}
 		}
 	}
 }
@@ -104,11 +115,16 @@ func RateLimiter(next http.Handler) http.Handler {
 }
 
 func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return fwd
+	if strings.EqualFold(os.Getenv("TRUST_PROXY_HEADERS"), "true") {
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			return strings.TrimSpace(strings.Split(fwd, ",")[0])
+		}
+		if real := r.Header.Get("X-Real-IP"); real != "" {
+			return strings.TrimSpace(real)
+		}
 	}
-	if real := r.Header.Get("X-Real-IP"); real != "" {
-		return real
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
 	return r.RemoteAddr
 }

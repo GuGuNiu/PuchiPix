@@ -7,7 +7,10 @@ export interface VideoShelfItem {
   DisplayID: string;
   Title: string;
   Status: string;
+  /** Monotonic composite display progress (download 0-90 → merge 90-95 → transcode 95-99 → 100). */
   Progress: number;
+  /** Raw phase-scoped percentage (merge %/transcode %). */
+  PhaseProgress?: number;
   Duration: number;
   Resolution: string;
   TotalSize: number;
@@ -45,6 +48,16 @@ export const VIDEO_STATUS_LABEL: Record<string, string> = {
   partial: "video.statusPartial",
   failed: "video.statusFailed",
   pending: "video.statusPending",
+  /*
+   * Post-download phases reuse the tasks-stage labels; "probing" is a real
+   * persisted status now (was the transcoding+progress>=100 convention).
+   */
+  merging: "tasks.progressStageMerging",
+  transcoding: "tasks.progressStageTranscoding",
+  probing: "tasks.progressStageProbing",
+  paused: "common.paused",
+  cancelled: "common.cancelled",
+  preparing: "common.preparing",
 };
 
 export const VIDEO_STATUS_CLASS: Record<string, string> = {
@@ -56,15 +69,32 @@ export const VIDEO_STATUS_CLASS: Record<string, string> = {
   partial: "badge-warning",
   failed: "badge-danger",
   pending: "badge-default",
+  merging: "badge-info",
+  transcoding: "badge-info",
+  probing: "badge-info",
+  paused: "badge-default",
+  cancelled: "badge-danger",
+  preparing: "badge-info",
 };
 
 /**
- * DB duration semantics: video_infos.duration (and gallery_videos.duration)
- * stores MINUTES — manager.go writes `durationSeconds/60` rounded to 0.1
- * after probing the transcoded MP4, and every other consumer (tasks page
- * "durationMinutes", gallery detail "min") reads it as minutes.
- *
- * 12.8 → "12:48"; 75.5 → "1:15:30"; 0 → "—"
+ * Phases that show a live progress bar on the shelf card: download plus the
+ * post-download pipeline (merge % → transcode % → probe). The backend
+ * persists phase percentages, so the bar tracks real progress in all of them.
+ */
+export function isVideoActivePhase(status: string): boolean {
+  return (
+    status === "downloading" ||
+    status === "scraping" ||
+    status === "merging" ||
+    status === "transcoding" ||
+    status === "probing"
+  );
+}
+
+/**
+ * The duration columns store minutes, not seconds: the backend writes
+ * seconds / 60 rounded to 0.1 after probing the transcoded MP4.
  */
 export function formatDuration(minutes: number): string {
   if (!minutes || minutes <= 0) return "—";
@@ -72,8 +102,8 @@ export function formatDuration(minutes: number): string {
 }
 
 /**
- * Clock format for HTMLMediaElement.duration (seconds, from the real file
- * metadata): 128.4 → "2:08"; 3725 → "1:02:05".
+ * Same clock format, but for seconds read from HTMLMediaElement.duration
+ * (real file metadata) instead of the minutes stored in the database.
  */
 export function formatClock(seconds: number): string {
   if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return "—";

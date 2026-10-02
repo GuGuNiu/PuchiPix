@@ -38,12 +38,10 @@ type NeighborOptions struct {
 	ExcludeSet map[int]bool
 }
 
-// DefaultNeighborOptions returns sensible defaults for the neighbor
-// expansion algorithm.
 func DefaultNeighborOptions(totalSegments int) NeighborOptions {
 	return NeighborOptions{
-		Radius:   5,
-		MaxIndex: totalSegments - 1,
+		Radius:     5,
+		MaxIndex:   totalSegments - 1,
 		ExcludeSet: make(map[int]bool),
 	}
 }
@@ -54,12 +52,9 @@ func DefaultNeighborOptions(totalSegments int) NeighborOptions {
 // failures are encoded in the result, not returned as errors.
 //
 // The segments slice is the authoritative identity set: a segment exists iff
-// its canonical file (SegmentFileName) is present and non-empty. This keys
-// validation on the same identity the downloader writes, closing the D3 gap
-// where a raw directory scan + _N suffix regex silently misclassified
-// segments whenever M3U8 media-sequence offsets made Index != slice
-// position, and let non-manifest residue (stale outputs, foreign variants)
-// count as "actual" segments.
+// its canonical file (SegmentFileName) is present and non-empty. Keying on the
+// same identity the downloader writes also keeps non-manifest residue (stale
+// outputs, foreign variants) out of the "actual" segment count.
 func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, segments []M3U8Segment, manifest []string, expectedDuration time.Duration) MergeValidationResult {
 	result := MergeValidationResult{
 		OutputPath:       outputPath,
@@ -70,7 +65,6 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, segment
 	if info, err := os.Stat(outputPath); err == nil {
 		result.OutputSize = info.Size()
 	} else {
-		// Output file missing — definitely invalid.
 		result.MissingIndices = segmentIndices(segments)
 		return result
 	}
@@ -96,7 +90,6 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, segment
 		}
 	}
 
-	// Quick pass: if nothing is missing and no empty files, do duration check.
 	if len(result.MissingIndices) == 0 && len(result.EmptyIndices) == 0 {
 		result.Valid = true
 	}
@@ -104,20 +97,17 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, segment
 	if expectedDuration > 0 {
 		if outputDur, err := ProbeDuration(ctx, outputPath); err == nil && outputDur > 0 {
 			result.OutputDuration = time.Duration(outputDur * float64(time.Second))
-			// Check if deviation exceeds 10% threshold.
 			if result.OutputDuration < expectedDuration*9/10 ||
 				result.OutputDuration > expectedDuration*11/10 {
-				// Duration mismatch with no file-level findings: the
-				// corruption is real but unlocalized. Re-queue the full
-				// expected set minus confirmed-good segments — the previous
-				// behavior of copying MissingIndices (empty here) produced
-				// an empty redownload set, and MergeRetryLoop aborted with
-				// "no redownload candidates" on every attempt.
+				// A duration mismatch with no file-level finding means the
+				// corruption is real but unlocalized, so the full expected set
+				// becomes the redownload candidate set; an empty candidate set
+				// would abort the retry loop on every attempt.
 				result.CorruptedIndices = segmentIndices(segments)
 				result.Valid = false
 			}
 		}
-		// If probe fails, we trust the file-level check (don't mark invalid).
+		// A failed probe leaves the file-level verdict unchanged.
 	}
 
 	return result
@@ -127,8 +117,6 @@ func ValidateMergeOutput(ctx context.Context, segDir, outputPath string, segment
 // each to a neighborhood of [idx-radius, idx+radius], clamped to
 // [0, maxIndex]. Indices in excludeSet are omitted so that already-good
 // segments are not re-downloaded.
-//
-// The returned slice is sorted and deduplicated.
 func expandToNeighborRange(failed []int, opts NeighborOptions) []int {
 	if opts.Radius <= 0 {
 		opts.Radius = 5
@@ -154,7 +142,6 @@ func expandToNeighborRange(failed []int, opts NeighborOptions) []int {
 		}
 	}
 
-	// Convert to sorted slice.
 	indices := make([]int, 0, len(needed))
 	for idx := range needed {
 		indices = append(indices, idx)
@@ -164,8 +151,8 @@ func expandToNeighborRange(failed []int, opts NeighborOptions) []int {
 }
 
 // SumSegmentDurations returns the total duration of all segments by summing
-// their individual EXTINF values. This is used as the expected duration for
-// merge validation.
+// their individual EXTINF values, used as the expected duration for merge
+// validation.
 func SumSegmentDurations(segments []M3U8Segment) time.Duration {
 	var total float64
 	for _, seg := range segments {

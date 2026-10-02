@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// prefixMap maps Accept-Language prefix tags to canonical locale codes,
-// mirroring the TypeScript PREFIX_MAP in detect.ts.
+// prefixMap maps Accept-Language prefix tags to canonical locale codes and
+// must stay in sync with the frontend PREFIX_MAP in detect.ts.
 var prefixMap = []struct{ prefix, locale string }{
 	{"zh", "zh-CN"},
 	{"ja", "ja-JP"},
@@ -22,8 +22,9 @@ var prefixMap = []struct{ prefix, locale string }{
 	{"in", "id-ID"},
 }
 
-// ParseLangTag normalizes a raw language tag to a supported locale code.
-// Returns empty string if no match is found. Mirrors parseLangTag in detect.ts.
+// ParseLangTag normalizes a raw language tag to a supported locale code,
+// returning an empty string when nothing matches. Must stay in sync with
+// parseLangTag in detect.ts.
 func ParseLangTag(lang string) string {
 	trimmed := strings.TrimSpace(lang)
 	if trimmed == "" {
@@ -74,7 +75,6 @@ func LocaleFromAcceptHeader(acceptLang string) string {
 	return DefaultLocale
 }
 
-// LocaleFromHeader detects the locale from an x-locale header value.
 func LocaleFromHeader(headerValue string) string {
 	if headerValue == "" {
 		return ""
@@ -83,7 +83,7 @@ func LocaleFromHeader(headerValue string) string {
 }
 
 // DetectLocale resolves the locale from HTTP headers in priority order:
-// x-locale header, locale cookie, Accept-Language, then default zh-CN.
+// x-locale header, locale cookie, Accept-Language, then the default.
 func DetectLocale(headers http.Header) string {
 	if v := headers.Get("x-locale"); v != "" {
 		if result := LocaleFromHeader(v); result != "" {

@@ -13,7 +13,6 @@ import (
 	"backend/internal/urlutil"
 )
 
-// Ensure time is used for GetDomainCacheInfo
 var _ = time.Time{}
 
 var providerLogger = infra.NewLogger("AimeiziziProvider")
@@ -33,9 +32,8 @@ type Provider struct {
 	domainPool        *stealth.DomainPool
 }
 
-// NewProvider creates an Aimeizizi provider with the given data store
-// and blocklist checker, pre-loading all site data from the unified
-// configuration to eliminate runtime lookups in hot paths.
+// NewProvider pre-loads all site data from the shared configuration so the
+// scrape hot paths avoid per-call data store lookups.
 func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker) *Provider {
 	p := &Provider{
 		dataStore: dataStore,
@@ -57,7 +55,6 @@ func NewProvider(dataStore sites.SiteDataStore, blocklist sites.BlocklistChecker
 		}
 	}
 
-	// Initialize shared domain pool for automatic load-balanced domain discovery
 	publisherURL := dataStore.GetPublisherURL("aimeizizi")
 	p.domainPool = stealth.NewDomainPool("aimeizizi", p.domains, publisherURL)
 	stealth.RegisterDomainPool("aimeizizi", p.domainPool)
@@ -71,7 +68,6 @@ func (p *Provider) CanHandle(rawURL string) bool {
 	if p.dataStore.CanHandle("aimeizizi", rawURL) {
 		return true
 	}
-	// Also check dynamically discovered domains
 	allDomains := p.GetDomains()
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -98,9 +94,8 @@ func (p *Provider) ScrapeGallery(ctx context.Context, pageURL string) (*sites.Ga
 func (p *Provider) ScrapeGalleryHTTP(ctx context.Context, pageURL string) (*sites.GalleryScrapeResult, error) {
 	result, err := ScrapeGalleryHTTP(ctx, pageURL, p)
 	if err != nil {
-		// If the error is due to content being blocked by the blocklist,
-		// do NOT fall back to browser - the block check will be applied
-		// again and the result will be the same.
+		// A blocklist rejection is deterministic, so a browser retry would
+		// reach the same verdict.
 		if strings.Contains(err.Error(), "content blocked:") {
 			providerLogger.Warn("Content blocked by blocklist, skipping browser fallback",
 				infra.LogContext{Extra: map[string]any{
@@ -139,7 +134,12 @@ func (p *Provider) Search(ctx context.Context, query string, page int) ([]sites.
 		searchURL = strings.TrimRight(searchURL, "/") + "/page/" + itoa(page) + "/?s=" + encoded
 	}
 
-	result, err := fetchAndParse(ctx, searchURL, stealth.GetDomainHealthTracker().GetBestDomain(allDomains))
+	domain := stealth.GetDomainHealthTracker().GetBestDomain(allDomains)
+	started := time.Now()
+	result, err := fetchAndParse(ctx, searchURL, domain)
+	// Search traffic hits a real mirror, so it feeds the same domain health
+	// signals as the download path.
+	stealth.GetDomainHealthTracker().ReportOutcome(domain, time.Since(started), err)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +181,6 @@ func (p *Provider) IsListingPage(rawURL string) bool {
 	return !strings.Contains(rawURL, "/article/")
 }
 
-// GetDomains returns the merged domain list (static + dynamically discovered).
-// When the domain resolver is available, it includes domains fetched from
-// the publisher site for automatic load-balanced domain discovery.
 func (p *Provider) GetDomains() []string {
 	if p.domainPool != nil {
 		return p.domainPool.GetDomains()
@@ -191,7 +188,6 @@ func (p *Provider) GetDomains() []string {
 	return p.domains
 }
 
-// GetDomainCacheInfo returns cache metadata for diagnostics.
 func (p *Provider) GetDomainCacheInfo() (domainCount int, lastFetch time.Time, isExpired bool) {
 	if p.domainPool != nil {
 		return p.domainPool.GetCacheInfo()
@@ -199,10 +195,7 @@ func (p *Provider) GetDomainCacheInfo() (domainCount int, lastFetch time.Time, i
 	return len(p.domains), time.Time{}, false
 }
 
-// GetPlaceholder returns the placeholder image fragment for scraper use.
 func (p *Provider) GetPlaceholder() string { return p.placeholder }
-
-// ScrapeDeps implementation
 
 func (p *Provider) ResolveURL(rawURL, domain string) string {
 	if rawURL == "" {
@@ -229,17 +222,13 @@ func (p *Provider) ExtractProtagonist(title string, tags []string) string {
 		return ""
 	}
 
-	// Aimeizizi gallery titles typically follow the pattern:
-	//   "ModelName – Description"  (en-dash)
-	//   "ModelName — Description"  (em-dash)
-	//   "ModelName - Description"  (hyphen)
-	// The protagonist (cosplayer/model) name appears before the separator.
+	// The model name precedes an en-dash, em-dash, or hyphen separator.
 	separators := []string{" – ", " — ", " - ", " –", "—", "–"}
 	for _, sep := range separators {
 		if idx := strings.Index(title, sep); idx > 0 {
 			candidate := strings.TrimSpace(title[:idx])
-			// Reject candidates that are too long (likely not a name)
-			// or too short (likely noise).
+			// Length bounds reject prose fragments on the long side and
+			// separator noise on the short side.
 			if len(candidate) >= 2 && len(candidate) <= 50 {
 				return candidate
 			}

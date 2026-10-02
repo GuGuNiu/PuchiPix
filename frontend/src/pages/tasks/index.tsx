@@ -46,7 +46,6 @@ import { ConsoleLog } from "@/components/ops/console-log";
 import { TaskDetailPopover } from "./_components/task-detail-popover";
 import { Pagination } from "@/components/ui/pagination";
 
-// ===== TanStack Imports =====
 import {
   useReactTable,
   getCoreRowModel,
@@ -59,7 +58,7 @@ import {
   type RowSelectionState,
 } from "@tanstack/react-table";
 
-const LOAD_MORE_THRESHOLD = 200; // Pixels from bottom to trigger load
+const LOAD_MORE_THRESHOLD = 200;
 
 interface SseAnimState {
   updatedKeys: Set<string>;
@@ -137,11 +136,13 @@ export default function TasksPage(): React.JSX.Element {
   const {
     tasks,
     loading,
+    loadError,
     fetchTasks,
     connectSSE,
     loadMoreTasks,
     hasMore,
     loadingMore,
+    batchActionInProgress,
   } = useTaskStore();
   const { pathname } = useLocation();
   const { savedData, saveState } = useRouteState(pathname, {
@@ -200,8 +201,17 @@ export default function TasksPage(): React.JSX.Element {
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [apiStats, setApiStats] = useState<{ current_speed_str?: string; disk_io_str?: string } | null>(null);
 
-  // Sync rowSelection to parent component state for backward compatibility
   const selectedIds = useMemo(() => new Set(Object.keys(rowSelection)), [rowSelection]);
+
+  useEffect(() => {
+    const existingKeys = new Set(tasks.map((task) => `${task.TaskType || "video"}-${task.ID}`));
+    const nextSelection = Object.fromEntries(
+      Object.entries(rowSelection).filter(([key]) => existingKeys.has(key)),
+    );
+    if (Object.keys(nextSelection).length !== Object.keys(rowSelection).length) {
+      setRowSelection(nextSelection);
+    }
+  }, [rowSelection, tasks]);
 
   useEffect(() => {
     const fetchStats = async (): Promise<void> => {
@@ -215,12 +225,12 @@ export default function TasksPage(): React.JSX.Element {
       }
     };
     fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    const interval = setInterval(fetchStats, 3000);
     return () => clearInterval(interval);
   }, []);
 
   const currentSpeedStr = apiStats?.current_speed_str ?? "0 B/s";
-  const diskIoStr = apiStats?.disk_io_str ?? "—";
+  const diskIoStr = apiStats?.disk_io_str ?? "0 B/s";
 
   useEffect(() => {
     if (addTabTouched.current) return;
@@ -241,10 +251,6 @@ export default function TasksPage(): React.JSX.Element {
     }
   }, [addTab, saveState]);
 
-  /*
-   * Infinite scroll: when user scrolls near the bottom and there are more
-   * tasks on the server, trigger loadMoreTasks to fetch the next page.
-   */
   useEffect(() => {
     if (!hasMore || loadingMore) return;
 
@@ -273,12 +279,10 @@ export default function TasksPage(): React.JSX.Element {
   }, [statusFilter, typeFilter, searchQuery, sortBy]);
 
   useEffect(() => {
-    if (tasks.length === 0) {
-      fetchTasks();
-    }
+    fetchTasks();
     const unsub = connectSSE();
     return () => unsub();
-  }, [fetchTasks, connectSSE, tasks.length]);
+  }, [fetchTasks, connectSSE]);
 
   useEffect(() => {
     if (prevTasksRef.current.length === 0 && tasks.length === 0) return;
@@ -309,7 +313,6 @@ export default function TasksPage(): React.JSX.Element {
     };
   }, [tasks]);
 
-  // Filtered tasks based on status and type filters
   const filteredTasks = useMemo(() => {
     let result = tasks;
 
@@ -362,7 +365,7 @@ export default function TasksPage(): React.JSX.Element {
     t,
   });
 
-  // ===== TanStack Table Column Definitions =====
+  // TanStack Table column definitions
   const columns = useMemo<ColumnDef<DownloadTask>[]>(
     () => [
       {
@@ -576,18 +579,20 @@ export default function TasksPage(): React.JSX.Element {
           const isWaitingSlot = task.Status === "scrape_pending" || task.Status === "download_pending" || isPreparing;
           const isPaused = task.Status === "paused";
           /*
-           * Transcode/post-process phase: purple fill driven by the
-           * REAL transcode percentage (SSE carries phase progress 0→100
-           * while status is "transcoding"); the stage text shows the
-           * live percentage. The bar reverts to the normal green
-           * completed fill once the task finishes.
+           * Post-download phases (merge/transcode/probe): the bar fill shows
+           * the monotonic composite progress while the stage text shows the
+           * raw phase percentage (PhaseProgress), so the bar never resets to
+           * zero at a phase boundary.
            */
-          const isTranscoding = task.Status === "transcoding";
-          const showStage = isIdentifying || isWaitingSlot || isPaused || isTranscoding;
+          const isPostPhase =
+            task.Status === "merging" || task.Status === "transcoding" || task.Status === "probing";
+          const showStage = isIdentifying || isWaitingSlot || isPaused || isPostPhase;
           const stage = getProgressStage(task, t);
           const progress = typeof task.Progress === "number" ? task.Progress : 0;
+          const phasePct =
+            typeof task.PhaseProgress === "number" ? task.PhaseProgress : progress;
           const transcodeText =
-            isTranscoding && progress < 99 ? `${stage} ${progress.toFixed(1)}%` : stage;
+            isPostPhase && phasePct < 100 ? `${stage} ${phasePct.toFixed(1)}%` : stage;
           const fillClass =
             task.Status === "completed"
               ? "completed"
@@ -619,10 +624,22 @@ export default function TasksPage(): React.JSX.Element {
               </span>
               <div className="progress-bar" style={{ width: "100%" }}>
                 <div
-                  className={`progress-bar-fill ${fillClass} ${isTranscoding ? "transcoding" : ""} ${showStage && !isTranscoding ? "progress-bar-indeterminate" : ""}`}
-                  style={showStage && !isTranscoding ? {} : { width: `${progress}%` }}
+                  className={`progress-bar-fill ${fillClass} ${isPostPhase ? "transcoding" : ""} ${showStage && !isPostPhase ? "progress-bar-indeterminate" : ""}`}
+                  style={showStage && !isPostPhase ? {} : { width: `${progress}%` }}
                 />
               </div>
+              {task.Speed && !showStage && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    whiteSpace: "nowrap",
+                    lineHeight: "12px",
+                  }}
+                >
+                  {task.Speed}
+                </span>
+              )}
             </div>
           );
         },
@@ -698,9 +715,19 @@ export default function TasksPage(): React.JSX.Element {
           const canPauseGallery = isGallery && (task.Status === "scraping" || task.Status === "downloading" || task.Status === "scrape_pending" || task.Status === "download_pending" || task.Status === "pending" || isPreparing);
           const canCancel = !isGallery && !isSniff &&
             (task.Status === "downloading" ||
+              task.Status === "merging" ||
+              task.Status === "transcoding" ||
+              task.Status === "probing" ||
               task.Status === "paused" ||
               task.Status === "pending" ||
               task.Status === "scraping");
+          const canCancelGallery = isGallery &&
+            (task.Status === "scraping" ||
+              task.Status === "downloading" ||
+              task.Status === "scrape_pending" ||
+              task.Status === "download_pending" ||
+              task.Status === "pending" ||
+              task.Status === "preparing");
           const canRetry = !isSniff && task.Status === "failed";
           const canRetryPartial = isGallery && task.Status === "partial";
           const canDelete = true;
@@ -724,7 +751,7 @@ export default function TasksPage(): React.JSX.Element {
                   <Pause size={14} />
                 </button>
               )}
-              {canCancel && (
+              {(canCancel || canCancelGallery) && (
                 <button
                   className="btn btn-danger btn-sm"
                   onClick={(e) => { e.stopPropagation(); handleAction(task, "cancel"); }}
@@ -829,12 +856,7 @@ export default function TasksPage(): React.JSX.Element {
 
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
 
-  /*
-   * ===== TanStack Table Instance =====
-   * Connect manual pagination state to the table so it doesn't fall back
-   * to its internal default (pageSize=10). currentPage is 1-based in the
-   * component but TanStack expects 0-based pageIndex.
-   */
+  // The currentPage state is 1-based here while TanStack expects a 0-based pageIndex
   const table = useReactTable({
     data: filteredTasks,
     columns,
@@ -876,7 +898,7 @@ export default function TasksPage(): React.JSX.Element {
       const effectiveStatus = t.EffectiveStatus ?? t.Status;
       if (effectiveStatus === "scrape_pending") {
         counts["scraping"] = (counts["scraping"] || 0) + 1;
-      } else if (effectiveStatus === "download_pending" || effectiveStatus === "transcoding") {
+      } else if (effectiveStatus === "download_pending" || effectiveStatus === "transcoding" || effectiveStatus === "merging" || effectiveStatus === "probing") {
         counts["downloading"] = (counts["downloading"] || 0) + 1;
       } else {
         counts[effectiveStatus] = (counts[effectiveStatus] || 0) + 1;
@@ -911,7 +933,7 @@ export default function TasksPage(): React.JSX.Element {
   }, [statusFilter, typeFilter, searchQuery, sortBy]);
 
   const toggleExpand = useCallback((task: DownloadTask): void => {
-    const key = task.DisplayID ?? String(task.ID);
+    const key = `${task.TaskType || "video"}-${task.ID}`;
     setExpandedTask(expandedTask === key ? null : key);
   }, [expandedTask, setExpandedTask]);
 
@@ -974,7 +996,7 @@ export default function TasksPage(): React.JSX.Element {
           <button
             className="btn btn-primary btn-sm"
             onClick={() => handleBatchAction("start")}
-            disabled={!someSelected}
+            disabled={!someSelected || batchActionInProgress}
             title={someSelected ? t("tasks.batchStart") : t("tasks.batchStartDisabled")}
           >
             <Play size={12} />
@@ -983,7 +1005,7 @@ export default function TasksPage(): React.JSX.Element {
           <button
             className="btn btn-outline btn-sm"
             onClick={() => handleBatchAction("retry")}
-            disabled={!someSelected}
+            disabled={!someSelected || batchActionInProgress}
             title={someSelected ? t("tasks.batchRetryTitle") : t("tasks.batchRetryDisabled")}
           >
             <RotateCw size={12} />
@@ -992,7 +1014,7 @@ export default function TasksPage(): React.JSX.Element {
           <button
             className="btn btn-warning btn-sm"
             onClick={() => handleBatchAction("pause")}
-            disabled={!someSelected}
+            disabled={!someSelected || batchActionInProgress}
             title={someSelected ? t("tasks.batchPause") : t("tasks.batchPauseDisabled")}
           >
             <Pause size={12} />
@@ -1001,7 +1023,7 @@ export default function TasksPage(): React.JSX.Element {
           <button
             className="btn btn-danger btn-sm"
             onClick={() => handleBatchAction("cancel")}
-            disabled={!someSelected}
+            disabled={!someSelected || batchActionInProgress}
             title={someSelected ? t("tasks.batchCancel") : t("tasks.batchCancelDisabled")}
           >
             <Square size={12} />
@@ -1010,7 +1032,7 @@ export default function TasksPage(): React.JSX.Element {
           <button
             className="btn btn-outline btn-sm"
             onClick={() => handleBatchAction("delete")}
-            disabled={!someSelected}
+            disabled={!someSelected || batchActionInProgress}
             title={someSelected ? t("tasks.batchDelete") : t("tasks.batchDeleteDisabled")}
           >
             <Trash2 size={12} />
@@ -1021,6 +1043,13 @@ export default function TasksPage(): React.JSX.Element {
         {loading && tasks.length === 0 ? (
           <div className="loading-container" style={{ flex: 1 }}>
             <div className="spinner" />
+          </div>
+        ) : loadError && tasks.length === 0 ? (
+          <div className="empty-state" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px" }}>
+            <div className="empty-state-text">{loadError}</div>
+            <button className="btn btn-outline btn-sm" onClick={() => fetchTasks()}>
+              {t("common.refresh")}
+            </button>
           </div>
         ) : filteredTasks.length === 0 ? (
           <div
@@ -1178,6 +1207,9 @@ export default function TasksPage(): React.JSX.Element {
                       fontWeight: 800,
                       color: "var(--warning)",
                       letterSpacing: "-0.3px",
+                      fontVariantNumeric: "tabular-nums",
+                      minWidth: 64,
+                      textAlign: "right",
                     }}
                   >
                     {diskIoStr}
@@ -1207,6 +1239,9 @@ export default function TasksPage(): React.JSX.Element {
                       fontWeight: 800,
                       color: "var(--neon-cyan)",
                       letterSpacing: "-0.3px",
+                      fontVariantNumeric: "tabular-nums",
+                      minWidth: 64,
+                      textAlign: "right",
                     }}
                   >
                     {currentSpeedStr}

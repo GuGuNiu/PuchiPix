@@ -9,8 +9,6 @@ import (
 	"backend/internal/orchestrator/slot"
 )
 
-// ═══ Dynamic Runtime Mutation APIs (Stage 5) ═══
-
 // AddNode injects a new node into a running DAG. If the node has no
 // unsatisfied dependencies at insertion time it is immediately
 // activated; otherwise it enters PENDING state and waits for its deps
@@ -38,7 +36,6 @@ func (o *DagOrchestrator) AddNode(ctx context.Context, dagID string, nodeDef orc
 			dag.mu.Unlock()
 			return fmt.Errorf("add vertex to graph index: %w", err)
 		}
-		// Wire dependencies declared in the definition.
 		for _, depID := range nodeDef.Dependencies {
 			if depNode, depExists := dag.nodes[depID]; depExists {
 				_ = depNode // referenced for existence check
@@ -128,7 +125,7 @@ func (o *DagOrchestrator) AddDependency(ctx context.Context, dagID, parentID, ch
 		return fmt.Errorf("parent %s or child %s not found in DAG %s", parentID, childID, dagID)
 	}
 
-	// Check for cycle via graph index before applying.
+	// The graph index rejects cycle-closing edges.
 	if dag.graphIdx != nil {
 		if err := dag.graphIdx.addEdge(parentID, childID); err != nil {
 			dag.mu.Unlock()
@@ -136,12 +133,12 @@ func (o *DagOrchestrator) AddDependency(ctx context.Context, dagID, parentID, ch
 		}
 	}
 
-	// Also update the child's definition for snapshot fidelity.
+	// Mirror the new edge into the child's definition for snapshot fidelity.
 	child.definition.Dependencies = append(child.definition.Dependencies, parentID)
 
-	// If parent is already satisfied, bump child's completedDeps
-	// immediately. This avoids the child waiting forever for an event
-	// that already fired.
+	// Bump the child's completedDeps immediately when the parent is already
+	// satisfied, otherwise the child waits forever for an event that has
+	// already fired.
 	parentState := parent.fsm.State()
 	if parentState == orchestrator.NodeStateCompleted ||
 		(parent.definition.NonCritical && (parentState == orchestrator.NodeStateFailed || parentState == orchestrator.NodeStateTimeout)) {
@@ -276,12 +273,10 @@ func (o *DagOrchestrator) RemoveDag(ctx context.Context, dagID string) error {
 
 	delete(o.dags, dagID)
 
-	// Clear any task-level slot quotas that this DAG may have set so
-	// the slot pool does not retain a stale reservation. checkDagCompletion
-	// also clears quotas on terminal DAGs, but RemoveDag can be called
-	// on a failed/timeout DAG that never reached checkDagCompletion's
-	// all-terminal check via the normal flow (e.g. user deletes a
-	// partially-failed DAG directly).
+	// Clear any task-level slot quotas this DAG set so the slot pool does
+	// not retain a stale reservation. checkDagCompletion also clears quotas
+	// on terminal DAGs, but a failed/timeout DAG removed directly by the
+	// user never reaches its all-terminal check.
 	if sp, ok := o.slotPool.(*slot.SlotPool); ok {
 		sp.ClearDagQuota(dagID)
 	}

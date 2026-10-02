@@ -2,6 +2,7 @@ package slot
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,32 +28,31 @@ type SlotStateChange struct {
 
 // SlotTypeDefinition declares a slot type's limits and lifecycle.
 type SlotTypeDefinition struct {
-	Key         string
-	Label       string
-	DefaultMax  int
-	ConfigKey   string
-	Min         int
-	Max         int
+	Key        string
+	Label      string
+	DefaultMax int
+	ConfigKey  string
+	Min        int
+	Max        int
 }
 
 // slotEntry holds the runtime state for one slot type.
 type slotEntry struct {
-	definition SlotTypeDefinition
-	max        int
-	running    int
+	definition  SlotTypeDefinition
+	max         int
+	running     int
 	activeSlots map[string]bool
-	heldSince  map[string]int64
+	heldSince   map[string]int64
 }
 
-// SlotPool controls concurrency with per-type capacity limits,
-// mirroring the TypeScript SlotPool and supporting batch acquisition.
-// Beyond the global per-type max, SlotPool enforces optional per-DAG
-// quotas: a task may declare how many slots of each type it may occupy
-// at once (e.g. "download": 2), strictly bounding that task's footprint
-// regardless of global capacity. Quotas are set via SetDagQuota.
+// SlotPool controls concurrency with per-type capacity limits and
+// optional per-DAG quotas: a task may declare how many slots of each
+// type it may occupy at once (e.g. "download": 2), strictly bounding
+// that task's footprint regardless of global capacity. Quotas are set
+// via SetDagQuota.
 type SlotPool struct {
-	mu               sync.Mutex
-	pools            map[string]*slotEntry
+	mu                sync.Mutex
+	pools             map[string]*slotEntry
 	schedulerCallback func(slotType string)
 	// maxUpdateCallback is invoked (outside the pool lock) whenever a
 	// slot type's max capacity changes, so consumers (e.g. the
@@ -303,6 +303,47 @@ func (p *SlotPool) HasHolder(slotType, holderID string) bool {
 	return entry.activeSlots[holderID]
 }
 
+// HoldsAny reports whether the holder currently holds at least one slot
+// in any pool. The zombie sweep uses it together with the scheduler's
+// IsExecuting to decide whether a node's executor is really gone: a node
+// that still holds its slot is alive even if IsExecuting has not caught
+// up yet (dispatch window between AcquireBatch and worker registration).
+func (p *SlotPool) HoldsAny(holderID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, entry := range p.pools {
+		if entry.activeSlots[holderID] {
+			return true
+		}
+	}
+	return false
+}
+
+// SlotHolderInfo is one active slot holder with its acquisition time.
+type SlotHolderInfo struct {
+	HolderID    string
+	HeldSinceMs int64
+}
+
+// GetHoldersByAge returns the active holders of a slot type, newest-held
+// first. The slot cap enforcement uses the ordering to pause the most
+// recently started work first, preserving the progress of longer-running
+// holders.
+func (p *SlotPool) GetHoldersByAge(slotType string) []SlotHolderInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.pools[slotType]
+	if !ok {
+		return nil
+	}
+	out := make([]SlotHolderInfo, 0, len(entry.activeSlots))
+	for holderID, since := range entry.heldSince {
+		out = append(out, SlotHolderInfo{HolderID: holderID, HeldSinceMs: since})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].HeldSinceMs > out[j].HeldSinceMs })
+	return out
+}
+
 // Acquire attempts to acquire a single slot for a holder. Returns true
 // on success or if the holder already owns a slot. Per-DAG quotas are
 // enforced alongside the global max.
@@ -413,10 +454,9 @@ func (p *SlotPool) Release(slotType, holderID string) {
 		if entry.running < 0 {
 			entry.running = 0
 		}
-		// Consistency self-heal: the running counter must track the
-		// activeSlots map exactly. If they drifted (e.g. a ReleaseAll
-		// race on the cancel path), re-sync and warn so the ghost-slot
-		// leak (P-SLOT-01) cannot silently accumulate.
+		// The running counter must track the activeSlots map exactly. If
+		// they drifted (e.g. a ReleaseAll race on the cancel path),
+		// re-sync and warn so a ghost-slot leak cannot silently accumulate.
 		if actual := len(entry.activeSlots); entry.running != actual {
 			p.logger.Warn("Slot pool inconsistency auto-fixed",
 				"slotType", slotType, "holder", holderID,
@@ -459,9 +499,9 @@ func (p *SlotPool) ReleaseAll(holderID string) {
 			if entry.running < 0 {
 				entry.running = 0
 			}
-			// Consistency self-heal (P-SLOT-01): re-sync the running
-			// counter against the actual activeSlots map so a drift on
-			// the cancel/pause path cannot leave ghost slots behind.
+			// Re-sync the running counter against the actual activeSlots
+			// map so a drift on the cancel/pause path cannot leave ghost
+			// slots behind.
 			if actual := len(entry.activeSlots); entry.running != actual {
 				p.logger.Warn("Slot pool inconsistency auto-fixed (ReleaseAll)",
 					"slotType", slotType, "holder", holderID,
@@ -499,8 +539,8 @@ func (p *SlotPool) GetUsage(slotType string) *SlotUsage {
 	}
 	return &SlotUsage{
 		SlotType:  slotType,
-		Current:  entry.running,
-		Max:      entry.max,
+		Current:   entry.running,
+		Max:       entry.max,
 		Available: entry.max - entry.running,
 	}
 }
@@ -513,8 +553,8 @@ func (p *SlotPool) GetSnapshot() map[string]SlotUsage {
 	for key, entry := range p.pools {
 		out[key] = SlotUsage{
 			SlotType:  key,
-			Current:  entry.running,
-			Max:      entry.max,
+			Current:   entry.running,
+			Max:       entry.max,
 			Available: entry.max - entry.running,
 		}
 	}
@@ -556,8 +596,8 @@ func (p *SlotPool) UpdateMax(slotType string, newMax int) {
 	}
 }
 
-// CheckTimeouts releases slots held longer than the timeout, preventing
-// slot leaks from crashed goroutines.
+// CheckTimeouts releases slots held longer than the timeout, recovering
+// slots leaked by crashed goroutines.
 func (p *SlotPool) CheckTimeouts(timeoutMs int64) {
 	p.mu.Lock()
 	now := time.Now().UnixMilli()
@@ -587,10 +627,9 @@ func (p *SlotPool) CheckTimeouts(timeoutMs int64) {
 
 // healInconsistencies scans every slot type and re-syncs the running
 // counter to len(activeSlots) whenever they drift. This is the long-term
-// guard against the P-SLOT-01 ghost-slot leak: even if an abnormal path
-// ever desyncs the counter (e.g. a cancel/restart race), a periodic
-// sweep self-heals before new tasks are starved. Returns the number of
-// fixed slot types.
+// guard against ghost-slot leaks: even if an abnormal path ever desyncs
+// the counter (e.g. a cancel/restart race), a periodic sweep re-syncs it
+// before new tasks are starved. Returns the number of fixed slot types.
 func (p *SlotPool) healInconsistencies() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -609,10 +648,10 @@ func (p *SlotPool) healInconsistencies() int {
 }
 
 // StartHealthCheck runs a periodic consistency sweep plus stale-slot
-// timeout release until ctx is cancelled. It guards against ghost-slot
-// leaks (P-SLOT-01) that ReleaseAll self-heal cannot cover (e.g. a
-// goroutine that died before its defer ran). interval <= 0 falls back to
-// 5 seconds; timeout <= 0 disables stale-slot release.
+// timeout release until ctx is cancelled. It covers ghost-slot leaks
+// that the ReleaseAll re-sync cannot, e.g. a goroutine that died before
+// its defer ran. interval <= 0 falls back to 5 seconds; timeout <= 0
+// disables stale-slot release.
 func (p *SlotPool) StartHealthCheck(ctx context.Context, interval, timeout time.Duration) {
 	if interval <= 0 {
 		interval = 5 * time.Second
@@ -704,8 +743,8 @@ type ResourceRequirement struct {
 // SlotUsage mirrors orchestrator.SlotUsage for the same reason.
 type SlotUsage struct {
 	SlotType  string
-	Current  int
-	Max      int
+	Current   int
+	Max       int
 	Available int
 }
 
