@@ -173,8 +173,40 @@ Wails 没有内置窗口状态事件，故最大化图标采用「乐观翻转+ 
 
 ### 事故备忘：删除守卫会误伤无关文件
 
-本项目的工作区删除守卫会把删除重定向到回收站（`E:\$Recycle.Bin\<SID>\`），且**会把脚本根本没打算删的文件一并移走**。本日累计四次：`start.bat` 三次（`git status` 显示 ` D`）、`docs/` 整目录一次（`docs/ missing`）。四次均以`git checkout --` 完整恢复。
+本项目的工作区删除守卫会把删除重定向到回收站（`E:\$Recycle.Bin\<SID>\`），且**会把脚本根本没打算删的文件一并移走**。本日累计四次：`start.bat` 三次（`git status` 显示 ` D`）、`docs/` 整目录一次（`docs/ missing`）。四次均以 `git checkout --` 完整恢复。
 
 此外该守卫还会打断构建：Vite 的 `emptyOutDir` 清空 `frontend/dist` 时，守卫二进制 `genie-trash.exe` 超时（`ETIMEDOUT`）导致构建失败。绕法是 `pnpm exec vite build --emptyOutDir false`；注意此时旧产物不会被清掉，需自行确认输出目录状态。
 
 **因此本项目所有批量文件操作必须执行这条纪律**：动手前 `git ls-files -z | xargs -0 md5sum` 快照全部跟踪文件，改完再全量比对一次，确认零差异才收工。不能只看脚本自己的输出。
+
+## 十一、M2 桌面打包
+
+**结论：资源注入绕开 Wails CLI，改用 windres。** Wails 的打包链（`pkg/commands/build`、`internal/s`）在本机 module cache 缺失，`wails build` 跑不起来；而运行时包是齐备的。图标与版本信息本质是 PE 资源，与 Wails 无关，因此完全可以用 `windres` 编译 `.rc` → `.syso` 解决，Go 会自动把同包目录下的 `.syso` 链进产物。
+
+| 路径 | 职责 |
+|---|---|
+| `build/windows/make-icon.py` | Pillow 生成 7 尺寸 ico，配色取自 `--accent-shimmer` |
+| `build/windows/PuchiPix.rc` | ICON + VERSIONINFO |
+| `build/windows/app.manifest` | asInvoker、per-monitor DPI、longPathAware、UTF-8、Common-Controls v6 |
+| `build/windows/installer.nsi` | NSIS 安装/卸载、快捷方式、注册表、文件关联 |
+| `scripts/build-resources.mjs` | 调windres，输出 `backend/cmd/desktop/PuchiPix.syso` |
+
+原 favicon 是通用黑色播放三角占位图，不足以当应用图标，故重画：圆角方形用项目自己的 periwinkle 渐变，三角做光学居中。`icon.ico` 作为源码资产入库（CI 无需 Python 即可打包），`.syso` 与预览图忽略。
+
+### 三个 windres 的坑
+
+1. **必须显式 `--target=pe-x86-64`。** 默认按 i386 生成，资源虽被链进 `.rsrc`，但系统读不到。判据是 PE 数据目录 `IMAGE_DIRECTORY_ENTRY_RESOURCE` 的 rva/size 与 `.rsrc` 节是否一致——两者一致才说明真的生效。
+2. **`-D` 宏在字符串字面量内不展开。** 写 `VALUE "FileVersion", "VERSION_MAJOR.VERSION_MINOR..."` 会把宏名原样写进 exe。需用 stringize：`#define STR_(x) #x` / `#define STR(x) STR_(x)` 再拼出 `VERSION_STRING`。
+3. **不解析 `winnt.h`。** `VOS_NT_WINDOWS32` 之类常量不识别，会报语法错误，须改用字面量 `0x40004` / `0x1` / `0x0`。
+
+### 顺带修掉的构建脚本 bug
+
+`run()` 统一用 `shell: true`，导致 `go` 收到的 argv 被重新切分，`"-s -w"` 变成 `-s` 和 `-w`，报 `flag provided but not defined: -w`。此前一直直接用 shell 调 `go build`，没走过这个脚本，所以一直没暴露。现给 `go`/`windres` 这类原生 exe 传 `shell: false`，只有 `pnpm`（`.cmd`）保留 shell。
+
+安装包在本机是可选步骤（未装 NSIS），CI 传 `--require-installer` 使其失败即断，避免 `.nsi` 写错漏到发布。
+
+### 验证
+
+自写三个检查脚本入库（`inspect-pe.py` 节表与数据目录、`inspect-rsrc.py` 资源树、`inspect-version.py` 直解 `VS_VERSION_INFO`）。确认：`.rsrc` 正确链接；`RT_ICON`×7 + `RT_GROUP_ICON` + `RT_VERSION` + `RT_MANIFEST` 齐全；`VS_FIXEDFILEINFO` 签名 `0xFEEF04BD`、binary version `0.3.0.0`、`FileVersion` 字符串 `0.3.0.0`；实机启动运行正常、零 ERROR。
+
+注意：本机沙箱内 `version.dll` 的 `GetFileVersionInfoSizeW` 与 `ExtractIconExW` 均不可用（返回 0 / 函数不存在），属环境限制而非产物问题，故验证改走自写 PE 解析器；CI 在正常的 windows-latest 上用 PowerShell `VersionInfo` 复核。
