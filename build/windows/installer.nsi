@@ -2,7 +2,10 @@ Unicode true
 SetCompressor /SOLID lzma
 
 !define APP_NAME "PuchiPix"
+# build-desktop.mjs passes /DAPP_VERSION=<version> from frontend/package.json
+!ifndef APP_VERSION
 !define APP_VERSION "0.3.0"
+!endif
 !define APP_PUBLISHER "PuchiPix"
 !define APP_EXE "PuchiPix.exe"
 !define BUILD_DIR "..\..\dist-desktop"

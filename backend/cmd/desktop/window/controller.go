@@ -9,13 +9,23 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-type Controller struct {
-	mu  sync.RWMutex
-	ctx context.Context
+// Options configures the window chrome the controller publishes to the
+// frontend through /api/window/state.
+type Options struct {
+	// CornerRadiusPx is the rounded-corner radius (CSS pixels) the web shell
+	// applies to the window frame. Zero keeps square corners; the frontend
+	// drops the radius while the window is maximised.
+	CornerRadiusPx int
 }
 
-func New() *Controller {
-	return &Controller{}
+type Controller struct {
+	mu   sync.RWMutex
+	ctx  context.Context
+	opts Options
+}
+
+func New(opts Options) *Controller {
+	return &Controller{opts: opts}
 }
 
 func (c *Controller) Bind(ctx context.Context) {
@@ -73,7 +83,10 @@ func (c *Controller) Routes() http.Handler {
 
 func (c *Controller) writeState(w http.ResponseWriter) {
 	ctx, ok := c.runtimeContext()
-	payload := map[string]any{"maximised": false}
+	payload := map[string]any{
+		"maximised":    false,
+		"cornerRadius": c.opts.CornerRadiusPx,
+	}
 	if ok {
 		payload["maximised"] = runtime.WindowIsMaximised(ctx)
 	}

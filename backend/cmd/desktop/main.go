@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -29,6 +30,12 @@ const singleInstanceID = "puchipix-desktop-single-instance"
 // effect once the runtime boots.
 const earlyLockName = "Global\\PuchiPixDesktopStartupLock"
 
+// windowCornerRadius is the rounded-corner radius (CSS pixels) the web shell
+// applies to the window; it is published to the frontend through
+// /api/window/state and can be tuned here without touching the web layer.
+// The maximised window drops the radius on the frontend side.
+const windowCornerRadius = 24
+
 func main() {
 	// Claim the startup lock before anything touches the database. Wails only
 	// takes its own lock inside wails.Run, which would let a second launch
@@ -45,6 +52,12 @@ func main() {
 	dataDir, err := resolveDataDir()
 	if err != nil {
 		fatal("resolve data directory", err)
+	}
+	// With -H=windowsgui the packaged exe has no console, so stdio output
+	// would be lost; route it into a log file under the data directory.
+	// Kept non-fatal: the app still runs if the log file cannot be opened.
+	if err := setupDesktopLog(dataDir); err != nil {
+		fmt.Fprintf(os.Stderr, "desktop log unavailable: %v\n", err)
 	}
 	if err := injectEnv(dataDir); err != nil {
 		fatal("configure environment", err)
@@ -72,7 +85,7 @@ func main() {
 	}
 	logger := application.Logger()
 
-	winCtrl := window.New()
+	winCtrl := window.New(window.Options{CornerRadiusPx: windowCornerRadius})
 
 	srv := &http.Server{
 		Handler: mountWindowControl(winCtrl, application.Router()),
@@ -152,6 +165,25 @@ func main() {
 		Windows: &wopts.Options{
 			WebviewUserDataPath: filepath.Join(dataDir, "webview"),
 			Theme:               wopts.SystemDefault,
+			// The web layer draws the shell's rounded corners, so the webview
+			// itself must be a per-pixel alpha layer: without this the WebView2
+			// paints an opaque rectangle behind the web content and the rounded
+			// corners would show that solid backing instead of the desktop.
+			WebviewIsTransparent: true,
+			// WS_EX_NOREDIRECTIONBITMAP + DWMSBT_NONE: the DWM draws no system
+			// backdrop (no Mica/Acrylic layer), so what is composited onto the
+			// desktop is exactly the web layer's alpha — transparent pixels
+			// stay transparent, with no extra layer in between.
+			WindowIsTranslucent: true,
+			BackdropType:        wopts.None,
+			// Drop the frameless-window decorations (Aero shadow + the Win11
+			// system corner rounding). The system rounds at a fixed ~8px which
+			// would fight the web shell's own --window-radius parameter and
+			// leave a visible system-drawn edge behind the transparent
+			// corners; with decorations off, the web radius is the single
+			// source of the shell's shape. Resize still works through Wails'
+			// own frameless hit-testing.
+			DisableFramelessWindowDecorations: true,
 		},
 		OnStartup: func(ctx context.Context) {
 			winCtrl.Bind(ctx)
@@ -237,6 +269,31 @@ func injectEnv(dataDir string) error {
 	// The desktop binary is always a production build; GO_ENV gates both the
 	// log level and the dev-only pprof listener.
 	return os.Setenv("GO_ENV", "production")
+}
+
+// setupDesktopLog gives every stdio writer — the infra logger, fmt output,
+// and runtime panics — a file destination when the process has no console
+// (the packaged windowsgui build). With a console attached (go run in a
+// terminal) nothing is redirected and output stays on screen. The log keeps
+// one previous generation, enough for a post-mortem of the last run without
+// growing without bound.
+func setupDesktopLog(dataDir string) error {
+	logDir := filepath.Join(dataDir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return err
+	}
+	logPath := filepath.Join(logDir, "desktop.log")
+	if info, err := os.Stat(logPath); err == nil && info.Size() > 10<<20 {
+		_ = os.Rename(logPath, logPath+".old")
+	}
+	if err := redirectStdio(logPath); err != nil {
+		return err
+	}
+	// The std library logger captured os.Stderr at init time, before the
+	// redirect; repoint it so e.g. http.Server error logging follows too.
+	log.SetOutput(os.Stderr)
+	fmt.Fprintf(os.Stdout, "=== PuchiPix desktop session %s ===\n", time.Now().Format(time.RFC3339))
+	return nil
 }
 
 func fatal(stage string, err error) {

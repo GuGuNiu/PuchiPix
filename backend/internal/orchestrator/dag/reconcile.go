@@ -6,17 +6,20 @@ import (
 	"backend/internal/orchestrator"
 )
 
-// ReconcileEntityStatuses heals entity rows whose DAG has already reached
-// a terminal aggregate state. Executors normally write the rich terminal
-// outcome themselves, and the per-node status sync covers in-progress
-// labels — but a crash between a node's completion and the executor's
-// final UPDATE (or a DAG that completed while the process was down)
-// leaves the row holding an active status forever, because the
-// DAG-level guard rail only fires at the moment of completion.
+// ReconcileEntityStatuses heals entity rows whose DAG state diverged from
+// the row label. Two gap classes are covered, both through the conditional
+// dagStatusSyncFn write whose WHERE clause only touches rows still holding
+// an active status, so executor-owned terminal labels are never clobbered:
 //
-// The reconciliation reuses the same conditional write as the guard rail
-// (dagStatusSyncFn): its WHERE clause only touches entities still in an
-// active status, so executor-owned terminal labels are never clobbered.
+//   - a DAG that reached a terminal aggregate while the process was down
+//     (crash between the node's completion and the executor's final UPDATE)
+//     leaves the row holding an active status forever;
+//   - restart recovery moves every non-terminal, non-PENDING node to
+//     PAUSED inside restoreDag, which deliberately performs no per-node
+//     status sync — so the row keeps its pre-restart label (usually
+//     "pending") while the FSM actually waits for a manual resume. A
+//     "pending" label reads as "queued for capacity", masking the pause.
+//
 // Called once after snapshot restore and crash recovery, before the auto
 // reactors start.
 func (o *DagOrchestrator) ReconcileEntityStatuses(ctx context.Context) {
@@ -31,6 +34,7 @@ func (o *DagOrchestrator) ReconcileEntityStatuses(ctx context.Context) {
 	o.dagsMu.RUnlock()
 
 	healed := 0
+	paused := 0
 	for _, dag := range dags {
 		dag.mu.Lock()
 		allTerminal := true
@@ -52,10 +56,16 @@ func (o *DagOrchestrator) ReconcileEntityStatuses(ctx context.Context) {
 		dag.mu.Unlock()
 
 		if !allTerminal {
+			// Compute the aggregate fresh from the restored node states (the
+			// cached allTerminal flag is not populated by restore). A paused
+			// aggregate means restart recovery parked this DAG; the row must
+			// say so instead of pretending to wait for capacity.
+			if orchestrator.AggregateTaskStatus(taskType, nodeInfos) == "paused" {
+				o.dagStatusSyncFn(ctx, dag.id, definition, "paused")
+				paused++
+			}
 			continue
 		}
-		// Compute the aggregate fresh from the restored node states (the
-		// cached allTerminal flag is not populated by restore).
 		aggregate := orchestrator.AggregateTaskStatus(taskType, nodeInfos)
 		switch aggregate {
 		case "completed", "failed", "cancelled":
@@ -63,7 +73,8 @@ func (o *DagOrchestrator) ReconcileEntityStatuses(ctx context.Context) {
 			healed++
 		}
 	}
-	if healed > 0 {
-		o.logger.Info("Entity status reconciliation finished", "dags", healed)
+	if healed > 0 || paused > 0 {
+		o.logger.Info("Entity status reconciliation finished",
+			"terminalDags", healed, "pausedDags", paused)
 	}
 }

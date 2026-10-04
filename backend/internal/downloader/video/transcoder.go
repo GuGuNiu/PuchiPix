@@ -192,6 +192,7 @@ func transcodeInput(ctx context.Context, inputPath, outputPath string, concatInp
 	}
 
 	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
+	hideConsoleWindow(cmd)
 	var runErr error
 	var stderrTail func() string
 	if opt.OnProgress != nil {
@@ -233,13 +234,17 @@ func transcodeInput(ctx context.Context, inputPath, outputPath string, concatInp
 }
 
 func buildCopyArgs(inputPath, outputPath string, concatInput bool) []string {
-	args := make([]string, 0, 12)
+	args := make([]string, 0, 14)
 	if concatInput {
 		args = append(args, "-f", "concat", "-safe", "0")
 	}
-	args = append(args, "-i", inputPath, "-c", "copy", "-bsf:a", "aac_adtstoasc", "-y", outputPath)
+	args = append(args, "-i", inputPath, "-c", "copy", "-bsf:a", "aac_adtstoasc")
+	args = append(args, faststartArgs...)
+	args = append(args, "-y", outputPath)
 	return args
 }
+
+var faststartArgs = []string{"-movflags", "+faststart"}
 
 // outTimeRe matches the `out_time=H:MM:SS.micros` key of ffmpeg's
 // `-progress pipe:1` machine-readable output.
@@ -427,6 +432,7 @@ func ProbeVideoMetadata(ctx context.Context, filePath string) (VideoMetadata, er
 
 func runFFmpegProbe(ctx context.Context, filePath string) (string, error) {
 	cmd := exec.CommandContext(ctx, ffmpegPath, "-i", filePath)
+	hideConsoleWindow(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -545,6 +551,7 @@ func buildHWArgsForTypeForInput(gpu *GPUInfo, inputPath, outputPath string, conc
 	}
 	args = append(args, "-i", inputPath)
 	args = append(args, outputArgs...)
+	args = append(args, faststartArgs...)
 	args = append(args, "-y", outputPath)
 	return args
 }

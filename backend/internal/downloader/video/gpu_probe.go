@@ -227,6 +227,7 @@ func queryNVIDIADriverAndCUDA() (string, bool) {
 		cmd := exec.CommandContext(ctx, "nvidia-smi",
 			"--query-gpu=driver_version",
 			"--format=csv,noheader,nounits")
+		hideConsoleWindow(cmd)
 		output, err := cmd.Output()
 		if err != nil {
 			nvidiaSMICache.driver = ""
@@ -428,6 +429,7 @@ func getFFmpegEncoders() ([]string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, path, "-encoders")
+	hideConsoleWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("ffmpeg -encoders failed: %w", err)

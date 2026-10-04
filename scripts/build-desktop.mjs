@@ -73,11 +73,15 @@ run(process.execPath, [resolve(repoRoot, "scripts", "build-resources.mjs")], rep
 // CreateApp that shows an error dialog and returns immediately, so the binary
 // builds cleanly but never opens a window.
 //
+// -H=windowsgui marks the exe as a GUI-subsystem binary; without it Windows
+// allocates a console for every launch and a CMD window sits next to the app
+// showing raw JSON logs.
+//
 // shell:false keeps argv intact; through a shell the "-s -w" ldflags value
 // would be re-split and go would reject "-w" as an unknown flag.
 run(
   "go",
-  ["build", "-tags", "production", "-trimpath", "-ldflags", "-s -w", "-o", resolve(outDir, "PuchiPix.exe"), "./cmd/desktop"],
+  ["build", "-tags", "production", "-trimpath", "-ldflags", "-s -w -H=windowsgui", "-o", resolve(outDir, "PuchiPix.exe"), "./cmd/desktop"],
   backend,
   { shell: false },
 );
@@ -94,7 +98,28 @@ console.log(`[build-desktop] built ${exe}`);
 // --require-installer in CI, where a broken .nsi has to fail the build.
 const requireInstaller = process.argv.includes("--require-installer");
 
-if (missing("makensis", ["-VERSION"])) {
+// winget's NSIS package does not add itself to PATH, so also look in the
+// default install locations before giving up.
+const MAKENSIS_FALLBACKS = [
+  resolve(process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "NSIS", "makensis.exe"),
+  resolve(process.env.ProgramFiles ?? "C:\\Program Files", "NSIS", "makensis.exe"),
+];
+
+function resolveMakensis() {
+  if (!missing("makensis", ["-VERSION"])) {
+    return "makensis";
+  }
+  const fallback = MAKENSIS_FALLBACKS.find((candidate) => existsSync(candidate));
+  if (fallback) {
+    console.log(`[build-desktop] using makensis at ${fallback}`);
+    return fallback;
+  }
+  return null;
+}
+
+const makensis = resolveMakensis();
+
+if (!makensis) {
   const hint = "[build-desktop] install NSIS to produce the setup executable";
   if (requireInstaller) {
     console.error("[build-desktop] makensis not found but installer is required");
@@ -110,13 +135,15 @@ if (missing("makensis", ["-VERSION"])) {
   const installer = resolve(outDir, `PuchiPix-${version}-setup.exe`);
   try {
     run(
-      "makensis",
+      makensis,
       [
         "/DAPP_VERSION=" + version,
         resolve(repoRoot, "build", "windows", "installer.nsi"),
       ],
       resolve(repoRoot, "build", "windows"),
-      { tolerant: !requireInstaller },
+      // shell:false keeps the "/D..." argument intact and survives spaces in
+      // the fallback path.
+      { shell: false, tolerant: !requireInstaller },
     );
   } catch {
     if (requireInstaller) {

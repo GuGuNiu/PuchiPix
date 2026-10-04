@@ -190,13 +190,13 @@ func TestMergeSegmentsReportsOrderedProgress(t *testing.T) {
 
 func TestBuildCopyArgsForMergedInput(t *testing.T) {
 	got := buildCopyArgs("input.ts", "output.mp4", false)
-	want := []string{"-i", "input.ts", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-y", "output.mp4"}
+	want := []string{"-i", "input.ts", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-y", "output.mp4"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
 
 	got = buildCopyArgs("concat.txt", "output.mp4", true)
-	want = []string{"-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-y", "output.mp4"}
+	want = []string{"-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-y", "output.mp4"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("concat args = %v, want %v", got, want)
 	}
