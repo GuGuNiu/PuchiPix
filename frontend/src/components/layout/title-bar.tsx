@@ -5,13 +5,36 @@ const WINDOW_STATE_ENDPOINT = "/api/window/state";
 
 type WindowAction = "minimise" | "toggle" | "close";
 
+interface ChromeWebview {
+  postMessage?: (message: string) => void;
+}
+
+/**
+ * The page is served from the backend origin, so the Wails runtime (which
+ * bridges `--wails-draggable` to a native drag) is never injected. The same
+ * bridge is one WebView2 host message away: the desktop frontend turns the
+ * literal string "drag" into a native move loop, and BindingsAllowedOrigins
+ * already admits this origin. No-op in browsers, where chrome.webview is
+ * absent.
+ */
+function startNativeDrag(): void {
+  (window as unknown as { chrome?: { webview?: ChromeWebview } }).chrome?.webview?.postMessage?.(
+    "drag",
+  );
+}
+
 const ENDPOINTS: Record<WindowAction, string> = {
   minimise: "/api/window/minimise",
   toggle: "/api/window/toggle-maximise",
   close: "/api/window/close",
 };
 
-async function readWindowState(): Promise<boolean | null> {
+interface WindowState {
+  maximised: boolean;
+  cornerRadius: number;
+}
+
+async function readWindowState(): Promise<WindowState | null> {
   try {
     const response = await fetch(WINDOW_STATE_ENDPOINT, {
       headers: { Accept: "application/json" },
@@ -27,12 +50,34 @@ async function readWindowState(): Promise<boolean | null> {
       "maximised" in payload &&
       typeof (payload as { maximised: unknown }).maximised === "boolean"
     ) {
-      return (payload as { maximised: boolean }).maximised;
+      const cornerRadius = (payload as { cornerRadius?: unknown }).cornerRadius;
+      return {
+        maximised: (payload as { maximised: boolean }).maximised,
+        cornerRadius: typeof cornerRadius === "number" ? cornerRadius : 0,
+      };
     }
     return null;
   } catch {
     return null;
   }
+}
+
+/*
+ * The desktop window is a transparent layer; the web shell draws its own
+ * rounded corners on top of it. Publishing the shape on <html> lets the base
+ * layout clip the app shell without every page knowing about desktop mode.
+ * Browser mode (state null) drops both markers and keeps the original look.
+ */
+function applyShellAppearance(state: WindowState | null): void {
+  const root = document.documentElement;
+  if (state === null) {
+    delete root.dataset.desktopShell;
+    root.style.removeProperty("--window-radius");
+    return;
+  }
+  root.dataset.desktopShell = "true";
+  const radius = state.maximised ? 0 : state.cornerRadius;
+  root.style.setProperty("--window-radius", `${radius}px`);
 }
 
 export default function TitleBar(): React.JSX.Element | null {
@@ -48,12 +93,13 @@ export default function TitleBar(): React.JSX.Element | null {
       if (cancelled) {
         return;
       }
+      applyShellAppearance(state);
       if (state === null) {
         setAvailable(false);
         return;
       }
       setAvailable(true);
-      setMaximised(state);
+      setMaximised(state.maximised);
     };
 
     void probe();
@@ -76,6 +122,16 @@ export default function TitleBar(): React.JSX.Element | null {
     run("toggle");
   }, [run]);
 
+  const onMouseDown = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    /*
+     * Primary button, single click: double-click belongs to the maximise
+     * toggle, and the window controls manage their own clicks.
+     */
+    if (event.button !== 0 || event.detail !== 1) return;
+    if ((event.target as HTMLElement).closest(".title-bar-button")) return;
+    startNativeDrag();
+  }, []);
+
   if (!available) {
     return null;
   }
@@ -85,6 +141,7 @@ export default function TitleBar(): React.JSX.Element | null {
       className="title-bar"
       data-maximised={maximised ? "true" : "false"}
       style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+      onMouseDown={onMouseDown}
       onDoubleClick={onToggle}
     >
       <div className="title-bar-identity">

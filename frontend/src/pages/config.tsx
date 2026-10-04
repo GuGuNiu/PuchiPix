@@ -14,6 +14,15 @@ interface GpuInfo {
   description?: string;
 }
 
+/*
+ * Human labels for the known /api/config keys; unknown keys fall back to
+ * their raw snake_case name.
+ */
+const FIELD_LABEL_KEYS: Record<string, "config.field.gpu_force_type" | "config.field.gpu_transcode"> = {
+  gpu_force_type: "config.field.gpu_force_type",
+  gpu_transcode: "config.field.gpu_transcode",
+};
+
 export default function ConfigPage(): React.JSX.Element {
   const { t } = useI18n();
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -132,31 +141,37 @@ export default function ConfigPage(): React.JSX.Element {
         <div className="card-header">
           <div className="card-title">{t("config.basicSettings")}</div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {Object.entries(config).map(([key, value]) => (
-            <div key={key} className="form-group">
-              <label>{key}</label>
-              <input
-                type="text"
-                value={value}
-                onChange={(e) => updateConfigValue(key, e.target.value)}
-              />
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <button
-            className="btn btn-primary"
-            onClick={handleSaveConfig}
-            disabled={saving}
-          >
-            <Save size={16} />
-            {saving ? t("common.saving") : t("common.save")}
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={fetchConfig}>
-            <RefreshCw size={14} />
-            {t("common.refresh")}
-          </button>
+        <div className="card-body">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {Object.entries(config).map(([key, value]) => (
+              <div key={key} className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" htmlFor={`config-field-${key}`}>
+                  {FIELD_LABEL_KEYS[key] ? t(FIELD_LABEL_KEYS[key]) : key}
+                </label>
+                <input
+                  id={`config-field-${key}`}
+                  className="form-control"
+                  type="text"
+                  value={value}
+                  onChange={(e) => updateConfigValue(key, e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleSaveConfig}
+              disabled={saving}
+            >
+              <Save size={16} />
+              {saving ? t("common.saving") : t("common.save")}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={fetchConfig}>
+              <RefreshCw size={14} />
+              {t("common.refresh")}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -168,31 +183,33 @@ export default function ConfigPage(): React.JSX.Element {
               {t("config.gpuTranscoding")}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={gpuInfo.gpu_enabled}
-                onChange={(e) =>
-                  setGpuInfo((prev) =>
-                    prev ? { ...prev, gpu_enabled: e.target.checked } : prev,
-                  )
-                }
-              />
-              <span className="toggle-slider" />
-            </label>
-            <span>{t("config.enableGpuTranscoding")}</span>
-            {gpuInfo.gpu_name && (
-              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                ({gpuInfo.gpu_name})
-              </span>
-            )}
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <button className="btn btn-primary btn-sm" onClick={handleSaveGpu}>
-              <Settings size={14} />
-              {t("config.applyGpuSetting")}
-            </button>
+          <div className="card-body">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={gpuInfo.gpu_enabled}
+                  onChange={(e) =>
+                    setGpuInfo((prev) =>
+                      prev ? { ...prev, gpu_enabled: e.target.checked } : prev,
+                    )
+                  }
+                />
+                <span className="toggle-slider" />
+              </label>
+              <span>{t("config.enableGpuTranscoding")}</span>
+              {gpuInfo.gpu_name && (
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  ({gpuInfo.gpu_name})
+                </span>
+              )}
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-primary btn-sm" onClick={handleSaveGpu}>
+                <Settings size={14} />
+                {t("config.applyGpuSetting")}
+              </button>
+            </div>
           </div>
         </div>
       )}

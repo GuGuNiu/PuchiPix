@@ -1,4 +1,8 @@
-$title-bar-button-width: 46px;
+// Custom window chrome: the bar melts into the shell instead of reading as a
+// native menu bar — no fill, no separator line, and the controls are inset
+// rounded ghost buttons rather than system-style squares flush to the edge.
+$title-bar-button-width: 40px;
+$title-bar-button-height: 26px;
 
 .title-bar {
   height: var(--title-bar-height);
@@ -7,19 +11,14 @@ $title-bar-button-width: 46px;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding-left: var(--space-4);
-  background: var(--bg-sidebar);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-bottom: 1px solid var(--glass-border);
+  padding: 0 8px 0 var(--space-4);
+  // The strip shows the shell background through; in desktop mode the right
+  // edge is inset so the buttons clear the rounded top-right corner.
+  background: transparent;
   color: var(--text-secondary);
   user-select: none;
   position: relative;
   z-index: 100;
-}
-
-.title-bar[data-maximised="true"] {
-  border-bottom-color: transparent;
 }
 
 .title-bar-identity {
@@ -42,18 +41,20 @@ $title-bar-button-width: 46px;
 
 .title-bar-actions {
   display: flex;
-  align-items: stretch;
-  height: 100%;
+  align-items: center;
+  gap: 2px;
 }
 
 .title-bar-button {
   width: $title-bar-button-width;
   min-width: $title-bar-button-width;
+  height: $title-bar-button-height;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;

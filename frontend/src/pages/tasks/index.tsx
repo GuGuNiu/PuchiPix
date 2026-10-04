@@ -21,6 +21,7 @@ import { toast } from "@/lib/i18n/toast";
 import type { DownloadTask } from "@/types";
 import { useTaskStore } from "@/store/task-store";
 import { formatFileSize } from "@/lib/utils";
+import ProgressBar from "@/components/ui/progress-bar";
 import ResourceToolbar from "@/components/ui/resource-toolbar";
 import TaskSettingsPanel from "@/components/tasks/task-settings-panel";
 import { useRouteState } from "@/lib/core/infra/route-state";
@@ -593,14 +594,6 @@ export default function TasksPage(): React.JSX.Element {
             typeof task.PhaseProgress === "number" ? task.PhaseProgress : progress;
           const transcodeText =
             isPostPhase && phasePct < 100 ? `${stage} ${phasePct.toFixed(1)}%` : stage;
-          const fillClass =
-            task.Status === "completed"
-              ? "completed"
-              : task.Status === "failed" || task.Status === "cancelled"
-                ? "failed"
-                : isPreparing
-                  ? "preparing"
-                  : "";
           return (
             <div
               style={{
@@ -622,12 +615,12 @@ export default function TasksPage(): React.JSX.Element {
               >
                 {showStage ? transcodeText : progress.toFixed(1) + "%"}
               </span>
-              <div className="progress-bar" style={{ width: "100%" }}>
-                <div
-                  className={`progress-bar-fill ${fillClass} ${isPostPhase ? "transcoding" : ""} ${showStage && !isPostPhase ? "progress-bar-indeterminate" : ""}`}
-                  style={showStage && !isPostPhase ? {} : { width: `${progress}%` }}
-                />
-              </div>
+              <ProgressBar
+                status={task.Status}
+                progress={progress}
+                indeterminate={showStage && !isPostPhase}
+                shimmer={isPostPhase}
+              />
               {task.Speed && !showStage && (
                 <span
                   style={{

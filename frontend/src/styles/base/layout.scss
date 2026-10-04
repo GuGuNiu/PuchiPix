@@ -9,6 +9,24 @@
   overflow: hidden;
 }
 
+// Desktop shell transparency: the Wails window itself is a per-pixel alpha
+// layer (WebviewIsTransparent + DWMSBT_NONE) and the web side draws the
+// rounded corners. The gradient that browser mode paints on <body> therefore
+// moves onto the clipped .app-shell — anything left on <body> would show up
+// as an opaque rectangular layer behind the rounded corners. The title-bar
+// probe drives --window-radius (0 while maximised); browser mode never sets
+// the data attribute and keeps the original look.
+html[data-desktop-shell="true"] {
+  body {
+    background: transparent;
+  }
+
+  .app-shell {
+    background: var(--bg-gradient);
+    border-radius: var(--window-radius, 0px);
+  }
+}
+
 .app-layout {
   display: flex;
   flex: 1;

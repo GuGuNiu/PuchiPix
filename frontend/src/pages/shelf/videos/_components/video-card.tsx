@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { formatFileSize } from "@/lib/utils";
+import ProgressBar from "@/components/ui/progress-bar";
 import {
   VIDEO_STATUS_LABEL,
   VIDEO_STATUS_CLASS,
@@ -391,12 +392,11 @@ function VideoCardComponent({
               flexShrink: 0,
             }}
           >
-            <div className="progress-bar" style={{ minWidth: 60, flex: 1 }}>
-              <div
-                className="progress-bar-fill"
-                style={{ width: `${Math.round(video.Progress)}%` }}
-              />
-            </div>
+            <ProgressBar
+              progress={Math.round(video.Progress)}
+              minWidth={60}
+              style={{ flex: 1 }}
+            />
             <span className="progress-text" style={{ fontSize: 11 }}>
               {Math.round(video.Progress)}%
             </span>

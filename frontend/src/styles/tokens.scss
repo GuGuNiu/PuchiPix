@@ -131,6 +131,18 @@
   --purple: #9333ea;
   --purple-soft: #faf5ff;
 
+  // Transcode shimmer (merging/transcoding/probing progress bars): a muted
+  // two-tone purple derived from --status-transcoding, no bright highlight.
+  // Defined once — the var() inside resolves on the using element, so the
+  // gradient adapts to both themes; equal first/last stops keep the
+  // position-loop animation seamless.
+  --transcode-shimmer: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--status-transcoding) 45%, transparent) 0%,
+    color-mix(in srgb, var(--status-transcoding) 72%, transparent) 50%,
+    color-mix(in srgb, var(--status-transcoding) 45%, transparent) 100%
+  );
+
   --danger-hover: #b91c1c;
   --warning-hover: #b45309;
 

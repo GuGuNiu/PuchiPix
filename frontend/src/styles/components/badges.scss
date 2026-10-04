@@ -32,6 +32,11 @@
   &-scrape_pending { background: var(--status-scrape-pending); }
   &-scraping { background: var(--status-scraping); }
   &-download_pending { background: var(--status-download-pending); }
+  // scraped reuses download_pending's semantic color (both labels read
+  // "pending download"); merging joins the transcoding purple post-phase
+  // family — both previously had no class and rendered white-on-white
+  &-scraped { background: var(--status-download-pending); }
+  &-merging { background: var(--status-transcoding); }
   &-downloading { background: var(--status-downloading); }
   &-paused { background: var(--status-paused); }
   &-completed { background: var(--status-completed); }

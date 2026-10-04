@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { toast } from "@/lib/i18n/toast";
 import { formatFileSize } from "@/lib/utils";
+import ProgressBar from "@/components/ui/progress-bar";
 import { useI18n } from "@/lib/i18n";
 import {
   Archive,
@@ -121,12 +122,7 @@ export function GalleryZipInfoPanel({
 
       {(zipStatus === 'downloading' || zipStatus === 'extracting') && zipProgress && zipProgress.total > 0 && (
         <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          <div className="progress-bar" style={{ minWidth: 80, flex: 1 }}>
-            <div
-              className="progress-bar-fill"
-              style={{ width: `${zipProgress.percent}%` }}
-            />
-          </div>
+          <ProgressBar progress={zipProgress.percent} minWidth={80} style={{ flex: 1 }} />
           <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
             {formatFileSize(zipProgress.downloaded)} / {formatFileSize(zipProgress.total)}
             ({zipProgress.percent}%)

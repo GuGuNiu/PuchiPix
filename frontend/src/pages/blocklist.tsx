@@ -201,6 +201,7 @@ export default function BlocklistPage(): React.JSX.Element {
       </div>
 
       <div className="card">
+        <div className="card-body">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Filter size={16} />
@@ -236,13 +237,13 @@ export default function BlocklistPage(): React.JSX.Element {
           <div style={{
             marginBottom: 16,
             padding: 16,
-            border: "1px solid var(--border-color)",
+            border: "1px solid var(--border-light)",
             borderRadius: 8,
-            background: "var(--bg-secondary)",
+            background: "var(--bg-inset)",
           }}>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
               <div className="form-group" style={{ flex: "0 0 auto" }}>
-                <label>{t("blocklist.colSite")}</label>
+                <label className="form-label">{t("blocklist.colSite")}</label>
                 <select
                   className="form-select"
                   value={newRule.siteId}
@@ -254,7 +255,7 @@ export default function BlocklistPage(): React.JSX.Element {
                 </select>
               </div>
               <div className="form-group" style={{ flex: "0 0 auto" }}>
-                <label>{t("blocklist.colField")}</label>
+                <label className="form-label">{t("blocklist.colField")}</label>
                 <select
                   className="form-select"
                   value={newRule.fieldType}
@@ -266,7 +267,7 @@ export default function BlocklistPage(): React.JSX.Element {
                 </select>
               </div>
               <div className="form-group" style={{ flex: "0 0 auto" }}>
-                <label>{t("blocklist.colMatchMode")}</label>
+                <label className="form-label">{t("blocklist.colMatchMode")}</label>
                 <select
                   className="form-select"
                   value={newRule.matchMode}
@@ -278,8 +279,9 @@ export default function BlocklistPage(): React.JSX.Element {
                 </select>
               </div>
               <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
-                <label>{t("blocklist.colKeyword")}</label>
+                <label className="form-label">{t("blocklist.colKeyword")}</label>
                 <input
+                  className="form-control"
                   type="text"
                   placeholder={t("blocklist.placeholderKeyword")}
                   value={newRule.keyword}
@@ -288,8 +290,9 @@ export default function BlocklistPage(): React.JSX.Element {
                 />
               </div>
               <div className="form-group" style={{ flex: 1, minWidth: 150 }}>
-                <label>{t("common.remark")}</label>
+                <label className="form-label">{t("common.remark")}</label>
                 <input
+                  className="form-control"
                   type="text"
                   placeholder={t("common.remarkOptional")}
                   value={newRule.remark}
@@ -315,7 +318,7 @@ export default function BlocklistPage(): React.JSX.Element {
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: "2px solid var(--border-color)" }}>
+                <tr style={{ borderBottom: "2px solid var(--border)" }}>
                   <th style={{ padding: "8px 12px", textAlign: "left", width: 40 }}>
                     <input
                       type="checkbox"
@@ -343,7 +346,7 @@ export default function BlocklistPage(): React.JSX.Element {
                   <tr
                     key={rule.id}
                     style={{
-                      borderBottom: "1px solid var(--border-color)",
+                      borderBottom: "1px solid var(--border-light)",
                       opacity: rule.enabled ? 1 : 0.5,
                     }}
                   >
@@ -358,7 +361,7 @@ export default function BlocklistPage(): React.JSX.Element {
                       <span className="badge" style={{
                         background: rule.siteId === "all"
                           ? "linear-gradient(135deg, #6366f1, #8b5cf6)"
-                          : "var(--bg-tertiary)",
+                          : "var(--bg-inset)",
                         color: rule.siteId === "all" ? "#fff" : "var(--text-primary)",
                         fontSize: 12,
                         padding: "2px 8px",
@@ -378,7 +381,7 @@ export default function BlocklistPage(): React.JSX.Element {
                           border: "none",
                           background: "transparent",
                           cursor: "pointer",
-                          color: rule.enabled ? "var(--success-color, #10b981)" : "var(--text-secondary)",
+                          color: rule.enabled ? "var(--success)" : "var(--text-secondary)",
                         }}
                         title={rule.enabled ? t("blocklist.clickToDisable") : t("blocklist.clickToEnable")}
                       >
@@ -392,7 +395,7 @@ export default function BlocklistPage(): React.JSX.Element {
                           border: "none",
                           background: "transparent",
                           cursor: "pointer",
-                          color: "var(--danger-color, #ef4444)",
+                          color: "var(--danger)",
                         }}
                         title={t("common.delete")}
                       >
@@ -405,6 +408,7 @@ export default function BlocklistPage(): React.JSX.Element {
             </table>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

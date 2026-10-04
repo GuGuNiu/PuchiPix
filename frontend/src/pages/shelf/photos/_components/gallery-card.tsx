@@ -8,6 +8,7 @@ import {
 import { useGalleryStore } from "@/store/gallery-store";
 import { useI18n } from "@/lib/i18n";
 import { formatFileSize } from "@/lib/utils";
+import ProgressBar from "@/components/ui/progress-bar";
 import {
   GALLERY_STATUS_LABEL,
   GALLERY_STATUS_CLASS,
@@ -34,12 +35,12 @@ function GalleryCardComponent({
       : gallery.Status === "completed"
       ? 100
       : 0;
-  const fillClass =
+  const barTone: "completed" | "failed" | undefined =
     gallery.Status === "completed"
       ? "completed"
       : gallery.Status === "failed"
       ? "failed"
-      : "";
+      : undefined;
 
   return (
     <div
@@ -210,12 +211,7 @@ function GalleryCardComponent({
               flexShrink: 0,
             }}
           >
-            <div className="progress-bar" style={{ minWidth: 60, flex: 1 }}>
-              <div
-                className={`progress-bar-fill ${fillClass}`}
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
+            <ProgressBar tone={barTone} progress={progressPct} minWidth={60} style={{ flex: 1 }} />
             <span className="progress-text" style={{ fontSize: 11 }}>
               {progress ? `${progress.completed}/${progress.total}` : `${progressPct}%`}
             </span>

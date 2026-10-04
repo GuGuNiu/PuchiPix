@@ -9,6 +9,7 @@ import {
 import type { BatchSearchJob, BatchTitleResult } from "@/types";
 import { useI18n } from "@/lib/i18n";
 import { StatCard, FilterPill } from "./components";
+import ProgressBar from "@/components/ui/progress-bar";
 import { RESULT_STATUS_KEYS, RESULT_STATUS_CLASS } from "./constants";
 
 interface JobResultsProps {
@@ -59,12 +60,7 @@ export function JobResults({
               {progressPct.toFixed(0)}%
             </span>
           </div>
-          <div className="progress-bar" style={{ height: 6 }}>
-            <div
-              className="progress-bar-fill"
-              style={{ width: `${Math.max(progressPct, 2)}%` }}
-            />
-          </div>
+          <ProgressBar progress={progressPct} minProgress={2} height={6} />
         </div>
       )}
 
