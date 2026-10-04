@@ -52,7 +52,6 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 		return orchestrator.ErrNodeAlreadyTerminal
 	}
 	node.result = &result
-	policy := fsm.Policy()
 	dag.mu.Unlock()
 
 	// Return the node's domain reservation before driving transitions. A
@@ -66,11 +65,12 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 	if result.Success {
 		switch currentState {
 		case orchestrator.NodeStateRunning:
-			shouldVerify := true
-			if policy != nil {
-				// A nil policy means "always verify".
-				shouldVerify = !policyGuardSkipVerify(fsm.Context())
-			}
+			// skipVerify is honored from the node Config regardless of
+			// whether a TransitionPolicy exists: video nodes inject
+			// skipVerify=true in the factory and carry no policy, so
+			// gating the check on policy != nil silently re-enabled
+			// verification for them.
+			shouldVerify := !policyGuardSkipVerify(fsm.Context())
 			if shouldVerify {
 				if err := fsm.Transition(orchestrator.NodeStateVerifying, orchestrator.TransitionContext{
 					Reason: "execution completed, verifying side effects", TriggeredBy: "scheduler",
@@ -82,9 +82,18 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 							Reason: "verification passed", TriggeredBy: "reconciler",
 						})
 					case "needs_retry":
+						if o.verifyRetryBudgetSpent(fsm) {
+							_ = fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
+								Reason:      "verification needs_retry budget exhausted",
+								TriggeredBy: "reconciler",
+								Error:       verifyBudgetError(),
+							})
+							break
+						}
 						if err := fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
 							Reason: "verification needs retry", TriggeredBy: "reconciler",
 						}); err == nil {
+							fsm.IncrementVerifyRetry()
 							if err = fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
 								Reason: "retry after verification needs retry", TriggeredBy: "system",
 							}); err == nil {
@@ -116,9 +125,18 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 				if err := fsm.Transition(orchestrator.NodeStateVerifying, orchestrator.TransitionContext{
 					Reason: "resume verification needs retry, re-entering verify", TriggeredBy: "reconciler",
 				}); err == nil {
+					if o.verifyRetryBudgetSpent(fsm) {
+						_ = fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
+							Reason:      "verification needs_retry budget exhausted",
+							TriggeredBy: "reconciler",
+							Error:       verifyBudgetError(),
+						})
+						break
+					}
 					if err := fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
 						Reason: "resume verification needs retry", TriggeredBy: "reconciler",
 					}); err == nil {
+						fsm.IncrementVerifyRetry()
 						if err := fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
 							Reason: "retry after resume verification", TriggeredBy: "system",
 						}); err == nil {
@@ -143,9 +161,16 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 				if r, _ := result.Data["needsRetryReason"].(string); r != "" {
 					reason = r
 				}
-				if err := fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
+				if o.verifyRetryBudgetSpent(fsm) {
+					_ = fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
+						Reason:      "verification needs_retry budget exhausted: " + reason,
+						TriggeredBy: "scheduler",
+						Error:       verifyBudgetError(),
+					})
+				} else if err := fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
 					Reason: reason, TriggeredBy: "reconciler",
 				}); err == nil {
+					fsm.IncrementVerifyRetry()
 					// NEEDS_RETRY → READY is legal; submitRetry drives
 					// the QUEUED + scheduler submission.
 					if err2 := fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
@@ -154,6 +179,17 @@ func (o *DagOrchestrator) OnNodeCompleted(ctx context.Context, dagID, nodeID str
 						o.submitRetry(ctx, dagID, nodeID, node, 0)
 					}
 				}
+			} else if result.Error != nil && result.Error.Code == orchestrator.ErrorCodeExecutionTimeout {
+				// The scheduler supervisor ended this run at its deadline.
+				// Land in TIMEOUT so the transition table's timeout edges
+				// stay reachable; RetryDag and the aggregate status treat
+				// TIMEOUT exactly like FAILED, so the user-facing outcome
+				// is unchanged.
+				_ = fsm.Transition(orchestrator.NodeStateTimeout, orchestrator.TransitionContext{
+					Reason:      "execution timeout",
+					TriggeredBy: "scheduler",
+					Error:       result.Error,
+				})
 			} else {
 				_ = fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
 					Reason: "execution failed", TriggeredBy: "scheduler",
@@ -265,6 +301,35 @@ func policyGuardSkipVerify(ctx orchestrator.StateMachineContext) bool {
 	}
 	b, _ := v.(bool)
 	return b
+}
+
+// verifyRetryLimit resolves the automatic needs_retry budget: the policy's
+// RetryPolicy.MaxAttempts when present, otherwise the node definition's
+// MaxRetries. Zero means unlimited (no budget enforcement).
+func (o *DagOrchestrator) verifyRetryLimit(fsm *orchestrator.TaskStateMachine) int {
+	if p := fsm.Policy(); p != nil && p.RetryPolicy != nil && p.RetryPolicy.MaxAttempts > 0 {
+		return p.RetryPolicy.MaxAttempts
+	}
+	return fsm.Context().Definition.MaxRetries
+}
+
+// verifyRetryBudgetSpent reports whether the automatic needs_retry
+// re-queue budget is exhausted. Without this check a verification that
+// keeps returning needs_retry (e.g. a scrape persisting zero rows) would
+// re-queue itself forever, cycling the slot and never converging.
+func (o *DagOrchestrator) verifyRetryBudgetSpent(fsm *orchestrator.TaskStateMachine) bool {
+	limit := o.verifyRetryLimit(fsm)
+	return limit > 0 && fsm.VerifyRetryCount() >= limit
+}
+
+// verifyBudgetError is the structured failure for a spent verification
+// budget. Retryable stays false so the post-transition invariant checker
+// does not flag a FAILED node carrying a retryable error.
+func verifyBudgetError() *orchestrator.NodeError {
+	return &orchestrator.NodeError{
+		Code:    "VERIFY_RETRY_EXHAUSTED",
+		Message: "verification needs_retry budget exhausted",
+	}
 }
 
 // runVerification invokes the StateReconciler on the node and returns

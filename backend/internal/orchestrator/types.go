@@ -40,7 +40,10 @@ var validTransitions = map[NodeState][]NodeState{
 	NodeStateReady:        {NodeStateQueued, NodeStateCancelled, NodeStatePaused, NodeStateNeedsRetry, NodeStateFailed},
 	NodeStateQueued:       {NodeStateAllocated, NodeStateCancelled, NodeStatePaused, NodeStateReady, NodeStateFailed},
 	NodeStateAllocated:    {NodeStateRunning, NodeStateCancelled, NodeStatePaused, NodeStateFailed},
-	NodeStateRunning:      {NodeStateVerifying, NodeStateFailed, NodeStateTimeout, NodeStateCancelled, NodeStatePaused, NodeStateCompleted},
+	// RUNNING allows NEEDS_RETRY so a scheduler-flagged verify-phase retry
+	// (executor returns NeedsRetryError) can re-queue instead of silently
+	// no-opping and waiting for the zombie sweep.
+	NodeStateRunning:      {NodeStateVerifying, NodeStateFailed, NodeStateTimeout, NodeStateCancelled, NodeStatePaused, NodeStateCompleted, NodeStateNeedsRetry},
 	NodeStatePaused:       {NodeStatePreparing, NodeStateReady, NodeStateCancelled},
 	NodeStateVerifying:    {NodeStateCompleted, NodeStateFailed, NodeStatePaused, NodeStateResumeVerify, NodeStateNeedsRetry},
 	NodeStateResumeVerify: {NodeStateVerifying, NodeStateCompleted, NodeStateFailed, NodeStatePaused},
@@ -243,7 +246,9 @@ type TransitionPolicy struct {
 	// permits the transition.
 	Transitions map[NodeState][]TransitionRule
 	// RetryPolicy governs automatic retry on failure. When nil, the node
-	// uses its DagNodeDefinition.MaxRetries/RetryDelay instead.
+	// definition's MaxRetries acts as the automatic needs_retry budget
+	// (see dag.DagOrchestrator.verifyRetryLimit); user-initiated retries
+	// reset the counter and stay unlimited by design.
 	RetryPolicy *RetryPolicy
 	// OnPause returns the state a node should enter when the user pauses
 	// the DAG. Returning "" means "use default PAUSED". This lets scrape
@@ -394,6 +399,15 @@ type DagOrchestratorStats struct {
 // ErrIllegalTransition is returned when a state transition violates
 // the validTransitions table, preventing corrupt state machines.
 var ErrIllegalTransition = errors.New("illegal state transition")
+
+// Error codes carried by NodeError for classification-sensitive outcomes.
+// EXECUTION_TIMEOUT marks a run the scheduler supervisor ended at its
+// deadline, so OnNodeCompleted can land the node in TIMEOUT (instead of
+// FAILED) and the transition table's timeout edges stay reachable.
+const (
+	ErrorCodeExecutionFailed  = "EXECUTION_FAILED"
+	ErrorCodeExecutionTimeout = "EXECUTION_TIMEOUT"
+)
 
 // ErrDagNotFound is returned when a DAG ID does not match any known DAG.
 var ErrDagNotFound = errors.New("DAG not found")

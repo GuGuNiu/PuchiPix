@@ -1110,26 +1110,46 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.DagOrch != nil && dagID != "" {
 			if st := h.DagOrch.GetDagStatus(dagID); st != nil {
-				hasPaused, hasFailed := false, false
+				hasPaused, hasFailed, hasCancelled, hasActive := false, false, false, false
 				for _, ns := range st.Nodes {
 					switch ns.State {
 					case orchestrator.NodeStatePaused:
 						hasPaused = true
 					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
 						hasFailed = true
+					case orchestrator.NodeStateCancelled:
+						hasCancelled = true
+					default:
+						if !orchestrator.IsDeletableState(ns.State) {
+							hasActive = true
+						}
 					}
+				}
+				// A fully-cancelled DAG is a dead end (CANCELLED has no
+				// outgoing FSM edges), but the entity table allows
+				// cancelled → pending: restart the task on a fresh DAG
+				// instead of answering "already-running" forever.
+				if !hasActive && hasCancelled && !hasPaused && !hasFailed {
+					newDagID, err := h.submitVideoDag(r, id)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.startFailed"))
+						return
+					}
+					h.transitionDagNodesToPreparing(r.Context(), newDagID)
+					writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": newDagID, "status": "preparing"})
+					return
 				}
 				var actErr error
 				switch {
-				case hasPaused:
-					actErr = h.DagOrch.ResumeDag(r.Context(), dagID, "")
-				case hasFailed:
-					actErr = h.DagOrch.RetryDag(r.Context(), dagID, "")
-				default:
+				case hasActive || (!hasPaused && !hasFailed):
 					// Nothing to resume or retry; report the live state
 					// instead of creating a duplicate DAG.
 					writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": dagID, "status": "already-running"})
 					return
+				case hasPaused:
+					actErr = h.DagOrch.ResumeDag(r.Context(), dagID, "")
+				default:
+					actErr = h.DagOrch.RetryDag(r.Context(), dagID, "")
 				}
 				if actErr != nil {
 					writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.startFailed"))
@@ -1249,14 +1269,33 @@ func (h *Handlers) TaskAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.DagOrch != nil && dagID != "" {
 			if st := h.DagOrch.GetDagStatus(dagID); st != nil {
-				hasPaused, hasFailed := false, false
+				hasPaused, hasFailed, hasCancelled := false, false, false
 				for _, ns := range st.Nodes {
 					switch ns.State {
 					case orchestrator.NodeStatePaused:
 						hasPaused = true
 					case orchestrator.NodeStateFailed, orchestrator.NodeStateTimeout, orchestrator.NodeStateNeedsRetry:
 						hasFailed = true
+					case orchestrator.NodeStateCancelled:
+						hasCancelled = true
 					}
+				}
+				// A fully-cancelled DAG is a dead end (CANCELLED has no
+				// outgoing FSM edges): retry it by submitting a fresh DAG,
+				// mirroring the no-live-DAG fallback below.
+				if !hasPaused && !hasFailed && hasCancelled {
+					if err := h.cleanupVideoTaskCache(r.Context(), id); err != nil {
+						writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+						return
+					}
+					newDagID, err := h.submitVideoDag(r, id)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, i18n.TFromRequest(r, "api.tasks.retryFailed"))
+						return
+					}
+					h.transitionDagNodesToPreparing(r.Context(), newDagID)
+					writeJSON(w, http.StatusOK, map[string]any{"id": id, "dagId": newDagID, "status": "retrying"})
+					return
 				}
 				if !hasPaused && !hasFailed {
 					writeError(w, http.StatusConflict, i18n.TFromRequest(r, "api.tasks.retryFailed"))

@@ -141,9 +141,16 @@ func (o *DagOrchestrator) activateReadyNodes(ctx context.Context, dagID string) 
 			if err := item.node.fsm.Transition(orchestrator.NodeStateVerifying, orchestrator.TransitionContext{
 				Reason: "resume verification needs retry, re-entering verify", TriggeredBy: "reconciler",
 			}); err == nil {
-				if err2 := item.node.fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
+				if o.verifyRetryBudgetSpent(item.node.fsm) {
+					_ = item.node.fsm.Transition(orchestrator.NodeStateFailed, orchestrator.TransitionContext{
+						Reason:      "verification needs_retry budget exhausted",
+						TriggeredBy: "reconciler",
+						Error:       verifyBudgetError(),
+					})
+				} else if err2 := item.node.fsm.Transition(orchestrator.NodeStateNeedsRetry, orchestrator.TransitionContext{
 					Reason: "resume verification needs retry", TriggeredBy: "reconciler",
 				}); err2 == nil {
+					item.node.fsm.IncrementVerifyRetry()
 					if err3 := item.node.fsm.Transition(orchestrator.NodeStateReady, orchestrator.TransitionContext{
 						Reason: "retry after resume verification", TriggeredBy: "system",
 					}); err3 == nil {

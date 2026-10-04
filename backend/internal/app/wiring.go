@@ -203,8 +203,12 @@ func (a *orchestratorAdapter) OnNodeCompleted(dagID, nodeID string, success bool
 		Data:    data,
 	}
 	if !success && errMsg != "" {
+		code := orchestrator.ErrorCodeExecutionFailed
+		if timedOut, _ := data["timedOut"].(bool); timedOut {
+			code = orchestrator.ErrorCodeExecutionTimeout
+		}
 		result.Error = &orchestrator.NodeError{
-			Code:    "EXECUTION_FAILED",
+			Code:    code,
 			Message: errMsg,
 		}
 	}

@@ -142,6 +142,35 @@ func (fsm *TaskStateMachine) ResetRetryCount() {
 	fsm.context.RetryCount = 0
 }
 
+// VerifyRetryCount reports how many automatic needs_retry re-queues this
+// node has consumed. It is deliberately separate from RetryCount: that
+// counter tracks FAILED/TIMEOUT → READY moves and is reset by user
+// retries, while the verification loop (VERIFYING → NEEDS_RETRY → READY)
+// must carry its own budget so a permanently-failing verification cannot
+// re-queue forever.
+func (fsm *TaskStateMachine) VerifyRetryCount() int {
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
+	return verifyRetryCountLocked(fsm.context.Extras)
+}
+
+// IncrementVerifyRetry bumps the automatic needs_retry counter by one and
+// returns the new value.
+func (fsm *TaskStateMachine) IncrementVerifyRetry() int {
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
+	n := verifyRetryCountLocked(fsm.context.Extras) + 1
+	fsm.context.Extras["verifyRetryCount"] = n
+	return n
+}
+
+func verifyRetryCountLocked(extras map[string]any) int {
+	if n, ok := extras["verifyRetryCount"].(int); ok {
+		return n
+	}
+	return 0
+}
+
 // Transition moves the node to the target state, letting the policy's
 // transition rules redirect the target, and appends the move to history.
 func (fsm *TaskStateMachine) Transition(toState NodeState, ctx TransitionContext) error {

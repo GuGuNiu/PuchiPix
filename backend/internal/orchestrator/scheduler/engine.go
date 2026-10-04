@@ -735,6 +735,15 @@ func (s *SchedulerEngine) executeNode(entry SchedulableNodeEntry, fn ExecutorFun
 			data["needsRetry"] = true
 			data["needsRetryReason"] = needsRetryErr.Reason
 		}
+		// Timeout is classified here but landed by the orchestrator: carry
+		// it structurally so OnNodeCompleted can drive the TIMEOUT state
+		// instead of collapsing the deadline into a generic FAILED.
+		if timedOut {
+			if data == nil {
+				data = map[string]any{}
+			}
+			data["timedOut"] = true
+		}
 		s.logger.Error("Node execution failed", outcome.err, "nodeId", node.NodeID, "dagId", node.DagID, "timeout", timedOut, "cancelled", cancelled)
 	} else {
 		s.logger.Info("Node execution completed", "nodeId", node.NodeID, "dagId", node.DagID)

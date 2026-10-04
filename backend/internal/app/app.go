@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"backend/internal/sites/xvideos"
 	"backend/internal/stealth"
 	"backend/internal/taskprogress"
+	"backend/internal/taskstate"
 	"backend/internal/titleparser"
 	"backend/resources"
 )
@@ -281,6 +283,12 @@ func (a *App) wireDAG(cfg *config.Config) error {
 	dagOrch.SetEventBus(eventBus)
 
 	statusReporter := orchestrator.NewStatusReporter()
+	// The per-node sync for video rows goes through taskstate.Store so the
+	// legalFrom table stays the single write authority: a node-state sync
+	// that would regress the row (e.g. READY→"pending" over a "completed"
+	// row after a pause/completion race) returns ConflictError and is
+	// skipped instead of blindly overwriting a terminal outcome.
+	nodeStatusStore := taskstate.NewStore(database, eventBus)
 	dagOrch.SetStatusSyncFn(func(ctx context.Context, dagID, nodeID string, nodeDef orchestrator.DagNodeDefinition, state orchestrator.NodeState) {
 		dbStatus, ok := statusReporter.MapNodeToEntityStatus(nodeDef, state)
 		if !ok || dbStatus == "completed" {
@@ -290,8 +298,12 @@ func (a *App) wireDAG(cfg *config.Config) error {
 		case nodeDef.Config["galleryId"] != nil:
 			gid := configInt(nodeDef.Config["galleryId"])
 			if gid > 0 {
+				// The guard keeps executor-owned terminal outcomes
+				// (completed/partial) from being regressed by a late
+				// node-state sync; every non-terminal source stays writable.
 				_, err := database.Exec(ctx,
-					`UPDATE galleries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+					`UPDATE galleries SET status = ?, updated_at = CURRENT_TIMESTAMP
+					 WHERE id = ? AND status NOT IN ('completed', 'partial')`,
 					dbStatus, gid)
 				if err != nil {
 					logger.Warn("Node status sync failed (gallery)", "galleryId", gid, "error", err.Error())
@@ -305,19 +317,22 @@ func (a *App) wireDAG(cfg *config.Config) error {
 			}
 		case nodeDef.Config["taskSeq"] != nil:
 			seq, _ := nodeDef.Config["taskSeq"].(string)
-			if seq != "" {
-				_, err := database.Exec(ctx,
-					`UPDATE download_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE seq = ?`,
-					dbStatus, seq)
-				if err != nil {
-					logger.Warn("Node status sync failed (video)", "seq", seq, "error", err.Error())
-				} else if taskID := configInt(nodeDef.Config["taskId"]); taskID > 0 {
-					eventBus.Emit("task:progress", map[string]any{
-						"taskId":   taskID,
-						"taskType": "video",
-						"status":   dbStatus,
-					})
-				}
+			taskID := configInt(nodeDef.Config["taskId"])
+			if seq == "" || taskID <= 0 {
+				logger.Warn("Node status sync skipped (video): missing taskSeq/taskId",
+					"seq", seq, "taskId", taskID, "dagId", dagID, "nodeId", nodeID)
+				break
+			}
+			err := nodeStatusStore.Transition(ctx, taskID, taskstate.Update{Status: dbStatus})
+			var conflict *taskstate.ConflictError
+			if err != nil && !errors.As(err, &conflict) {
+				logger.Warn("Node status sync failed (video)", "seq", seq, "error", err.Error())
+			} else if conflict != nil {
+				// The row moved to a state the node-state sync may not
+				// overwrite (terminal outcome, or a phase the pipeline owns).
+				// The pipeline/DAG guard rail owns the row; drop the sync.
+				logger.Debug("Node status sync skipped: row taken over",
+					"seq", seq, "target", dbStatus, "row", conflict.Current)
 			}
 		case nodeDef.Config["sniffSeq"] != nil:
 			seq, _ := nodeDef.Config["sniffSeq"].(string)
@@ -342,6 +357,28 @@ func (a *App) wireDAG(cfg *config.Config) error {
 			if gid <= 0 {
 				return
 			}
+			if aggregateStatus == "paused" {
+				// Restart recovery parks non-terminal nodes at PAUSED without
+				// a per-node sync; heal rows still carrying a pre-restart
+				// active label so the pause is visible and resumable. The
+				// WHERE clause keeps executor-owned terminal labels intact.
+				res, err := database.Exec(ctx,
+					`UPDATE galleries SET status = 'paused', updated_at = CURRENT_TIMESTAMP
+					 WHERE id = ? AND status IN ('scraping', 'scraped', 'downloading', 'pending')`,
+					gid)
+				if err == nil {
+					if n, _ := res.RowsAffected(); n > 0 {
+						logger.Info("DAG status sync healed restart-paused gallery row",
+							map[string]any{"galleryId": gid, "dagId": dagID})
+						eventBus.Emit("task:progress", map[string]any{
+							"taskId":   gid,
+							"taskType": "gallery",
+							"status":   "paused",
+						})
+					}
+				}
+				return
+			}
 			if aggregateStatus != "completed" {
 				return
 			}
@@ -364,6 +401,30 @@ func (a *App) wireDAG(cfg *config.Config) error {
 		case def.TaskType == orchestrator.TaskTypeVideo:
 			seq, _ := def.Nodes[0].Config["taskSeq"].(string)
 			if seq == "" {
+				return
+			}
+			if aggregateStatus == "paused" {
+				// Same healing as the gallery branch: a restart-paused video
+				// DAG must not keep showing "pending" (an active label that
+				// reads as waiting-for-capacity) while its nodes wait for a
+				// manual resume. Active statuses only, never terminal ones.
+				res, err := database.Exec(ctx,
+					`UPDATE download_tasks SET status = 'paused', updated_at = CURRENT_TIMESTAMP
+					 WHERE seq = ? AND status IN ('scraping', 'downloading', 'merging', 'transcoding', 'probing', 'pending')`,
+					seq)
+				if err == nil {
+					if n, _ := res.RowsAffected(); n > 0 {
+						logger.Info("DAG status sync healed restart-paused video row",
+							map[string]any{"seq": seq, "dagId": dagID})
+						if taskID := configInt(def.Nodes[0].Config["taskId"]); taskID > 0 {
+							eventBus.Emit("task:progress", map[string]any{
+								"taskId":   taskID,
+								"taskType": "video",
+								"status":   "paused",
+							})
+						}
+					}
+				}
 				return
 			}
 			if aggregateStatus != "completed" {
@@ -434,6 +495,16 @@ func (a *App) wireDAG(cfg *config.Config) error {
 
 	runCrashRecovery(database, eventBus, dagOrch, logger)
 
+	// Runs before any dispatch ticker starts, so nothing in this process can
+	// hold a live temp file yet; minAge only guards against a second
+	// instance writing to the same data directory.
+	if removed, reclaimed, err := video.SweepOrphanTempFiles(filepath.Join(cfg.DataDir, "videos"), 10*time.Minute); err != nil {
+		logger.Warn("Orphan temp sweep failed", "error", err.Error())
+	} else if len(removed) > 0 {
+		logger.Info("Orphan temp files removed",
+			"count", len(removed), "bytes", reclaimed)
+	}
+
 	sched.SyncQueueCapacityFromSlotPool()
 	applyPersistedSchedulerConfig(sched, database, logger)
 	sched.StartScanTimer(2 * time.Second)
@@ -451,8 +522,12 @@ func (a *App) wireDAG(cfg *config.Config) error {
 		go func(dagID, status string) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
+			// Terminal-exclusion guard: a DAG that ended failed/cancelled must
+			// not regress a gallery the download executor already finished
+			// (completed/partial are executor-owned outcomes).
 			_, _ = database.Exec(ctx,
-				`UPDATE galleries SET status = ?, error_msg = 'DAG ended with ' || ?, updated_at = CURRENT_TIMESTAMP WHERE dag_id = ?`,
+				`UPDATE galleries SET status = ?, error_msg = 'DAG ended with ' || ?, updated_at = CURRENT_TIMESTAMP
+				 WHERE dag_id = ? AND status NOT IN ('completed', 'partial')`,
 				status, status, dagID)
 		}(dagID, status)
 	})

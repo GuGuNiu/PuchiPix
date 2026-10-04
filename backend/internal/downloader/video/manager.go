@@ -1210,6 +1210,14 @@ func (m *DownloadManager) Stop() {
 						"taskId": download.TaskID,
 						"error":  err.Error(),
 					}})
+			} else if m.eventBus != nil {
+				// cancelDownload emits the same event: without it the DAG
+				// executor's waitTerminal only learns of the cancellation
+				// through its 5s DB poll, stretching every shutdown drain.
+				m.eventBus.Emit("task:cancelled", map[string]any{
+					"taskId":   download.TaskID,
+					"taskType": "video",
+				})
 			}
 		}()
 	}
