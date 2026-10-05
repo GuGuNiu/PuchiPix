@@ -35,7 +35,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.6.0",
     "eslint": "^9",
-    "sass": "^1.102.0",
+    "sass": "^1.105.1",
     "tailwindcss": "^4",
     "tsx": "^4",
     "typescript": "^5",
