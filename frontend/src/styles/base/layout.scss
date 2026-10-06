@@ -1,0 +1,109 @@
+// The shell stacks the optional title bar above the sidebar/content row.
+// 100dvh tracks the dynamic viewport so a maximised or snapped window never
+// leaves a scrollbar gap along the bottom.
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+// Desktop shell transparency: the Wails window itself is a per-pixel alpha
+// layer (WebviewIsTransparent + DWMSBT_NONE) and the web side draws the
+// rounded corners. The gradient that browser mode paints on <body> therefore
+// moves onto the clipped .app-shell — anything left on <body> would show up
+// as an opaque rectangular layer behind the rounded corners. The title-bar
+// probe drives --window-radius (0 while maximised); browser mode never sets
+// the data attribute and keeps the original look.
+html[data-desktop-shell="true"] {
+  body {
+    background: transparent;
+  }
+
+  .app-shell {
+    background: var(--bg-gradient);
+    border-radius: var(--window-radius, 0px);
+  }
+}
+
+.app-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100vw;
+}
+
+.status-bar {
+  height: var(--header-height);
+  min-height: var(--header-height);
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  font-size: 13px;
+  z-index: 50;
+}
+
+.status-bar-left,
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+
+  &.connected { background: var(--success); }
+  &.disconnected { background: var(--danger); }
+  &.active { background: var(--warning); }
+}
+
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8);
+
+  // Full-bleed pages: drop padding so content reaches corners
+  &:has(.search-page),
+  &:has(.dashboard-page),
+  &:has(.tasks-layout) {
+    padding: 0;
+  }
+}
+
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.section-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="description" content="PuchiPix - Browser-automated M3U8 video downloading tool" />
+    <!--
+      The Dancing Script face is served locally (/fonts/dancing-script-700.woff2,
+      declared with @font-face and font-display: swap) instead of the
+      render-blocking fonts.googleapis.com stylesheet, which added a cross-origin
+      round trip before first paint.
+    -->
+    <title>PuchiPix - Puch Puch ~~</title>
+  </head>
+  <body>
+    <!-- Prevent theme flash: read cookie before React renders -->
+    <script>
+      (function() {
+        var match = document.cookie.match(/(?:^|;\s*)theme=([^;]*)/);
+        var theme = match ? match[1] : null;
+        if (theme === 'dark' || theme === 'light') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,98 @@
+.loading-container,
+.loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  flex: 1;
+  min-height: 0;
+}
+
+.loading-overlay {
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-6);
+  color: var(--text-muted);
+  text-align: center;
+  flex: 1;
+  min-height: 0;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-4);
+  opacity: 0.4;
+  color: var(--text-muted);
+}
+
+.empty-state-text {
+  font-size: 15px;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.empty-state-subtext {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.error-message {
+  padding: 10px 14px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.toast {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-4);
+  font-size: 14px;
+  border: 1px solid;
+
+  &-success { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+  &-error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+  &-warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+  &-info { background: var(--info-soft); color: var(--info); border-color: var(--info); }
+}
+

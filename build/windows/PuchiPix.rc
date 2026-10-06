@@ -1,0 +1,65 @@
+#ifndef VERSION_MAJOR
+#define VERSION_MAJOR 0
+#endif
+#ifndef VERSION_MINOR
+#define VERSION_MINOR 3
+#endif
+#ifndef VERSION_PATCH
+#define VERSION_PATCH 0
+#endif
+#ifndef VERSION_BUILD
+#define VERSION_BUILD 0
+#endif
+#ifndef VERSION_COMMA
+#define VERSION_COMMA ,
+#endif
+#ifndef FILE_DESCRIPTION_EN
+#define FILE_DESCRIPTION_EN "PuchiPix"
+#endif
+#ifndef COMPANY_NAME
+#define COMPANY_NAME "PuchiPix"
+#endif
+#ifndef PRODUCT_NAME
+#define PRODUCT_NAME "PuchiPix"
+#endif
+#ifndef LEGAL_COPYRIGHT
+#define LEGAL_COPYRIGHT "Copyright (C) 2026 PuchiPix"
+#endif
+
+#ifndef VERSION_STRING
+#define STR_(x) #x
+#define STR(x) STR_(x)
+#define VERSION_STRING STR(VERSION_MAJOR) "." STR(VERSION_MINOR) "." STR(VERSION_PATCH) "." STR(VERSION_BUILD)
+#endif
+
+1 ICON "icon.ico"
+1 RT_MANIFEST "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION VERSION_MAJOR,VERSION_MINOR,VERSION_PATCH,VERSION_BUILD
+PRODUCTVERSION VERSION_MAJOR,VERSION_MINOR,VERSION_PATCH,VERSION_BUILD
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", COMPANY_NAME
+            VALUE "FileDescription", FILE_DESCRIPTION_EN
+            VALUE "FileVersion", VERSION_STRING
+            VALUE "InternalName", "PuchiPix"
+            VALUE "LegalCopyright", LEGAL_COPYRIGHT
+            VALUE "OriginalFilename", "PuchiPix.exe"
+            VALUE "ProductName", PRODUCT_NAME
+            VALUE "ProductVersion", VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

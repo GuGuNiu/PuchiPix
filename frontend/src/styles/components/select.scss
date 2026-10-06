@@ -1,0 +1,119 @@
+.glass-select {
+  position: relative;
+  width: 100%;
+  user-select: none;
+}
+
+.glass-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+  outline: none;
+  height: 32px;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+
+  &.open {
+    border-color: var(--accent-light);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+
+    .glass-select-chevron {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.glass-select-trigger-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.glass-select-chevron {
+  transition: var(--transition);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.glass-select-dropdown {
+  position: fixed;
+  z-index: 10000;
+  background: var(--bg-overlay);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  padding: 4px;
+  animation: selectOpen 0.12s ease;
+  min-width: 180px;
+
+  &.closing {
+    animation: selectClose 0.1s ease forwards;
+  }
+}
+
+@keyframes selectOpen {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes selectClose {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+
+.glass-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  font-weight: 500;
+
+  &:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  &.selected {
+    background: var(--accent);
+    color: var(--text-inverse);
+    font-weight: 600;
+
+    .glass-select-option-check {
+      opacity: 1;
+    }
+  }
+}
+
+.glass-select-option-check {
+  margin-left: auto;
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.glass-select-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: transparent;
+}

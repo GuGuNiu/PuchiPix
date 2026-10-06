@@ -1,0 +1,94 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 18px;
+
+  &-success { background: var(--success-soft); color: var(--success); }
+  &-warning { background: var(--warning-soft); color: var(--warning); }
+  &-danger { background: var(--danger-soft); color: var(--danger); }
+  &-info { background: var(--info-soft); color: var(--info); }
+  &-default { background: var(--bg-hover); color: var(--text-secondary); }
+  &-paused { background: var(--warning-soft); color: var(--warning); }
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 18px;
+  color: var(--text-inverse);
+
+  &-pending { background: var(--status-pending); }
+  &-preparing { background: var(--status-preparing); }
+  &-scrape_pending { background: var(--status-scrape-pending); }
+  &-scraping { background: var(--status-scraping); }
+  &-download_pending { background: var(--status-download-pending); }
+  // scraped reuses download_pending's semantic color (both labels read
+  // "pending download"); merging joins the transcoding purple post-phase
+  // family — both previously had no class and rendered white-on-white
+  &-scraped { background: var(--status-download-pending); }
+  &-merging { background: var(--status-transcoding); }
+  &-downloading { background: var(--status-downloading); }
+  &-paused { background: var(--status-paused); }
+  &-completed { background: var(--status-completed); }
+  &-partial { background: var(--status-partial); }
+  &-failed { background: var(--status-failed); }
+  &-cancelled { background: var(--status-cancelled); }
+  &-transcoding { background: var(--status-transcoding); }
+  &-probing { background: var(--status-probing, var(--status-transcoding)); }
+}
+
+.dual-capsule {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 20px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+}
+
+.dual-capsule-left,
+.dual-capsule-right {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  color: var(--text-secondary);
+}
+
+.dual-capsule-left {
+  border-right: 1px solid var(--border-light);
+  color: var(--info);
+
+  &.accent-green {
+    color: var(--success);
+  }
+}
+
+.dual-capsule-right {
+  color: var(--purple);
+
+  &.accent-orange {
+    color: var(--warning);
+  }
+}
+
+.source-pill {
+  display: inline;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}

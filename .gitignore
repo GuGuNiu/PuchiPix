@@ -1,0 +1,60 @@
+# ── Core ──
+/data/
+/tmp
+*.pem
+.env*
+.DS_Store
+Thumbs.db
+
+# ── IDE / Tooling ──
+/.catpaw
+/.trae
+/.workbuddy
+/.meituan-catpaw
+.server-log.txt
+
+# ── Frontend (pnpm workspace) ──
+.pnpm-store/
+.npm-cache/
+.bin/
+node_modules/
+.cache/
+package-lock.json
+yarn.lock
+frontend/dist/
+
+# ── Go Backend ──
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+backend/bin/
+bin/
+*.log
+*.test
+*.out
+backend/coverage/
+backend/vendor/
+*.bak
+*.tmp
+tmp_*.go
+.tmp/
+backend/.tmp/
+backend/.air.toml
+backend/dev.ps1
+air_errors.log
+*.db
+*.sqlite
+backend/data/
+backend/internal/webui/dist/*
+!backend/internal/webui/dist/.placeholder
+/dist-desktop/
+
+*.syso
+build/windows/*.syso
+build/windows/icon-preview.png
+__pycache__/
+
+/.claude

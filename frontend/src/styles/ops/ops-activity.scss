@@ -1,0 +1,106 @@
+.ops-activity-feed {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--inset-highlight) inset;
+  overflow: hidden;
+  animation: fade-in-up 0.5s ease;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  &:hover {
+    box-shadow: var(--shadow-md), 0 0 0 1px var(--inset-highlight) inset;
+    border-color: var(--border-strong);
+  }
+}
+
+.ops-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ops-activity-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  letter-spacing: 0.2px;
+}
+
+.ops-activity-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: var(--radius-full);
+
+    &:hover {
+      background: var(--border-strong);
+    }
+  }
+}
+
+.ops-activity-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: var(--transition-slow);
+  animation: fade-in-up 0.3s ease;
+  margin-bottom: 2px;
+  cursor: default;
+  border: 1px solid transparent;
+
+  &:hover {
+    background: var(--bg-hover);
+    transform: translateX(4px);
+    border-color: var(--border-light);
+    box-shadow: var(--shadow-xs);
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.ops-activity-time {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 60px;
+  font-weight: 600;
+}
+
+.ops-activity-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}

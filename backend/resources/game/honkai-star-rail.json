@@ -1,0 +1,371 @@
+{
+  "name": "崩坏：星穹铁道",
+  "nameEn": "Honkai: Star Rail",
+  "shortNames": [
+    "星穹铁道",
+    "崩铁",
+    "HSR"
+  ],
+  "characters": [
+    {
+      "name": "阿格莱雅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "阿兰",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "艾丝妲",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "白厄",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "白露",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "波提欧",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "布洛妮娅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "大黑塔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "丹恒",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "翡翠",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "飞霄",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "风堇",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "符玄",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "桂乃芬",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "寒鸦",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黑塔",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黑天鹅",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "虎克",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "花火",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "黄泉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "藿藿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "姬子",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "加拉赫",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "椒丘",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "杰帕德",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "镜流",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "景元",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "卡芙卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "开拓者•存护",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "开拓者•欢愉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "开拓者•毁灭",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "开拓者•记忆",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "开拓者•同谐",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "克拉拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "玲可",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "灵砂",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "流萤",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "卢卡",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "乱破",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "罗刹",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "米沙",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "貊泽",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "那刻夏",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "娜塔莎",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "佩拉",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "青雀",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "刃",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "赛飞儿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "三月七•存护",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "三月七•巡猎",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "桑博",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "砂金",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "素裳",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "缇宝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "停云",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "托帕&账账",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "瓦尔特",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "万敌",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "忘归人",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "希儿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "昔涟",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "希露瓦",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "遐蝶",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "星期日",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "雪衣",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "彦卿",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "银狼",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "银枝",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "驭空",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "云璃",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "真理医生",
+      "pinyin": "",
+      "aliases": []
+    },
+    {
+      "name": "知更鸟",
+      "pinyin": "",
+      "aliases": []
+    }
+  ]
+}
