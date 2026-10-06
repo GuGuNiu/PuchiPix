@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Check tag matches app version
+        shell: pwsh
+        run: |
+          $version = (Get-Content frontend/package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "tag ${{ github.ref_name }} != frontend/package.json version $version — bump the version, commit, then tag again"
+          }
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Package desktop app
+        run: node scripts/build-desktop.mjs --require-installer
+
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          $exe = "dist-desktop\PuchiPix.exe"
+          if (-not (Test-Path $exe)) { throw "portable exe missing" }
+          $info = (Get-Item $exe).VersionInfo
+          if ($info.ProductName -ne "PuchiPix") { throw "ProductName not stamped" }
+          if (-not $info.FileVersion) { throw "FileVersion not stamped" }
+          $setup = Get-ChildItem "dist-desktop\PuchiPix-*-setup.exe" -ErrorAction SilentlyContinue
+          if (-not $setup) { throw "setup installer missing" }
+          Write-Host "version: $($info.FileVersion) / installer: $($setup.Name)"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PuchiPix ${{ github.ref_name }}
+          files: |
+            dist-desktop/PuchiPix.exe
+            dist-desktop/PuchiPix-*-setup.exe
+          generate_release_notes: true
