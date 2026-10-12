@@ -63,7 +63,7 @@ jobs:
           Write-Host "version: $($info.FileVersion) / installer: $($setup.Name)"
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: PuchiPix ${{ github.ref_name }}
           files: |
